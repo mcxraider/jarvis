@@ -4,7 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createWebhookRouter = createWebhookRouter;
-// services/WebhookController.ts
+// services/webhook.controller.ts
 const express_1 = __importDefault(require("express"));
 const logger_1 = require("../utils/logger");
 function createWebhookRouter(botService) {
