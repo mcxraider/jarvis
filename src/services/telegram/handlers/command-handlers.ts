@@ -13,7 +13,7 @@ export class CommandHandlers {
     logger.info('User started bot', { userId, username });
 
     await ctx.reply(
-      '🤖 Welcome to TeleJarvis! I can help you with text messages and audio files.'
+      'Whats up Jerry!'
     );
   }
 
@@ -21,7 +21,7 @@ export class CommandHandlers {
     const userId = ctx.from?.id;
     logger.info('User requested help', { userId });
 
-    const helpMessage = `🆘 *TeleJarvis Help*
+    const helpMessage = `🆘 *JarvisMCP Help*
 
 *Available Commands:*
 /start - Start the bot

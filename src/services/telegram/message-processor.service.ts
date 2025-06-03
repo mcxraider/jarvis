@@ -31,7 +31,7 @@ export class MessageProcessorService {
     // TODO: Integrate with Whisper service for transcription
     // TODO: Process transcribed text through AI pipeline
     // For now, return a placeholder response
-    return `🎵 Audio received and will be processed!\n🔗 File URL: ${fileUrl}\n\n⚠️ Audio processing coming soon!`;
+    return `🎵 Audio received! The processing feature with OpenAI integration coming soon!`;
   }
 
   /**
@@ -52,7 +52,6 @@ export class MessageProcessorService {
     // TODO: Same as processAudioMessage but with file metadata
     return `📁 Audio document "${fileName}" received!\n` +
            `🎼 Type: ${mimeType}\n` +
-           `🔗 File URL: ${fileUrl}\n\n` +
            `⚠️ Audio processing coming soon!`;
   }
 }
