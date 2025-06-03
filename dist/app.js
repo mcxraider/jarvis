@@ -8,13 +8,20 @@ require("dotenv/config"); // loads .env variables at startup
 const express_1 = __importDefault(require("express"));
 const logger_1 = require("./utils/logger");
 const telegram_bot_service_1 = require("./services/telegram/telegram-bot.service");
+const message_processor_service_1 = require("./services/telegram/message-processor.service");
 const webhook_controller_1 = require("./controllers/webhook.controller");
 // 1. Load configuration from .env
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const NGROK_URL = process.env.NGROK_URL; // Use this as your webhook base (can be set at runtime)
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN;
-// 2. Initialize Telegram bot service
-const botService = new telegram_bot_service_1.TelegramBotService(BOT_TOKEN);
+// 2. Initialize services
+const messageProcessor = new message_processor_service_1.MessageProcessorService();
+const telegramConfig = {
+    token: BOT_TOKEN,
+    webhookUrl: NGROK_URL,
+    secretToken: TELEGRAM_SECRET_TOKEN
+};
+const botService = new telegram_bot_service_1.TelegramBotService(telegramConfig, messageProcessor);
 // 3. (Optional, for development) Setup webhook to point Telegram to your ngrok URL
 // This only needs to be run ONCE per new URL.
 // You may want to protect this behind an env variable or CLI command in production.
