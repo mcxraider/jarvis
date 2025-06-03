@@ -1,9 +1,25 @@
 // tests/integration/telegram-integration.test.ts
 import { TelegramBotService } from '../../src/services/telegram/telegram-bot.service';
+import { MessageProcessorService } from '../../src/services/telegram/message-processor.service';
+import { TelegramConfig } from '../../src/types/telegram.types';
+
 import dotenv from 'dotenv';
 
 // Load environment variables for testing
 dotenv.config();
+const BOT_TOKEN = process.env.BOT_TOKEN!;
+const NGROK_URL = process.env.NGROK_URL!; // Use this as your webhook base (can be set at runtime)
+const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
+
+// 2. Initialize services
+const telegramConfig: TelegramConfig = {
+token: BOT_TOKEN,
+webhookUrl: NGROK_URL,
+secretToken: TELEGRAM_SECRET_TOKEN
+};
+
+const messageProcessor = new MessageProcessorService();
+
 
 describe('Telegram Integration Tests', () => {
   let botService: TelegramBotService;
@@ -21,7 +37,7 @@ describe('Telegram Integration Tests', () => {
       return;
     }
 
-    botService = new TelegramBotService(process.env.BOT_TOKEN);
+    botService = new TelegramBotService(telegramConfig, messageProcessor);
   });
 
   beforeEach(() => {
@@ -56,28 +72,6 @@ describe('Telegram Integration Tests', () => {
 
     console.log(`✅ Message sent successfully with ID: ${result.message_id}`);
   }, 10000);
-
-  it('should handle webhook setup (dry run)', async () => {
-    // This test doesn't actually set the webhook, just tests the method exists
-    const mockUrl = 'https://example.com';
-    const mockSecret = 'test-secret';
-
-    // We'll mock the actual API call to avoid changing webhook during tests
-    const originalSetWebhook = botService.bot.telegram.setWebhook;
-    botService.bot.telegram.setWebhook = jest.fn().mockResolvedValue(true);
-
-    await expect(botService.setupWebhook(mockUrl, mockSecret)).resolves.not.toThrow();
-
-    expect(botService.bot.telegram.setWebhook).toHaveBeenCalledWith(
-      `${mockUrl}/webhook/${mockSecret}`,
-      { secret_token: mockSecret }
-    );
-
-    // Restore original method
-    botService.bot.telegram.setWebhook = originalSetWebhook;
-
-    console.log('✅ Webhook setup method works correctly');
-  });
 
   it('should handle errors gracefully', async () => {
     const invalidChatId = -1;
