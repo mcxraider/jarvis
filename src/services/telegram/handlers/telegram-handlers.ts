@@ -21,15 +21,15 @@ export class TelegramHandlers {
   }
 
   setupHandlers(bot: Telegraf<Context>): void {
-    this.setupCommandHandlers(bot);
+    // this.setupCommandHandlers(bot);
     this.setupMessageHandlers(bot);
   }
 
-  private setupCommandHandlers(bot: Telegraf<Context>): void {
-    bot.start(this.commandHandlers.handleStart.bind(this.commandHandlers));
-    bot.help(this.commandHandlers.handleHelp.bind(this.commandHandlers));
-    bot.command('status', this.commandHandlers.handleStatus.bind(this.commandHandlers));
-  }
+  // private setupCommandHandlers(bot: Telegraf<Context>): void {
+  //   bot.start(this.commandHandlers.handleStart.bind(this.commandHandlers));
+  //   bot.help(this.commandHandlers.handleHelp.bind(this.commandHandlers));
+  //   bot.command('status', this.commandHandlers.handleStatus.bind(this.commandHandlers));
+  // }
 
   private setupMessageHandlers(bot: Telegraf<Context>): void {
     bot.on('text', this.messageHandlers.handleText.bind(this.messageHandlers));
