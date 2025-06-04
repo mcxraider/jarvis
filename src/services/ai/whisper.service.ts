@@ -15,6 +15,7 @@ import OpenAI from 'openai';
 import { logger } from '../../utils/logger';
 import { AudioMimeTypes } from '../../utils/constants';
 import { validateFileSize } from '../../utils/ai/fileValidation';
+import { AudioConverter } from '../../utils/ai/audioConverter';
 
 /**
  * Constants for Whisper service configuration
@@ -23,7 +24,7 @@ const WHISPER_CONSTANTS = {
   /** Default maximum file size (25MB as per OpenAI limits) */
   DEFAULT_MAX_FILE_SIZE_BYTES: 25 * 1024 * 1024,
   /** Default Whisper model */
-  DEFAULT_MODEL: 'whisper-1',
+  DEFAULT_MODEL: 'gpt-4o-transcribe',
   /** Default response format */
   DEFAULT_RESPONSE_FORMAT: 'text' as const,
   /** Default language (English) */
@@ -138,10 +139,64 @@ export class WhisperService {
       validateFileSize(audioBuffer.length, this.config.maxFileSizeBytes);
 
       // Determine file extension from URL or default to supported format
-      const fileExtension = this.extractFileExtension(fileUrl) || 'ogg';
+      const originalExtension = this.extractFileExtension(fileUrl) || 'ogg';
+
+      // Check if the audio format needs conversion
+      let processedBuffer = audioBuffer;
+      let fileExtension = originalExtension;
+      let conversionTimeMs = 0;
+
+      if (AudioConverter.needsConversion(originalExtension)) {
+        logger.info('Audio format needs conversion', {
+          userId,
+          originalFormat: originalExtension,
+          targetFormat: AudioConverter.getTargetFormat(),
+        });
+
+        try {
+          const conversionResult = await AudioConverter.convertToMp3(
+            audioBuffer,
+            originalExtension,
+            userId,
+          );
+
+          processedBuffer = conversionResult.convertedBuffer;
+          fileExtension = conversionResult.targetFormat;
+          conversionTimeMs = conversionResult.conversionTimeMs;
+
+          // Validate converted file size
+          validateFileSize(processedBuffer.length, this.config.maxFileSizeBytes);
+
+          logger.info('Audio conversion completed', {
+            userId,
+            originalFormat: originalExtension,
+            targetFormat: fileExtension,
+            originalSize: audioBuffer.length,
+            convertedSize: processedBuffer.length,
+            conversionTimeMs,
+          });
+        } catch (conversionError) {
+          logger.error('Audio conversion failed', {
+            userId,
+            originalFormat: originalExtension,
+            error: (conversionError as Error).message,
+          });
+
+          // Provide helpful error message for conversion failures
+          const errorMessage = (conversionError as Error).message;
+          if (errorMessage.includes('FFmpeg is not available')) {
+            throw new Error(
+              'Audio format conversion is not available. ' +
+                'This audio format requires conversion but FFmpeg is not installed.',
+            );
+          }
+
+          throw new Error(`Audio format conversion failed: ${errorMessage}`);
+        }
+      }
 
       // Create a File object for the OpenAI API
-      const audioFile = new File([new Uint8Array(audioBuffer)], `audio.${fileExtension}`, {
+      const audioFile = new File([new Uint8Array(processedBuffer)], `audio.${fileExtension}`, {
         type: this.getMimeTypeFromExtension(fileExtension),
       });
 
@@ -154,16 +209,26 @@ export class WhisperService {
         text: transcription,
         fileUrl,
         processingTimeMs,
-        fileSizeBytes: audioBuffer.length,
+        fileSizeBytes: processedBuffer.length,
       };
 
-      logger.info('Audio transcription completed successfully', {
+      // Add conversion information to logs if conversion was performed
+      const logData: any = {
         userId,
-        text: result.text.substring(0, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH), // Log first 100 chars of text
+        text: result.text.substring(0, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH),
         textLength: transcription.length,
         processingTimeMs,
-        fileSizeBytes: audioBuffer.length,
-      });
+        fileSizeBytes: processedBuffer.length,
+      };
+
+      if (conversionTimeMs > 0) {
+        logData.originalFormat = originalExtension;
+        logData.convertedFormat = fileExtension;
+        logData.conversionTimeMs = conversionTimeMs;
+        logData.transcriptionTimeMs = processingTimeMs - conversionTimeMs;
+      }
+
+      logger.info('Audio transcription completed successfully', logData);
 
       return result;
     } catch (error) {

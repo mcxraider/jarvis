@@ -59,7 +59,7 @@ function isSpamText(text) {
         /(http|www\.)/gi, // URLs (basic detection)
         /(\d{10,})/, // Long number sequences
     ];
-    return spamIndicators.some(pattern => pattern.test(text));
+    return spamIndicators.some((pattern) => pattern.test(text));
 }
 /**
  * Counts different types of content in text
@@ -68,7 +68,10 @@ function isSpamText(text) {
  * @returns Analysis object with counts
  */
 function analyzeTextContent(text) {
-    const wordCount = text.trim().split(/\s+/).filter(word => word.length > 0).length;
+    const wordCount = text
+        .trim()
+        .split(/\s+/)
+        .filter((word) => word.length > 0).length;
     const characterCount = text.length;
     const sentenceCount = (text.match(/[.!?]+/g) || []).length;
     const hasEmojis = /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]/u.test(text);

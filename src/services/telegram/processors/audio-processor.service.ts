@@ -17,12 +17,8 @@ export class AudioProcessorService {
       language: 'en',
     });
 
-    // Initialize GPTService for poem generation
-    this.gptService = new GPTService({
-      model: 'gpt-3.5-turbo',
-      targetPoemLength: 30,
-      temperature: 1.2,
-    });
+    // Initialize GPTService for text processing
+    this.gptService = new GPTService();
   }
 
   /**
@@ -44,33 +40,33 @@ export class AudioProcessorService {
       if (!text || text.trim().length < 2) {
         return (
           `🎵 Audio received and processed, but no speech was detected.\n` +
-          `⏱️ latency time: ${Math.round(processingTimeMs / 1000)}s\n`
+          `⏱️ Processing time: ${Math.round(processingTimeMs / 1000)}s\n`
         );
       }
 
-      // Generate a funny poem about the transcribed text
+      // Process the transcribed text with GPT
       try {
-        const poemResult = await this.gptService.generateResponse(text, userId);
+        const response = await this.gptService.processMessage(text, userId?.toString());
 
-        const response =
+        const finalResponse =
           `📝 What you said: ${text}\n\n` +
-          `🎭 Funny poem:\n${poemResult.poem}\n\n` +
-          `⏱️ transcription: ${Math.round(processingTimeMs / 1000)}s \n⏱️ poem: ${Math.round(poemResult.processingTimeMs / 1000)}s`;
+          `🤖 Response: ${response}\n\n` +
+          `⏱️ Transcription: ${Math.round(processingTimeMs / 1000)}s`;
 
-        return response;
-      } catch (poemError) {
-        logger.warn('Failed to generate poem for transcribed audio', {
+        return finalResponse;
+      } catch (gptError) {
+        logger.warn('Failed to process transcribed audio with GPT', {
           userId,
           transcribedText: text.substring(0, 100),
-          error: (poemError as Error).message,
+          error: (gptError as Error).message,
         });
 
-        // Fallback to just showing transcription if poem generation fails
+        // Fallback to just showing transcription if GPT processing fails
         return (
           `🎵 Audio transcribed successfully!\n\n` +
           `📝 What you said: ${text}\n\n` +
           `⏱️ ${Math.round(processingTimeMs / 1000)}s\n` +
-          `🎭 (Poem generation temporarily unavailable)`
+          `🤖 (Response generation temporarily unavailable)`
         );
       }
     } catch (error) {
@@ -113,31 +109,33 @@ export class AudioProcessorService {
         );
       }
 
-      // Generate a funny poem about the transcribed text
+      // Process the transcribed text with GPT
       try {
-        const poemResult = await this.gptService.generateResponse(text, userId);
+        const response = await this.gptService.processMessage(text, userId?.toString());
 
-        const response =
-          `📝 What you said: ${text}\n\n` +
-          `🎭 Funny poem:\n${poemResult.poem}\n\n` +
-          `⏱️ transcription: ${Math.round(processingTimeMs / 1000)}s \n⏱️ poem: ${Math.round(poemResult.processingTimeMs / 1000)}s`;
+        const finalResponse =
+          `📁 Audio document "${fileName}" processed successfully!\n` +
+          `🎼 Type: ${mimeType}\n\n` +
+          `📝 What was said: ${text}\n\n` +
+          `🤖 Response: ${response}\n\n` +
+          `⏱️ Transcription: ${Math.round(processingTimeMs / 1000)}s`;
 
-        return response;
-      } catch (poemError) {
-        logger.warn('Failed to generate poem for transcribed audio document', {
+        return finalResponse;
+      } catch (gptError) {
+        logger.warn('Failed to process transcribed audio document with GPT', {
           userId,
           fileName,
           transcribedText: text.substring(0, 100),
-          error: (poemError as Error).message,
+          error: (gptError as Error).message,
         });
 
-        // Fallback to just showing transcription if poem generation fails
+        // Fallback to just showing transcription if GPT processing fails
         return (
           `📁 Audio document "${fileName}" transcribed successfully!\n` +
           `🎼 Type: ${mimeType}\n\n` +
           `📝 What was said: ${text}\n\n` +
           `⏱️ ${Math.round(processingTimeMs / 1000)}s\n` +
-          `🎭 (Poem generation temporarily unavailable)`
+          `🤖 (Response generation temporarily unavailable)`
         );
       }
     } catch (error) {
@@ -169,6 +167,20 @@ export class AudioProcessorService {
       return (
         `🎵 Audio received, but the format is not supported.\n` +
         `🔧 Please use common audio formats like MP3, OGG, WAV, or M4A.`
+      );
+    }
+
+    if (errorMessage.includes('Audio format conversion is not available')) {
+      return (
+        `🎵 Audio received in a format that needs conversion, but the conversion service is not available.\n` +
+        `🔧 Please convert your audio to MP3, WAV, or OGG format and try again.`
+      );
+    }
+
+    if (errorMessage.includes('Audio format conversion failed')) {
+      return (
+        `🎵 Audio received, but format conversion failed.\n` +
+        `🔧 Please try converting your audio to MP3, WAV, or OGG format and send again.`
       );
     }
 
@@ -206,6 +218,22 @@ export class AudioProcessorService {
         `📁 Audio document "${fileName}" received, but the format is not supported.\n` +
         `🎼 Type: ${mimeType}\n` +
         `🔧 Please use common audio formats like MP3, OGG, WAV, or M4A.`
+      );
+    }
+
+    if (errorMessage.includes('Audio format conversion is not available')) {
+      return (
+        `📁 Audio document "${fileName}" received in a format that needs conversion, but the conversion service is not available.\n` +
+        `🎼 Type: ${mimeType}\n` +
+        `🔧 Please convert your audio to MP3, WAV, or OGG format and try again.`
+      );
+    }
+
+    if (errorMessage.includes('Audio format conversion failed')) {
+      return (
+        `📁 Audio document "${fileName}" received, but format conversion failed.\n` +
+        `🎼 Type: ${mimeType}\n` +
+        `🔧 Please try converting your audio to MP3, WAV, or OGG format and send again.`
       );
     }
 

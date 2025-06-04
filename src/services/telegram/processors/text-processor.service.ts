@@ -9,12 +9,8 @@ export class TextProcessorService {
   private readonly gptService: GPTService;
 
   constructor() {
-    // Initialize GPTService for poem generation
-    this.gptService = new GPTService({
-      model: 'gpt-3.5-turbo',
-      targetPoemLength: 30,
-      temperature: 1.2,
-    });
+    // Initialize GPTService for general text processing
+    this.gptService = new GPTService();
   }
 
   /**
@@ -27,17 +23,18 @@ export class TextProcessorService {
     });
 
     try {
-      // Generate a funny poem about the user's message
-      const poemResult = await this.gptService.generateResponse(text, userId);
+      // Process the message using GPT
+      const response = await this.gptService.processMessage(text, userId?.toString());
 
-      const { poem, processingTimeMs } = poemResult;
-
-      // Format the response with the generated poem
-      const response = `${poem}\n\n` + `⏱️ ${Math.round(processingTimeMs / 1000)}s`;
+      logger.info('Text message processed successfully', {
+        userId,
+        messageLength: text.length,
+        responseLength: response.length,
+      });
 
       return response;
     } catch (error) {
-      logger.error('Failed to generate poem for text message', {
+      logger.error('Failed to process text message', {
         userId,
         messageLength: text.length,
         error: (error as Error).message,
@@ -54,27 +51,25 @@ export class TextProcessorService {
     const errorMessage = error.message;
 
     if (errorMessage.includes('Message cannot be empty')) {
-      return `🎭 I need some text to create a poem! Please send me a message.`;
+      return `I need some text to process! Please send me a message.`;
     }
 
     if (errorMessage.includes('exceeds maximum allowed length')) {
       return (
-        `🎭 Your message is a bit too long for me to poeticize!\n` +
-        `📏 Please try with a shorter message (under 1000 characters).`
+        `Your message is a bit too long for me to process!\n` +
+        `📏 Please try with a shorter message (under 4000 characters).`
       );
     }
 
     if (errorMessage.includes('Service is temporarily busy')) {
-      return (
-        `🎭 I'm a bit busy writing other poems right now!\n` + `🔄 Please try again in a moment.`
-      );
+      return `I'm a bit busy right now!\n` + `🔄 Please try again in a moment.`;
     }
 
     // Fallback response for other errors
     return (
-      `🎭 I tried to write a poem about your message, but my creative muse seems to be taking a break!\n` +
+      `I encountered an issue processing your request.\n` +
       `💭 Your message: "${text.length > 100 ? text.substring(0, 100) + '...' : text}"\n\n` +
-      `🔄 Please try again, and I'll do my best to craft something poetic!`
+      `🔄 Please try again, and I'll do my best to help!`
     );
   }
 }
