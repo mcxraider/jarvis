@@ -19,6 +19,7 @@ const openai_1 = __importDefault(require("openai"));
 const logger_1 = require("../../utils/logger");
 const constants_1 = require("../../utils/constants");
 const fileValidation_1 = require("../../utils/ai/fileValidation");
+const audioConverter_1 = require("../../utils/ai/audioConverter");
 /**
  * Constants for Whisper service configuration
  */
@@ -26,7 +27,7 @@ const WHISPER_CONSTANTS = {
     /** Default maximum file size (25MB as per OpenAI limits) */
     DEFAULT_MAX_FILE_SIZE_BYTES: 25 * 1024 * 1024,
     /** Default Whisper model */
-    DEFAULT_MODEL: 'whisper-1',
+    DEFAULT_MODEL: 'gpt-4o-transcribe',
     /** Default response format */
     DEFAULT_RESPONSE_FORMAT: 'text',
     /** Default language (English) */
@@ -92,9 +93,50 @@ class WhisperService {
             // Validate file size
             (0, fileValidation_1.validateFileSize)(audioBuffer.length, this.config.maxFileSizeBytes);
             // Determine file extension from URL or default to supported format
-            const fileExtension = this.extractFileExtension(fileUrl) || 'ogg';
+            const originalExtension = this.extractFileExtension(fileUrl) || 'ogg';
+            // Check if the audio format needs conversion
+            let processedBuffer = audioBuffer;
+            let fileExtension = originalExtension;
+            let conversionTimeMs = 0;
+            if (audioConverter_1.AudioConverter.needsConversion(originalExtension)) {
+                logger_1.logger.info('Audio format needs conversion', {
+                    userId,
+                    originalFormat: originalExtension,
+                    targetFormat: audioConverter_1.AudioConverter.getTargetFormat(),
+                });
+                try {
+                    const conversionResult = await audioConverter_1.AudioConverter.convertToMp3(audioBuffer, originalExtension, userId);
+                    processedBuffer = conversionResult.convertedBuffer;
+                    fileExtension = conversionResult.targetFormat;
+                    conversionTimeMs = conversionResult.conversionTimeMs;
+                    // Validate converted file size
+                    (0, fileValidation_1.validateFileSize)(processedBuffer.length, this.config.maxFileSizeBytes);
+                    logger_1.logger.info('Audio conversion completed', {
+                        userId,
+                        originalFormat: originalExtension,
+                        targetFormat: fileExtension,
+                        originalSize: audioBuffer.length,
+                        convertedSize: processedBuffer.length,
+                        conversionTimeMs,
+                    });
+                }
+                catch (conversionError) {
+                    logger_1.logger.error('Audio conversion failed', {
+                        userId,
+                        originalFormat: originalExtension,
+                        error: conversionError.message,
+                    });
+                    // Provide helpful error message for conversion failures
+                    const errorMessage = conversionError.message;
+                    if (errorMessage.includes('FFmpeg is not available')) {
+                        throw new Error('Audio format conversion is not available. ' +
+                            'This audio format requires conversion but FFmpeg is not installed.');
+                    }
+                    throw new Error(`Audio format conversion failed: ${errorMessage}`);
+                }
+            }
             // Create a File object for the OpenAI API
-            const audioFile = new File([new Uint8Array(audioBuffer)], `audio.${fileExtension}`, {
+            const audioFile = new File([new Uint8Array(processedBuffer)], `audio.${fileExtension}`, {
                 type: this.getMimeTypeFromExtension(fileExtension),
             });
             // Perform transcription
@@ -104,15 +146,23 @@ class WhisperService {
                 text: transcription,
                 fileUrl,
                 processingTimeMs,
-                fileSizeBytes: audioBuffer.length,
+                fileSizeBytes: processedBuffer.length,
             };
-            logger_1.logger.info('Audio transcription completed successfully', {
+            // Add conversion information to logs if conversion was performed
+            const logData = {
                 userId,
-                text: result.text.substring(0, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH), // Log first 100 chars of text
+                text: result.text.substring(0, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH),
                 textLength: transcription.length,
                 processingTimeMs,
-                fileSizeBytes: audioBuffer.length,
-            });
+                fileSizeBytes: processedBuffer.length,
+            };
+            if (conversionTimeMs > 0) {
+                logData.originalFormat = originalExtension;
+                logData.convertedFormat = fileExtension;
+                logData.conversionTimeMs = conversionTimeMs;
+                logData.transcriptionTimeMs = processingTimeMs - conversionTimeMs;
+            }
+            logger_1.logger.info('Audio transcription completed successfully', logData);
             return result;
         }
         catch (error) {
