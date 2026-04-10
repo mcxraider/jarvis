@@ -9,7 +9,7 @@ exports.FunctionCallingProcessor = void 0;
 const logger_1 = require("../../../utils/logger");
 const gpt_constants_1 = require("../constants/gpt.constants");
 const gpt_prompts_1 = require("../../../types/gpt.prompts");
-const todoist_tools_service_1 = require("../../mcp/servers/todoist/todoist-tools.service");
+const todoist_tools_service_1 = require("../../tools/todoist-tools.service");
 /**
  * Processor for handling GPT function calling capabilities
  */

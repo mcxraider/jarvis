@@ -1,7 +1,6 @@
 "use strict";
 /**
  * Direct tool call dispatcher that executes Todoist operations via REST API
- * Bypasses MCP servers for direct API integration
  *
  * @module DirectToolCallDispatcher
  */
@@ -65,9 +64,9 @@ class DirectToolCallDispatcher {
      * @param userId - User ID for context
      * @returns Promise<any> - The result of the function execution
      */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async executeToolCall(toolCall, userId) {
         try {
-            // Extract function details from the tool call
             const functionName = toolCall.function.name;
             const parameters = JSON.parse(toolCall.function.arguments);
             logger_1.logger.debug('Executing tool call', {
@@ -76,7 +75,6 @@ class DirectToolCallDispatcher {
                 toolCallId: toolCall.id,
                 parameters: Object.keys(parameters),
             });
-            // Route function calls to appropriate handlers
             const result = await this.routeFunctionCall(functionName, parameters);
             logger_1.logger.debug('Tool call executed successfully', {
                 userId,
@@ -103,6 +101,7 @@ class DirectToolCallDispatcher {
      * @param parameters - Function parameters
      * @returns Promise<any> - Function result
      */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async routeFunctionCall(functionName, parameters) {
         switch (functionName) {
             case 'add_todoist_task':

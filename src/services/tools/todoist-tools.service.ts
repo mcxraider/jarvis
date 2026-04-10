@@ -5,7 +5,7 @@
  */
 
 import OpenAI from 'openai';
-import { ToolDispatcher } from '../../../../types/mcp.types';
+import { ToolDispatcher } from '../../types/tool.types';
 
 /**
  * Service for managing and providing tool definitions for GPT function calling

@@ -35,6 +35,6 @@ __exportStar(require("./errors/gpt-error-handler.service"), exports);
 __exportStar(require("./processors/function-calling.processor"), exports);
 __exportStar(require("./processors/simple-text.processor"), exports);
 // Tools
-__exportStar(require("../mcp/servers/todoist/todoist-tools.service"), exports);
+__exportStar(require("../tools/todoist-tools.service"), exports);
 // Prompts
 __exportStar(require("../../types/gpt.prompts"), exports);

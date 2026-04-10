@@ -10,10 +10,10 @@
 export const GPT_CONSTANTS = {
   /** Default GPT model for text generation */
   DEFAULT_MODEL: 'gpt-4o',
-  /** Maximum input text length for processing */
-  MAX_INPUT_LENGTH: 1000,
-  /** Maximum response tokens */
-  MAX_TOKENS: 1000,
+  /** Maximum input text length for processing (~800 words, comfortable for voice memos) */
+  MAX_INPUT_LENGTH: 4000,
+  /** Maximum response tokens (enough for detailed summaries and multi-task responses) */
+  MAX_TOKENS: 2000,
   /** Temperature for creativity (0.0 to 2.0) */
   TEMPERATURE: 0.7,
   /** Maximum retries for API calls */

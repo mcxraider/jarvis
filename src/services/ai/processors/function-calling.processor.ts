@@ -9,8 +9,8 @@ import { logger } from '../../../utils/logger';
 import { MessageProcessingResult } from '../../../types/gpt.types';
 import { GPT_CONSTANTS } from '../constants/gpt.constants';
 import { getFunctionCallingSystemPrompt, FINAL_RESPONSE_PROMPT } from '../../../types/gpt.prompts';
-import { GPTToolsService } from '../../mcp/servers/todoist/todoist-tools.service';
-import { ToolDispatcher, ToolCall } from '../../../types/mcp.types';
+import { GPTToolsService } from '../../tools/todoist-tools.service';
+import { ToolDispatcher, ToolCall } from '../../../types/tool.types';
 
 /**
  * Processor for handling GPT function calling capabilities

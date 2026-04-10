@@ -13,7 +13,7 @@
 
 import OpenAI from 'openai';
 import { logger } from '../../utils/logger';
-import { ToolDispatcher } from '../../types/mcp.types';
+import { ToolDispatcher } from '../../types/tool.types';
 
 // Import modularized components
 import { GPT_CONSTANTS } from './constants/gpt.constants';

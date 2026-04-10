@@ -25,7 +25,7 @@ export * from './processors/function-calling.processor';
 export * from './processors/simple-text.processor';
 
 // Tools
-export * from '../mcp/servers/todoist/todoist-tools.service';
+export * from '../tools/todoist-tools.service';
 
 // Prompts
 export * from '../../types/gpt.prompts';

@@ -1,17 +1,13 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-// src/app.ts
-require("dotenv/config"); // loads .env variables at startup
-const express_1 = __importDefault(require("express"));
+exports.botService = void 0;
+// src/app.ts — service wiring
+require("dotenv/config");
 const logger_1 = require("./utils/logger");
 const telegram_bot_service_1 = require("./services/telegram/telegram-bot.service");
 const message_processor_service_1 = require("./services/telegram/message-processor.service");
-const webhook_controller_1 = require("./controllers/webhook.controller");
-const direct_tool_dispatcher_service_1 = require("./services/mcp/direct-tool-dispatcher.service");
-// 1. Validate required environment variables before anything else
+const direct_tool_dispatcher_service_1 = require("./services/tools/direct-tool-dispatcher.service");
+// Validate required environment variables before constructing any service
 const REQUIRED_ENV_VARS = [
     'BOT_TOKEN',
     'NGROK_URL',
@@ -25,59 +21,16 @@ for (const key of REQUIRED_ENV_VARS) {
         process.exit(1);
     }
 }
-// 2. Load configuration from .env
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const NGROK_URL = process.env.NGROK_URL; // Use this as your webhook base (can be set at runtime)
+const NGROK_URL = process.env.NGROK_URL;
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN;
-// 3. Initialize services with direct Todoist API integration
-const toolDispatcher = new direct_tool_dispatcher_service_1.DirectToolCallDispatcher(); // Direct API integration
+// Wire up services
+const toolDispatcher = new direct_tool_dispatcher_service_1.DirectToolCallDispatcher();
 const messageProcessor = new message_processor_service_1.MessageProcessorService(toolDispatcher);
 const telegramConfig = {
     token: BOT_TOKEN,
     webhookUrl: NGROK_URL,
     secretToken: TELEGRAM_SECRET_TOKEN,
 };
-const botService = new telegram_bot_service_1.TelegramBotService(telegramConfig, messageProcessor);
-/**
- * Initializes the application
- */
-async function initializeApp() {
-    try {
-        logger_1.logger.info('Application initialized successfully with direct Todoist integration');
-    }
-    catch (error) {
-        logger_1.logger.error('Failed to initialize application:', error);
-    }
-}
-// Graceful shutdown handling
-process.on('SIGTERM', async () => {
-    logger_1.logger.info('Shutting down gracefully...');
-    process.exit(0);
-});
-initializeApp();
-// 3. (Optional, for development) Setup webhook to point Telegram to your ngrok URL
-// This only needs to be run ONCE per new URL.
-// You may want to protect this behind an env variable or CLI command in production.
-(async () => {
-    try {
-        await botService.setupWebhook(NGROK_URL, TELEGRAM_SECRET_TOKEN);
-    }
-    catch (err) {
-        logger_1.logger.error('Error setting up webhook:', err);
-    }
-})();
-// 4. Create Express app and mount routes
-const app = (0, express_1.default)();
-app.use(express_1.default.json());
-// Health check endpoint
-app.get('/ping', (_req, res, _next) => {
-    res.json({ status: 'ok' });
-});
-// Telegram webhook endpoint (secured by secret)
-app.use((0, webhook_controller_1.createWebhookRouter)(botService));
-// 5. Start server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    logger_1.logger.info(`Server started at http://localhost:${PORT}`);
-    logger_1.logger.info(`Waiting for Telegram updates on /webhook/:secret`);
-});
+exports.botService = new telegram_bot_service_1.TelegramBotService(telegramConfig, messageProcessor);
+logger_1.logger.info('Services initialised');

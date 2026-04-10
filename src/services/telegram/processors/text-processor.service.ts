@@ -1,7 +1,7 @@
 // src/services/telegram/processors/text-processor.service.ts
 import { logger } from '../../../utils/logger';
 import { GPTService } from '../../ai';
-import { ToolDispatcher } from '../../../types/mcp.types';
+import { ToolDispatcher } from '../../../types/tool.types';
 
 /**
  * Service responsible for processing text messages

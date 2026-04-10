@@ -2,10 +2,10 @@
   "name": "jarvis-mcp",
   "version": "1.0.0",
   "description": "Telegram bot with audio processing capabilities",
-  "main": "dist/app.js",
+  "main": "dist/server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node dist/app.js",
+    "start": "node dist/server.js",
     "dev": "nodemon",
     "build": "tsc",
     "test": "jest",

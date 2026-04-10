@@ -2,7 +2,7 @@
 import { logger } from '../../utils/logger';
 import { TextProcessorService } from './processors/text-processor.service';
 import { AudioProcessorService } from './processors/audio-processor.service';
-import { ToolDispatcher } from '../../types/mcp.types';
+import { ToolDispatcher } from '../../types/tool.types';
 
 /**
  * Main service responsible for coordinating message processing
