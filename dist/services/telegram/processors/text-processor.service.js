@@ -3,14 +3,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.TextProcessorService = void 0;
 // src/services/telegram/processors/text-processor.service.ts
 const logger_1 = require("../../../utils/logger");
-const gpt_service_1 = require("../../ai/gpt.service");
+const ai_1 = require("../../ai");
 /**
  * Service responsible for processing text messages
  */
 class TextProcessorService {
-    constructor() {
-        // Initialize GPTService for general text processing
-        this.gptService = new gpt_service_1.GPTService();
+    constructor(toolDispatcher) {
+        // Initialize GPTService with tool dispatcher for function calling
+        this.gptService = new ai_1.GPTService(toolDispatcher);
     }
     /**
      * Processes text messages from users

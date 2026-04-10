@@ -1,6 +1,7 @@
 // src/services/telegram/processors/text-processor.service.ts
 import { logger } from '../../../utils/logger';
-import { GPTService } from '../../ai/gpt.service';
+import { GPTService } from '../../ai';
+import { ToolDispatcher } from '../../../types/mcp.types';
 
 /**
  * Service responsible for processing text messages
@@ -8,9 +9,9 @@ import { GPTService } from '../../ai/gpt.service';
 export class TextProcessorService {
   private readonly gptService: GPTService;
 
-  constructor() {
-    // Initialize GPTService for general text processing
-    this.gptService = new GPTService();
+  constructor(toolDispatcher?: ToolDispatcher) {
+    // Initialize GPTService with tool dispatcher for function calling
+    this.gptService = new GPTService(toolDispatcher);
   }
 
   /**

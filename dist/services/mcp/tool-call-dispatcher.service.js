@@ -64,11 +64,13 @@ class ToolCallDispatcher {
     determineMCPServer(functionName) {
         // Define which functions belong to Todoist
         const todoistFunctions = [
-            'create_task',
+            'add_todoist_task',
+            'get_todoist_task',
+            'get_completed_todoist_tasks',
             'get_tasks',
-            'update_task',
             'complete_task',
-            'get_projects',
+            'update_todoist_task',
+            'delete_todoist_task',
         ];
         // Define which functions belong to Notion (for future expansion)
         const notionFunctions = ['create_page', 'update_page', 'search_pages'];

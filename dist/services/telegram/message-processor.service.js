@@ -10,8 +10,8 @@ const audio_processor_service_1 = require("./processors/audio-processor.service"
  * Delegates to specialized processors based on message type
  */
 class MessageProcessorService {
-    constructor() {
-        this.textProcessor = new text_processor_service_1.TextProcessorService();
+    constructor(toolDispatcher) {
+        this.textProcessor = new text_processor_service_1.TextProcessorService(toolDispatcher);
         this.audioProcessor = new audio_processor_service_1.AudioProcessorService();
     }
     /**

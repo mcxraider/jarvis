@@ -1,6 +1,5 @@
-import { TodoistMCPServer } from './servers/todoist-server';
+import { TodoistMCPServer } from './servers/todoist/todoist-server';
 import { MCPServerConfig, TodoistMCPConfig } from '../../types/mcp.types'; // Make sure to import TodoistMCPConfig
-
 
 export class MCPManagerService {
   private servers = new Map<string, any>(); // Registry of active MCP servers
