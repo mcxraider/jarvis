@@ -12,7 +12,13 @@ class TelegramHandlers {
         this.messageHandlers = new message_handlers_1.MessageHandlers(fileService, messageProcessor);
     }
     setupHandlers(bot) {
+        this.setupCommandHandlers(bot);
         this.setupMessageHandlers(bot);
+    }
+    setupCommandHandlers(bot) {
+        bot.command('start', this.commandHandlers.handleStart.bind(this.commandHandlers));
+        bot.command('help', this.commandHandlers.handleHelp.bind(this.commandHandlers));
+        bot.command('status', this.commandHandlers.handleStatus.bind(this.commandHandlers));
     }
     setupMessageHandlers(bot) {
         bot.on('text', this.messageHandlers.handleText.bind(this.messageHandlers));

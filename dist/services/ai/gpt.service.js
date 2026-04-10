@@ -72,27 +72,44 @@ class GPTService {
             messageLength: message.length,
             functionCallingEnabled: this.enableFunctionCalling,
         });
-        try {
-            // Validate input message
-            gpt_validator_1.GPTValidator.validateInputMessage(message, this.config.maxInputLength);
-            // Process with function calling if enabled
-            if (this.enableFunctionCalling) {
-                const result = await this.functionCallingProcessor.processWithFunctionCalling(this.openai, this.config.model, this.config.temperature, message, userId || 'anonymous');
-                return result.response;
+        const MAX_RETRIES = 3;
+        let lastError;
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                // Validate input message
+                gpt_validator_1.GPTValidator.validateInputMessage(message, this.config.maxInputLength);
+                // Process with function calling if enabled
+                if (this.enableFunctionCalling) {
+                    const result = await this.functionCallingProcessor.processWithFunctionCalling(this.openai, this.config.model, this.config.temperature, message, userId || 'anonymous');
+                    return result.response;
+                }
+                // Fallback to simple text generation
+                return await this.simpleTextProcessor.processSimpleMessage(this.openai, this.config.model, this.config.temperature, message, userId);
             }
-            // Fallback to simple text generation
-            return await this.simpleTextProcessor.processSimpleMessage(this.openai, this.config.model, this.config.temperature, message, userId);
+            catch (error) {
+                lastError = error;
+                if (attempt < MAX_RETRIES && gpt_error_handler_service_1.GPTErrorHandler.isRetryableError(lastError)) {
+                    const delay = gpt_error_handler_service_1.GPTErrorHandler.getRetryDelay(attempt);
+                    logger_1.logger.warn('Retryable error encountered, retrying', {
+                        userId,
+                        attempt,
+                        delayMs: delay,
+                        error: lastError.message,
+                    });
+                    await new Promise((resolve) => setTimeout(resolve, delay));
+                    continue;
+                }
+                break;
+            }
         }
-        catch (error) {
-            const processingTimeMs = Date.now() - startTime;
-            logger_1.logger.error('Message processing failed', {
-                userId,
-                messageLength: message.length,
-                error: error.message,
-                processingTimeMs,
-            });
-            return gpt_error_handler_service_1.GPTErrorHandler.handleProcessingError(error);
-        }
+        const processingTimeMs = Date.now() - startTime;
+        logger_1.logger.error('Message processing failed', {
+            userId,
+            messageLength: message.length,
+            error: lastError.message,
+            processingTimeMs,
+        });
+        return gpt_error_handler_service_1.GPTErrorHandler.handleProcessingError(lastError);
     }
     /**
      * Gets current service configuration

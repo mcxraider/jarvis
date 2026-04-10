@@ -46,4 +46,5 @@ export interface ToolResult {
 // Common interface for tool dispatchers
 export interface ToolDispatcher {
   executeToolCalls(toolCalls: ToolCall[], userId: string): Promise<ToolResult[]>;
+  isFunctionSupported(functionName: string): boolean;
 }

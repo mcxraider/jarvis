@@ -58,6 +58,20 @@ export class ToolCallDispatcher implements ToolDispatcher {
   }
 
   /**
+   * Check if a function name is supported by any registered MCP server
+   * @param functionName - Function name to check
+   * @returns boolean - True if supported
+   */
+  isFunctionSupported(functionName: string): boolean {
+    try {
+      this.determineMCPServer(functionName);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Routes function names to appropriate MCP servers
    * This is where you define which functions belong to which services
    * @param functionName - Name of the function to route

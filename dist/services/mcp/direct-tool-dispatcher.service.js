@@ -34,7 +34,7 @@ class DirectToolCallDispatcher {
         logger_1.logger.info('Executing tool calls directly', {
             userId,
             toolCallsCount: toolCalls.length,
-            functionNames: toolCalls.map(tc => tc.function.name),
+            functionNames: toolCalls.map((tc) => tc.function.name),
         });
         // Execute all tool calls in parallel for better performance
         const promises = toolCalls.map((toolCall) => this.executeToolCall(toolCall, userId));

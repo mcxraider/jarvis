@@ -87,42 +87,63 @@ export class GPTService {
       functionCallingEnabled: this.enableFunctionCalling,
     });
 
-    try {
-      // Validate input message
-      GPTValidator.validateInputMessage(message, this.config.maxInputLength);
+    const MAX_RETRIES = 3;
+    let lastError: Error | undefined;
 
-      // Process with function calling if enabled
-      if (this.enableFunctionCalling) {
-        const result = await this.functionCallingProcessor.processWithFunctionCalling(
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        // Validate input message
+        GPTValidator.validateInputMessage(message, this.config.maxInputLength);
+
+        // Process with function calling if enabled
+        if (this.enableFunctionCalling) {
+          const result = await this.functionCallingProcessor.processWithFunctionCalling(
+            this.openai,
+            this.config.model,
+            this.config.temperature,
+            message,
+            userId || 'anonymous',
+          );
+          return result.response;
+        }
+
+        // Fallback to simple text generation
+        return await this.simpleTextProcessor.processSimpleMessage(
           this.openai,
           this.config.model,
           this.config.temperature,
           message,
-          userId || 'anonymous',
+          userId,
         );
-        return result.response;
+      } catch (error) {
+        lastError = error as Error;
+
+        if (attempt < MAX_RETRIES && GPTErrorHandler.isRetryableError(lastError)) {
+          const delay = GPTErrorHandler.getRetryDelay(attempt);
+          logger.warn('Retryable error encountered, retrying', {
+            userId,
+            attempt,
+            delayMs: delay,
+            error: lastError.message,
+          });
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+
+        break;
       }
-
-      // Fallback to simple text generation
-      return await this.simpleTextProcessor.processSimpleMessage(
-        this.openai,
-        this.config.model,
-        this.config.temperature,
-        message,
-        userId,
-      );
-    } catch (error) {
-      const processingTimeMs = Date.now() - startTime;
-
-      logger.error('Message processing failed', {
-        userId,
-        messageLength: message.length,
-        error: (error as Error).message,
-        processingTimeMs,
-      });
-
-      return GPTErrorHandler.handleProcessingError(error as Error);
     }
+
+    const processingTimeMs = Date.now() - startTime;
+
+    logger.error('Message processing failed', {
+      userId,
+      messageLength: message.length,
+      error: lastError!.message,
+      processingTimeMs,
+    });
+
+    return GPTErrorHandler.handleProcessingError(lastError!);
   }
 
   /**

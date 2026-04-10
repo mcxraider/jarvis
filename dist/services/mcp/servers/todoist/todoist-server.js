@@ -4,6 +4,7 @@ exports.TodoistMCPServer = void 0;
 // src/services/mcp/servers/todoist-server.ts
 const child_process_1 = require("child_process");
 const events_1 = require("events");
+const logger_1 = require("../../../../utils/logger");
 class TodoistMCPServer extends events_1.EventEmitter {
     constructor(config) {
         super();
@@ -44,7 +45,7 @@ class TodoistMCPServer extends events_1.EventEmitter {
                 if (output.includes('Todoist Agent Server running on stdio')) {
                     if (!this.isConnected) {
                         // Only proceed if not already connected
-                        console.log(`Todoist MCP Server reports ready via ${source}.`);
+                        logger_1.logger.info(`Todoist MCP Server reports ready via ${source}.`);
                         this.isConnected = true; // Set connected state
                         // IMPORTANT: Remove the initial data listeners and attach the actual JSON-RPC handler
                         // This prevents the 'ready' message (and any other initial non-JSON logs) from being parsed as JSON
@@ -57,16 +58,16 @@ class TodoistMCPServer extends events_1.EventEmitter {
                         });
                         // Re-attach a basic stderr listener for actual errors
                         (_h = (_g = this.process) === null || _g === void 0 ? void 0 : _g.stderr) === null || _h === void 0 ? void 0 : _h.on('data', (d) => {
-                            console.error('Todoist MCP Server runtime error:', d.toString().trim());
+                            logger_1.logger.error('Todoist MCP Server runtime error:', { message: d.toString().trim() });
                         });
                         // Now that it's connected, proceed with initialization
                         this.initialize()
                             .then(() => {
-                            console.log('Todoist MCP Server started and initialized successfully');
+                            logger_1.logger.info('Todoist MCP Server started and initialized successfully');
                             completeStartPromise(); // Resolve the outer promise
                         })
                             .catch((err) => {
-                            console.error('Failed to initialize Todoist MCP Server after connection:', err);
+                            logger_1.logger.error('Failed to initialize Todoist MCP Server after connection:', { error: err });
                             completeStartPromise(err); // Reject if initialization fails
                         });
                     }
@@ -99,7 +100,7 @@ class TodoistMCPServer extends events_1.EventEmitter {
                 (_b = this.process.stderr) === null || _b === void 0 ? void 0 : _b.on('data', (data) => {
                     const chunk = data.toString();
                     stderrBuffer += chunk; // Accumulate stderr output
-                    console.error('Todoist MCP Server stderr (initial):', chunk.trim()); // Always log stderr for debugging
+                    logger_1.logger.error('Todoist MCP Server stderr (initial):', { message: chunk.trim() });
                     // Check if stderr contains the "ready" signal
                     if (checkReadyAndInitialize(stderrBuffer, 'stderr')) {
                         stderrBuffer = ''; // Clear buffer if ready message was found
@@ -113,7 +114,7 @@ class TodoistMCPServer extends events_1.EventEmitter {
                 });
                 // Handle process termination (e.g., if it crashes before connecting)
                 this.process.on('close', (code) => {
-                    console.log(`Todoist MCP Server exited with code ${code}`);
+                    logger_1.logger.info(`Todoist MCP Server exited with code ${code}`);
                     this.isConnected = false;
                     this.emit('disconnect');
                     // If the process closed before we successfully connected and initialized
@@ -125,12 +126,12 @@ class TodoistMCPServer extends events_1.EventEmitter {
                 });
                 // Handle general process errors (e.g., executable not found, permissions)
                 this.process.on('error', (err) => {
-                    console.error('Failed to spawn Todoist MCP Server process:', err);
+                    logger_1.logger.error('Failed to spawn Todoist MCP Server process:', { error: err });
                     completeStartPromise(err);
                 });
             }
             catch (error) {
-                console.error('Failed to spawn Todoist MCP Server process (initial error):', error);
+                logger_1.logger.error('Failed to spawn Todoist MCP Server process (initial error):', { error });
                 completeStartPromise(error);
             }
         });
@@ -156,11 +157,11 @@ class TodoistMCPServer extends events_1.EventEmitter {
             }
             else {
                 // If it's not a response to a pending request, it might be an unsolicited notification.
-                console.log('Received unsolicited MCP message:', parsed);
+                logger_1.logger.info('Received unsolicited MCP message', { parsed });
             }
         }
         catch (error) {
-            console.error('Failed to parse MCP message:', error);
+            logger_1.logger.error('Failed to parse MCP message:', { error });
             // For now, if parsing fails, just log and ignore.
         }
     }
@@ -228,11 +229,11 @@ class TodoistMCPServer extends events_1.EventEmitter {
      */
     async stop() {
         if (this.process) {
-            console.log('Attempting to stop Todoist MCP Server process...');
+            logger_1.logger.info('Attempting to stop Todoist MCP Server process...');
             this.process.kill(); // Sends SIGTERM by default
             this.process = null;
             this.isConnected = false;
-            console.log('Todoist MCP Server process stopped.');
+            logger_1.logger.info('Todoist MCP Server process stopped.');
         }
     }
 }

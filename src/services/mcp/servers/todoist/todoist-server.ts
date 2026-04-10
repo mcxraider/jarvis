@@ -2,6 +2,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { TodoistMCPConfig, MCPMessage } from '../../../../types/mcp.types';
+import { logger } from '../../../../utils/logger';
 
 export class TodoistMCPServer extends EventEmitter {
   private process: ChildProcess | null = null;
@@ -46,7 +47,7 @@ export class TodoistMCPServer extends EventEmitter {
         if (output.includes('Todoist Agent Server running on stdio')) {
           if (!this.isConnected) {
             // Only proceed if not already connected
-            console.log(`Todoist MCP Server reports ready via ${source}.`);
+            logger.info(`Todoist MCP Server reports ready via ${source}.`);
             this.isConnected = true; // Set connected state
 
             // IMPORTANT: Remove the initial data listeners and attach the actual JSON-RPC handler
@@ -61,17 +62,17 @@ export class TodoistMCPServer extends EventEmitter {
             });
             // Re-attach a basic stderr listener for actual errors
             this.process?.stderr?.on('data', (d) => {
-              console.error('Todoist MCP Server runtime error:', d.toString().trim());
+              logger.error('Todoist MCP Server runtime error:', { message: d.toString().trim() });
             });
 
             // Now that it's connected, proceed with initialization
             this.initialize()
               .then(() => {
-                console.log('Todoist MCP Server started and initialized successfully');
+                logger.info('Todoist MCP Server started and initialized successfully');
                 completeStartPromise(); // Resolve the outer promise
               })
               .catch((err) => {
-                console.error('Failed to initialize Todoist MCP Server after connection:', err);
+                logger.error('Failed to initialize Todoist MCP Server after connection:', { error: err });
                 completeStartPromise(err); // Reject if initialization fails
               });
           }
@@ -107,7 +108,7 @@ export class TodoistMCPServer extends EventEmitter {
         this.process.stderr?.on('data', (data) => {
           const chunk = data.toString();
           stderrBuffer += chunk; // Accumulate stderr output
-          console.error('Todoist MCP Server stderr (initial):', chunk.trim()); // Always log stderr for debugging
+          logger.error('Todoist MCP Server stderr (initial):', { message: chunk.trim() });
 
           // Check if stderr contains the "ready" signal
           if (checkReadyAndInitialize(stderrBuffer, 'stderr')) {
@@ -126,7 +127,7 @@ export class TodoistMCPServer extends EventEmitter {
 
         // Handle process termination (e.g., if it crashes before connecting)
         this.process.on('close', (code) => {
-          console.log(`Todoist MCP Server exited with code ${code}`);
+          logger.info(`Todoist MCP Server exited with code ${code}`);
           this.isConnected = false;
           this.emit('disconnect');
 
@@ -142,11 +143,11 @@ export class TodoistMCPServer extends EventEmitter {
 
         // Handle general process errors (e.g., executable not found, permissions)
         this.process.on('error', (err) => {
-          console.error('Failed to spawn Todoist MCP Server process:', err);
+          logger.error('Failed to spawn Todoist MCP Server process:', { error: err });
           completeStartPromise(err);
         });
       } catch (error) {
-        console.error('Failed to spawn Todoist MCP Server process (initial error):', error);
+        logger.error('Failed to spawn Todoist MCP Server process (initial error):', { error });
         completeStartPromise(error as Error);
       }
     });
@@ -173,10 +174,10 @@ export class TodoistMCPServer extends EventEmitter {
         }
       } else {
         // If it's not a response to a pending request, it might be an unsolicited notification.
-        console.log('Received unsolicited MCP message:', parsed);
+        logger.info('Received unsolicited MCP message', { parsed });
       }
     } catch (error) {
-      console.error('Failed to parse MCP message:', error);
+      logger.error('Failed to parse MCP message:', { error });
       // For now, if parsing fails, just log and ignore.
     }
   }
@@ -251,11 +252,11 @@ export class TodoistMCPServer extends EventEmitter {
    */
   async stop(): Promise<void> {
     if (this.process) {
-      console.log('Attempting to stop Todoist MCP Server process...');
+      logger.info('Attempting to stop Todoist MCP Server process...');
       this.process.kill(); // Sends SIGTERM by default
       this.process = null;
       this.isConnected = false;
-      console.log('Todoist MCP Server process stopped.');
+      logger.info('Todoist MCP Server process stopped.');
     }
   }
 }

@@ -11,11 +11,25 @@ const telegram_bot_service_1 = require("./services/telegram/telegram-bot.service
 const message_processor_service_1 = require("./services/telegram/message-processor.service");
 const webhook_controller_1 = require("./controllers/webhook.controller");
 const direct_tool_dispatcher_service_1 = require("./services/mcp/direct-tool-dispatcher.service");
-// 1. Load configuration from .env
+// 1. Validate required environment variables before anything else
+const REQUIRED_ENV_VARS = [
+    'BOT_TOKEN',
+    'NGROK_URL',
+    'TELEGRAM_SECRET_TOKEN',
+    'OPENAI_API_KEY',
+    'TODOIST_API_KEY',
+];
+for (const key of REQUIRED_ENV_VARS) {
+    if (!process.env[key]) {
+        console.error(`[startup] Missing required environment variable: ${key}`);
+        process.exit(1);
+    }
+}
+// 2. Load configuration from .env
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const NGROK_URL = process.env.NGROK_URL; // Use this as your webhook base (can be set at runtime)
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN;
-// 2. Initialize services with direct Todoist API integration
+// 3. Initialize services with direct Todoist API integration
 const toolDispatcher = new direct_tool_dispatcher_service_1.DirectToolCallDispatcher(); // Direct API integration
 const messageProcessor = new message_processor_service_1.MessageProcessorService(toolDispatcher);
 const telegramConfig = {

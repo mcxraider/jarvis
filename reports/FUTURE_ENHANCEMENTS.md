@@ -6,7 +6,7 @@ Larger features to consider after the core is solid. Organized by category.
 
 ## AI Capabilities
 
-### Conversation Memory (not needed)
+### Conversation Memory
 The bot currently has zero memory between messages. Adding persistent context would unlock much more useful behavior:
 - Multi-turn conversations ("change the task I just added")
 - User preferences learned over time ("I always want P1 for work tasks")
@@ -14,7 +14,6 @@ The bot currently has zero memory between messages. Adding persistent context wo
 
 **Implementation options:**
 - In-memory map keyed by Telegram user ID (simple, ephemeral)
-- Redis for persistent sessions
 - Store conversation summaries as Todoist task notes
 
 ---
@@ -24,7 +23,6 @@ Currently hardcoded to `gpt-4o`. Could add:
 - `gpt-4o-mini` for simple tasks (faster, cheaper)
 - Auto-select model based on complexity detection
 - Per-user model preference
-
 
 ---
 

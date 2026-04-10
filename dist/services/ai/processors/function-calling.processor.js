@@ -106,7 +106,7 @@ class FunctionCallingProcessor {
         }
         try {
             // Convert OpenAI tool calls to our internal format
-            const toolCalls = responseMessage.tool_calls.map(toolCall => ({
+            const toolCalls = responseMessage.tool_calls.map((toolCall) => ({
                 id: toolCall.id,
                 type: 'function',
                 function: {
@@ -116,17 +116,27 @@ class FunctionCallingProcessor {
             }));
             logger_1.logger.info('Executing tool calls', {
                 userId,
-                toolCalls: toolCalls.map(tc => ({
+                toolCalls: toolCalls.map((tc) => ({
                     id: tc.id,
                     name: tc.function.name,
                 })),
             });
-            // Execute all tool calls
-            const toolResults = await this.toolDispatcher.executeToolCalls(toolCalls, userId);
+            // Filter out any function names the dispatcher does not support
+            const supportedCalls = toolCalls.filter((tc) => {
+                if (this.toolDispatcher.isFunctionSupported(tc.function.name))
+                    return true;
+                logger_1.logger.warn('Skipping unsupported function', { name: tc.function.name, userId });
+                return false;
+            });
+            if (supportedCalls.length === 0) {
+                return "I'm not able to perform that action right now.";
+            }
+            // Execute all supported tool calls
+            const toolResults = await this.toolDispatcher.executeToolCalls(supportedCalls, userId);
             // Log execution results
             logger_1.logger.info('Tool execution completed', {
                 userId,
-                results: toolResults.map(result => ({
+                results: toolResults.map((result) => ({
                     tool_call_id: result.tool_call_id,
                     success: !result.error,
                     error: result.error,
@@ -187,15 +197,15 @@ class FunctionCallingProcessor {
                 max_tokens: gpt_constants_1.GPT_CONSTANTS.MAX_TOKENS,
                 temperature,
             });
-            return finalResponse.choices[0].message.content ||
-                'I completed the requested actions successfully.';
+            return (finalResponse.choices[0].message.content ||
+                'I completed the requested actions successfully.');
         }
         catch (error) {
             logger_1.logger.error('Failed to generate final response', {
                 error: error.message,
             });
             // Fallback: create a simple response based on results
-            const successfulActions = toolResults.filter(result => !result.error);
+            const successfulActions = toolResults.filter((result) => !result.error);
             if (successfulActions.length > 0) {
                 return `I successfully completed ${successfulActions.length} action(s) for you.`;
             }

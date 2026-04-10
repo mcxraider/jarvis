@@ -156,8 +156,19 @@ export class FunctionCallingProcessor {
         })),
       });
 
-      // Execute all tool calls
-      const toolResults = await this.toolDispatcher.executeToolCalls(toolCalls, userId);
+      // Filter out any function names the dispatcher does not support
+      const supportedCalls = toolCalls.filter((tc) => {
+        if (this.toolDispatcher!.isFunctionSupported(tc.function.name)) return true;
+        logger.warn('Skipping unsupported function', { name: tc.function.name, userId });
+        return false;
+      });
+
+      if (supportedCalls.length === 0) {
+        return "I'm not able to perform that action right now.";
+      }
+
+      // Execute all supported tool calls
+      const toolResults = await this.toolDispatcher.executeToolCalls(supportedCalls, userId);
 
       // Log execution results
       logger.info('Tool execution completed', {

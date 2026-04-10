@@ -7,7 +7,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TodoistAPIService = void 0;
-const logger_1 = require("../../../utils/logger");
+const logger_1 = require("../../utils/logger");
 /**
  * Service class for direct Todoist API integration
  */
@@ -30,7 +30,7 @@ class TodoistAPIService {
     async makeRequest(endpoint, method = 'GET', body) {
         const url = `${this.baseURL}${endpoint}`;
         const headers = {
-            'Authorization': `Bearer ${this.apiKey}`,
+            Authorization: `Bearer ${this.apiKey}`,
             'Content-Type': 'application/json',
         };
         const requestOptions = {
@@ -219,7 +219,7 @@ class TodoistAPIService {
             const response = await fetch(fullUrl, {
                 method: 'GET',
                 headers: {
-                    'Authorization': `Bearer ${this.apiKey}`,
+                    Authorization: `Bearer ${this.apiKey}`,
                 },
             });
             if (!response.ok) {

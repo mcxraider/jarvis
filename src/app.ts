@@ -8,12 +8,28 @@ import { createWebhookRouter } from './controllers/webhook.controller';
 import { TelegramConfig } from './types/telegram.types';
 import { DirectToolCallDispatcher } from './services/mcp/direct-tool-dispatcher.service';
 
-// 1. Load configuration from .env
+// 1. Validate required environment variables before anything else
+const REQUIRED_ENV_VARS = [
+  'BOT_TOKEN',
+  'NGROK_URL',
+  'TELEGRAM_SECRET_TOKEN',
+  'OPENAI_API_KEY',
+  'TODOIST_API_KEY',
+];
+
+for (const key of REQUIRED_ENV_VARS) {
+  if (!process.env[key]) {
+    console.error(`[startup] Missing required environment variable: ${key}`);
+    process.exit(1);
+  }
+}
+
+// 2. Load configuration from .env
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 const NGROK_URL = process.env.NGROK_URL!; // Use this as your webhook base (can be set at runtime)
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
 
-// 2. Initialize services with direct Todoist API integration
+// 3. Initialize services with direct Todoist API integration
 const toolDispatcher = new DirectToolCallDispatcher(); // Direct API integration
 const messageProcessor = new MessageProcessorService(toolDispatcher);
 
