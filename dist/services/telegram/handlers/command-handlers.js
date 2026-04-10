@@ -7,11 +7,12 @@ const logger_1 = require("../../../utils/logger");
  */
 class CommandHandlers {
     async handleStart(ctx) {
-        var _a, _b;
+        var _a, _b, _c, _d;
         const userId = (_a = ctx.from) === null || _a === void 0 ? void 0 : _a.id;
         const username = (_b = ctx.from) === null || _b === void 0 ? void 0 : _b.username;
         logger_1.logger.info('User started bot', { userId, username });
-        await ctx.reply('Whats up Jerry!');
+        const name = (_d = (_c = ctx.from) === null || _c === void 0 ? void 0 : _c.first_name) !== null && _d !== void 0 ? _d : 'there';
+        await ctx.reply(`Hey ${name}! I'm Jarvis, your personal assistant. Send me a message or try /help.`);
     }
     async handleHelp(ctx) {
         var _a;

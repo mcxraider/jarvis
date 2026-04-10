@@ -3,17 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.FileService = void 0;
 // src/services/telegram/file.service.ts
 const logger_1 = require("../../utils/logger");
-const AUDIO_MIME_TYPES = [
-    'audio/ogg',
-    'audio/mpeg',
-    'audio/mp3',
-    'audio/wav',
-    'audio/x-wav',
-    'audio/mp4',
-    'audio/m4a',
-    'audio/aac',
-    'audio/webm'
-];
+const constants_1 = require("../../utils/constants");
 /**
  * Handles file operations for Telegram bot
  */
@@ -28,7 +18,7 @@ class FileService {
     isAudioFile(mimeType) {
         if (!mimeType)
             return false;
-        return AUDIO_MIME_TYPES.includes(mimeType);
+        return constants_1.AudioMimeTypes.includes(mimeType);
     }
     /**
      * Gets the download URL for a file from Telegram

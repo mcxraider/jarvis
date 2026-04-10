@@ -1,18 +1,7 @@
 // src/services/telegram/file.service.ts
 import { logger } from '../../utils/logger';
 import { Telegram } from 'telegraf';
-
-const AUDIO_MIME_TYPES = [
-  'audio/ogg',
-  'audio/mpeg',
-  'audio/mp3',
-  'audio/wav',
-  'audio/x-wav',
-  'audio/mp4',
-  'audio/m4a',
-  'audio/aac',
-  'audio/webm'
-];
+import { AudioMimeTypes } from '../../utils/constants';
 
 /**
  * Handles file operations for Telegram bot
@@ -28,7 +17,7 @@ export class FileService {
    */
   isAudioFile(mimeType?: string): boolean {
     if (!mimeType) return false;
-    return AUDIO_MIME_TYPES.includes(mimeType);
+    return (AudioMimeTypes as readonly string[]).includes(mimeType);
   }
 
   /**

@@ -22,7 +22,10 @@ function createWebhookRouter(botService) {
             return;
         }
         catch (err) {
-            logger_1.logger.error('Webhook handler failed', { error: err.message, stack: err.stack });
+            logger_1.logger.error('Webhook handler failed', {
+                error: err.message,
+                stack: err.stack,
+            });
             res.status(500).json({ error: 'Internal Server Error' });
             return;
         }

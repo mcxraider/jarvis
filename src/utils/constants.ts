@@ -7,5 +7,5 @@ export const AudioMimeTypes = [
   'audio/mp4',
   'audio/m4a',
   'audio/aac',
-  'audio/webm'
+  'audio/webm',
 ] as const;

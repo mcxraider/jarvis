@@ -12,9 +12,8 @@ export class CommandHandlers {
 
     logger.info('User started bot', { userId, username });
 
-    await ctx.reply(
-      'Whats up Jerry!'
-    );
+    const name = ctx.from?.first_name ?? 'there';
+    await ctx.reply(`Hey ${name}! I'm Jarvis, your personal assistant. Send me a message or try /help.`);
   }
 
   async handleHelp(ctx: Context): Promise<void> {

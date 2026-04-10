@@ -1,8 +1,5 @@
 "use strict";
-/**
- * Audio format conversion utilities using ffmpeg
- * Handles conversion of unsupported audio formats to supported ones
- */
+// src/utils/ai/audioConverter.ts
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -38,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AudioConverter = void 0;
+const ffmpegInstaller = __importStar(require("@ffmpeg-installer/ffmpeg"));
 const child_process_1 = require("child_process");
 const promises_1 = require("fs/promises");
 const path_1 = require("path");
@@ -66,7 +64,8 @@ class AudioConverter {
      */
     static async isFFmpegAvailable() {
         return new Promise((resolve) => {
-            const ffmpeg = (0, child_process_1.spawn)('ffmpeg', ['-version']);
+            // CHANGED: Use the path from the installer package
+            const ffmpeg = (0, child_process_1.spawn)(ffmpegInstaller.path, ['-version']);
             ffmpeg.on('error', () => {
                 resolve(false);
             });
@@ -106,12 +105,6 @@ class AudioConverter {
             targetFormat: TARGET_FORMAT,
             originalSizeBytes: audioBuffer.length,
         });
-        // Check if ffmpeg is available
-        const ffmpegAvailable = await this.isFFmpegAvailable();
-        if (!ffmpegAvailable) {
-            throw new Error('FFmpeg is not available. Please install FFmpeg to convert audio formats. ' +
-                'Visit https://ffmpeg.org/download.html for installation instructions.');
-        }
         // Generate temporary file paths
         const tempId = Date.now().toString() + Math.random().toString(36).substring(2);
         const inputPath = (0, path_1.join)((0, os_1.tmpdir)(), `input_${tempId}.${originalExtension}`);
@@ -150,6 +143,10 @@ class AudioConverter {
                 error: error.message,
                 conversionTimeMs,
             });
+            // Provide a more helpful error if the installer package is missing.
+            if (error.message.includes('ENOENT')) {
+                throw new Error('Audio conversion failed: FFmpeg executable not found. Ensure `@ffmpeg-installer/ffmpeg` is installed.');
+            }
             throw new Error(`Audio conversion failed: ${error.message}`);
         }
         finally {
@@ -185,7 +182,7 @@ class AudioConverter {
                 '-y', // Overwrite output file
                 outputPath, // Output file
             ];
-            const ffmpeg = (0, child_process_1.spawn)('ffmpeg', ffmpegArgs);
+            const ffmpeg = (0, child_process_1.spawn)(ffmpegInstaller.path, ffmpegArgs);
             let stderr = '';
             // Capture stderr for error information
             ffmpeg.stderr.on('data', (data) => {
