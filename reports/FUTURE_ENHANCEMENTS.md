@@ -1,10 +1,56 @@
 # Future Enhancements
 
-Larger features to consider after the core is solid. Organized by category.
+Larger features to consider after the core is solid. This is a single-user personal assistant for Jerry — enhancements are prioritized around personal productivity, not scalability or multi-tenancy.
 
 ---
 
 ## AI Capabilities
+
+### LangGraph Message Processing Pipeline
+
+Currently each message goes through a single linear GPT call. The right architecture is a graph of nodes with conditional routing — similar to how LangGraph works. This would unlock much more intelligent behavior.
+
+**Rough sketch of the graph:**
+
+```
+User message
+      ↓
+[Intent Router Node]
+  - Decides: is this a tool call? does it need clarification? is it just chat?
+      ↓
+ ┌────────────────────────────────────────────┐
+ │                                            │
+[Clarification Node]          [Tool Call Node]         [Chat Node]
+ - Asks a follow-up question   - Extracts tool params   - Simple GPT reply
+ - Waits for user reply        - Executes tool(s)
+ - Re-routes on response       - Gets results
+                                      ↓
+                              [Status Response Node]
+                               - Formats and sends
+                                 confirmation to user
+```
+
+**Why this matters:**
+- Conditional routing: "add task" goes straight to tool call, "remind me later" routes to clarification first, "what can you do?" routes to chat
+- Each node is isolated and testable — no spaghetti if/else chains in a single processor
+- Easy to add new nodes (e.g. a memory retrieval node, a guardrail node) without touching existing logic
+- Retry logic becomes a node-level concern, not scattered across services
+- Clarification state is first-class: the graph can pause at the clarification node, wait for the user's reply, and resume from the right point
+
+**Implementation path:**
+- `@langchain/langgraph` for the graph runtime
+- One `StateGraph` per message lifecycle with a shared `AgentState` (message, intent, tool results, clarification flag)
+- Replace `FunctionCallingProcessor` and `SimpleTextProcessor` with graph nodes
+- The `MessageProcessorService` becomes the graph runner
+
+**Nodes to implement:**
+1. `intentRouterNode` — classifies intent, sets routing flag
+2. `clarificationNode` — generates clarifying question, sets pending state
+3. `toolCallNode` — calls GPT with function calling, executes tools
+4. `statusResponseNode` — formats tool results into a natural language reply
+5. `chatNode` — direct GPT reply for non-tool messages
+
+---
 
 ### Conversation Memory
 The bot currently has zero memory between messages. Adding persistent context would unlock much more useful behavior:
@@ -21,8 +67,7 @@ The bot currently has zero memory between messages. Adding persistent context wo
 ### More GPT Models / Dynamic Model Selection
 Currently hardcoded to `gpt-4o`. Could add:
 - `gpt-4o-mini` for simple tasks (faster, cheaper)
-- Auto-select model based on complexity detection
-- Per-user model preference
+- Auto-select model based on complexity detection (e.g. short factual replies use mini, tool calls use 4o)
 
 ---
 
@@ -142,27 +187,17 @@ Using a cron-like system, Jarvis could:
 ## Platform & Reliability
 
 ### Database / Persistence Layer
-Currently stateless. Adding a lightweight database (SQLite or PostgreSQL) would enable:
-- Conversation history
-- User preferences
-- Message analytics
-- Error tracking
+Currently stateless. Adding a lightweight database (SQLite is enough for a personal app) would enable:
+- Persistent conversation history across restarts
+- Stored preferences and shortcuts
+- Message history / usage analytics
 
 ---
 
-### Multi-user Support
-The current implementation works for one user. To support multiple users:
-- User registration flow via /start
-- Per-user API key storage (or shared app-level keys)
-- User-specific conversation context
-- Admin commands to manage users
-
----
-
-### Rate Limiting Per User
-- Prevent single users from hammering the OpenAI API
-- Per-user daily limits
-- Graceful degradation messaging
+### Spend Guardrail
+- Track token usage per session
+- Daily/monthly OpenAI cost cap — alert via Telegram when approaching limit
+- Graceful degradation if limit is hit
 
 ---
 
