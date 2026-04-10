@@ -18,7 +18,10 @@ export function createWebhookRouter(botService: TelegramBotService) {
       res.sendStatus(200);
       return;
     } catch (err) {
-      logger.error('Webhook handler failed', { error: (err as Error).message, stack: (err as Error).stack });
+      logger.error('Webhook handler failed', {
+        error: (err as Error).message,
+        stack: (err as Error).stack,
+      });
       res.status(500).json({ error: 'Internal Server Error' });
       return;
     }

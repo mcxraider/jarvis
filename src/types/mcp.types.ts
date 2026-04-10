@@ -3,11 +3,14 @@ export interface MCPMessage {
   jsonrpc: '2.0';
   id?: string;
   method?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   params?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   result?: any;
   error?: {
     code: number;
     message: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     data?: any;
   };
 }
@@ -39,6 +42,7 @@ export interface ToolCall {
 // Interface for tool execution results
 export interface ToolResult {
   tool_call_id: string; // Maps back to the original tool call
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   content: any; // The actual result from the function
   error?: string; // Error message if execution failed
 }
