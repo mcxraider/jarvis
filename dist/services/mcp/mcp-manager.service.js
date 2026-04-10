@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MCPManagerService = void 0;
-const todoist_server_1 = require("./servers/todoist-server");
+const todoist_server_1 = require("./servers/todoist/todoist-server");
 class MCPManagerService {
     constructor() {
         this.servers = new Map(); // Registry of active MCP servers

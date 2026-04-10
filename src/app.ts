@@ -6,48 +6,43 @@ import { TelegramBotService } from './services/telegram/telegram-bot.service';
 import { MessageProcessorService } from './services/telegram/message-processor.service';
 import { createWebhookRouter } from './controllers/webhook.controller';
 import { TelegramConfig } from './types/telegram.types';
-import { MCPManagerService } from './services/mcp/mcp-manager.service';
-import { mcpConfig } from './config/mcp.config';
-import { ToolCallDispatcher } from './services/mcp/tool-call-dispatcher.service';
+import { DirectToolCallDispatcher } from './services/mcp/direct-tool-dispatcher.service';
 
 // 1. Load configuration from .env
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 const NGROK_URL = process.env.NGROK_URL!; // Use this as your webhook base (can be set at runtime)
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
 
-// 2. Initialize services
-const messageProcessor = new MessageProcessorService();
-const mcpManager = new MCPManagerService(); // Manages MCP servers
-const toolDispatcher = new ToolCallDispatcher(mcpManager); // Routes function calls
+// 2. Initialize services with direct Todoist API integration
+const toolDispatcher = new DirectToolCallDispatcher(); // Direct API integration
+const messageProcessor = new MessageProcessorService(toolDispatcher);
 
 const telegramConfig: TelegramConfig = {
   token: BOT_TOKEN,
   webhookUrl: NGROK_URL,
-  secretToken: TELEGRAM_SECRET_TOKEN
+  secretToken: TELEGRAM_SECRET_TOKEN,
 };
 
 const botService = new TelegramBotService(telegramConfig, messageProcessor);
+
 /**
- * Initializes the application by starting all MCP servers
+ * Initializes the application
  */
-async function initializeMCP() {
+async function initializeApp() {
   try {
-    // Start all configured MCP servers
-    await mcpManager.initializeServers(mcpConfig);
-    console.log('All MCP servers initialized successfully');
+    logger.info('Application initialized successfully with direct Todoist integration');
   } catch (error) {
-    console.error('Failed to initialize MCP servers:', error);
+    logger.error('Failed to initialize application:', error);
   }
 }
 
 // Graceful shutdown handling
 process.on('SIGTERM', async () => {
-  console.log('Shutting down gracefully...');
-  await mcpManager.shutdown(); // Stop all MCP servers
+  logger.info('Shutting down gracefully...');
   process.exit(0);
 });
 
-initializeMCP();
+initializeApp();
 
 // 3. (Optional, for development) Setup webhook to point Telegram to your ngrok URL
 // This only needs to be run ONCE per new URL.

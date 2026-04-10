@@ -2,6 +2,7 @@
 import { logger } from '../../utils/logger';
 import { TextProcessorService } from './processors/text-processor.service';
 import { AudioProcessorService } from './processors/audio-processor.service';
+import { ToolDispatcher } from '../../types/mcp.types';
 
 /**
  * Main service responsible for coordinating message processing
@@ -11,8 +12,8 @@ export class MessageProcessorService {
   private readonly textProcessor: TextProcessorService;
   private readonly audioProcessor: AudioProcessorService;
 
-  constructor() {
-    this.textProcessor = new TextProcessorService();
+  constructor(toolDispatcher?: ToolDispatcher) {
+    this.textProcessor = new TextProcessorService(toolDispatcher);
     this.audioProcessor = new AudioProcessorService();
   }
 

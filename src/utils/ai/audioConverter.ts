@@ -1,6 +1,5 @@
 // src/utils/ai/audioConverter.ts
 
-// ADDED: Import the ffmpeg installer package
 import * as ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { spawn } from 'child_process';
 import { writeFile, unlink } from 'fs/promises';
@@ -104,17 +103,6 @@ export class AudioConverter {
       originalSizeBytes: audioBuffer.length,
     });
 
-    // REMOVED: The check for ffmpeg is now redundant because the package ensures it exists.
-    // This simplifies the code and makes it slightly faster by avoiding an extra process spawn.
-    /*
-    const ffmpegAvailable = await this.isFFmpegAvailable();
-    if (!ffmpegAvailable) {
-      throw new Error(
-        'FFmpeg is not available. This should not happen if @ffmpeg-installer/ffmpeg is installed correctly.',
-      );
-    }
-    */
-
     // Generate temporary file paths
     const tempId = Date.now().toString() + Math.random().toString(36).substring(2);
     const inputPath = join(tmpdir(), `input_${tempId}.${originalExtension}`);
@@ -207,7 +195,6 @@ export class AudioConverter {
         outputPath, // Output file
       ];
 
-      // CHANGED: Use the path from the installer package
       const ffmpeg = spawn(ffmpegInstaller.path, ffmpegArgs);
 
       let stderr = '';

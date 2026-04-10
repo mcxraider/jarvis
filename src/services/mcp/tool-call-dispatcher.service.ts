@@ -1,7 +1,7 @@
 import { MCPManagerService } from './mcp-manager.service';
-import { ToolCall, ToolResult } from '../../types/mcp.types';
+import { ToolCall, ToolResult, ToolDispatcher } from '../../types/mcp.types';
 
-export class ToolCallDispatcher {
+export class ToolCallDispatcher implements ToolDispatcher {
   constructor(private mcpManager: MCPManagerService) {}
 
   /**
@@ -66,11 +66,13 @@ export class ToolCallDispatcher {
   private determineMCPServer(functionName: string): string {
     // Define which functions belong to Todoist
     const todoistFunctions = [
-      'create_task',
+      'add_todoist_task',
+      'get_todoist_task',
+      'get_completed_todoist_tasks',
       'get_tasks',
-      'update_task',
       'complete_task',
-      'get_projects',
+      'update_todoist_task',
+      'delete_todoist_task',
     ];
 
     // Define which functions belong to Notion (for future expansion)

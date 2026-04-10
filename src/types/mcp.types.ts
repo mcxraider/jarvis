@@ -42,3 +42,8 @@ export interface ToolResult {
   content: any; // The actual result from the function
   error?: string; // Error message if execution failed
 }
+
+// Common interface for tool dispatchers
+export interface ToolDispatcher {
+  executeToolCalls(toolCalls: ToolCall[], userId: string): Promise<ToolResult[]>;
+}

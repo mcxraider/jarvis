@@ -1,7 +1,7 @@
 // src/services/mcp/servers/todoist-server.ts
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
-import { TodoistMCPConfig, MCPMessage } from '../../../types/mcp.types';
+import { TodoistMCPConfig, MCPMessage } from '../../../../types/mcp.types';
 
 export class TodoistMCPServer extends EventEmitter {
   private process: ChildProcess | null = null;
