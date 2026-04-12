@@ -3,6 +3,7 @@ import { Context } from 'telegraf';
 import { logger } from '../../../utils/logger';
 import { FileService } from '../file.service';
 import { MessageProcessorService } from '../message-processor.service';
+import { BotActivityService } from '../bot-activity.service';
 
 /**
  * Handles different types of messages
@@ -10,7 +11,8 @@ import { MessageProcessorService } from '../message-processor.service';
 export class MessageHandlers {
   constructor(
     private readonly fileService: FileService,
-    private readonly messageProcessor: MessageProcessorService
+    private readonly messageProcessor: MessageProcessorService,
+    private readonly activityService: BotActivityService,
   ) {}
 
   async handleText(ctx: Context): Promise<void> {
@@ -24,6 +26,7 @@ export class MessageHandlers {
       username: ctx.from?.username,
       messageLength: messageText.length
     });
+    this.activityService.recordActivity('message_text');
 
     try {
       const response = await this.messageProcessor.processTextMessage(messageText, userId);
@@ -48,6 +51,7 @@ export class MessageHandlers {
       duration: voice.duration,
       fileSize: voice.file_size
     });
+    this.activityService.recordActivity('message_voice');
 
     try {
       const fileUrl = await this.fileService.getFileUrl(voice.file_id);
@@ -66,6 +70,7 @@ export class MessageHandlers {
     if (!ctx.message || !('audio' in ctx.message)) return;
 
     const audio = ctx.message.audio;
+    this.activityService.recordActivity('message_audio');
     await this.processAudioFile(ctx, audio);
   }
 
@@ -76,6 +81,7 @@ export class MessageHandlers {
     const userId = ctx.from?.id;
 
     if (this.fileService.isAudioFile(document.mime_type)) {
+      this.activityService.recordActivity('message_document');
       const fileName = document.file_name || 'audio_file';
       const mimeType = document.mime_type || 'application/octet-stream';
 
@@ -120,6 +126,7 @@ export class MessageHandlers {
       userId,
       messageType: 'unknown'
     });
+    this.activityService.recordActivity('message_unknown');
 
     await ctx.reply(
       '🤔 I received your message, but I don\'t know how to handle this type yet. Try sending text or audio!'

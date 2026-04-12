@@ -4,6 +4,8 @@ import { FileService } from '../file.service';
 import { MessageProcessorService } from '../message-processor.service';
 import { CommandHandlers } from '../handlers/command-handlers';
 import { MessageHandlers } from '../handlers/message-handlers';
+import { BotActivityService } from '../bot-activity.service';
+import { BotStatusService } from '../bot-status.service';
 
 /**
  * Centralizes all Telegram bot handlers
@@ -12,9 +14,14 @@ export class TelegramHandlers {
   private readonly commandHandlers: CommandHandlers;
   private readonly messageHandlers: MessageHandlers;
 
-  constructor(fileService: FileService, messageProcessor: MessageProcessorService) {
-    this.commandHandlers = new CommandHandlers();
-    this.messageHandlers = new MessageHandlers(fileService, messageProcessor);
+  constructor(
+    fileService: FileService,
+    messageProcessor: MessageProcessorService,
+    activityService: BotActivityService,
+    statusService: BotStatusService,
+  ) {
+    this.commandHandlers = new CommandHandlers(activityService, statusService);
+    this.messageHandlers = new MessageHandlers(fileService, messageProcessor, activityService);
   }
 
   setupHandlers(bot: Telegraf<Context>): void {
@@ -23,7 +30,6 @@ export class TelegramHandlers {
   }
 
   private setupCommandHandlers(bot: Telegraf<Context>): void {
-    bot.command('start', this.commandHandlers.handleStart.bind(this.commandHandlers));
     bot.command('help', this.commandHandlers.handleHelp.bind(this.commandHandlers));
     bot.command('status', this.commandHandlers.handleStatus.bind(this.commandHandlers));
   }

@@ -18,7 +18,10 @@ describe('MessageHandlers', () => {
       processAudioDocument: jest.fn().mockResolvedValue('processed document'),
       processAudioMessage: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor);
+    const activityService = {
+      recordActivity: jest.fn(),
+    } as any;
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService);
     const ctx = createContext({
       document: {
         file_id: 'file-1',
@@ -39,6 +42,7 @@ describe('MessageHandlers', () => {
       123,
     );
     expect(messageProcessor.processAudioMessage).not.toHaveBeenCalled();
+    expect(activityService.recordActivity).toHaveBeenCalledWith('message_document');
     expect(ctx.reply).toHaveBeenCalledWith('processed document');
   });
 
@@ -50,7 +54,10 @@ describe('MessageHandlers', () => {
     const messageProcessor = {
       processAudioDocument: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor);
+    const activityService = {
+      recordActivity: jest.fn(),
+    } as any;
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService);
     const ctx = createContext({
       document: {
         file_id: 'file-1',
@@ -63,6 +70,7 @@ describe('MessageHandlers', () => {
 
     expect(fileService.getFileUrl).not.toHaveBeenCalled();
     expect(messageProcessor.processAudioDocument).not.toHaveBeenCalled();
+    expect(activityService.recordActivity).not.toHaveBeenCalled();
     expect(ctx.reply).toHaveBeenCalledWith(
       '📄 I received a document, but I only process audio files. Please send an audio file.',
     );
@@ -76,7 +84,10 @@ describe('MessageHandlers', () => {
     const messageProcessor = {
       processAudioDocument: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor);
+    const activityService = {
+      recordActivity: jest.fn(),
+    } as any;
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService);
     const ctx = createContext({
       document: {
         file_id: 'file-1',
@@ -90,5 +101,6 @@ describe('MessageHandlers', () => {
     expect(ctx.reply).toHaveBeenCalledWith(
       '❌ Sorry, I had trouble processing your audio document.',
     );
+    expect(activityService.recordActivity).toHaveBeenCalledWith('message_document');
   });
 });

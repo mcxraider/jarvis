@@ -307,6 +307,21 @@ export class TodoistAPIService {
     return projects;
   }
 
+  async checkHealth(): Promise<{ ok: boolean; detail: string }> {
+    try {
+      const projects = await this.getProjects();
+      return {
+        ok: true,
+        detail: `${projects.length} project(s) visible`,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        detail: (error as Error).message,
+      };
+    }
+  }
+
   /**
    * Get completed tasks (Note: This requires Todoist Premium)
    * Uses the Sync API for retrieving completed tasks
