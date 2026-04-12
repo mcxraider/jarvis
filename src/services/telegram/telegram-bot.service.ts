@@ -6,6 +6,10 @@ import { TelegramHandlers } from './handlers/telegram-handlers';
 import { FileService } from './file.service';
 import { MessageProcessorService } from './message-processor.service';
 import { TelegramConfig } from '../../types/telegram.types';
+import { BotActivityService } from './bot-activity.service';
+import { BotStatusService } from './bot-status.service';
+import { TodoistAPIService } from '../external/todoist-api.service';
+import { GPT_CONSTANTS } from '../ai/constants/gpt.constants';
 
 /**
  * Service class responsible for managing Telegram bot operations
@@ -16,6 +20,8 @@ export class TelegramBotService {
   private readonly handlers: TelegramHandlers;
   private readonly fileService: FileService;
   private readonly messageProcessor: MessageProcessorService;
+  private readonly activityService: BotActivityService;
+  private readonly statusService: BotStatusService;
 
   constructor(
     config: TelegramConfig,
@@ -25,7 +31,19 @@ export class TelegramBotService {
     this.bot = new Telegraf(config.token);
     this.messageProcessor = messageProcessor;
     this.fileService = new FileService(this.botToken, this.bot.telegram);
-    this.handlers = new TelegramHandlers(this.fileService, this.messageProcessor);
+    this.activityService = new BotActivityService();
+    this.statusService = new BotStatusService(this.activityService, {
+      gptModel: process.env.OPENAI_MODEL || GPT_CONSTANTS.DEFAULT_MODEL,
+      todoistService: process.env.TODOIST_API_KEY
+        ? new TodoistAPIService(process.env.TODOIST_API_KEY)
+        : undefined,
+    });
+    this.handlers = new TelegramHandlers(
+      this.fileService,
+      this.messageProcessor,
+      this.activityService,
+      this.statusService,
+    );
 
     this.setupBotHandlers();
     this.setupErrorHandling();
@@ -72,6 +90,8 @@ export class TelegramBotService {
       const fullWebhookUrl = `${webhookUrl}/webhook/${secretToken}`;
 
       logger.info('Setting up webhook', { url: fullWebhookUrl });
+
+      await this.syncCommands();
 
       await this.bot.telegram.setWebhook(fullWebhookUrl, {
         secret_token: secretToken,
@@ -160,6 +180,7 @@ export class TelegramBotService {
    */
   async startPolling(): Promise<void> {
     try {
+      await this.syncCommands();
       await this.bot.launch();
       logger.info('Bot started polling for updates');
     } catch (error) {
@@ -182,5 +203,12 @@ export class TelegramBotService {
         error: (error as Error).message
       });
     }
+  }
+
+  private async syncCommands(): Promise<void> {
+    await this.bot.telegram.setMyCommands([
+      { command: 'help', description: 'Show available commands and supported inputs' },
+      { command: 'status', description: 'Show bot health, uptime, and dependency status' },
+    ]);
   }
 }

@@ -83,7 +83,7 @@ src/
 │   │   ├── handlers/
 │   │   │   ├── telegram-handlers.ts    Registers all bot listeners
 │   │   │   ├── message-handlers.ts     Per-type message handling
-│   │   │   └── command-handlers.ts     /start /help /status (BROKEN — not registered)
+│   │   │   └── command-handlers.ts     /help /status + operational health output
 │   │   └── processors/
 │   │       ├── text-processor.service.ts
 │   │       └── audio-processor.service.ts
@@ -124,11 +124,10 @@ src/
 
 ## Known Issues (Fix Before Adding Features)
 
-1. **Bot commands are broken** — `command-handlers.ts` is written but never registered in `telegram-handlers.ts`. `/start`, `/help`, `/status` do nothing.
-2. **Retry logic is disconnected** — `gpt-error-handler.service.ts` has `isRetryableError()` and `getRetryDelay()` but they're never called.
-3. **No env var validation at startup** — missing keys crash deep inside services.
-4. **`AUDIO_MIME_TYPES` defined twice** — `file.service.ts` should import from `utils/constants.ts`.
-5. **Empty stubs** — `server.ts`, `guardrail.service.ts`, `mcp-service.ts` are 1-line files with no intent documented.
+1. **Retry logic is disconnected** — `gpt-error-handler.service.ts` has `isRetryableError()` and `getRetryDelay()` but they're never called.
+2. **No env var validation at startup** — missing keys crash deep inside services.
+3. **`AUDIO_MIME_TYPES` defined twice** — `file.service.ts` should import from `utils/constants.ts`.
+4. **Empty stubs** — `server.ts`, `guardrail.service.ts`, `mcp-service.ts` are 1-line files with no intent documented.
 
 Full details in `reports/BUGS_AND_BROKEN.md`.
 

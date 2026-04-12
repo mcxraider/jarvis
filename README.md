@@ -34,7 +34,7 @@ RUN_INTEGRATION_TESTS=true
 
 ### Method 2: Using Your Own Bot
 1. Start your bot (see Step 4 below)
-2. Send `/start` to your bot
+2. Send `/help` to your bot
 3. Check the console logs - your user ID will be logged
 4. Copy the `userId` from the logs to your `.env` file
 
@@ -96,8 +96,8 @@ npx ts-node src/app.ts
 
 ### Manual Testing
 1. Find your bot on Telegram (using the username from @BotFather)
-2. Send `/start` - should get welcome message
-3. Send `/help` - should get help text
+2. Send `/help` - should get help text and supported command list
+3. Send `/status` - should get runtime, GPT, Todoist, and activity status
 4. Send any text message - should echo it back
 5. Send an audio file - should process it
 
@@ -129,7 +129,7 @@ Telegram → Webhook → ngrok → Your Server → Bot Service → Response → 
 - ✅ Text message echoing
 - ✅ Audio file detection and info display
 - ✅ Voice message handling
-- ✅ Command handling (/start, /help, /status)
+- ✅ Command handling (/help, /status)
 
 ### Potential Next Features:
 - 🔄 **Audio Processing**: Implement actual audio transcription/analysis

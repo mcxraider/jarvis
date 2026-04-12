@@ -1,36 +1,33 @@
 // src/services/telegram/handlers/command-handlers.ts
 import { Context } from 'telegraf';
 import { logger } from '../../../utils/logger';
+import { BotActivityService } from '../bot-activity.service';
+import { BotStatusService } from '../bot-status.service';
 
 /**
  * Handles bot commands
  */
 export class CommandHandlers {
-  async handleStart(ctx: Context): Promise<void> {
-    const userId = ctx.from?.id;
-    const username = ctx.from?.username;
-
-    logger.info('User started bot', { userId, username });
-
-    const name = ctx.from?.first_name ?? 'there';
-    await ctx.reply(`Hey ${name}! I'm Jarvis, your personal assistant. Send me a message or try /help.`);
-  }
+  constructor(
+    private readonly activityService: BotActivityService,
+    private readonly statusService: BotStatusService,
+  ) {}
 
   async handleHelp(ctx: Context): Promise<void> {
     const userId = ctx.from?.id;
     logger.info('User requested help', { userId });
+    this.activityService.recordActivity('command_help');
 
     const helpMessage = `🆘 *JarvisMCP Help*
 
 *Available Commands:*
-/start - Start the bot
 /help - Show this help message
 /status - Check bot status
 
 *Features:*
-📝 Send me any text message and I'll process it
-🎵 Send me audio files (.ogg, .mp3, .wav) and I'll process them
-🔊 Send me voice messages and I'll handle them
+📝 Send any text message and I'll process it
+🎵 Send audio files (.ogg, .mp3, .wav, .m4a) and I'll process them
+🔊 Send voice messages and I'll handle them right away
 
 *Supported Audio Formats:*
 • OGG Vorbis (Telegram voice messages)
@@ -44,7 +41,9 @@ export class CommandHandlers {
   async handleStatus(ctx: Context): Promise<void> {
     const userId = ctx.from?.id;
     logger.info('User requested status', { userId });
+    this.activityService.recordActivity('command_status');
 
-    await ctx.reply('✅ Bot is running and ready to process your messages!');
+    const statusMessage = await this.statusService.getFormattedStatus();
+    await ctx.reply(statusMessage, { parse_mode: 'Markdown' });
   }
 }
