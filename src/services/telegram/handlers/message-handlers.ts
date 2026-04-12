@@ -76,7 +76,33 @@ export class MessageHandlers {
     const userId = ctx.from?.id;
 
     if (this.fileService.isAudioFile(document.mime_type)) {
-      await this.processAudioFile(ctx, document);
+      const fileName = document.file_name || 'audio_file';
+      const mimeType = document.mime_type || 'application/octet-stream';
+
+      logger.info('Audio document received', {
+        userId,
+        fileName,
+        mimeType,
+        fileSize: document.file_size,
+      });
+
+      try {
+        const fileUrl = await this.fileService.getFileUrl(document.file_id);
+        const response = await this.messageProcessor.processAudioDocument(
+          fileUrl,
+          fileName,
+          mimeType,
+          userId,
+        );
+        await ctx.reply(response);
+      } catch (error) {
+        logger.error('Error processing audio document', {
+          error: (error as Error).message,
+          userId,
+          fileName,
+        });
+        await ctx.reply('❌ Sorry, I had trouble processing your audio document.');
+      }
     } else {
       logger.info('Non-audio document received', {
         userId,

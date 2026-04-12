@@ -1,6 +1,6 @@
 // services/webhook.controller.ts
 import express from 'express';
-import { TelegramBotService } from '../services/telegram/telegram-bot.service';
+import type { TelegramBotService } from '../services/telegram/telegram-bot.service';
 import { logger } from '../utils/logger';
 
 export function createWebhookRouter(botService: TelegramBotService) {

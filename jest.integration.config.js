@@ -6,6 +6,6 @@ module.exports = {
   silent: true,
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
   moduleFileExtensions: ['ts', 'js', 'json'],
-  testMatch: ['**/tests/unit/**/*.test.ts'],
+  testMatch: ['**/tests/integration/**/*.test.ts'],
   testPathIgnorePatterns: ['/node_modules/', '/dist/'],
 };
