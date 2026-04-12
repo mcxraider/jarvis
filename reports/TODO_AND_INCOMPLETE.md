@@ -55,13 +55,18 @@ This becomes much cleaner once the LangGraph pipeline exists — memory retrieva
 
 ---
 
-### 5. Better /status command
+### 5. Expand /status further if needed
 
-Current reply: `"Bot is running and ready"`. Should include:
+Current `/status` now includes:
 - Uptime
 - GPT model in use
-- Whether Todoist API is reachable (live ping)
-- Message count or last active time
+- Whether Todoist API is reachable
+- Message count and last active time
+
+Possible follow-ups:
+- Add webhook vs polling mode
+- Include recent error count
+- Include OpenAI connectivity checks
 
 ---
 

@@ -1,18 +1,278 @@
 # Future Enhancements
 
-Larger features to consider after the core is solid. This is a single-user personal assistant for Jerry — enhancements are prioritized around personal productivity, not scalability or multi-tenancy.
+Larger features to consider after the core is solid. This is a single-user personal assistant for Jerry, so the roadmap is ordered by practical development sequence rather than scale-first architecture.
+
+The guiding principle is:
+
+1. Make the system reliable
+2. Make it responsive
+3. Make the agent smarter
+4. Expand integrations
+5. Improve developer ergonomics
 
 ---
 
-## AI Capabilities
+## Phase 1: Core Reliability and Execution Foundation
+
+These are the highest-leverage upgrades because they make every later feature easier and safer to build.
+
+### Database / Persistence Layer
+The app is currently mostly stateless. Adding a lightweight persistence layer first would unlock:
+
+- Persistent conversation history across restarts
+- Stored user preferences and shortcuts
+- Message history and usage analytics
+- Job state for async execution
+- Clarification state that survives process restarts
+
+**Recommended starting point:**
+- SQLite for local simplicity
+- Small tables for `messages`, `jobs`, `pending_clarifications`, `user_preferences`, and `usage_events`
+
+---
+
+### Asynchronous Task Execution / Non-Blocking Threading
+Jarvis should not let one long-running task block the entire conversation thread. Telegram should acknowledge receipt quickly, while heavy work continues in the background.
+
+**Example problem:**
+- User sends a voice note
+- Jarvis starts downloading the Telegram file, converting audio, transcribing it, and running the agent
+- While that is happening, the user sends another message
+- The system should still feel responsive instead of frozen behind the first job
+
+**What this enables:**
+- Voice uploads can process in the background without blocking lighter text interactions
+- Long-running tool actions can continue while Telegram stays responsive
+- Independent work can overlap where safe
+- The app can grow beyond a single synchronous request pipeline
+
+**High-level plan:**
+1. Split request intake from request execution
+2. Acknowledge Telegram immediately after receipt
+3. Persist a job record for each incoming task
+4. Run heavy work in async workers or queues
+5. Stream status updates back to Telegram while the job progresses
+6. Serialize only the parts that truly require ordering
+
+**What can potentially be asynchronous:**
+- Telegram file download after webhook acknowledgment
+- Audio conversion and normalization
+- Whisper transcription
+- Image OCR or preprocessing
+- Search-style tool calls that do not mutate state
+- Read/fetch calls to systems like Notion, Gmail, or Todoist
+- Progress/status message updates
+- Logging, analytics, and token accounting writes
+- Conversation-summary writes
+- Follow-up enrichment after the main reply is sent
+
+**What should remain serialized or guarded:**
+- Multiple writes to the same Todoist task or Notion page
+- Clarification flows tied to a specific pending question
+- Destructive actions such as delete, replace, or send
+- Per-user memory writes that can race
+- Final response assembly when it depends on ordered tool results
+
+**Concurrency model to aim for:**
+- Per-user request queue for operations that must stay ordered
+- Background worker pool for independent heavy tasks
+- Job IDs tied to Telegram chat and user IDs
+- Lightweight locking around shared resources
+- Cancellation or supersede behavior when a newer request makes an older one irrelevant
+
+**Implementation path:**
+- Add a job model such as `{ jobId, userId, chatId, type, status, payload, result, error }`
+- Move heavy processing out of the webhook request path
+- Add a queue layer such as BullMQ, Redis-backed jobs, or a lightweight in-process job manager first
+- Separate processors for `text`, `audio`, `image`, and `tool-execution`
+- Add per-user concurrency rules so unrelated tasks can run while conflicting writes stay protected
+
+**Suggested async candidates by pipeline stage:**
+1. Intake stage:
+   - Validate incoming Telegram payload
+   - Store message metadata
+   - Enqueue background work
+2. Media stage:
+   - Download voice or image files
+   - Convert audio
+   - Extract media metadata
+3. Understanding stage:
+   - Transcribe audio
+   - Run OCR or image extraction
+   - Classify intent
+4. Retrieval stage:
+   - Run search tools
+   - Fetch reference pages, tasks, or emails
+   - Load memory or context
+5. Execution stage:
+   - Run non-conflicting tools in parallel where safe
+   - Queue or lock mutating actions
+6. Post-processing stage:
+   - Format the final answer
+   - Send progress updates
+   - Persist logs, analytics, and memory
+
+**Design constraints:**
+- Telegram should get a fast acknowledgment even if the task continues for several seconds
+- User-visible progress should reflect async state changes clearly
+- Mutating actions need idempotency keys or locking to avoid duplicate writes
+- Retries must be safe, especially for create/update operations
+
+---
+
+### Structured Logging / Monitoring
+Current logging is console-only via Winston. Before the system gets more complex, observability should improve.
+
+**Why this matters:**
+- Async workflows are much harder to debug without job-level logs
+- Tool-calling issues need traceability
+- User-facing delays become easier to measure
+
+**What to add:**
+- Structured logs with request ID / job ID / user ID
+- Response time metrics
+- Error-rate tracking
+- Token usage per request and per user
+- Optional shipping to Datadog, Grafana, or Logtail
+
+---
+
+### Spend Guardrail
+As tool use and async workloads expand, cost control should become explicit.
+
+**Add:**
+- Token usage tracking per session
+- Daily and monthly OpenAI cost caps
+- Telegram alerts when approaching a limit
+- Graceful degradation when budget is reached
+
+---
+
+### Docker / Deployment
+Once persistence and async execution exist, deployment should be standardized.
+
+**Would need:**
+- `Dockerfile`
+- `docker-compose.yml` for local services
+- CI/CD pipeline for auto-deploy
+- Existing health check endpoint (`GET /ping`) wired into deployment checks
+
+---
+
+## Phase 2: Agent UX and Safer Interaction
+
+Once the core runtime is stable, the next step is making the assistant feel clearer, safer, and more trustworthy.
+
+### Telegram Background Progress Updates
+Jarvis could show a concise but descriptive step-by-step trace of what the agent is doing in the background while a request is being handled.
+
+This is especially useful once async execution exists, because the user should be able to see progress instead of waiting in silence.
+
+**Example style:**
+```text
+Search
+Found the Tool calling page. Let me fetch it first to see the existing content.
+
+Fetch
+Page is empty. Adding the code now.
+
+Notion-update-page
+Done — added to your Tool calling page inside jarvis-mcp.
+```
+
+**Why this matters:**
+- Makes longer-running actions feel responsive inside Telegram
+- Helps the user understand the process step by step
+- Builds trust for multi-tool operations like search → fetch → update
+- Creates a better UX than a single silent loading state or one final reply
+
+**Design principles:**
+- Keep updates concise, but not vague
+- Show one meaningful step at a time
+- Prefer human-readable labels like `Search`, `Fetch`, `Update page`
+- Summarize intent and result, not hidden reasoning
+- Edit or replace the in-progress status message when possible to avoid chat spam
+
+**Implementation path:**
+- Add a progress event model such as `{ step, status, message }`
+- Emit events from tool execution and orchestration layers
+- Render those events into a Telegram-friendly progress message
+- Update the same Telegram message as the workflow advances, then send the final answer separately or convert the progress message into the final summary
+
+---
+
+### Clarification Layer — Ask Before Acting
+Before executing any voice or text command, Jarvis should run a lightweight intent-parsing step. If confidence is low or the action is risky, it should ask before acting.
+
+**Why this matters:**
+- Voice transcription introduces errors
+- Destructive or irreversible operations should never happen on a misheard command
+- Ambiguous requests often do not have a safe default
+
+**How it works:**
+1. GPT receives the user's message with a pre-processing prompt that scores intent confidence and flags ambiguities
+2. If confidence is high and the command is non-destructive, execute immediately
+3. If confidence is medium or the command is destructive, ask one clarifying question
+4. If confidence is low, explain what was heard and ask the user to rephrase
+
+**Example interactions:**
+```text
+User (voice): "Delete the meeting"
+Jarvis: "Just to confirm — delete the task 'Team standup meeting' due today? Reply yes to confirm."
+
+User: "Remind me"
+Jarvis: "Remind you about what, and when?"
+
+User: "Add milk"
+Jarvis: "Got it — adding 'Buy milk' to your Todoist. Does that sound right?"
+```
+
+**Implementation path:**
+- New `ClarificationService` returning `{ intent, confidence, clarificationQuestion | null }`
+- Inject it into `TextProcessorService` and `AudioProcessorService` before the main GPT call
+- Make confidence thresholds and destructive-action lists configurable
+- Store clarification state per user in a short-lived session record
+
+---
+
+### Conversation Memory
+The bot currently has zero memory between messages. Adding persistent context would unlock:
+
+- Multi-turn conversations such as "change the task I just added"
+- User preferences learned over time
+- Daily briefings summarizing what is coming up
+
+**Implementation options:**
+- Short-term in-memory state keyed by Telegram user ID
+- Longer-lived summaries or preferences stored in SQLite
+- Later: external vector memory if needed
+
+---
+
+### More GPT Models / Dynamic Model Selection
+The app is currently hardcoded to `gpt-4o`. It should eventually choose models based on task complexity.
+
+**Possible model policy:**
+- `gpt-4o-mini` for simple factual replies or lightweight routing
+- `gpt-4o` or a stronger model for tool calls, planning, and complex edits
+
+**Why this matters:**
+- Reduces cost
+- Improves latency
+- Keeps high-quality reasoning where it matters
+
+---
+
+## Phase 3: Agent Architecture and Retrieval
+
+After the runtime and UX are solid, the next step is upgrading how the agent decides, routes, and selects tools.
 
 ### LangGraph Message Processing Pipeline
-
-Currently each message goes through a single linear GPT call. The right architecture is a graph of nodes with conditional routing — similar to how LangGraph works. This would unlock much more intelligent behavior.
+Currently each message goes through a single linear GPT call. A graph of nodes with conditional routing would unlock more intelligent and testable behavior.
 
 **Rough sketch of the graph:**
 
-```
+```text
 User message
       ↓
 [Intent Router Node]
@@ -31,198 +291,175 @@ User message
 ```
 
 **Why this matters:**
-- Conditional routing: "add task" goes straight to tool call, "remind me later" routes to clarification first, "what can you do?" routes to chat
-- Each node is isolated and testable — no spaghetti if/else chains in a single processor
-- Easy to add new nodes (e.g. a memory retrieval node, a guardrail node) without touching existing logic
-- Retry logic becomes a node-level concern, not scattered across services
-- Clarification state is first-class: the graph can pause at the clarification node, wait for the user's reply, and resume from the right point
+- Conditional routing instead of one giant processor
+- Each node is isolated and testable
+- Easy to add new nodes such as memory retrieval or guardrails
+- Retry logic becomes a node-level concern
+- Clarification becomes a first-class part of the flow
 
 **Implementation path:**
-- `@langchain/langgraph` for the graph runtime
-- One `StateGraph` per message lifecycle with a shared `AgentState` (message, intent, tool results, clarification flag)
+- Use `@langchain/langgraph` for graph runtime
+- Define one `StateGraph` per message lifecycle with shared `AgentState`
 - Replace `FunctionCallingProcessor` and `SimpleTextProcessor` with graph nodes
-- The `MessageProcessorService` becomes the graph runner
+- Let `MessageProcessorService` become the graph runner
 
 **Nodes to implement:**
-1. `intentRouterNode` — classifies intent, sets routing flag
-2. `clarificationNode` — generates clarifying question, sets pending state
-3. `toolCallNode` — calls GPT with function calling, executes tools
-4. `statusResponseNode` — formats tool results into a natural language reply
-5. `chatNode` — direct GPT reply for non-tool messages
+1. `intentRouterNode`
+2. `clarificationNode`
+3. `toolCallNode`
+4. `statusResponseNode`
+5. `chatNode`
 
 ---
 
-### Conversation Memory
-The bot currently has zero memory between messages. Adding persistent context would unlock much more useful behavior:
-- Multi-turn conversations ("change the task I just added")
-- User preferences learned over time ("I always want P1 for work tasks")
-- Daily briefings summarizing what's coming up
+### Pinecone Vector DB for Semantic Tool Retrieval
+Add a vector-search layer for tool discovery so Jarvis can retrieve the top-`k` most relevant tool calls based on the user's query instead of relying only on static tool lists or keyword matching.
 
-**Implementation options:**
-- In-memory map keyed by Telegram user ID (simple, ephemeral)
-- Store conversation summaries as Todoist task notes
+This fits naturally with the future `tool_search` pattern and becomes more valuable as the tool registry grows.
+
+**What this enables:**
+- Semantic matching between user intent and available tools
+- Better tool selection when the user uses natural language rather than exact tool names
+- Cleaner scaling as the number of tools grows
+- A strong foundation for lazy-loading tools into context
+
+**Example use case:**
+- User says: "add this to my Notion page and update the existing section"
+- Jarvis embeds that request and queries Pinecone
+- Pinecone returns top-`k` tools such as `notion-search`, `notion-fetch`, and `notion-update-page`
+- Only those tools are injected into the active context
+
+**Implementation path:**
+- Create an embedding document for each tool using tool name, description, parameter names, and example usage
+- Generate embeddings for the tool registry
+- Store them in a Pinecone index with metadata such as `toolName`, `domain`, `description`, and `parameters`
+- On each `tool_search` request, embed the user query and retrieve top-`k` matching tools
+- Optionally rerank or filter results before loading them into model context
+
+**Suggested metadata per tool vector:**
+- `toolName`
+- `domain`
+- `description`
+- `parameterSummary`
+- `exampleQueries`
+- `isMutating`
+
+**Why Pinecone fits well:**
+- Fast approximate nearest-neighbor retrieval
+- Good fit for semantic search over a growing tool registry
+- Easy to combine with metadata filtering by domain or capability
+- Potential reuse later for memory or document retrieval
+
+**Retrieval flow:**
+1. User sends a natural-language request
+2. Jarvis embeds the query
+3. Pinecone returns top-`k` candidate tools
+4. Optional reranking narrows the final set
+5. Matching tools are loaded into context
+6. The model executes against that reduced toolset
+
+**Design considerations:**
+- Keep `top_k` configurable
+- Prefer domain filters when the source is obvious, such as Notion or Gmail
+- Use semantic retrieval as the first-pass selector, with optional lexical reranking for precision
+- Re-embed the registry whenever tool definitions materially change
 
 ---
 
-### More GPT Models / Dynamic Model Selection
-Currently hardcoded to `gpt-4o`. Could add:
-- `gpt-4o-mini` for simple tasks (faster, cheaper)
-- Auto-select model based on complexity detection (e.g. short factual replies use mini, tool calls use 4o)
+## Phase 4: Product Integrations
 
----
-
-### Image Understanding
-GPT-4o supports image inputs. Could handle:
-- User sends a screenshot → Jarvis creates tasks from it
-- User sends a photo of a whiteboard → extract to-dos
-- Menu/document scanning
-
----
-
-## Integrations
-
-### Google Calendar
-Add calendar read/write tools so Jarvis can:
-- Create events from voice ("add a meeting with John on Friday at 3pm")
-- Query upcoming schedule ("what do I have tomorrow?")
-- Cross-reference calendar + Todoist for scheduling conflicts
-
-**Integration path:** Google Calendar API, similar pattern to existing Todoist service
-
----
+Once the agent runtime, safety, and tool-selection story are stronger, expanding integrations becomes much less painful.
 
 ### Notion Integration — Notes, Passwords, Knowledge Base
 Full read/write/edit access to your Notion workspace, turning Jarvis into a voice-driven interface for everything you store there.
 
 **What it enables:**
-- **Dump notes:** "Jarvis, save this to my notes — meeting recap with Alex, he wants the proposal by Friday"
-- **Retrieve passwords/secrets:** "What's the password for my dev server?" → Jarvis queries the right Notion page and returns it privately
-- **Edit pages:** "Update my weekly goals page — mark Q1 targets as done"
-- **Search your knowledge base:** "Find my notes on the API architecture" → returns relevant page excerpts
-- **Create structured entries:** "Add a new book to my reading list — Atomic Habits by James Clear"
+- Dump notes into Notion
+- Retrieve passwords or secrets privately
+- Edit pages
+- Search your knowledge base
+- Create structured entries inside databases
 
 **Implementation path:**
-- Use the Notion REST API (v1) — already available in your Claude environment as an MCP tool
-- Define GPT function tools: `search_notion`, `get_notion_page`, `create_notion_page`, `update_notion_page`, `append_to_notion_page`
-- Sensitive data (passwords, API keys stored in Notion) should only be returned in private Telegram DMs, never in group chats
-- For password retrieval specifically: add a confirmation step before returning sensitive content (ties into the Clarification Layer below)
+- Use the Notion REST API (v1) or the equivalent MCP tool path
+- Define GPT function tools such as `search_notion`, `get_notion_page`, `create_notion_page`, `update_notion_page`, and `append_to_notion_page`
+- Return sensitive content only in private Telegram DMs, never in groups
+- Add confirmation before returning especially sensitive content
 
-**API:** `https://api.notion.com/v1` — requires a Notion integration token and pages shared with the integration
+**API:** `https://api.notion.com/v1`
 
 ---
 
-### Clarification Layer — Ask Before Acting
-Before executing any voice or text command, Jarvis runs a lightweight intent-parsing step. If confidence is low or the command is ambiguous, it asks a clarifying question instead of guessing wrong.
+### Google Calendar
+Add calendar read/write tools so Jarvis can:
 
-**Why this matters:**
-- Voice transcription introduces errors — "add task buy milk" might transcribe as "add task by milk"
-- Destructive or irreversible operations (delete task, send email, update a Notion page) should never happen on a misheard command
-- Ambiguous commands ("remind me later") have no safe default
+- Create events from voice
+- Query upcoming schedules
+- Cross-reference calendar and Todoist for conflicts
 
-**How it works:**
-1. GPT receives the user's message with a pre-processing system prompt that scores intent confidence (high / medium / low) and flags ambiguities
-2. If confidence is **high** and the command is non-destructive → execute immediately
-3. If confidence is **medium** or the command is **destructive** → Jarvis asks one clarifying question before proceeding
-4. If confidence is **low** → Jarvis explains what it heard and asks the user to rephrase
-
-**Example interactions:**
-```
-User (voice): "Delete the meeting"
-Jarvis: "Just to confirm — delete the task 'Team standup meeting' due today? Reply yes to confirm."
-
-User: "Remind me"
-Jarvis: "Remind you about what, and when?"
-
-User: "Add milk"
-Jarvis: "Got it — adding 'Buy milk' to your Todoist. Does that sound right?"
-```
-
-**Implementation path:**
-- New `ClarificationService` that pre-processes the user message and returns `{ intent, confidence, clarificationQuestion | null }`
-- Injected into `TextProcessorService` and `AudioProcessorService` before the GPT call
-- Confidence threshold and destructive-action list are configurable
-- Clarification state stored per-user in a short-lived session map (expires after 60 seconds of no reply)
+**Integration path:**
+- Google Calendar API
+- Similar service/tool pattern to the existing Todoist integration
 
 ---
 
 ### Gmail Integration — Full Email Access via API
-Read, search, send, and manage your Gmail inbox through Jarvis voice or text commands.
+Read, search, send, and manage Gmail through Jarvis voice or text commands.
 
 **What it enables:**
-- **Read emails:** "What's in my inbox?" → summary of unread emails with sender and subject
-- **Search:** "Find the email from Alex about the proposal" → returns matching threads
-- **Read full email:** "Read that email" → Jarvis reads out the body of the selected email
-- **Send emails:** "Send an email to John saying I'll be 10 minutes late" → drafts and sends
-- **Reply:** "Reply to Sarah's last email and say sounds good, see you then"
-- **Create tasks from emails:** "Add a task for the deadline Alex mentioned in his last email"
-- **Label/archive:** "Archive all emails from newsletter@example.com"
+- Summarize inbox state
+- Search emails
+- Read full threads
+- Send and reply to email
+- Create tasks from email
+- Archive or label messages
 
 **Implementation path:**
-- Gmail API via Google Cloud OAuth2 — requires one-time auth flow to get a refresh token
-- Store the refresh token securely (env var or encrypted in database)
-- Define GPT function tools: `list_emails`, `search_emails`, `get_email`, `send_email`, `reply_to_email`, `create_draft`, `archive_email`
-- For sending emails: always run through the Clarification Layer — show a preview and ask for confirmation before sending
-- Email bodies should be summarized by GPT before being returned to avoid walls of text in Telegram
+- Gmail API via Google Cloud OAuth2
+- Securely store refresh tokens
+- Define GPT function tools such as `list_emails`, `search_emails`, `get_email`, `send_email`, `reply_to_email`, `create_draft`, and `archive_email`
+- Route sending through the Clarification Layer and require explicit confirmation
+- Summarize long email bodies before returning them to Telegram
 
 **Security considerations:**
-- OAuth token must be stored encrypted, not in plain `.env`
-- Sending emails is a high-stakes action — require explicit confirmation every time
-- Never expose full email headers or metadata that could leak sensitive info
-- Rate limit email sends to prevent accidental spam
+- Encrypt OAuth tokens
+- Require explicit confirmation for send operations
+- Avoid exposing sensitive metadata unnecessarily
+- Rate limit email sends
 
-**API:** Google Gmail API v1 — `https://gmail.googleapis.com/gmail/v1`
+**API:** `https://gmail.googleapis.com/gmail/v1`
 
 ---
 
 ### Reminders / Scheduled Messages
 Using a cron-like system, Jarvis could:
-- Send you a morning briefing at 8am
+
+- Send a morning briefing
 - Remind you of tasks due today
 - Check in on overdue tasks
 
-**Implementation:** Node cron job + Telegram `bot.telegram.sendMessage(chatId, ...)`
+**Implementation:**
+- Cron job or scheduler plus Telegram `sendMessage`
 
 ---
 
-## Platform & Reliability
+### Image Understanding
+GPT-4o image support could enable:
 
-### Database / Persistence Layer
-Currently stateless. Adding a lightweight database (SQLite is enough for a personal app) would enable:
-- Persistent conversation history across restarts
-- Stored preferences and shortcuts
-- Message history / usage analytics
+- Screenshot to task extraction
+- Whiteboard to to-do extraction
+- Menu or document scanning
 
----
-
-### Spend Guardrail
-- Track token usage per session
-- Daily/monthly OpenAI cost cap — alert via Telegram when approaching limit
-- Graceful degradation if limit is hit
+This becomes more useful after the async pipeline is in place, since image preprocessing can run in the background.
 
 ---
 
-### Structured Logging / Monitoring
-Current logging is console-only via Winston. For production observability:
-- Ship logs to a service (Datadog, Grafana, Logtail)
-- Track token usage per user
-- Alert on error rate spikes
-- Response time metrics
+## Phase 5: Developer Experience
 
----
-
-### Docker / Deployment
-No Dockerfile or deployment config exists. Would need:
-- `Dockerfile` for containerized deploy
-- `docker-compose.yml` for local development with Redis/Postgres
-- CI/CD pipeline (GitHub Actions) for auto-deploy
-- Health check endpoint already exists (`GET /ping`)
-
----
-
-## Developer Experience
+These are worth doing, but they are easier once the product direction above is clearer.
 
 ### Polling Mode for Local Dev
-Webhook mode requires a public URL (ngrok). A `NODE_ENV=development` toggle that uses Telegraf's built-in polling would make local development frictionless.
+Webhook mode requires a public URL such as ngrok. A `NODE_ENV=development` toggle that switches to Telegraf polling would make local development much smoother.
 
 ```typescript
 if (process.env.NODE_ENV === 'development') {
@@ -235,16 +472,43 @@ if (process.env.NODE_ENV === 'development') {
 ---
 
 ### Test Coverage
-Goal: 80%+ coverage on core services
+Target: 80%+ coverage on core services.
+
+**Priority areas:**
 - Unit tests with mocked OpenAI and Todoist APIs
-- Integration test for the full message flow
+- Integration tests for the full message flow
 - Snapshot tests for tool definitions
+- Async job and clarification-flow coverage once those systems exist
 
 ---
 
 ### CLI / Admin Interface
-A simple admin script for:
+A lightweight admin script or internal CLI could help with:
+
 - Sending a test message to the bot
 - Checking webhook status
 - Inspecting current tool definitions
 - Rotating secrets without restart
+
+---
+
+## Recommended Build Order
+
+If building this incrementally, the most practical order is:
+
+1. Database / persistence layer
+2. Asynchronous task execution
+3. Structured logging / monitoring
+4. Telegram background progress updates
+5. Clarification layer
+6. Conversation memory
+7. Dynamic model selection
+8. LangGraph message pipeline
+9. Pinecone semantic tool retrieval
+10. Notion integration
+11. Google Calendar integration
+12. Gmail integration
+13. Reminders / scheduled messages
+14. Image understanding
+15. Docker / deployment hardening
+16. Developer experience improvements

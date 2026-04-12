@@ -35,7 +35,7 @@ The architecture is clean and well-thought-out. The main processing pipeline (Te
 | GPT text processing | Done |
 | GPT function calling | Done |
 | Todoist REST API integration | Done |
-| Bot command handlers (/start, /help, /status) | Defined but broken — never registered |
+| Bot command handlers (/help, /status) | Working |
 | Guardrail / content filtering | Empty stub |
 | MCP server infrastructure | Built but unused |
 | Test suite | Empty |
@@ -97,7 +97,7 @@ NODE_ENV               - development | production
 | `src/services/ai/whisper.service.ts` | Audio transcription | Working |
 | `src/services/external/todoist-api.service.ts` | Todoist REST client | Working |
 | `src/services/mcp/direct-tool-dispatcher.service.ts` | Function call routing | Working |
-| `src/services/telegram/handlers/command-handlers.ts` | /start /help /status | Broken |
+| `src/services/telegram/handlers/command-handlers.ts` | /help /status | Working |
 | `src/services/ai/guardrail.service.ts` | Content filtering | Empty stub |
 | `src/server.ts` | Unused server file | Empty stub |
 | `src/services/mcp/mcp-service.ts` | MCP service | Empty stub |
