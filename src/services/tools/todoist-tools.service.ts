@@ -24,7 +24,6 @@ export class GPTToolsService {
     }
 
     // Define comprehensive Todoist tools available through the tool dispatcher
-    // Priority enum reversed: 1 is urgent, 4 is normal
     return [
       {
         type: 'function',
@@ -69,7 +68,8 @@ export class GPTToolsService {
               priority: {
                 type: 'integer',
                 enum: [1, 2, 3, 4],
-                description: 'Priority level: 1 (urgent), 2 (very high), 3 (high), 4 (normal)',
+                description:
+                  'Priority level: 1 (normal / no priority), 2 (low), 3 (medium), 4 (high / urgent)',
               },
               due_string: {
                 type: 'string',
@@ -143,7 +143,8 @@ export class GPTToolsService {
               priority: {
                 type: 'integer',
                 enum: [1, 2, 3, 4],
-                description: 'Priority level: 1 (urgent), 2 (very high), 3 (high), 4 (normal)',
+                description:
+                  'Priority level: 1 (normal / no priority), 2 (low), 3 (medium), 4 (high / urgent)',
               },
               due_string: {
                 type: 'string',
