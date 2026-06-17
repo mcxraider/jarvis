@@ -276,7 +276,7 @@ export const TODOIST_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionToo
       name: 'add_todoist_task',
       description: 'Add a new task to Todoist with specified details',
       parameters: addTaskParameters,
-      strict: true,
+
     },
   },
   {
@@ -285,7 +285,7 @@ export const TODOIST_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionToo
       name: 'get_todoist_task',
       description: 'Retrieve a specific task from Todoist by its ID',
       parameters: taskIdParameters('The unique ID of the task to retrieve'),
-      strict: true,
+
     },
   },
   {
@@ -294,7 +294,7 @@ export const TODOIST_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionToo
       name: 'update_todoist_task',
       description: 'Update an existing task in Todoist',
       parameters: updateTaskParameters,
-      strict: true,
+
     },
   },
   {
@@ -303,7 +303,7 @@ export const TODOIST_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionToo
       name: 'delete_todoist_task',
       description: 'Delete a task from Todoist permanently',
       parameters: taskIdParameters('The unique ID of the task to delete'),
-      strict: true,
+
     },
   },
   {
@@ -312,7 +312,7 @@ export const TODOIST_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionToo
       name: 'get_completed_todoist_tasks',
       description: 'Retrieve completed tasks from Todoist within a date range using the Sync API',
       parameters: completedTasksParameters,
-      strict: true,
+
     },
   },
   {
@@ -321,7 +321,7 @@ export const TODOIST_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionToo
       name: 'get_tasks',
       description: 'Retrieve existing tasks from Todoist, optionally filtered',
       parameters: getTasksParameters,
-      strict: true,
+
     },
   },
   {
@@ -330,7 +330,7 @@ export const TODOIST_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionToo
       name: 'complete_task',
       description: 'Mark a task as completed in Todoist',
       parameters: taskIdParameters('The ID of the task to complete'),
-      strict: true,
+
     },
   },
 ];
