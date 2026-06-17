@@ -23,6 +23,7 @@ describeIntegration('Telegram Integration Tests', () => {
 
     const telegramConfig = {
       token: process.env.BOT_TOKEN!,
+      allowedUserIds: [Number(process.env.TEST_USER_ID || 701122767)],
       webhookUrl: process.env.NGROK_URL!,
       secretToken: process.env.TELEGRAM_SECRET_TOKEN!,
     };

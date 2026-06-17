@@ -11,6 +11,7 @@ const REQUIRED_ENV_VARS = [
   'BOT_TOKEN',
   'NGROK_URL',
   'TELEGRAM_SECRET_TOKEN',
+  'ALLOWED_TELEGRAM_USER_IDS',
   'DEEPSEEK_API_KEY',
   'GROQ_API_KEY',
   'TODOIST_API_KEY',
@@ -31,6 +32,21 @@ logger.info('app.startup.validation_completed', {
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 const NGROK_URL = process.env.NGROK_URL!;
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
+const ALLOWED_TELEGRAM_USER_IDS = process.env.ALLOWED_TELEGRAM_USER_IDS!
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean)
+  .map((value) => Number(value));
+
+if (
+  ALLOWED_TELEGRAM_USER_IDS.length === 0 ||
+  ALLOWED_TELEGRAM_USER_IDS.some((id) => !Number.isSafeInteger(id) || id <= 0)
+) {
+  logger.error('app.startup.validation_failed', {
+    invalidEnvVar: 'ALLOWED_TELEGRAM_USER_IDS',
+  });
+  process.exit(1);
+}
 
 // Wire up services
 const toolDispatcher = new DirectToolCallDispatcher();
@@ -38,6 +54,7 @@ const messageProcessor = new MessageProcessorService(toolDispatcher);
 
 const telegramConfig: TelegramConfig = {
   token: BOT_TOKEN,
+  allowedUserIds: ALLOWED_TELEGRAM_USER_IDS,
   webhookUrl: NGROK_URL,
   secretToken: TELEGRAM_SECRET_TOKEN,
 };

@@ -52,6 +52,7 @@ describe('TelegramBotService', () => {
     return new TelegramBotService(
       {
         token: 'bot-token',
+        allowedUserIds: [701122767],
         webhookUrl: 'https://example.com',
         secretToken: 'secret',
       },
@@ -84,5 +85,78 @@ describe('TelegramBotService', () => {
       { command: 'status', description: 'Show bot health, uptime, and dependency status' },
     ]);
     expect(service.bot.launch).toHaveBeenCalled();
+  });
+
+  it('handles updates from allowed Telegram users', async () => {
+    const service = await createService();
+    const update = {
+      update_id: 1001,
+      message: {
+        from: { id: 701122767 },
+        chat: { id: 701122767 },
+        text: 'Show my tasks',
+      },
+    };
+
+    await service.handleUpdate(update);
+
+    expect(service.bot.handleUpdate).toHaveBeenCalledWith(update);
+    expect(service.bot.telegram.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('denies updates from unapproved Telegram users', async () => {
+    const service = await createService();
+    const update = {
+      update_id: 1002,
+      message: {
+        from: { id: 123456 },
+        chat: { id: 123456 },
+        text: 'Show my tasks',
+      },
+    };
+
+    await service.handleUpdate(update);
+
+    expect(service.bot.handleUpdate).not.toHaveBeenCalled();
+    expect(service.bot.telegram.sendMessage).toHaveBeenCalledWith(
+      123456,
+      'Sorry, this bot is private.',
+    );
+  });
+
+  it('denies updates with no sender id', async () => {
+    const service = await createService();
+
+    await service.handleUpdate({ update_id: 1003, message: { chat: { id: 123456 } } });
+
+    expect(service.bot.handleUpdate).not.toHaveBeenCalled();
+    expect(service.bot.telegram.sendMessage).toHaveBeenCalledWith(
+      123456,
+      'Sorry, this bot is private.',
+    );
+  });
+
+  it('does not throw when denying an update without a usable chat id', async () => {
+    const service = await createService();
+
+    await expect(service.handleUpdate({ update_id: 1004 })).resolves.toBeUndefined();
+
+    expect(service.bot.handleUpdate).not.toHaveBeenCalled();
+    expect(service.bot.telegram.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('checks callback query sender ids before handling updates', async () => {
+    const service = await createService();
+    const update = {
+      update_id: 1005,
+      callback_query: {
+        from: { id: 701122767 },
+        message: { chat: { id: 701122767 } },
+      },
+    };
+
+    await service.handleUpdate(update);
+
+    expect(service.bot.handleUpdate).toHaveBeenCalledWith(update);
   });
 });

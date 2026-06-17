@@ -17,6 +17,7 @@ import { GPT_CONSTANTS } from '../ai/constants/gpt.constants';
 export class TelegramBotService {
   public readonly bot: Telegraf<Context>;
   private readonly botToken: string;
+  private readonly allowedUserIds: Set<number>;
   private readonly handlers: TelegramHandlers;
   private readonly fileService: FileService;
   private readonly messageProcessor: MessageProcessorService;
@@ -28,6 +29,7 @@ export class TelegramBotService {
     messageProcessor: MessageProcessorService
   ) {
     this.botToken = config.token;
+    this.allowedUserIds = new Set(config.allowedUserIds);
     this.bot = new Telegraf(config.token);
     this.messageProcessor = messageProcessor;
     this.fileService = new FileService(this.botToken, this.bot.telegram);
@@ -136,12 +138,32 @@ export class TelegramBotService {
   async handleUpdate(update: any): Promise<void> {
     const requestId = update.__requestId || createRequestId('tg');
     const startedAt = Date.now();
+    const senderId = this.extractSenderId(update);
 
     try {
       logger.info('telegram.update.handling_started', {
         requestId,
         updateId: update.update_id,
       });
+
+      if (!senderId || !this.allowedUserIds.has(senderId)) {
+        logger.warn('telegram.update.denied', {
+          requestId,
+          updateId: update.update_id,
+          userId: senderId,
+        });
+
+        await this.replyToDeniedUpdate(update, requestId);
+
+        logger.info('telegram.update.handling_completed', {
+          requestId,
+          updateId: update.update_id,
+          durationMs: Date.now() - startedAt,
+          authorized: false,
+        });
+        return;
+      }
+
       await this.bot.handleUpdate(update);
       logger.info('telegram.update.handling_completed', {
         requestId,
@@ -156,6 +178,43 @@ export class TelegramBotService {
         durationMs: Date.now() - startedAt,
       });
       throw error;
+    }
+  }
+
+  private extractSenderId(update: any): number | undefined {
+    const senderId =
+      update?.message?.from?.id ??
+      update?.edited_message?.from?.id ??
+      update?.callback_query?.from?.id ??
+      update?.my_chat_member?.from?.id ??
+      update?.chat_member?.from?.id;
+
+    return typeof senderId === 'number' ? senderId : undefined;
+  }
+
+  private extractChatId(update: any): number | string | undefined {
+    const chatId =
+      update?.message?.chat?.id ??
+      update?.edited_message?.chat?.id ??
+      update?.callback_query?.message?.chat?.id ??
+      update?.my_chat_member?.chat?.id ??
+      update?.chat_member?.chat?.id;
+
+    return typeof chatId === 'number' || typeof chatId === 'string' ? chatId : undefined;
+  }
+
+  private async replyToDeniedUpdate(update: any, requestId: string): Promise<void> {
+    const chatId = this.extractChatId(update);
+    if (!chatId) return;
+
+    try {
+      await this.bot.telegram.sendMessage(chatId, 'Sorry, this bot is private.');
+    } catch (error) {
+      logger.warn('telegram.update.denied_reply_failed', {
+        requestId,
+        updateId: update.update_id,
+        error: (error as Error).message,
+      });
     }
   }
 
