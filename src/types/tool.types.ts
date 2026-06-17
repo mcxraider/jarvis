@@ -1,3 +1,5 @@
+import { LogContext } from '../utils/logger';
+
 // Interface for OpenAI function calls
 export interface ToolCall {
   id: string;
@@ -18,6 +20,10 @@ export interface ToolResult {
 
 // Common interface for tool dispatchers
 export interface ToolDispatcher {
-  executeToolCalls(toolCalls: ToolCall[], userId: string): Promise<ToolResult[]>;
+  executeToolCalls(
+    toolCalls: ToolCall[],
+    userId: string,
+    logContext?: LogContext,
+  ): Promise<ToolResult[]>;
   isFunctionSupported(functionName: string): boolean;
 }

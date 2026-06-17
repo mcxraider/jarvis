@@ -1,5 +1,5 @@
 // src/services/telegram/telegram-bot.service.ts
-import { logger } from '../../utils/logger';
+import { createRequestId, logger } from '../../utils/logger';
 import { Telegraf, Context } from 'telegraf';
 import { Message } from 'telegraf/typings/core/types/typegram';
 import { TelegramHandlers } from './handlers/telegram-handlers';
@@ -48,7 +48,7 @@ export class TelegramBotService {
     this.setupBotHandlers();
     this.setupErrorHandling();
 
-    logger.info('Telegram bot initialized successfully');
+    logger.info('telegram.bot.initialized');
   }
 
   /**
@@ -89,7 +89,10 @@ export class TelegramBotService {
     try {
       const fullWebhookUrl = `${webhookUrl}/webhook/${secretToken}`;
 
-      logger.info('Setting up webhook', { url: fullWebhookUrl });
+      logger.info('telegram.webhook.setup_started', {
+        baseUrl: webhookUrl,
+        path: '/webhook/[REDACTED]',
+      });
 
       await this.syncCommands();
 
@@ -99,9 +102,12 @@ export class TelegramBotService {
         drop_pending_updates: true
       });
 
-      logger.info('Webhook configured successfully');
+      logger.info('telegram.webhook.configured', {
+        baseUrl: webhookUrl,
+        path: '/webhook/[REDACTED]',
+      });
     } catch (error) {
-      logger.error('Failed to set webhook', {
+      logger.error('telegram.webhook.setup_failed', {
         error: (error as Error).message,
         webhookUrl
       });
@@ -115,9 +121,9 @@ export class TelegramBotService {
   async removeWebhook(): Promise<void> {
     try {
       await this.bot.telegram.deleteWebhook({ drop_pending_updates: true });
-      logger.info('Webhook removed successfully');
+      logger.info('telegram.webhook.removed');
     } catch (error) {
-      logger.error('Failed to remove webhook', {
+      logger.error('telegram.webhook.remove_failed', {
         error: (error as Error).message
       });
       throw error;
@@ -128,12 +134,26 @@ export class TelegramBotService {
    * Handles incoming updates from Telegram webhook
    */
   async handleUpdate(update: any): Promise<void> {
+    const requestId = update.__requestId || createRequestId('tg');
+    const startedAt = Date.now();
+
     try {
-      await this.bot.handleUpdate(update);
-    } catch (error) {
-      logger.error('Error handling Telegram update', {
+      logger.info('telegram.update.handling_started', {
+        requestId,
         updateId: update.update_id,
-        error: (error as Error).message
+      });
+      await this.bot.handleUpdate(update);
+      logger.info('telegram.update.handling_completed', {
+        requestId,
+        updateId: update.update_id,
+        durationMs: Date.now() - startedAt,
+      });
+    } catch (error) {
+      logger.error('telegram.update.handling_failed', {
+        requestId,
+        updateId: update.update_id,
+        error: (error as Error).message,
+        durationMs: Date.now() - startedAt,
       });
       throw error;
     }
@@ -165,7 +185,7 @@ export class TelegramBotService {
   async getBotInfo(): Promise<any> {
     try {
       const botInfo = await this.bot.telegram.getMe();
-      logger.debug('Retrieved bot info', { username: botInfo.username });
+      logger.debug('telegram.bot.info_retrieved', { username: botInfo.username });
       return botInfo;
     } catch (error) {
       logger.error('Failed to get bot info', {
@@ -182,7 +202,7 @@ export class TelegramBotService {
     try {
       await this.syncCommands();
       await this.bot.launch();
-      logger.info('Bot started polling for updates');
+      logger.info('telegram.bot.polling_started');
     } catch (error) {
       logger.error('Failed to start polling', {
         error: (error as Error).message
@@ -197,7 +217,7 @@ export class TelegramBotService {
   async stop(): Promise<void> {
     try {
       this.bot.stop();
-      logger.info('Bot stopped successfully');
+      logger.info('telegram.bot.stopped');
     } catch (error) {
       logger.error('Error stopping bot', {
         error: (error as Error).message

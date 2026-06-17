@@ -3,6 +3,7 @@ import { logger } from '../../utils/logger';
 import { TextProcessorService } from './processors/text-processor.service';
 import { AudioProcessorService } from './processors/audio-processor.service';
 import { ToolDispatcher } from '../../types/tool.types';
+import { LogContext } from '../../utils/logger';
 
 /**
  * Main service responsible for coordinating message processing
@@ -20,25 +21,31 @@ export class MessageProcessorService {
   /**
    * Processes text messages from users
    */
-  async processTextMessage(text: string, userId?: number): Promise<string> {
-    logger.info('Delegating text message processing', {
+  async processTextMessage(text: string, userId?: number, logContext: LogContext = {}): Promise<string> {
+    logger.info('processor.route.selected', {
+      ...logContext,
       userId,
       messageLength: text.length,
+      messageType: 'text',
+      processor: 'TextProcessorService',
     });
 
-    return this.textProcessor.processTextMessage(text, userId);
+    return this.textProcessor.processTextMessage(text, userId, logContext);
   }
 
   /**
    * Processes audio messages (voice notes, audio files)
    */
-  async processAudioMessage(fileUrl: string, userId?: number): Promise<string> {
-    logger.info('Delegating audio message processing', {
+  async processAudioMessage(fileUrl: string, userId?: number, logContext: LogContext = {}): Promise<string> {
+    logger.info('processor.route.selected', {
+      ...logContext,
       userId,
+      messageType: logContext.messageType || 'audio',
+      processor: 'AudioProcessorService',
       fileUrl: fileUrl.substring(0, 50) + '...', // Log partial URL for privacy
     });
 
-    return this.audioProcessor.processAudioMessage(fileUrl, userId);
+    return this.audioProcessor.processAudioMessage(fileUrl, userId, logContext);
   }
 
   /**
@@ -49,14 +56,18 @@ export class MessageProcessorService {
     fileName: string,
     mimeType: string,
     userId?: number,
+    logContext: LogContext = {},
   ): Promise<string> {
-    logger.info('Delegating audio document processing', {
+    logger.info('processor.route.selected', {
+      ...logContext,
       userId,
       fileName,
       mimeType,
+      messageType: 'audio_document',
+      processor: 'AudioProcessorService',
     });
 
-    return this.audioProcessor.processAudioDocument(fileUrl, fileName, mimeType, userId);
+    return this.audioProcessor.processAudioDocument(fileUrl, fileName, mimeType, userId, logContext);
   }
 
   /**
@@ -71,18 +82,20 @@ export class MessageProcessorService {
       mimeType?: string;
     },
     userId?: number,
+    logContext: LogContext = {},
   ): Promise<string> {
-    logger.info('Processing message with automatic routing', {
+    logger.info('processor.route.started', {
+      ...logContext,
       userId,
       messageType: messageData.type,
     });
 
     switch (messageData.type) {
       case 'text':
-        return this.processTextMessage(messageData.content, userId);
+        return this.processTextMessage(messageData.content, userId, logContext);
 
       case 'audio':
-        return this.processAudioMessage(messageData.content, userId);
+        return this.processAudioMessage(messageData.content, userId, logContext);
 
       case 'audio_document':
         if (!messageData.fileName || !messageData.mimeType) {
@@ -93,10 +106,12 @@ export class MessageProcessorService {
           messageData.fileName,
           messageData.mimeType,
           userId,
+          logContext,
         );
 
       default:
-        logger.warn('Unknown message type received', {
+        logger.warn('processor.route.unknown_type', {
+          ...logContext,
           userId,
           messageType: messageData.type,
         });

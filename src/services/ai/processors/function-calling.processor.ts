@@ -5,7 +5,7 @@
  */
 
 import OpenAI from 'openai';
-import { logger } from '../../../utils/logger';
+import { LogContext, logger, truncateForLog } from '../../../utils/logger';
 import { MessageProcessingResult } from '../../../types/gpt.types';
 import { GPT_CONSTANTS } from '../constants/gpt.constants';
 import { getFunctionCallingSystemPrompt, FINAL_RESPONSE_PROMPT } from '../../../types/gpt.prompts';
@@ -38,10 +38,18 @@ export class FunctionCallingProcessor {
     temperature: number,
     message: string,
     userId: string,
+    logContext: LogContext = {},
   ): Promise<MessageProcessingResult> {
     const startTime = Date.now();
 
     try {
+      logger.info('gpt.tool_request.started', {
+        ...logContext,
+        userId,
+        model,
+        availableTools: this.toolsService.getAvailableFunctionNames(),
+      });
+
       // Send message to GPT with function calling capabilities enabled
       const response = await openai.chat.completions.create({
         model,
@@ -64,11 +72,12 @@ export class FunctionCallingProcessor {
       const responseMessage = response.choices[0].message;
 
       // Log the full GPT response for inspection
-      logger.debug('GPT function calling response', {
+      logger.debug('gpt.tool_response.received', {
+        ...logContext,
         userId,
         hasToolCalls: !!(responseMessage.tool_calls && responseMessage.tool_calls.length > 0),
         toolCallsCount: responseMessage.tool_calls?.length || 0,
-        content: responseMessage.content,
+        contentPreview: truncateForLog(responseMessage.content || undefined),
       });
 
       // Check if GPT wants to call any functions
@@ -80,6 +89,7 @@ export class FunctionCallingProcessor {
           temperature,
           message,
           userId,
+          logContext,
         );
 
         return {
@@ -96,6 +106,13 @@ export class FunctionCallingProcessor {
       const directResponse =
         responseMessage.content || "I apologize, but I couldn't process your request.";
 
+      logger.info('gpt.tool_decision.received', {
+        ...logContext,
+        userId,
+        toolCallsCount: 0,
+        directResponse: true,
+      });
+
       return {
         response: directResponse,
         originalMessage: message,
@@ -105,7 +122,8 @@ export class FunctionCallingProcessor {
         model,
       };
     } catch (error) {
-      logger.error('Function calling processing failed', {
+      logger.error('gpt.tool_request.failed', {
+        ...logContext,
         userId,
         error: (error as Error).message,
       });
@@ -132,6 +150,7 @@ export class FunctionCallingProcessor {
     temperature: number,
     originalMessage: string,
     userId: string,
+    logContext: LogContext,
   ): Promise<string> {
     if (!this.toolDispatcher || !responseMessage.tool_calls) {
       return "I'd like to help you with that, but I'm currently unable to execute the required actions.";
@@ -148,19 +167,34 @@ export class FunctionCallingProcessor {
         },
       }));
 
-      logger.info('Executing tool calls', {
+      logger.info('gpt.tool_decision.received', {
+        ...logContext,
         userId,
-        toolCalls: toolCalls.map((tc) => ({
+        toolCallsCount: toolCalls.length,
+        tools: toolCalls.map((tc) => tc.function.name),
+        toolParameters: toolCalls.map((tc) => ({
           id: tc.id,
           name: tc.function.name,
+          parameterKeys: this.getArgumentKeys(tc.function.arguments),
         })),
       });
 
       // Filter out any function names the dispatcher does not support
       const supportedCalls = toolCalls.filter((tc) => {
         if (this.toolDispatcher!.isFunctionSupported(tc.function.name)) return true;
-        logger.warn('Skipping unsupported function', { name: tc.function.name, userId });
+        logger.warn('gpt.tool_call.unsupported', {
+          ...logContext,
+          name: tc.function.name,
+          userId,
+        });
         return false;
+      });
+
+      logger.info('gpt.tool_calls.filtered', {
+        ...logContext,
+        userId,
+        requestedCount: toolCalls.length,
+        supportedCount: supportedCalls.length,
       });
 
       if (supportedCalls.length === 0) {
@@ -168,10 +202,15 @@ export class FunctionCallingProcessor {
       }
 
       // Execute all supported tool calls
-      const toolResults = await this.toolDispatcher.executeToolCalls(supportedCalls, userId);
+      const toolResults = await this.toolDispatcher.executeToolCalls(
+        supportedCalls,
+        userId,
+        logContext,
+      );
 
       // Log execution results
-      logger.info('Tool execution completed', {
+      logger.info('gpt.tool_results.received', {
+        ...logContext,
         userId,
         results: toolResults.map((result) => ({
           tool_call_id: result.tool_call_id,
@@ -188,11 +227,13 @@ export class FunctionCallingProcessor {
         originalMessage,
         responseMessage,
         toolResults,
+        logContext,
       );
 
       return finalResponse;
     } catch (error) {
-      logger.error('Tool call execution failed', {
+      logger.error('gpt.tool_execution.failed', {
+        ...logContext,
         userId,
         error: (error as Error).message,
       });
@@ -219,8 +260,15 @@ export class FunctionCallingProcessor {
     originalMessage: string,
     toolCallMessage: OpenAI.Chat.Completions.ChatCompletionMessage,
     toolResults: any[],
+    logContext: LogContext,
   ): Promise<string> {
     try {
+      const startedAt = Date.now();
+      logger.info('gpt.final_response.started', {
+        ...logContext,
+        toolResultsCount: toolResults.length,
+      });
+
       // Create messages array including the tool results
       const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
         {
@@ -254,12 +302,20 @@ export class FunctionCallingProcessor {
         temperature,
       });
 
-      return (
+      const response =
         finalResponse.choices[0].message.content ||
-        'I completed the requested actions successfully.'
-      );
+        'I completed the requested actions successfully.';
+
+      logger.info('gpt.final_response.completed', {
+        ...logContext,
+        responseLength: response.length,
+        durationMs: Date.now() - startedAt,
+      });
+
+      return response;
     } catch (error) {
-      logger.error('Failed to generate final response', {
+      logger.error('gpt.final_response.failed', {
+        ...logContext,
         error: (error as Error).message,
       });
 
@@ -270,6 +326,15 @@ export class FunctionCallingProcessor {
       } else {
         return 'I encountered some issues while processing your request. Please try again.';
       }
+    }
+  }
+
+  private getArgumentKeys(argumentsJson: string): string[] {
+    try {
+      const parsed = JSON.parse(argumentsJson);
+      return parsed && typeof parsed === 'object' ? Object.keys(parsed) : [];
+    } catch {
+      return [];
     }
   }
 }

@@ -40,6 +40,7 @@ describe('MessageHandlers', () => {
       'meeting.mp3',
       'audio/mpeg',
       123,
+      expect.objectContaining({ messageType: 'document' }),
     );
     expect(messageProcessor.processAudioMessage).not.toHaveBeenCalled();
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_document');

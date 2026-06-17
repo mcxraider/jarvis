@@ -17,10 +17,15 @@ const REQUIRED_ENV_VARS = [
 
 for (const key of REQUIRED_ENV_VARS) {
   if (!process.env[key]) {
-    console.error(`[startup] Missing required environment variable: ${key}`);
+    logger.error('app.startup.validation_failed', { missingEnvVar: key });
     process.exit(1);
   }
 }
+
+logger.info('app.startup.validation_completed', {
+  requiredEnvVars: REQUIRED_ENV_VARS.length,
+  nodeEnv: process.env.NODE_ENV || 'development',
+});
 
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 const NGROK_URL = process.env.NGROK_URL!;
@@ -38,4 +43,9 @@ const telegramConfig: TelegramConfig = {
 
 export const botService = new TelegramBotService(telegramConfig, messageProcessor);
 
-logger.info('Services initialised');
+logger.info('app.services.initialized', {
+  telegramConfigured: true,
+  openaiConfigured: true,
+  todoistConfigured: true,
+  functionCallingEnabled: true,
+});

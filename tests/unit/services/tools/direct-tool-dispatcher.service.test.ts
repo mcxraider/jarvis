@@ -71,20 +71,23 @@ describe('DirectToolCallDispatcher', () => {
       'user-1',
     );
 
-    expect(mockTodoistService.addTask).toHaveBeenCalledWith({
-      content: 'Pay rent',
-      description: 'Before noon',
-      project_id: 'project-1',
-      section_id: 'section-1',
-      parent_id: 'parent-1',
-      order: 3,
-      labels: ['home', 'money'],
-      priority: 4,
-      due_string: 'tomorrow',
-      due_date: '2026-06-17',
-      due_datetime: '2026-06-17T02:00:00Z',
-      assignee_id: 'user-1',
-    });
+    expect(mockTodoistService.addTask).toHaveBeenCalledWith(
+      {
+        content: 'Pay rent',
+        description: 'Before noon',
+        project_id: 'project-1',
+        section_id: 'section-1',
+        parent_id: 'parent-1',
+        order: 3,
+        labels: ['home', 'money'],
+        priority: 4,
+        due_string: 'tomorrow',
+        due_date: '2026-06-17',
+        due_datetime: '2026-06-17T02:00:00Z',
+        assignee_id: 'user-1',
+      },
+      {},
+    );
     expect(result).toEqual([{ tool_call_id: 'call-1', content: createdTask }]);
   });
 
@@ -110,16 +113,20 @@ describe('DirectToolCallDispatcher', () => {
       'user-1',
     );
 
-    expect(mockTodoistService.updateTask).toHaveBeenCalledWith('task-1', {
-      content: 'Pay rent now',
-      description: 'Late fee tomorrow',
-      labels: ['urgent'],
-      priority: 4,
-      due_string: 'today',
-      due_date: '2026-06-16',
-      due_datetime: '2026-06-16T10:00:00Z',
-      assignee_id: 'user-1',
-    });
+    expect(mockTodoistService.updateTask).toHaveBeenCalledWith(
+      'task-1',
+      {
+        content: 'Pay rent now',
+        description: 'Late fee tomorrow',
+        labels: ['urgent'],
+        priority: 4,
+        due_string: 'today',
+        due_date: '2026-06-16',
+        due_datetime: '2026-06-16T10:00:00Z',
+        assignee_id: 'user-1',
+      },
+      {},
+    );
     expect(result).toEqual([{ tool_call_id: 'call-1', content: updatedTask }]);
   });
 
@@ -155,24 +162,30 @@ describe('DirectToolCallDispatcher', () => {
       'user-1',
     );
 
-    expect(mockTodoistService.getTask).toHaveBeenCalledWith('task-1');
-    expect(mockTodoistService.getTasks).toHaveBeenCalledWith({
-      project_id: 'project-1',
-      section_id: 'section-1',
-      label: 'home',
-      filter: 'today',
-      lang: 'en',
-      ids: ['task-1', 'task-2'],
-    });
-    expect(mockTodoistService.completeTask).toHaveBeenCalledWith('task-3');
-    expect(mockTodoistService.deleteTask).toHaveBeenCalledWith('task-4');
-    expect(mockTodoistService.getCompletedTasks).toHaveBeenCalledWith({
-      since: '2026-06-01T00:00:00Z',
-      until: '2026-06-16T23:59:59Z',
-      project_id: 'project-1',
-      limit: 25,
-      offset: 5,
-    });
+    expect(mockTodoistService.getTask).toHaveBeenCalledWith('task-1', {});
+    expect(mockTodoistService.getTasks).toHaveBeenCalledWith(
+      {
+        project_id: 'project-1',
+        section_id: 'section-1',
+        label: 'home',
+        filter: 'today',
+        lang: 'en',
+        ids: ['task-1', 'task-2'],
+      },
+      {},
+    );
+    expect(mockTodoistService.completeTask).toHaveBeenCalledWith('task-3', {});
+    expect(mockTodoistService.deleteTask).toHaveBeenCalledWith('task-4', {});
+    expect(mockTodoistService.getCompletedTasks).toHaveBeenCalledWith(
+      {
+        since: '2026-06-01T00:00:00Z',
+        until: '2026-06-16T23:59:59Z',
+        project_id: 'project-1',
+        limit: 25,
+        offset: 5,
+      },
+      {},
+    );
     expect(result).toEqual([
       { tool_call_id: 'get-one', content: { id: 'task-1' } },
       { tool_call_id: 'get-many', content: [{ id: 'task-2' }] },

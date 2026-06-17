@@ -62,10 +62,11 @@ describe('Webhook pipeline integration', () => {
       reply: reply.mock.calls[0],
     });
     expect(response.status).toBe(200);
-    expect(botService.handleUpdate).toHaveBeenCalledWith(update);
+    expect(botService.handleUpdate).toHaveBeenCalledWith(expect.objectContaining(update));
     expect(messageProcessor.processTextMessage).toHaveBeenCalledWith(
       'Add a Todoist task to review invoices tomorrow',
       123456,
+      expect.objectContaining({ messageType: 'text' }),
     );
     expect(reply).toHaveBeenCalledWith('Mocked Jarvis reply');
   });
