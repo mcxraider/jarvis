@@ -21,10 +21,10 @@ import { AudioConverter } from '../../utils/ai/audioConverter';
  * Constants for Whisper service configuration
  */
 const WHISPER_CONSTANTS = {
-  /** Default maximum file size (25MB as per OpenAI limits) */
+  /** Default maximum file size (25MB as per Groq limits) */
   DEFAULT_MAX_FILE_SIZE_BYTES: 25 * 1024 * 1024,
-  /** Default Whisper model */
-  DEFAULT_MODEL: 'gpt-4o-transcribe',
+  /** Default Whisper model on Groq */
+  DEFAULT_MODEL: 'whisper-large-v3',
   /** Default response format */
   DEFAULT_RESPONSE_FORMAT: 'text' as const,
   /** Default language (English) */
@@ -79,15 +79,18 @@ export class WhisperService {
    * @throws {Error} If OpenAI API key is not provided
    */
   constructor(config?: Partial<WhisperConfig>) {
-    const apiKey = config?.apiKey || process.env.OPENAI_API_KEY;
+    const apiKey = config?.apiKey || process.env.GROQ_API_KEY;
 
     if (!apiKey) {
       throw new Error(
-        'OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass it in config.',
+        'Groq API key is required. Set GROQ_API_KEY environment variable or pass it in config.',
       );
     }
 
-    this.openai = new OpenAI({ apiKey });
+    this.openai = new OpenAI({
+      apiKey,
+      baseURL: 'https://api.groq.com/openai/v1',
+    });
 
     // Set default configuration with provided overrides
     // Always enforce English-only transcription unless explicitly disabled
@@ -297,6 +300,7 @@ export class WhisperService {
         model: this.config.model,
         language: this.language,
         response_format: this.config.responseFormat,
+        temperature: 0,
       });
 
       // Handle different response formats

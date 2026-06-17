@@ -455,9 +455,37 @@ Expected behavior:
 
 ### Voice Parity
 
-Route audio transcription output through the same agentic orchestrator as text messages.
+Add audio-file input as a first-class entry point into the same GPT processing pipeline.
 
-Current audio support transcribes messages but does not use the Todoist tool dispatcher. This enhancement would make voice and text share the same planning, clarification, execution, and reporting behavior.
+Expected flow:
+
+```text
+Telegram message
+  -> detect whether the payload contains an audio file
+  -> if audio: call Groq speech-to-text API
+      -> endpoint: https://api.groq.com/openai/v1/audio/transcriptions
+      -> model: whisper-large-v3
+  -> send the transcribed text to GPT for normal intent processing
+  -> route resulting tool calls through the existing dispatcher/orchestrator
+  -> return the final response to the user
+```
+
+Current audio support transcribes messages but does not use the Todoist tool dispatcher. This enhancement would make voice and text share the same planning, clarification, execution, and reporting behavior while keeping transcription as a preprocessing step before GPT.
+
+Design considerations:
+
+- Use Groq's OpenAI-compatible transcription endpoint with `model=whisper-large-v3`, because it is the higher-accuracy multilingual option and supports both transcription and translation.
+- Keep Groq credentials separate from GPT credentials, for example `GROQ_API_KEY`, and make the audio-to-text provider configurable so the Telegram pipeline is not tightly coupled to one vendor.
+- Validate the audio file before upload. Groq supports direct file uploads or URLs for `flac`, `mp3`, `mp4`, `mpeg`, `mpga`, `m4a`, `ogg`, `wav`, and `webm`.
+- Enforce file-size limits before calling the API. Groq documents a 25 MB attachment limit and larger account-tier limits for direct processing; larger files should be rejected, converted, or chunked before transcription.
+- Prefer `response_format=json` for the normal pipeline so the processor can extract the transcribed text deterministically. Use `verbose_json` only when timestamp or quality metadata is needed for debugging.
+- Pass an ISO-639-1 `language` hint when Telegram/user context makes the spoken language clear, because this can improve accuracy and latency.
+- Keep `temperature=0` for stable transcription output.
+- Consider a short `prompt` for app-specific vocabulary, names, or spelling, but keep it concise because Groq limits the prompt to 224 tokens.
+- Preprocess oversized or inefficient audio with ffmpeg to 16 kHz mono. Groq performs this downsampling internally, but client-side conversion can reduce upload size and latency.
+- For large audio, add chunking with overlap, then merge transcribed chunks before sending the final text to GPT.
+- Capture transcription quality metadata when using `verbose_json`, especially low confidence, high no-speech probability, or unusual compression ratio, so poor audio can trigger a user-friendly retry message instead of unreliable tool execution.
+- Do not execute side-effecting tool calls if transcription returns empty text, very low confidence, or likely non-speech audio; ask the user to retry or send text instead.
 
 ### Task Decomposition
 

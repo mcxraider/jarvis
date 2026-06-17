@@ -15,7 +15,7 @@ export class MessageProcessorService {
 
   constructor(toolDispatcher?: ToolDispatcher) {
     this.textProcessor = new TextProcessorService(toolDispatcher);
-    this.audioProcessor = new AudioProcessorService();
+    this.audioProcessor = new AudioProcessorService(this.textProcessor);
   }
 
   /**
