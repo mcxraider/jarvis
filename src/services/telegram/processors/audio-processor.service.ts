@@ -1,76 +1,68 @@
 // src/services/telegram/processors/audio-processor.service.ts
-import { logger } from '../../../utils/logger';
+import { LogContext, logger } from '../../../utils/logger';
 import { WhisperService } from '../../ai/whisper.service';
-import { GPTService } from '../../ai/gpt.service';
+import { TextProcessorService } from './text-processor.service';
 
 /**
  * Service responsible for processing audio messages and documents
  */
 export class AudioProcessorService {
   private readonly whisperService: WhisperService;
-  private readonly gptService: GPTService;
+  private readonly textProcessor: TextProcessorService;
 
-  constructor() {
-    // Initialize WhisperService with English-only enforcement
+  constructor(textProcessor: TextProcessorService) {
     this.whisperService = new WhisperService({
       enforceEnglishOnly: true,
       language: 'en',
     });
 
-    // Initialize GPTService for text processing
-    this.gptService = new GPTService();
+    this.textProcessor = textProcessor;
   }
 
   /**
    * Processes audio messages (voice notes, audio files)
    */
-  async processAudioMessage(fileUrl: string, userId?: number): Promise<string> {
-    logger.info('Processing audio message', {
+  async processAudioMessage(fileUrl: string, userId?: number, logContext: LogContext = {}): Promise<string> {
+    logger.info('audio_processor.started', {
+      ...logContext,
       userId,
       fileUrl: fileUrl.substring(0, 50) + '...', // Log partial URL for privacy
     });
 
     try {
       // Transcribe the audio using Whisper service
-      const transcriptionResult = await this.whisperService.transcribeAudio(fileUrl, userId);
+      const transcriptionResult = await this.whisperService.transcribeAudio(fileUrl, userId, logContext);
 
       const { text, processingTimeMs } = transcriptionResult;
 
-      // If transcription is empty or too short, provide helpful feedback
       if (!text || text.trim().length < 2) {
-        return (
-          `🎵 Audio received and processed, but no speech was detected.\n` +
-          `⏱️ Processing time: ${Math.round(processingTimeMs / 1000)}s\n`
-        );
+        return 'No speech detected in the audio.';
       }
 
-      // Process the transcribed text with GPT
       try {
-        const response = await this.gptService.processMessage(text, userId?.toString());
+        const response = await this.textProcessor.processTextMessage(text, userId, logContext);
 
-        const finalResponse =
-          `📝 What you said: ${text}\n\n` +
-          `🤖 Response: ${response}\n\n` +
-          `⏱️ Transcription: ${Math.round(processingTimeMs / 1000)}s`;
-
-        return finalResponse;
-      } catch (gptError) {
-        logger.warn('Failed to process transcribed audio with GPT', {
+        return (
+          `<b>Transcription:</b> ${this.escapeHtml(text)}\n\n` +
+          `${response}\n\n` +
+          `<i>${Math.round(processingTimeMs / 1000)}s transcription</i>`
+        );
+      } catch (processingError) {
+        logger.warn('audio_processor.text_processing_failed', {
+          ...logContext,
           userId,
           transcribedText: text.substring(0, 100),
-          error: (gptError as Error).message,
+          error: (processingError as Error).message,
         });
 
-        // Fallback to just showing transcription if GPT processing fails
         return (
-          `🎵 Audio transcribed successfully!\n\n` +
-          `📝 What you said: ${text}\n\n` +
-          `⏱️ ${Math.round(processingTimeMs / 1000)}s\n` +
-          `🤖 (Response generation temporarily unavailable)`
+          `<b>Transcription:</b> ${this.escapeHtml(text)}\n\n` +
+          `<i>Could not process the request. Please try again.</i>`
         );
       }
     } catch (error) {
-      logger.error('Failed to process audio message', {
+      logger.error('audio_processor.failed', {
+        ...logContext,
         userId,
         error: (error as Error).message,
       });
@@ -87,8 +79,10 @@ export class AudioProcessorService {
     fileName: string,
     mimeType: string,
     userId?: number,
+    logContext: LogContext = {},
   ): Promise<string> {
-    logger.info('Processing audio document', {
+    logger.info('audio_processor.document_started', {
+      ...logContext,
       userId,
       fileName,
       mimeType,
@@ -96,50 +90,39 @@ export class AudioProcessorService {
 
     try {
       // Use the same transcription logic as audio messages
-      const transcriptionResult = await this.whisperService.transcribeAudio(fileUrl, userId);
+      const transcriptionResult = await this.whisperService.transcribeAudio(fileUrl, userId, logContext);
 
       const { text, processingTimeMs, fileSizeBytes } = transcriptionResult;
 
-      // If transcription is empty or too short, provide helpful feedback
       if (!text || text.trim().length < 2) {
-        return (
-          `📁 Audio document "${fileName}" processed, but no speech was detected.\n` +
-          `🎼 Type: ${mimeType}\n` +
-          `⏱️ Processing time: ${Math.round(processingTimeMs / 1000)}s\n`
-        );
+        return `No speech detected in <code>${this.escapeHtml(fileName)}</code>.`;
       }
 
-      // Process the transcribed text with GPT
       try {
-        const response = await this.gptService.processMessage(text, userId?.toString());
+        const response = await this.textProcessor.processTextMessage(text, userId, logContext);
 
-        const finalResponse =
-          `📁 Audio document "${fileName}" processed successfully!\n` +
-          `🎼 Type: ${mimeType}\n\n` +
-          `📝 What was said: ${text}\n\n` +
-          `🤖 Response: ${response}\n\n` +
-          `⏱️ Transcription: ${Math.round(processingTimeMs / 1000)}s`;
-
-        return finalResponse;
-      } catch (gptError) {
-        logger.warn('Failed to process transcribed audio document with GPT', {
+        return (
+          `<b>Transcription:</b> ${this.escapeHtml(text)}\n\n` +
+          `${response}\n\n` +
+          `<i>${Math.round(processingTimeMs / 1000)}s transcription</i>`
+        );
+      } catch (processingError) {
+        logger.warn('audio_processor.document_text_processing_failed', {
+          ...logContext,
           userId,
           fileName,
           transcribedText: text.substring(0, 100),
-          error: (gptError as Error).message,
+          error: (processingError as Error).message,
         });
 
-        // Fallback to just showing transcription if GPT processing fails
         return (
-          `📁 Audio document "${fileName}" transcribed successfully!\n` +
-          `🎼 Type: ${mimeType}\n\n` +
-          `📝 What was said: ${text}\n\n` +
-          `⏱️ ${Math.round(processingTimeMs / 1000)}s\n` +
-          `🤖 (Response generation temporarily unavailable)`
+          `<b>Transcription:</b> ${this.escapeHtml(text)}\n\n` +
+          `<i>Could not process the request. Please try again.</i>`
         );
       }
     } catch (error) {
       logger.error('Failed to process audio document', {
+        ...logContext,
         userId,
         fileName,
         mimeType,
@@ -150,99 +133,46 @@ export class AudioProcessorService {
     }
   }
 
-  /**
-   * Handles errors during audio message processing
-   */
   private handleAudioProcessingError(error: Error): string {
-    const errorMessage = error.message;
+    const msg = error.message;
 
-    if (errorMessage.includes('File size') && errorMessage.includes('exceeds')) {
-      return (
-        `🎵 Audio received, but the file is too large for processing.\n` +
-        `📏 Please send audio files smaller than 25MB.`
-      );
+    if (msg.includes('File size') && msg.includes('exceeds')) {
+      return 'Audio file is too large. Maximum size is 25 MB.';
     }
-
-    if (errorMessage.includes('Unsupported audio format')) {
-      return (
-        `🎵 Audio received, but the format is not supported.\n` +
-        `🔧 Please use common audio formats like MP3, OGG, WAV, or M4A.`
-      );
+    if (msg.includes('Unsupported audio format')) {
+      return 'Unsupported audio format. Please send MP3, OGG, WAV, or M4A.';
     }
-
-    if (errorMessage.includes('Audio format conversion is not available')) {
-      return (
-        `🎵 Audio received in a format that needs conversion, but the conversion service is not available.\n` +
-        `🔧 Please convert your audio to MP3, WAV, or OGG format and try again.`
-      );
+    if (msg.includes('Audio format conversion is not available')) {
+      return 'This format requires conversion but the converter is unavailable. Please send MP3 or WAV.';
     }
-
-    if (errorMessage.includes('Audio format conversion failed')) {
-      return (
-        `🎵 Audio received, but format conversion failed.\n` +
-        `🔧 Please try converting your audio to MP3, WAV, or OGG format and send again.`
-      );
+    if (msg.includes('Audio format conversion failed')) {
+      return 'Audio format conversion failed. Please send MP3 or WAV directly.';
     }
-
-    if (errorMessage.includes('Failed to download')) {
-      return (
-        `🎵 Audio received, but there was an issue downloading the file.\n` +
-        `🔄 Please try sending the audio again.`
-      );
+    if (msg.includes('Failed to download')) {
+      return 'Could not download the audio file. Please try sending it again.';
     }
-
-    // Generic error message for other failures
-    return (
-      `🎵 Audio received, but processing failed.\n` +
-      `❌ Error: Unable to transcribe the audio file.\n` +
-      `🔄 Please try again or contact support if the issue persists.`
-    );
+    return 'Transcription failed. Please try again.';
   }
 
-  /**
-   * Handles errors during audio document processing
-   */
-  private handleAudioDocumentError(error: Error, fileName: string, mimeType: string): string {
-    const errorMessage = error.message;
+  private handleAudioDocumentError(error: Error, fileName: string, _mimeType: string): string {
+    const msg = error.message;
 
-    if (errorMessage.includes('File size') && errorMessage.includes('exceeds')) {
-      return (
-        `📁 Audio document "${fileName}" received, but the file is too large for processing.\n` +
-        `🎼 Type: ${mimeType}\n` +
-        `📏 Please send audio files smaller than 25MB.`
-      );
+    if (msg.includes('File size') && msg.includes('exceeds')) {
+      return `<code>${this.escapeHtml(fileName)}</code> is too large. Maximum size is 25 MB.`;
     }
-
-    if (errorMessage.includes('Unsupported audio format')) {
-      return (
-        `📁 Audio document "${fileName}" received, but the format is not supported.\n` +
-        `🎼 Type: ${mimeType}\n` +
-        `🔧 Please use common audio formats like MP3, OGG, WAV, or M4A.`
-      );
+    if (msg.includes('Unsupported audio format')) {
+      return `<code>${this.escapeHtml(fileName)}</code> — unsupported format. Please send MP3, OGG, WAV, or M4A.`;
     }
-
-    if (errorMessage.includes('Audio format conversion is not available')) {
-      return (
-        `📁 Audio document "${fileName}" received in a format that needs conversion, but the conversion service is not available.\n` +
-        `🎼 Type: ${mimeType}\n` +
-        `🔧 Please convert your audio to MP3, WAV, or OGG format and try again.`
-      );
+    if (msg.includes('Audio format conversion')) {
+      return `<code>${this.escapeHtml(fileName)}</code> — conversion failed. Please send MP3 or WAV directly.`;
     }
+    return `Could not transcribe <code>${this.escapeHtml(fileName)}</code>. Please try again.`;
+  }
 
-    if (errorMessage.includes('Audio format conversion failed')) {
-      return (
-        `📁 Audio document "${fileName}" received, but format conversion failed.\n` +
-        `🎼 Type: ${mimeType}\n` +
-        `🔧 Please try converting your audio to MP3, WAV, or OGG format and send again.`
-      );
-    }
-
-    // Generic error message for other failures
-    return (
-      `📁 Audio document "${fileName}" received, but processing failed.\n` +
-      `🎼 Type: ${mimeType}\n` +
-      `❌ Error: Unable to transcribe the audio file.\n` +
-      `🔄 Please try again or contact support if the issue persists.`
-    );
+  private escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 }

@@ -1,514 +1,569 @@
 # Future Enhancements
 
-Larger features to consider after the core is solid. This is a single-user personal assistant for Jerry, so the roadmap is ordered by practical development sequence rather than scale-first architecture.
+This document captures planned product and backend enhancements that are not part of the current Todoist-first Telegram assistant surface.
 
-The guiding principle is:
+## Agentic Multi-Tool Orchestration With LangGraph
 
-1. Make the system reliable
-2. Make it responsive
-3. Make the agent smarter
-4. Expand integrations
-5. Improve developer ergonomics
+### Goal
 
----
+Add an agentic orchestration flow where Jarvis can turn one natural-language Telegram message into one or many tool calls, run independent calls in parallel, ask for clarification when required, and report a clear success/failure summary back to the user.
 
-## Phase 1: Core Reliability and Execution Foundation
-
-These are the highest-leverage upgrades because they make every later feature easier and safer to build.
-
-### Database / Persistence Layer
-The app is currently mostly stateless. Adding a lightweight persistence layer first would unlock:
-
-- Persistent conversation history across restarts
-- Stored user preferences and shortcuts
-- Message history and usage analytics
-- Job state for async execution
-- Clarification state that survives process restarts
-
-**Recommended starting point:**
-- SQLite for local simplicity
-- Small tables for `messages`, `jobs`, `pending_clarifications`, `user_preferences`, and `usage_events`
-
----
-
-### Asynchronous Task Execution / Non-Blocking Threading
-Jarvis should not let one long-running task block the entire conversation thread. Telegram should acknowledge receipt quickly, while heavy work continues in the background.
-
-**Example problem:**
-- User sends a voice note
-- Jarvis starts downloading the Telegram file, converting audio, transcribing it, and running the agent
-- While that is happening, the user sends another message
-- The system should still feel responsive instead of frozen behind the first job
-
-**What this enables:**
-- Voice uploads can process in the background without blocking lighter text interactions
-- Long-running tool actions can continue while Telegram stays responsive
-- Independent work can overlap where safe
-- The app can grow beyond a single synchronous request pipeline
-
-**High-level plan:**
-1. Split request intake from request execution
-2. Acknowledge Telegram immediately after receipt
-3. Persist a job record for each incoming task
-4. Run heavy work in async workers or queues
-5. Stream status updates back to Telegram while the job progresses
-6. Serialize only the parts that truly require ordering
-
-**What can potentially be asynchronous:**
-- Telegram file download after webhook acknowledgment
-- Audio conversion and normalization
-- Whisper transcription
-- Image OCR or preprocessing
-- Search-style tool calls that do not mutate state
-- Read/fetch calls to systems like Notion, Gmail, or Todoist
-- Progress/status message updates
-- Logging, analytics, and token accounting writes
-- Conversation-summary writes
-- Follow-up enrichment after the main reply is sent
-
-**What should remain serialized or guarded:**
-- Multiple writes to the same Todoist task or Notion page
-- Clarification flows tied to a specific pending question
-- Destructive actions such as delete, replace, or send
-- Per-user memory writes that can race
-- Final response assembly when it depends on ordered tool results
-
-**Concurrency model to aim for:**
-- Per-user request queue for operations that must stay ordered
-- Background worker pool for independent heavy tasks
-- Job IDs tied to Telegram chat and user IDs
-- Lightweight locking around shared resources
-- Cancellation or supersede behavior when a newer request makes an older one irrelevant
-
-**Implementation path:**
-- Add a job model such as `{ jobId, userId, chatId, type, status, payload, result, error }`
-- Move heavy processing out of the webhook request path
-- Add a queue layer such as BullMQ, Redis-backed jobs, or a lightweight in-process job manager first
-- Separate processors for `text`, `audio`, `image`, and `tool-execution`
-- Add per-user concurrency rules so unrelated tasks can run while conflicting writes stay protected
-
-**Suggested async candidates by pipeline stage:**
-1. Intake stage:
-   - Validate incoming Telegram payload
-   - Store message metadata
-   - Enqueue background work
-2. Media stage:
-   - Download voice or image files
-   - Convert audio
-   - Extract media metadata
-3. Understanding stage:
-   - Transcribe audio
-   - Run OCR or image extraction
-   - Classify intent
-4. Retrieval stage:
-   - Run search tools
-   - Fetch reference pages, tasks, or emails
-   - Load memory or context
-5. Execution stage:
-   - Run non-conflicting tools in parallel where safe
-   - Queue or lock mutating actions
-6. Post-processing stage:
-   - Format the final answer
-   - Send progress updates
-   - Persist logs, analytics, and memory
-
-**Design constraints:**
-- Telegram should get a fast acknowledgment even if the task continues for several seconds
-- User-visible progress should reflect async state changes clearly
-- Mutating actions need idempotency keys or locking to avoid duplicate writes
-- Retries must be safe, especially for create/update operations
-
----
-
-### Structured Logging / Monitoring
-Current logging is console-only via Winston. Before the system gets more complex, observability should improve.
-
-**Why this matters:**
-- Async workflows are much harder to debug without job-level logs
-- Tool-calling issues need traceability
-- User-facing delays become easier to measure
-
-**What to add:**
-- Structured logs with request ID / job ID / user ID
-- Response time metrics
-- Error-rate tracking
-- Token usage per request and per user
-- Optional shipping to Datadog, Grafana, or Logtail
-
----
-
-### Spend Guardrail
-As tool use and async workloads expand, cost control should become explicit.
-
-**Add:**
-- Token usage tracking per session
-- Daily and monthly OpenAI cost caps
-- Telegram alerts when approaching a limit
-- Graceful degradation when budget is reached
-
----
-
-### Docker / Deployment
-Once persistence and async execution exist, deployment should be standardized.
-
-**Would need:**
-- `Dockerfile`
-- `docker-compose.yml` for local services
-- CI/CD pipeline for auto-deploy
-- Existing health check endpoint (`GET /ping`) wired into deployment checks
-
----
-
-## Phase 2: Agent UX and Safer Interaction
-
-Once the core runtime is stable, the next step is making the assistant feel clearer, safer, and more trustworthy.
-
-### Telegram Background Progress Updates
-Jarvis could show a concise but descriptive step-by-step trace of what the agent is doing in the background while a request is being handled.
-
-This is especially useful once async execution exists, because the user should be able to see progress instead of waiting in silence.
-
-**Example style:**
-```text
-Search
-Found the Tool calling page. Let me fetch it first to see the existing content.
-
-Fetch
-Page is empty. Adding the code now.
-
-Notion-update-page
-Done — added to your Tool calling page inside jarvis-mcp.
-```
-
-**Why this matters:**
-- Makes longer-running actions feel responsive inside Telegram
-- Helps the user understand the process step by step
-- Builds trust for multi-tool operations like search → fetch → update
-- Creates a better UX than a single silent loading state or one final reply
-
-**Design principles:**
-- Keep updates concise, but not vague
-- Show one meaningful step at a time
-- Prefer human-readable labels like `Search`, `Fetch`, `Update page`
-- Summarize intent and result, not hidden reasoning
-- Edit or replace the in-progress status message when possible to avoid chat spam
-
-**Implementation path:**
-- Add a progress event model such as `{ step, status, message }`
-- Emit events from tool execution and orchestration layers
-- Render those events into a Telegram-friendly progress message
-- Update the same Telegram message as the workflow advances, then send the final answer separately or convert the progress message into the final summary
-
----
-
-### Clarification Layer — Ask Before Acting
-Before executing any voice or text command, Jarvis should run a lightweight intent-parsing step. If confidence is low or the action is risky, it should ask before acting.
-
-**Why this matters:**
-- Voice transcription introduces errors
-- Destructive or irreversible operations should never happen on a misheard command
-- Ambiguous requests often do not have a safe default
-
-**How it works:**
-1. GPT receives the user's message with a pre-processing prompt that scores intent confidence and flags ambiguities
-2. If confidence is high and the command is non-destructive, execute immediately
-3. If confidence is medium or the command is destructive, ask one clarifying question
-4. If confidence is low, explain what was heard and ask the user to rephrase
-
-**Example interactions:**
-```text
-User (voice): "Delete the meeting"
-Jarvis: "Just to confirm — delete the task 'Team standup meeting' due today? Reply yes to confirm."
-
-User: "Remind me"
-Jarvis: "Remind you about what, and when?"
-
-User: "Add milk"
-Jarvis: "Got it — adding 'Buy milk' to your Todoist. Does that sound right?"
-```
-
-**Implementation path:**
-- New `ClarificationService` returning `{ intent, confidence, clarificationQuestion | null }`
-- Inject it into `TextProcessorService` and `AudioProcessorService` before the main GPT call
-- Make confidence thresholds and destructive-action lists configurable
-- Store clarification state per user in a short-lived session record
-
----
-
-### Conversation Memory
-The bot currently has zero memory between messages. Adding persistent context would unlock:
-
-- Multi-turn conversations such as "change the task I just added"
-- User preferences learned over time
-- Daily briefings summarizing what is coming up
-
-**Implementation options:**
-- Short-term in-memory state keyed by Telegram user ID
-- Longer-lived summaries or preferences stored in SQLite
-- Later: external vector memory if needed
-
----
-
-### More GPT Models / Dynamic Model Selection
-The app is currently hardcoded to `gpt-4o`. It should eventually choose models based on task complexity.
-
-**Possible model policy:**
-- `gpt-4o-mini` for simple factual replies or lightweight routing
-- `gpt-4o` or a stronger model for tool calls, planning, and complex edits
-
-**Why this matters:**
-- Reduces cost
-- Improves latency
-- Keeps high-quality reasoning where it matters
-
----
-
-## Phase 3: Agent Architecture and Retrieval
-
-After the runtime and UX are solid, the next step is upgrading how the agent decides, routes, and selects tools.
-
-### LangGraph Message Processing Pipeline
-Currently each message goes through a single linear GPT call. A graph of nodes with conditional routing would unlock more intelligent and testable behavior.
-
-**Rough sketch of the graph:**
+Example target message:
 
 ```text
-User message
-      ↓
-[Intent Router Node]
-  - Decides: is this a tool call? does it need clarification? is it just chat?
-      ↓
- ┌────────────────────────────────────────────┐
- │                                            │
-[Clarification Node]          [Tool Call Node]         [Chat Node]
- - Asks a follow-up question   - Extracts tool params   - Simple GPT reply
- - Waits for user reply        - Executes tool(s)
- - Re-routes on response       - Gets results
-                                      ↓
-                              [Status Response Node]
-                               - Formats and sends
-                                 confirmation to user
+put in my cal im going holiday from 15th to 20th June korea
 ```
 
-**Why this matters:**
-- Conditional routing instead of one giant processor
-- Each node is isolated and testable
-- Easy to add new nodes such as memory retrieval or guardrails
-- Retry logic becomes a node-level concern
-- Clarification becomes a first-class part of the flow
+Expected behavior:
 
-**Implementation path:**
-- Use `@langchain/langgraph` for graph runtime
-- Define one `StateGraph` per message lifecycle with shared `AgentState`
-- Replace `FunctionCallingProcessor` and `SimpleTextProcessor` with graph nodes
-- Let `MessageProcessorService` become the graph runner
+- Jarvis understands this as a multi-day calendar/task creation request.
+- The orchestrator expands the range from 15 June through 20 June into six add operations.
+- The generated items should be named consistently, for example:
+  - `Korea day 1`
+  - `Korea day 2`
+  - `Korea day 3`
+  - `Korea day 4`
+  - `Korea day 5`
+  - `Korea day 6`
+- Each add operation should target the correct date.
+- The final Telegram response should say what succeeded and what failed.
 
-**Nodes to implement:**
-1. `intentRouterNode`
-2. `clarificationNode`
-3. `toolCallNode`
-4. `statusResponseNode`
-5. `chatNode`
+### Current Limitation
 
----
+The current runtime is built around a single GPT tool-decision pass followed by direct tool execution and a final GPT response. The dispatcher already exposes an array-based `executeToolCalls()` API and executes supported calls with `Promise.allSettled()`, but the product behavior is still not a full agentic planning loop:
 
-### Pinecone Vector DB for Semantic Tool Retrieval
-Add a vector-search layer for tool discovery so Jarvis can retrieve the top-`k` most relevant tool calls based on the user's query instead of relying only on static tool lists or keyword matching.
+- There is no explicit planning node that expands one user intent into multiple concrete operations.
+- There is no first-class clarification branch before execution.
+- There is no durable orchestration state for many related tool calls.
+- There is no sequential worker flow for dependent tasks such as "find this task by name, then update it."
+- Reporting is delegated to a final GPT response instead of a deterministic success/failure formatter.
+- Calendar-style multi-day expansion is not modeled as its own use case.
 
-This fits naturally with the future `tool_search` pattern and becomes more valuable as the tool registry grows.
+### High-Level Architecture Flow
 
-**What this enables:**
-- Semantic matching between user intent and available tools
-- Better tool selection when the user uses natural language rather than exact tool names
-- Cleaner scaling as the number of tools grows
-- A strong foundation for lazy-loading tools into context
+```text
+Telegram user message
+  -> Webhook / Telegram message handler
+  -> Message processor
+  -> LangGraph Orchestrator
+      -> Intent + context extraction node
+      -> Planner node
+          -> decide whether tools are needed
+          -> emit one or many proposed tool calls
+          -> identify missing required details
+      -> Clarification router
+          -> if details missing: ask user "Do you mean ...?"
+          -> if details complete: continue
+      -> Tool execution node
+          -> validate and normalize tool calls
+          -> run independent tool calls in parallel
+          -> run dependent tool calls sequentially when later calls need earlier outputs
+          -> collect per-call success/failure
+      -> Result aggregation node
+          -> produce structured execution report
+      -> Response formatting node
+          -> send user-friendly Telegram summary
+```
 
-**Example use case:**
-- User says: "add this to my Notion page and update the existing section"
-- Jarvis embeds that request and queries Pinecone
-- Pinecone returns top-`k` tools such as `notion-search`, `notion-fetch`, and `notion-update-page`
-- Only those tools are injected into the active context
+### Proposed LangGraph State
 
-**Implementation path:**
-- Create an embedding document for each tool using tool name, description, parameter names, and example usage
-- Generate embeddings for the tool registry
-- Store them in a Pinecone index with metadata such as `toolName`, `domain`, `description`, and `parameters`
-- On each `tool_search` request, embed the user query and retrieve top-`k` matching tools
-- Optionally rerank or filter results before loading them into model context
+Introduce a graph state object that can carry the request through planning, clarification, execution, and reporting.
 
-**Suggested metadata per tool vector:**
-- `toolName`
-- `domain`
-- `description`
-- `parameterSummary`
-- `exampleQueries`
-- `isMutating`
+```ts
+type OrchestrationState = {
+  userId: string;
+  chatId: string;
+  originalMessage: string;
+  normalizedIntent?: {
+    action: 'create' | 'update' | 'delete' | 'complete' | 'list' | 'conversation';
+    domain: 'todoist' | 'calendar' | 'general';
+    confidence: number;
+  };
+  clarification?: {
+    needed: boolean;
+    question?: string;
+    missingFields?: string[];
+  };
+  plannedToolCalls: PlannedToolCall[];
+  executionResults: ToolExecutionResult[];
+  finalResponse?: string;
+};
 
-**Why Pinecone fits well:**
-- Fast approximate nearest-neighbor retrieval
-- Good fit for semantic search over a growing tool registry
-- Easy to combine with metadata filtering by domain or capability
-- Potential reuse later for memory or document retrieval
+type PlannedToolCall = {
+  id: string;
+  toolName: string;
+  arguments: Record<string, unknown>;
+  dependsOn?: string[];
+  displayLabel: string;
+};
 
-**Retrieval flow:**
-1. User sends a natural-language request
-2. Jarvis embeds the query
-3. Pinecone returns top-`k` candidate tools
-4. Optional reranking narrows the final set
-5. Matching tools are loaded into context
-6. The model executes against that reduced toolset
+type ToolExecutionResult = {
+  toolCallId: string;
+  toolName: string;
+  displayLabel: string;
+  status: 'success' | 'failure';
+  result?: unknown;
+  error?: string;
+};
 
-**Design considerations:**
-- Keep `top_k` configurable
-- Prefer domain filters when the source is obvious, such as Notion or Gmail
-- Use semantic retrieval as the first-pass selector, with optional lexical reranking for precision
-- Re-embed the registry whenever tool definitions materially change
+type WorkerOutput = {
+  workerId: string;
+  sourceToolCallId: string;
+  selectedEntityId?: string;
+  candidates?: unknown[];
+  confidence: number;
+  needsClarification?: boolean;
+  clarificationQuestion?: string;
+};
+```
 
----
+### Planner Behavior
 
-## Phase 4: Product Integrations
+The planner should use GPT tool-calling or structured output to produce a normalized plan before tools are executed.
 
-Once the agent runtime, safety, and tool-selection story are stronger, expanding integrations becomes much less painful.
+For the Korea holiday example, the planner should produce six independent add operations:
 
-### Notion Integration — Notes, Passwords, Knowledge Base
-Full read/write/edit access to your Notion workspace, turning Jarvis into a voice-driven interface for everything you store there.
+```json
+[
+  {
+    "toolName": "add_todoist_task",
+    "arguments": {
+      "content": "Korea day 1",
+      "due_date": "2026-06-15"
+    },
+    "displayLabel": "Korea day 1 on 2026-06-15"
+  },
+  {
+    "toolName": "add_todoist_task",
+    "arguments": {
+      "content": "Korea day 2",
+      "due_date": "2026-06-16"
+    },
+    "displayLabel": "Korea day 2 on 2026-06-16"
+  }
+]
+```
 
-**What it enables:**
-- Dump notes into Notion
-- Retrieve passwords or secrets privately
-- Edit pages
-- Search your knowledge base
-- Create structured entries inside databases
+The real plan would continue through 20 June. The planner must use the current date and user timezone when resolving dates. If the year is ambiguous, use the nearest future matching date unless the user explicitly says otherwise.
 
-**Implementation path:**
-- Use the Notion REST API (v1) or the equivalent MCP tool path
-- Define GPT function tools such as `search_notion`, `get_notion_page`, `create_notion_page`, `update_notion_page`, and `append_to_notion_page`
-- Return sensitive content only in private Telegram DMs, never in groups
-- Add confirmation before returning especially sensitive content
+### Sequential Dependent Tool Flow
 
-**API:** `https://api.notion.com/v1`
+Some user requests cannot be executed as one independent batch because later actions require outputs from earlier lookup work.
 
----
+Example target message:
 
-### Google Calendar
-Add calendar read/write tools so Jarvis can:
+```text
+rename my dentist appointment to dentist appointment at 3pm tomorrow
+```
 
-- Create events from voice
-- Query upcoming schedules
-- Cross-reference calendar and Todoist for conflicts
+Expected behavior:
 
-**Integration path:**
-- Google Calendar API
-- Similar service/tool pattern to the existing Todoist integration
+- The planner identifies this as an update request without a known Todoist task ID.
+- The graph starts a lookup worker that searches Todoist by likely task name, for example `dentist appointment`.
+- The lookup worker returns either one confident task, multiple candidates, or no match.
+- If one confident task is found, a second node uses that returned task ID to call `update_todoist_task`.
+- If multiple plausible tasks are found, the graph routes to clarification before any update happens.
+- The final Telegram response reports both the lookup and the update outcome in user-friendly language.
 
----
+Example dependent plan:
 
-### Gmail Integration — Full Email Access via API
-Read, search, send, and manage Gmail through Jarvis voice or text commands.
+```json
+[
+  {
+    "id": "find-dentist-task",
+    "toolName": "get_tasks",
+    "arguments": {
+      "filter": "search: dentist appointment"
+    },
+    "displayLabel": "Find dentist appointment task"
+  },
+  {
+    "id": "update-dentist-task",
+    "toolName": "update_todoist_task",
+    "dependsOn": ["find-dentist-task"],
+    "arguments": {
+      "task_id": "{{find-dentist-task.selectedTaskId}}",
+      "content": "dentist appointment at 3pm tomorrow",
+      "due_string": "tomorrow at 3pm"
+    },
+    "displayLabel": "Update dentist appointment"
+  }
+]
+```
 
-**What it enables:**
-- Summarize inbox state
-- Search emails
-- Read full threads
-- Send and reply to email
-- Create tasks from email
-- Archive or label messages
+The dependency placeholder is not sent directly to Todoist. The sequential execution node must resolve it from the worker output after the lookup succeeds. If the lookup result is ambiguous, the graph should pause and ask the user to choose a task instead of guessing.
 
-**Implementation path:**
-- Gmail API via Google Cloud OAuth2
-- Securely store refresh tokens
-- Define GPT function tools such as `list_emails`, `search_emails`, `get_email`, `send_email`, `reply_to_email`, `create_draft`, and `archive_email`
-- Route sending through the Clarification Layer and require explicit confirmation
-- Summarize long email bodies before returning them to Telegram
+### Clarification Flow
 
-**Security considerations:**
-- Encrypt OAuth tokens
-- Require explicit confirmation for send operations
-- Avoid exposing sensitive metadata unnecessarily
-- Rate limit email sends
+Before execution, the graph should route to clarification when required information is missing or risky to infer.
 
-**API:** `https://gmail.googleapis.com/gmail/v1`
+Examples:
 
----
+- Missing destination: "put my holiday from 15th to 20th June"
+- Ambiguous year: "15th to 20th June" when both past and future interpretations are plausible
+- Ambiguous target system: "put in my cal" while only Todoist is configured, or if both Todoist and calendar tools are configured later
+- Ambiguous item granularity: one all-day event versus one item per day
 
-### Reminders / Scheduled Messages
-Using a cron-like system, Jarvis could:
+The clarification node should send one concise Telegram question, such as:
 
-- Send a morning briefing
-- Remind you of tasks due today
-- Check in on overdue tasks
+```text
+Do you mean six separate items, one for each day from 15 June to 20 June, named Korea day 1 through Korea day 6?
+```
 
-**Implementation:**
-- Cron job or scheduler plus Telegram `sendMessage`
+The follow-up user answer should resume the same orchestration state instead of starting from scratch.
 
----
+### Tool Execution Flow
 
-### Image Understanding
-GPT-4o image support could enable:
+The execution node should:
 
-- Screenshot to task extraction
-- Whiteboard to to-do extraction
-- Menu or document scanning
+- Validate every planned call against the tool registry schema before execution.
+- Reject unsupported tool names before any side effects happen.
+- Split calls into independent and dependent groups.
+- Run independent calls with `Promise.allSettled()` or LangGraph parallel branches.
+- Run dependent calls in topological order so each node can consume outputs from the calls it depends on.
+- Support worker nodes for lookup/ranking steps that return structured outputs such as selected task ID, candidate list, confidence, and clarification question.
+- Resolve dependency placeholders from worker outputs before executing side-effecting calls.
+- Pause before mutation when the worker output is ambiguous, low-confidence, or empty.
+- Preserve each tool call ID and display label through execution.
+- Return one result per planned call, including failures.
 
-This becomes more useful after the async pipeline is in place, since image preprocessing can run in the background.
+For v1, all generated "add" calls for the holiday example are independent and can run in parallel.
 
----
+For v1.1, natural-language edit/delete flows should use sequential execution:
 
-## Phase 5: Developer Experience
+```text
+Lookup worker node
+  -> returns confident task ID or candidate list
+  -> if confident: mutation node updates/deletes/completes the task
+  -> if ambiguous: clarification node asks the user to choose
+```
 
-These are worth doing, but they are easier once the product direction above is clearer.
+### Telegram Reporting
 
-### Polling Mode for Local Dev
-Webhook mode requires a public URL such as ngrok. A `NODE_ENV=development` toggle that switches to Telegraf polling would make local development much smoother.
+Final reporting should be deterministic and easy to scan. GPT may be used for tone, but the success/failure facts should come from structured execution results.
 
-```typescript
-if (process.env.NODE_ENV === 'development') {
-  bot.launch(); // polling
-} else {
-  // webhook mode
+Example final response:
+
+```text
+Done. I created 5 of 6 Korea holiday items.
+
+Created:
+- Korea day 1 - 15 Jun
+- Korea day 2 - 16 Jun
+- Korea day 3 - 17 Jun
+- Korea day 4 - 18 Jun
+- Korea day 5 - 19 Jun
+
+Failed:
+- Korea day 6 - 20 Jun: Todoist API rate limit. Please retry.
+```
+
+If all calls succeed, keep the response shorter:
+
+```text
+Done. I created 6 Korea holiday items from 15 Jun to 20 Jun.
+```
+
+### Backend Engineering Changes
+
+Add a new orchestration layer instead of expanding the existing function-calling processor in place.
+
+Recommended components:
+
+- `AgentOrchestratorService`: owns the LangGraph graph and exposes `processMessage()`.
+- `PlanningNode`: turns the user message into a structured intent, clarification state, and planned tool calls.
+- `ClarificationNode`: formats the clarification question and marks the run as waiting for user input.
+- `ToolExecutionNode`: validates, groups, and executes planned calls through the existing dispatcher.
+- `LookupWorkerNode`: runs retrieval-style tools, ranks candidates, and produces structured worker outputs for downstream dependent calls.
+- `SequentialExecutionNode`: executes dependent calls in order and resolves arguments from previous worker outputs before side effects.
+- `ResultAggregatorNode`: converts raw tool results into a stable report model.
+- `TelegramResponseFormatter`: formats clarification, success, partial failure, and total failure messages.
+- `ConversationStateStore`: stores pending clarifications by Telegram chat/user so the next user message can resume the graph.
+
+### Public Interfaces
+
+Keep the existing tool dispatcher contract where possible, but add planner-facing types:
+
+```ts
+interface AgentOrchestrator {
+  processMessage(input: AgentMessageInput): Promise<AgentMessageResult>;
 }
+
+type AgentMessageInput = {
+  userId: string;
+  chatId: string;
+  message: string;
+  timezone: string;
+};
+
+type AgentMessageResult =
+  | {
+      type: 'clarification';
+      message: string;
+    }
+  | {
+      type: 'completed';
+      message: string;
+      report: ExecutionReport;
+    };
+
+type ExecutionReport = {
+  total: number;
+  successCount: number;
+  failureCount: number;
+  items: ToolExecutionResult[];
+};
 ```
 
----
+### Testing Strategy
 
-### Test Coverage
-Target: 80%+ coverage on core services.
+Unit tests:
 
-**Priority areas:**
-- Unit tests with mocked OpenAI and Todoist APIs
-- Integration tests for the full message flow
-- Snapshot tests for tool definitions
-- Async job and clarification-flow coverage once those systems exist
+- Planner expands "holiday from 15th to 20th June Korea" into six add calls.
+- Planner sets day labels and due dates correctly.
+- Clarification is requested when destination, year, target system, or granularity is unclear.
+- Execution node runs independent calls in parallel and preserves per-call IDs.
+- Execution node runs dependent lookup-then-update plans sequentially and resolves the selected task ID.
+- Lookup worker routes to clarification when multiple Todoist candidates match the requested task name.
+- Result aggregator returns correct success and failure counts.
+- Telegram formatter handles all-success, partial-failure, and all-failure reports.
 
----
+Integration tests:
 
-### CLI / Admin Interface
-A lightweight admin script or internal CLI could help with:
+- Telegram text message enters the LangGraph orchestrator and produces multiple tool calls.
+- Mixed success/failure dispatcher responses produce a formatted Telegram report.
+- Clarification response resumes the same pending orchestration.
+- Natural-language "find task by name, then update it" request performs lookup first and mutation second.
 
-- Sending a test message to the bot
-- Checking webhook status
-- Inspecting current tool definitions
-- Rotating secrets without restart
+Live/gated tests:
 
----
+- Optional Todoist live test for creating two or more dated tasks from one message.
+- Future calendar live tests only after a real calendar integration exists.
 
-## Recommended Build Order
+### Rollout Plan
 
-If building this incrementally, the most practical order is:
+1. Add LangGraph and orchestration types behind a feature flag, for example `AGENT_ORCHESTRATOR_ENABLED=false`.
+2. Keep the current GPT function-calling path as the fallback while the graph is developed.
+3. Enable the new graph first for text messages only.
+4. Add observability for graph node duration, planned tool count, success count, failure count, and clarification count.
+5. Once stable, route audio transcriptions through the same orchestrator so text and voice share behavior.
 
-1. Database / persistence layer
-2. Asynchronous task execution
-3. Structured logging / monitoring
-4. Telegram background progress updates
-5. Clarification layer
-6. Conversation memory
-7. Dynamic model selection
-8. LangGraph message pipeline
-9. Pinecone semantic tool retrieval
-10. Notion integration
-11. Google Calendar integration
-12. Gmail integration
-13. Reminders / scheduled messages
-14. Image understanding
-15. Docker / deployment hardening
-16. Developer experience improvements
+### Open Product Decisions
+
+- Whether "cal" should map to Todoist tasks for now or wait for a real calendar tool.
+- Whether a multi-day holiday should create Todoist tasks, calendar events, or both.
+- Whether date ranges should default to one item per day or one all-day range item.
+- Whether the user should confirm before executing more than a threshold number of side-effecting tool calls.
+
+## Additional Feature Ideas
+
+These enhancements build on the same agentic foundation but are separate from multi-event or multi-day support.
+
+### Natural-Language Task Lookup Before Edit/Delete
+
+Allow Jarvis to handle edit and delete requests even when the user does not know the Todoist task ID.
+
+Example messages:
+
+```text
+rename my dentist appointment to 3pm
+delete the Korea visa task
+move the invoice task to tomorrow
+```
+
+Expected flow:
+
+```text
+User request
+  -> search Todoist for likely matching tasks
+  -> rank matches
+  -> if one confident match: execute update/delete
+  -> if multiple matches: ask user to choose
+  -> report result
+```
+
+This would close the current limitation where natural-language edits and deletes work best only when the task ID is known.
+
+### Clarification Memory
+
+Store pending clarifications so short follow-up replies can resume the original orchestration instead of starting a new request.
+
+Example:
+
+```text
+User: put my holiday from 15th to 20th June
+Jarvis: Do you mean six separate items, one per day?
+User: yes
+Jarvis: creates the six planned items
+```
+
+This should be handled by the same `ConversationStateStore` proposed for the LangGraph orchestration flow.
+
+### Bulk Task Operations
+
+Support batch changes across existing Todoist tasks.
+
+Example messages:
+
+```text
+move all overdue admin tasks to tomorrow
+complete all tasks with label errands
+reschedule this week's low priority tasks to next week
+```
+
+Expected behavior:
+
+- Search for the affected tasks.
+- Preview the affected count when the action is broad or risky.
+- Ask for confirmation before destructive or large updates.
+- Execute independent updates in parallel.
+- Return a clear success/failure report.
+
+### Confirmation Thresholds For Risky Actions
+
+Add a safety layer before executing high-impact plans.
+
+Require confirmation when a plan would:
+
+- Delete more than one task.
+- Complete more than a configured number of tasks.
+- Create more than a configured number of tasks.
+- Reschedule many tasks at once.
+- Touch multiple external systems.
+
+The confirmation message should summarize the intended action before any side effects happen.
+
+### Daily And Weekly Planning Assistant
+
+Let Jarvis help the user plan work rather than only mutate tasks.
+
+Example messages:
+
+```text
+plan my day
+what should I do today?
+organize my week
+```
+
+Expected behavior:
+
+- Fetch overdue, today, and upcoming tasks.
+- Group tasks by urgency, priority, label, or project.
+- Identify overload when there are too many tasks due.
+- Suggest a realistic plan.
+- Optionally reschedule tasks after user confirmation.
+
+### Voice Parity
+
+Add audio-file input as a first-class entry point into the same GPT processing pipeline.
+
+Expected flow:
+
+```text
+Telegram message
+  -> detect whether the payload contains an audio file
+  -> if audio: call Groq speech-to-text API
+      -> endpoint: https://api.groq.com/openai/v1/audio/transcriptions
+      -> model: whisper-large-v3
+  -> send the transcribed text to GPT for normal intent processing
+  -> route resulting tool calls through the existing dispatcher/orchestrator
+  -> return the final response to the user
+```
+
+Current audio support transcribes messages but does not use the Todoist tool dispatcher. This enhancement would make voice and text share the same planning, clarification, execution, and reporting behavior while keeping transcription as a preprocessing step before GPT.
+
+Design considerations:
+
+- Use Groq's OpenAI-compatible transcription endpoint with `model=whisper-large-v3`, because it is the higher-accuracy multilingual option and supports both transcription and translation.
+- Keep Groq credentials separate from GPT credentials, for example `GROQ_API_KEY`, and make the audio-to-text provider configurable so the Telegram pipeline is not tightly coupled to one vendor.
+- Validate the audio file before upload. Groq supports direct file uploads or URLs for `flac`, `mp3`, `mp4`, `mpeg`, `mpga`, `m4a`, `ogg`, `wav`, and `webm`.
+- Enforce file-size limits before calling the API. Groq documents a 25 MB attachment limit and larger account-tier limits for direct processing; larger files should be rejected, converted, or chunked before transcription.
+- Prefer `response_format=json` for the normal pipeline so the processor can extract the transcribed text deterministically. Use `verbose_json` only when timestamp or quality metadata is needed for debugging.
+- Pass an ISO-639-1 `language` hint when Telegram/user context makes the spoken language clear, because this can improve accuracy and latency.
+- Keep `temperature=0` for stable transcription output.
+- Consider a short `prompt` for app-specific vocabulary, names, or spelling, but keep it concise because Groq limits the prompt to 224 tokens.
+- Preprocess oversized or inefficient audio with ffmpeg to 16 kHz mono. Groq performs this downsampling internally, but client-side conversion can reduce upload size and latency.
+- For large audio, add chunking with overlap, then merge transcribed chunks before sending the final text to GPT.
+- Capture transcription quality metadata when using `verbose_json`, especially low confidence, high no-speech probability, or unusual compression ratio, so poor audio can trigger a user-friendly retry message instead of unreliable tool execution.
+- Do not execute side-effecting tool calls if transcription returns empty text, very low confidence, or likely non-speech audio; ask the user to retry or send text instead.
+
+### Task Decomposition
+
+Expand broad goals into actionable subtasks.
+
+Example message:
+
+```text
+I need to prepare for my Korea trip
+```
+
+Possible generated tasks:
+
+- Check passport validity.
+- Book flights.
+- Book accommodation.
+- Buy travel insurance.
+- Exchange currency.
+- Pack luggage.
+
+This differs from multi-event support because the agent is decomposing a goal into logical subtasks, not expanding a date range.
+
+### Calendar Integration
+
+Add a real calendar integration so Jarvis can decide whether a request belongs in Todoist, a calendar, or both.
+
+Example messages:
+
+```text
+meeting with Alex Friday 3pm
+remind me to prepare slides before the meeting
+block my calendar for Korea holiday
+```
+
+Expected behavior:
+
+- Calendar events go to the calendar tool.
+- Actionable reminders go to Todoist.
+- Requests with both scheduling and action items can create both, after confirmation when appropriate.
+
+### Recurring Task Support
+
+Support natural-language recurring tasks.
+
+Example messages:
+
+```text
+remind me every Monday to submit timesheet
+water plants every 3 days
+pay rent on the first of every month
+```
+
+The planner should parse recurrence carefully, preview the interpreted schedule when ambiguous, and ask for confirmation before creating the recurring item.
+
+### Deterministic Result Reports
+
+Move success/failure reporting out of free-form GPT responses and into a stable formatter backed by structured execution results.
+
+Reports should distinguish:
+
+- Created
+- Updated
+- Completed
+- Deleted
+- Skipped
+- Failed
+- Needs clarification
+
+This becomes more important as Jarvis supports parallel execution and multi-step plans.
+
+### Suggested Priority
+
+Recommended implementation order:
+
+1. Clarification memory.
+2. Natural-language lookup before edit/delete.
+3. Deterministic execution reports.
+4. Voice parity through the same orchestrator.
+5. Bulk operations with confirmation.
+6. Calendar integration.
+7. Task decomposition and planning assistant.

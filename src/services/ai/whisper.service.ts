@@ -12,7 +12,7 @@
  */
 
 import OpenAI from 'openai';
-import { logger } from '../../utils/logger';
+import { LogContext, logger, truncateForLog } from '../../utils/logger';
 import { AudioMimeTypes } from '../../utils/constants';
 import { validateFileSize } from '../../utils/ai/fileValidation';
 import { AudioConverter } from '../../utils/ai/audioConverter';
@@ -21,10 +21,10 @@ import { AudioConverter } from '../../utils/ai/audioConverter';
  * Constants for Whisper service configuration
  */
 const WHISPER_CONSTANTS = {
-  /** Default maximum file size (25MB as per OpenAI limits) */
+  /** Default maximum file size (25MB as per Groq limits) */
   DEFAULT_MAX_FILE_SIZE_BYTES: 25 * 1024 * 1024,
-  /** Default Whisper model */
-  DEFAULT_MODEL: 'gpt-4o-transcribe',
+  /** Default Whisper model on Groq */
+  DEFAULT_MODEL: 'whisper-large-v3',
   /** Default response format */
   DEFAULT_RESPONSE_FORMAT: 'text' as const,
   /** Default language (English) */
@@ -79,15 +79,18 @@ export class WhisperService {
    * @throws {Error} If OpenAI API key is not provided
    */
   constructor(config?: Partial<WhisperConfig>) {
-    const apiKey = config?.apiKey || process.env.OPENAI_API_KEY;
+    const apiKey = config?.apiKey || process.env.GROQ_API_KEY;
 
     if (!apiKey) {
       throw new Error(
-        'OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass it in config.',
+        'Groq API key is required. Set GROQ_API_KEY environment variable or pass it in config.',
       );
     }
 
-    this.openai = new OpenAI({ apiKey });
+    this.openai = new OpenAI({
+      apiKey,
+      baseURL: 'https://api.groq.com/openai/v1',
+    });
 
     // Set default configuration with provided overrides
     // Always enforce English-only transcription unless explicitly disabled
@@ -123,10 +126,15 @@ export class WhisperService {
    * @returns Promise resolving to transcription result
    * @throws {Error} If file download fails, file is too large, or transcription fails
    */
-  async transcribeAudio(fileUrl: string, userId?: number): Promise<TranscriptionResult> {
+  async transcribeAudio(
+    fileUrl: string,
+    userId?: number,
+    logContext: LogContext = {},
+  ): Promise<TranscriptionResult> {
     const startTime = Date.now();
 
-    logger.info('Starting audio transcription', {
+    logger.info('whisper.transcription.started', {
+      ...logContext,
       userId,
       fileUrl: this.sanitizeUrlForLogging(fileUrl),
     });
@@ -147,7 +155,8 @@ export class WhisperService {
       let conversionTimeMs = 0;
 
       if (AudioConverter.needsConversion(originalExtension)) {
-        logger.info('Audio format needs conversion', {
+        logger.info('audio.conversion.required', {
+          ...logContext,
           userId,
           originalFormat: originalExtension,
           targetFormat: AudioConverter.getTargetFormat(),
@@ -167,7 +176,8 @@ export class WhisperService {
           // Validate converted file size
           validateFileSize(processedBuffer.length, this.config.maxFileSizeBytes);
 
-          logger.info('Audio conversion completed', {
+          logger.info('audio.conversion.completed', {
+            ...logContext,
             userId,
             originalFormat: originalExtension,
             targetFormat: fileExtension,
@@ -176,7 +186,8 @@ export class WhisperService {
             conversionTimeMs,
           });
         } catch (conversionError) {
-          logger.error('Audio conversion failed', {
+          logger.error('audio.conversion.failed', {
+            ...logContext,
             userId,
             originalFormat: originalExtension,
             error: (conversionError as Error).message,
@@ -214,8 +225,9 @@ export class WhisperService {
 
       // Add conversion information to logs if conversion was performed
       const logData: any = {
+        ...logContext,
         userId,
-        text: result.text.substring(0, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH),
+        textPreview: truncateForLog(result.text, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH),
         textLength: transcription.length,
         processingTimeMs,
         fileSizeBytes: processedBuffer.length,
@@ -228,13 +240,14 @@ export class WhisperService {
         logData.transcriptionTimeMs = processingTimeMs - conversionTimeMs;
       }
 
-      logger.info('Audio transcription completed successfully', logData);
+      logger.info('whisper.transcription.completed', logData);
 
       return result;
     } catch (error) {
       const processingTimeMs = Date.now() - startTime;
 
-      logger.error('Audio transcription failed', {
+      logger.error('whisper.transcription.failed', {
+        ...logContext,
         userId,
         fileUrl: this.sanitizeUrlForLogging(fileUrl),
         error: (error as Error).message,
@@ -287,6 +300,7 @@ export class WhisperService {
         model: this.config.model,
         language: this.language,
         response_format: this.config.responseFormat,
+        temperature: 0,
       });
 
       // Handle different response formats

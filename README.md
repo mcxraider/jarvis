@@ -1,183 +1,267 @@
-# TeleJarvis Setup & Testing Guide
+# Jarvis MCP
 
-## Step 1: Fix Your Environment Variables
+Jarvis is a personal Telegram assistant for Todoist. Send a text message to the bot, and Jarvis uses OpenAI GPT tool calling to create, list, update, complete, or delete Todoist tasks through the Todoist REST API.
 
-Your `.env` file should look like this:
+The app runs as an Express webhook server with Telegraf handling Telegram updates.
+
+## What Works
+
+- Telegram webhook server with secret validation.
+- `/help` and `/status` bot commands.
+- Text messages routed through GPT function calling.
+- Todoist REST actions:
+  - `add_todoist_task`
+  - `get_todoist_task`
+  - `get_tasks`
+  - `update_todoist_task`
+  - `complete_task`
+  - `delete_todoist_task`
+  - `get_completed_todoist_tasks`
+- Voice/audio transcription exists, but audio messages currently use GPT without Todoist tools.
+- Structured runtime logs with request IDs and redaction.
+- Offline, mocked integration, and gated live tests.
+
+## Requirements
+
+- Node.js `>=16`
+- npm `>=7`
+- Telegram bot token from `@BotFather`
+- Public HTTPS webhook URL, usually via ngrok for local development
+- OpenAI API key
+- Todoist REST API token
+
+## Environment
+
+Copy the sample file and fill in real values:
+
+```bash
+cp .env.sample .env
+```
+
+Required for normal runtime:
 
 ```env
-# Bot token from @BotFather (this is your actual bot token)
-BOT_TOKEN=7693362121:AAF3xxxxpL1K2rSw
-
-# Create your own secret token for webhook security (any random string)
-TELEGRAM_SECRET_TOKEN=my-super-secret-webhook-token-2024
-
-# Your ngrok details
-NGROK_AUTH_TOKEN=2xxX4vxxxxxShCNni69iTuS3PF8Vc
-NGROK_URL=https://f071-101-127-95-132.ngrok-free.app
-
-# Server configuration
+BOT_TOKEN=...
+NGROK_URL=https://your-ngrok-url.ngrok-free.app
+TELEGRAM_SECRET_TOKEN=...
+OPENAI_API_KEY=...
+TODOIST_API_KEY=...
 PORT=3000
 NODE_ENV=development
-
-# For testing - your personal Telegram user ID (see instructions below)
-TEST_CHAT_ID=123456789
-RUN_INTEGRATION_TESTS=true
 ```
 
-## Step 2: How to Find Your TEST_CHAT_ID
+Optional logging controls:
 
-### Method 1: Using @userinfobot
-1. Open Telegram and search for `@userinfobot`
-2. Start a chat with the bot
-3. Send any message
-4. The bot will reply with your user ID
-
-### Method 2: Using Your Own Bot
-1. Start your bot (see Step 4 below)
-2. Send `/help` to your bot
-3. Check the console logs - your user ID will be logged
-4. Copy the `userId` from the logs to your `.env` file
-
-## Step 3: Project Structure Explanation
-
+```env
+LOG_LEVEL=debug
+LOG_FORMAT=pretty
 ```
+
+See [.env.sample](./.env.sample) for all runtime and live-test variables.
+
+## Run The Backend Locally
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Start ngrok in another terminal:
+
+```bash
+ngrok http 3000
+```
+
+Copy the HTTPS forwarding URL from ngrok, then set it in `.env`:
+
+```env
+NGROK_URL=https://your-ngrok-url.ngrok-free.app
+PORT=3000
+```
+
+Start the local backend:
+
+```bash
+npm run dev
+```
+
+For compiled runtime:
+
+```bash
+npm start
+```
+
+`npm start` runs `npm run build` first, then starts `dist/server.js`.
+
+Health check:
+
+```bash
+curl http://localhost:3000/ping
+```
+
+Expected response:
+
+```json
+{"status":"ok"}
+```
+
+## Use It In Telegram
+
+1. Create a Telegram bot with `@BotFather` and copy its token into `.env` as `BOT_TOKEN`.
+2. Put a long random string in `.env` as `TELEGRAM_SECRET_TOKEN`.
+3. Start ngrok with `ngrok http 3000`.
+4. Put the ngrok HTTPS URL in `.env` as `NGROK_URL`.
+5. Start the app with `npm run dev`.
+
+On startup, the backend automatically registers this Telegram webhook:
+
+```text
+${NGROK_URL}/webhook/${TELEGRAM_SECRET_TOKEN}
+```
+
+You should see logs like:
+
+```text
+server.started
+telegram.webhook.configured
+telegram.webhook.awaiting_updates
+```
+
+Then open your bot in Telegram and send a normal message. For example:
+
+```text
+Add a Todoist task to review invoices tomorrow at 9am with high priority
+```
+
+Expected flow:
+
+```text
+Telegram message
+  -> local Express backend through ngrok
+  -> GPT decides which Todoist tool to call
+  -> Todoist REST API is called
+  -> Telegram receives Jarvis's reply
+```
+
+If Telegram messages do not reach the app, check that `NGROK_URL` has no trailing slash, the app was restarted after editing `.env`, and the console shows `telegram.webhook.configured`.
+
+## Example Telegram Messages
+
+```text
+Add a Todoist task to review invoices tomorrow at 9am with high priority
+```
+
+```text
+Show me my Todoist tasks due today
+```
+
+```text
+Complete task 123456789
+```
+
+```text
+Rename task 123456789 to submit expense claim and make it high priority
+```
+
+Natural-language edit/delete by task name is limited because the current tool flow works best when the task ID is known.
+
+## Request Flow
+
+```text
+Telegram
+  -> POST /webhook/:secret
+  -> TelegramBotService.handleUpdate()
+  -> MessageHandlers.handleText()
+  -> MessageProcessorService
+  -> TextProcessorService
+  -> GPTService
+  -> FunctionCallingProcessor
+  -> DirectToolCallDispatcher
+  -> TodoistAPIService
+  -> Todoist REST API
+  -> GPT final response
+  -> Telegram reply
+```
+
+## Logs
+
+Runtime logs are written to:
+
+```text
+logs/app.log
+logs/error.log
+```
+
+Local console logs are pretty by default in development. JSON logs are written to files. Secrets, auth headers, Telegram file URLs, and private IDs are redacted.
+
+Useful events include:
+
+- `telegram.webhook.received`
+- `telegram.message.received`
+- `gpt.tool_decision.received`
+- `tool.dispatch.completed`
+- `todoist.task.create.completed`
+- `telegram.reply.sent`
+
+`logs/` is ignored by git.
+
+## Tests
+
+Run unit tests:
+
+```bash
+npm test -- --runInBand
+```
+
+Run mocked integration tests and any enabled live tests:
+
+```bash
+npm run test:integration -- --runInBand
+```
+
+Run build and lint:
+
+```bash
+npm run build
+npm run lint
+```
+
+Detailed test instructions live in [tests/README.md](./tests/README.md).
+
+## Project Layout
+
+```text
 src/
-├── app.ts                          # Main entry point - starts server
-├── controllers/
-│   └── webhook.controller.ts       # Handles Telegram webhook requests
-├── services/
-│   └── telegram/
-│       └── telegram-bot.service.ts # Core bot logic and handlers
-└── utils/
-    └── logger.ts                   # Logging utility
+  app.ts
+  server.ts
+  controllers/
+  services/
+    ai/
+    external/
+    telegram/
+    tools/
+  types/
+  utils/
 
 tests/
-└── integration/
-    └── telegram-integration.test.ts # Integration tests
+  unit/
+  integration/
+  helpers/
 ```
 
-**What each file does:**
-- **`app.ts`**: Sets up Express server, initializes bot, configures webhook
-- **`telegram-bot.service.ts`**: Contains all bot commands and message handlers
-- **`webhook.controller.ts`**: Receives updates from Telegram and passes them to bot service
-- **`logger.ts`**: Handles logging throughout the application
+## Generated And Local Files
 
-## Step 4: How to Start Your Application
+Do not commit:
 
-### Prerequisites
-```bash
-# Install dependencies
-npm install
+- `dist/` - generated by `npm run build`
+- `logs/` - runtime and test logs
+- `node_modules/`
+- `.env`
 
-# Make sure ngrok is running (in a separate terminal)
-ngrok http 3000 --authtoken YOUR_NGROK_AUTH_TOKEN
-```
+Commit:
 
-### Start the application
-```bash
-# Option 1: Development mode with auto-restart
-npm run dev
-
-# Option 2: Build and run
-npm run build
-npm start
-
-# Option 3: Direct TypeScript execution
-npx ts-node src/app.ts
-```
-
-### What happens when you start:
-1. Express server starts on port 3000
-2. Bot service initializes with your handlers
-3. Webhook gets automatically set up to point Telegram → ngrok → your server
-4. Bot becomes active and ready to receive messages
-
-## Step 5: Testing Your Bot
-
-### Manual Testing
-1. Find your bot on Telegram (using the username from @BotFather)
-2. Send `/help` - should get help text and supported command list
-3. Send `/status` - should get runtime, GPT, Todoist, and activity status
-4. Send any text message - should echo it back
-5. Send an audio file - should process it
-
-### Automated Testing
-```bash
-# Run integration tests (make sure your .env is properly configured)
-npm test
-
-# Or run tests with coverage
-npm run test:coverage
-```
-
-## Step 6: Understanding the Flow
-
-```
-Telegram → Webhook → ngrok → Your Server → Bot Service → Response → Telegram
-```
-
-1. **User sends message to bot**
-2. **Telegram sends webhook POST** to your ngrok URL
-3. **ngrok forwards** to your local server (localhost:3000)
-4. **webhook.controller.ts** receives and validates the request
-5. **telegram-bot.service.ts** processes the message and sends response
-6. **Response goes back** through the same chain
-
-## Step 7: Next Development Steps
-
-### Current Features:
-- ✅ Text message echoing
-- ✅ Audio file detection and info display
-- ✅ Voice message handling
-- ✅ Command handling (/help, /status)
-
-### Potential Next Features:
-- 🔄 **Audio Processing**: Implement actual audio transcription/analysis
-- 🔄 **File Storage**: Save uploaded audio files
-- 🔄 **Database Integration**: Store user interactions
-- 🔄 **AI Integration**: Add ChatGPT/Claude for smart responses
-- 🔄 **Advanced Commands**: More interactive features
-
-## Troubleshooting
-
-### Common Issues:
-
-**Bot not responding:**
-- Check if ngrok URL is updated in .env
-- Verify BOT_TOKEN is correct
-- Check server logs for errors
-
-**Webhook errors:**
-- Ensure TELEGRAM_SECRET_TOKEN matches in webhook URL
-- Verify ngrok is running and accessible
-- Check webhook.controller.ts logs
-
-**Test failures:**
-- Confirm TEST_CHAT_ID is your actual Telegram user ID
-- Ensure bot token is valid
-- Check if RUN_INTEGRATION_TESTS=true
-
-### Debug Commands:
-```bash
-# Check if your server is accessible
-curl http://localhost:3000/ping
-
-# Check ngrok status
-curl https://your-ngrok-url.ngrok-free.app/ping
-
-# View logs in real-time
-tail -f logs/app.log  # if you add file logging
-```
-
-## Environment Variables Explained
-
-| Variable | Purpose | Example |
-|----------|---------|---------|
-| `BOT_TOKEN` | Your bot's API token from @BotFather | `123456:ABC-DEF...` |
-| `TELEGRAM_SECRET_TOKEN` | Security token for webhook validation | `your-secret-string` |
-| `NGROK_URL` | Public URL that points to your local server | `https://abc123.ngrok-free.app` |
-| `TEST_CHAT_ID` | Your Telegram user ID for testing | `987654321` |
-| `PORT` | Local server port | `3000` |
-| `NODE_ENV` | Environment mode | `development` |
-
-Your bot is well-structured and ready to go! Just fix the environment variables and you should be able to start testing.
+- `.env.sample`
+- source files
+- tests
+- documentation

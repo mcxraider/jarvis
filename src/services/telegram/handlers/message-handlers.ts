@@ -1,6 +1,6 @@
 // src/services/telegram/handlers/message-handlers.ts
 import { Context } from 'telegraf';
-import { logger } from '../../../utils/logger';
+import { createRequestId, LogContext, logger, truncateForLog } from '../../../utils/logger';
 import { FileService } from '../file.service';
 import { MessageProcessorService } from '../message-processor.service';
 import { BotActivityService } from '../bot-activity.service';
@@ -20,23 +20,38 @@ export class MessageHandlers {
 
     const messageText = ctx.message.text;
     const userId = ctx.from?.id;
+    const logContext = this.createLogContext(ctx, 'text');
+    const startedAt = Date.now();
 
-    logger.info('Received text message', {
+    logger.info('telegram.message.received', {
+      ...logContext,
       userId,
       username: ctx.from?.username,
-      messageLength: messageText.length
+      messageLength: messageText.length,
+      messagePreview: truncateForLog(messageText),
     });
     this.activityService.recordActivity('message_text');
 
     try {
-      const response = await this.messageProcessor.processTextMessage(messageText, userId);
-      await ctx.reply(response);
-    } catch (error) {
-      logger.error('Error processing text message', {
-        error: (error as Error).message,
-        userId
+      const response = await this.messageProcessor.processTextMessage(messageText, userId, logContext);
+      logger.info('telegram.reply.sending', {
+        ...logContext,
+        responseLength: response.length,
       });
-      await ctx.reply('❌ Sorry, I had trouble processing your message.');
+      await ctx.reply(response, { parse_mode: 'HTML' });
+      logger.info('telegram.reply.sent', {
+        ...logContext,
+        responseLength: response.length,
+        totalDurationMs: Date.now() - startedAt,
+      });
+    } catch (error) {
+      logger.error('telegram.message.failed', {
+        ...logContext,
+        error: (error as Error).message,
+        userId,
+        durationMs: Date.now() - startedAt,
+      });
+      await ctx.reply('Something went wrong processing your message. Please try again.');
     }
   }
 
@@ -45,24 +60,34 @@ export class MessageHandlers {
 
     const voice = ctx.message.voice;
     const userId = ctx.from?.id;
+    const logContext = this.createLogContext(ctx, 'voice');
+    const startedAt = Date.now();
 
-    logger.info('Voice message received', {
+    logger.info('telegram.message.received', {
+      ...logContext,
       userId,
       duration: voice.duration,
-      fileSize: voice.file_size
+      fileSize: voice.file_size,
     });
     this.activityService.recordActivity('message_voice');
 
     try {
       const fileUrl = await this.fileService.getFileUrl(voice.file_id);
-      const response = await this.messageProcessor.processAudioMessage(fileUrl, userId);
-      await ctx.reply(response);
-    } catch (error) {
-      logger.error('Error processing voice message', {
-        error: (error as Error).message,
-        userId
+      const response = await this.messageProcessor.processAudioMessage(fileUrl, userId, logContext);
+      await ctx.reply(response, { parse_mode: 'HTML' });
+      logger.info('telegram.reply.sent', {
+        ...logContext,
+        responseLength: response.length,
+        totalDurationMs: Date.now() - startedAt,
       });
-      await ctx.reply('❌ Sorry, I had trouble processing your voice message.');
+    } catch (error) {
+      logger.error('telegram.message.failed', {
+        ...logContext,
+        error: (error as Error).message,
+        userId,
+        durationMs: Date.now() - startedAt,
+      });
+      await ctx.reply('Something went wrong processing your voice message. Please try again.');
     }
   }
 
@@ -84,8 +109,11 @@ export class MessageHandlers {
       this.activityService.recordActivity('message_document');
       const fileName = document.file_name || 'audio_file';
       const mimeType = document.mime_type || 'application/octet-stream';
+      const logContext = this.createLogContext(ctx, 'document');
+      const startedAt = Date.now();
 
-      logger.info('Audio document received', {
+      logger.info('telegram.message.received', {
+        ...logContext,
         userId,
         fileName,
         mimeType,
@@ -99,64 +127,96 @@ export class MessageHandlers {
           fileName,
           mimeType,
           userId,
+          logContext,
         );
-        await ctx.reply(response);
+        await ctx.reply(response, { parse_mode: 'HTML' });
+        logger.info('telegram.reply.sent', {
+          ...logContext,
+          responseLength: response.length,
+          totalDurationMs: Date.now() - startedAt,
+        });
       } catch (error) {
-        logger.error('Error processing audio document', {
+        logger.error('telegram.message.failed', {
+          ...logContext,
           error: (error as Error).message,
           userId,
           fileName,
+          durationMs: Date.now() - startedAt,
         });
-        await ctx.reply('❌ Sorry, I had trouble processing your audio document.');
+        await ctx.reply('Something went wrong processing your audio document. Please try again.');
       }
     } else {
-      logger.info('Non-audio document received', {
+      logger.info('telegram.message.unsupported_document', {
+        ...this.createLogContext(ctx, 'document'),
         userId,
         mimeType: document.mime_type,
-        fileName: document.file_name
+        fileName: document.file_name,
       });
-      await ctx.reply('📄 I received a document, but I only process audio files. Please send an audio file.');
+      await ctx.reply('I only process audio files and text messages. Please send one of those.');
     }
   }
 
   async handleUnknown(ctx: Context): Promise<void> {
     const userId = ctx.from?.id;
 
-    logger.info('Unhandled message type received', {
+    logger.info('telegram.message.unsupported', {
+      ...this.createLogContext(ctx, 'unknown'),
       userId,
-      messageType: 'unknown'
+      messageType: 'unknown',
     });
     this.activityService.recordActivity('message_unknown');
 
-    await ctx.reply(
-      '🤔 I received your message, but I don\'t know how to handle this type yet. Try sending text or audio!'
-    );
+    await ctx.reply('I can only handle text and audio messages for now.');
   }
 
   private async processAudioFile(ctx: Context, audioFile: any): Promise<void> {
     const userId = ctx.from?.id;
     const fileName = audioFile.file_name || 'audio_file';
     const mimeType = audioFile.mime_type;
+    const logContext = this.createLogContext(ctx, 'audio');
+    const startedAt = Date.now();
 
-    logger.info('Audio file received', {
+    logger.info('telegram.message.received', {
+      ...logContext,
       userId,
       fileName,
       mimeType,
       fileSize: audioFile.file_size,
-      duration: audioFile.duration
+      duration: audioFile.duration,
     });
 
     try {
       const fileUrl = await this.fileService.getFileUrl(audioFile.file_id);
-      const response = await this.messageProcessor.processAudioMessage(fileUrl, userId);
-      await ctx.reply(response);
+      const response = await this.messageProcessor.processAudioMessage(fileUrl, userId, logContext);
+      await ctx.reply(response, { parse_mode: 'HTML' });
+      logger.info('telegram.reply.sent', {
+        ...logContext,
+        responseLength: response.length,
+        totalDurationMs: Date.now() - startedAt,
+      });
     } catch (error) {
-      logger.error('Error processing audio file', {
+      logger.error('telegram.message.failed', {
+        ...logContext,
         error: (error as Error).message,
         userId,
-        fileName
+        fileName,
+        durationMs: Date.now() - startedAt,
       });
-      await ctx.reply('❌ Sorry, I had trouble processing your audio file.');
+      await ctx.reply('Something went wrong processing your audio file. Please try again.');
     }
+  }
+
+  private createLogContext(ctx: Context, messageType: string): LogContext {
+    const update = ctx.update as { update_id?: number; __requestId?: string } | undefined;
+    const message = ctx.message as { message_id?: number; chat?: { id?: number } } | undefined;
+
+    return {
+      requestId: update?.__requestId || createRequestId('tg'),
+      updateId: update?.update_id,
+      userId: ctx.from?.id,
+      chatId: ctx.chat?.id || message?.chat?.id,
+      messageId: message?.message_id,
+      messageType,
+    };
   }
 }

@@ -40,10 +40,11 @@ describe('MessageHandlers', () => {
       'meeting.mp3',
       'audio/mpeg',
       123,
+      expect.objectContaining({ messageType: 'document' }),
     );
     expect(messageProcessor.processAudioMessage).not.toHaveBeenCalled();
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_document');
-    expect(ctx.reply).toHaveBeenCalledWith('processed document');
+    expect(ctx.reply).toHaveBeenCalledWith('processed document', { parse_mode: 'HTML' });
   });
 
   it('rejects non-audio documents with a helpful reply', async () => {
@@ -72,7 +73,7 @@ describe('MessageHandlers', () => {
     expect(messageProcessor.processAudioDocument).not.toHaveBeenCalled();
     expect(activityService.recordActivity).not.toHaveBeenCalled();
     expect(ctx.reply).toHaveBeenCalledWith(
-      '📄 I received a document, but I only process audio files. Please send an audio file.',
+      'I only process audio files and text messages. Please send one of those.',
     );
   });
 
@@ -99,7 +100,7 @@ describe('MessageHandlers', () => {
     await handlers.handleDocument(ctx);
 
     expect(ctx.reply).toHaveBeenCalledWith(
-      '❌ Sorry, I had trouble processing your audio document.',
+      'Something went wrong processing your audio document. Please try again.',
     );
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_document');
   });

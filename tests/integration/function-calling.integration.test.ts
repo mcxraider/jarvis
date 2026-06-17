@@ -70,15 +70,6 @@ describe('FunctionCallingProcessor integration', () => {
             },
           },
         ],
-      })
-      .mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              content: 'Added review invoices to Todoist.',
-            },
-          },
-        ],
       });
     const openai = createOpenAI(create);
     const dispatcher = createDispatcher({
@@ -104,7 +95,7 @@ describe('FunctionCallingProcessor integration', () => {
       toolCalls,
       finalResponse: result.response,
     });
-    expect(result.response).toBe('Added review invoices to Todoist.');
+    expect(result.response).toBe('Done. I completed 5 actions successfully.');
     expect(result.usedFunctionCalling).toBe(true);
     expect(result.functionCallsCount).toBe(5);
     expect(dispatcher.executeToolCalls).toHaveBeenCalledWith(
@@ -115,8 +106,9 @@ describe('FunctionCallingProcessor integration', () => {
         }),
       ]),
       'user-1',
+      {},
     );
-    expect(create).toHaveBeenCalledTimes(2);
+    expect(create).toHaveBeenCalledTimes(1);
   });
 
   it('filters unsupported tool calls before executing dispatcher calls', async () => {
@@ -134,9 +126,6 @@ describe('FunctionCallingProcessor integration', () => {
             },
           },
         ],
-      })
-      .mockResolvedValueOnce({
-        choices: [{ message: { content: 'Found your tasks.' } }],
       });
     const dispatcher = createDispatcher({
       isFunctionSupported: jest.fn((name: string) => name === 'get_tasks'),
@@ -164,8 +153,10 @@ describe('FunctionCallingProcessor integration', () => {
         },
       ],
       'user-1',
+      {},
     );
-    expect(result.response).toBe('Found your tasks.');
+    expect(result.response).toBe('Done. I completed the action successfully.');
+    expect(create).toHaveBeenCalledTimes(1);
   });
 
   it('returns a clear response when no requested tool is supported', async () => {
@@ -224,21 +215,28 @@ describe('FunctionCallingProcessor integration', () => {
     expect(result.response).toContain('dispatcher exploded');
   });
 
-  it('falls back when final response generation fails after successful tool execution', async () => {
-    const create = jest
-      .fn()
-      .mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              content: null,
-              tool_calls: [createToolCall('call-add', 'add_todoist_task', { content: 'Task' })],
-            },
+  it('formats dispatcher-reported validation failures without a final GPT call', async () => {
+    const create = jest.fn().mockResolvedValueOnce({
+      choices: [
+        {
+          message: {
+            content: null,
+            tool_calls: [createToolCall('call-add', 'add_todoist_task', { priority: 5 })],
           },
-        ],
-      })
-      .mockRejectedValueOnce(new Error('final GPT failed'));
-    const processor = new FunctionCallingProcessor(createDispatcher());
+        },
+      ],
+    });
+    const dispatcher = createDispatcher({
+      executeToolCalls: jest.fn().mockResolvedValue([
+        {
+          tool_call_id: 'call-add',
+          toolName: 'add_todoist_task',
+          content: null,
+          error: 'Invalid arguments for add_todoist_task',
+        },
+      ]),
+    });
+    const processor = new FunctionCallingProcessor(dispatcher);
 
     const result = await processor.processWithFunctionCalling(
       createOpenAI(create),
@@ -248,6 +246,9 @@ describe('FunctionCallingProcessor integration', () => {
       'user-1',
     );
 
-    expect(result.response).toBe('I successfully completed 1 action(s) for you.');
+    expect(result.response).toBe(
+      "I couldn't complete the request. Failed:\n- add_todoist_task: Invalid arguments for add_todoist_task",
+    );
+    expect(create).toHaveBeenCalledTimes(1);
   });
 });

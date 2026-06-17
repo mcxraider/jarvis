@@ -12,7 +12,7 @@
  */
 
 import OpenAI from 'openai';
-import { logger } from '../../utils/logger';
+import { LogContext, logger } from '../../utils/logger';
 import { ToolDispatcher } from '../../types/tool.types';
 
 // Import modularized components
@@ -42,12 +42,15 @@ export class GPTService {
    * @throws {Error} If OpenAI API key is not provided
    */
   constructor(toolDispatcher?: ToolDispatcher, config?: Partial<GPTConfig>) {
-    const apiKey = config?.apiKey || process.env.OPENAI_API_KEY;
+    const apiKey = config?.apiKey || process.env.DEEPSEEK_API_KEY;
 
     // Validate configuration
     GPTValidator.validateConfig(apiKey!);
 
-    this.openai = new OpenAI({ apiKey });
+    this.openai = new OpenAI({
+      apiKey,
+      baseURL: 'https://api.deepseek.com',
+    });
     this.toolDispatcher = toolDispatcher;
     this.enableFunctionCalling = config?.enableFunctionCalling !== false && !!toolDispatcher;
 
@@ -78,11 +81,13 @@ export class GPTService {
    * @param userId - User identifier for context/authorization
    * @returns Promise<string> - The final response to send back to user
    */
-  async processMessage(message: string, userId?: string): Promise<string> {
+  async processMessage(message: string, userId?: string, logContext: LogContext = {}): Promise<string> {
     const startTime = Date.now();
 
-    logger.info('Processing message with GPT', {
+    logger.info('gpt.processing.started', {
+      ...logContext,
       userId,
+      model: this.config.model,
       messageLength: message.length,
       functionCallingEnabled: this.enableFunctionCalling,
     });
@@ -103,24 +108,45 @@ export class GPTService {
             this.config.temperature,
             message,
             userId || 'anonymous',
+            logContext,
           );
+          logger.info('gpt.processing.completed', {
+            ...logContext,
+            userId,
+            model: result.model,
+            usedFunctionCalling: result.usedFunctionCalling,
+            functionCallsCount: result.functionCallsCount,
+            responseLength: result.response.length,
+            durationMs: Date.now() - startTime,
+          });
           return result.response;
         }
 
         // Fallback to simple text generation
-        return await this.simpleTextProcessor.processSimpleMessage(
+        const response = await this.simpleTextProcessor.processSimpleMessage(
           this.openai,
           this.config.model,
           this.config.temperature,
           message,
           userId,
         );
+        logger.info('gpt.processing.completed', {
+          ...logContext,
+          userId,
+          model: this.config.model,
+          usedFunctionCalling: false,
+          functionCallsCount: 0,
+          responseLength: response.length,
+          durationMs: Date.now() - startTime,
+        });
+        return response;
       } catch (error) {
         lastError = error as Error;
 
         if (attempt < MAX_RETRIES && GPTErrorHandler.isRetryableError(lastError)) {
           const delay = GPTErrorHandler.getRetryDelay(attempt);
-          logger.warn('Retryable error encountered, retrying', {
+          logger.warn('gpt.processing.retry', {
+            ...logContext,
             userId,
             attempt,
             delayMs: delay,
@@ -136,7 +162,8 @@ export class GPTService {
 
     const processingTimeMs = Date.now() - startTime;
 
-    logger.error('Message processing failed', {
+    logger.error('gpt.processing.failed', {
+      ...logContext,
       userId,
       messageLength: message.length,
       error: lastError!.message,
