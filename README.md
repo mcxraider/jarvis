@@ -59,7 +59,7 @@ LOG_FORMAT=pretty
 
 See [.env.sample](./.env.sample) for all runtime and live-test variables.
 
-## Run The Backend
+## Run The Backend Locally
 
 Install dependencies:
 
@@ -73,7 +73,14 @@ Start ngrok in another terminal:
 ngrok http 3000
 ```
 
-Set `NGROK_URL` in `.env`, then start the app:
+Copy the HTTPS forwarding URL from ngrok, then set it in `.env`:
+
+```env
+NGROK_URL=https://your-ngrok-url.ngrok-free.app
+PORT=3000
+```
+
+Start the local backend:
 
 ```bash
 npm run dev
@@ -98,6 +105,46 @@ Expected response:
 ```json
 {"status":"ok"}
 ```
+
+## Use It In Telegram
+
+1. Create a Telegram bot with `@BotFather` and copy its token into `.env` as `BOT_TOKEN`.
+2. Put a long random string in `.env` as `TELEGRAM_SECRET_TOKEN`.
+3. Start ngrok with `ngrok http 3000`.
+4. Put the ngrok HTTPS URL in `.env` as `NGROK_URL`.
+5. Start the app with `npm run dev`.
+
+On startup, the backend automatically registers this Telegram webhook:
+
+```text
+${NGROK_URL}/webhook/${TELEGRAM_SECRET_TOKEN}
+```
+
+You should see logs like:
+
+```text
+server.started
+telegram.webhook.configured
+telegram.webhook.awaiting_updates
+```
+
+Then open your bot in Telegram and send a normal message. For example:
+
+```text
+Add a Todoist task to review invoices tomorrow at 9am with high priority
+```
+
+Expected flow:
+
+```text
+Telegram message
+  -> local Express backend through ngrok
+  -> GPT decides which Todoist tool to call
+  -> Todoist REST API is called
+  -> Telegram receives Jarvis's reply
+```
+
+If Telegram messages do not reach the app, check that `NGROK_URL` has no trailing slash, the app was restarted after editing `.env`, and the console shows `telegram.webhook.configured`.
 
 ## Example Telegram Messages
 
