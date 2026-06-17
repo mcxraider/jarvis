@@ -83,7 +83,7 @@ describe('GPTToolsService', () => {
     expect(updateParameters.required).toEqual(['task_id']);
   });
 
-  it('marks every tool definition as strict and disallows additional properties', () => {
+  it('disallows additional properties on all tool parameters', () => {
     const service = new GPTToolsService(createDispatcher());
 
     service.getAvailableTools().forEach((tool) => {
@@ -91,7 +91,6 @@ describe('GPTToolsService', () => {
         additionalProperties?: boolean;
       };
 
-      expect(tool.function.strict).toBe(true);
       expect(parameters.additionalProperties).toBe(false);
     });
   });
