@@ -68,6 +68,30 @@ describe('Webhook pipeline integration', () => {
       123456,
       expect.objectContaining({ messageType: 'text' }),
     );
-    expect(reply).toHaveBeenCalledWith('Mocked Jarvis reply');
+    expect(reply).toHaveBeenCalledWith('Mocked Jarvis reply', { parse_mode: 'HTML' });
+  });
+
+  it('returns 200 when the bot service denies a valid webhook update', async () => {
+    process.env.TELEGRAM_SECRET_TOKEN = 'test-secret';
+    const botService = {
+      handleUpdate: jest.fn().mockResolvedValue(undefined),
+    };
+    const app = express();
+    app.use(createWebhookRouter(botService as any));
+    const update = {
+      update_id: 9002,
+      message: {
+        message_id: 2,
+        date: 1710000001,
+        chat: { id: 999999, type: 'private' },
+        from: { id: 999999, is_bot: false, first_name: 'Unknown' },
+        text: 'Show me the calendar',
+      },
+    };
+
+    const response = await request(app).post('/webhook/test-secret').send(update);
+
+    expect(response.status).toBe(200);
+    expect(botService.handleUpdate).toHaveBeenCalledWith(expect.objectContaining(update));
   });
 });
