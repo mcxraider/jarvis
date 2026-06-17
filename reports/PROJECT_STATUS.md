@@ -24,6 +24,7 @@ Natural-language edits/deletes work best when the Todoist task ID is known. Ther
 - Runtime and usage: `README.md`
 - Test usage: `tests/README.md`
 - Env vars: `.env.sample`
+- Future enhancements: `reports/FUTURE_ENHANCEMENTS.md`
 - Agent guidance: `CLAUDE.md`
 
 ## Cleanup Notes
