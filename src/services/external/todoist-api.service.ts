@@ -80,7 +80,7 @@ export interface UpdateTaskPayload {
  */
 export class TodoistAPIService {
   private readonly apiKey: string;
-  private readonly baseURL = 'https://api.todoist.com/rest/v2';
+  private readonly baseURL = 'https://api.todoist.com/api/v1';
 
   constructor(apiKey: string) {
     if (!apiKey) {
@@ -298,7 +298,7 @@ export class TodoistAPIService {
       labelCount: payload.labels?.length || 0,
     });
 
-    const task = await this.makeRequest(`/tasks/${taskId}`, 'PUT', payload, {
+    const task = await this.makeRequest(`/tasks/${taskId}`, 'POST', payload, {
       ...logContext,
       operation: 'todoist.task.update',
     });
