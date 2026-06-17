@@ -82,4 +82,26 @@ describe('GPTToolsService', () => {
     expect(createParameters.required).toEqual(['content']);
     expect(updateParameters.required).toEqual(['task_id']);
   });
+
+  it('marks every tool definition as strict and disallows additional properties', () => {
+    const service = new GPTToolsService(createDispatcher());
+
+    service.getAvailableTools().forEach((tool) => {
+      const parameters = tool.function.parameters as {
+        additionalProperties?: boolean;
+      };
+
+      expect(tool.function.strict).toBe(true);
+      expect(parameters.additionalProperties).toBe(false);
+    });
+  });
+
+  it('defines an explicit empty required array for get_tasks', () => {
+    const service = new GPTToolsService(createDispatcher());
+    const parameters = getTool(service, 'get_tasks').function.parameters as {
+      required?: string[];
+    };
+
+    expect(parameters.required).toEqual([]);
+  });
 });

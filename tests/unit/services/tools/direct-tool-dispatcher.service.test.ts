@@ -88,7 +88,9 @@ describe('DirectToolCallDispatcher', () => {
       },
       {},
     );
-    expect(result).toEqual([{ tool_call_id: 'call-1', content: createdTask }]);
+    expect(result).toEqual([
+      { tool_call_id: 'call-1', toolName: 'add_todoist_task', content: createdTask },
+    ]);
   });
 
   it('forwards update task fields to Todoist', async () => {
@@ -127,7 +129,9 @@ describe('DirectToolCallDispatcher', () => {
       },
       {},
     );
-    expect(result).toEqual([{ tool_call_id: 'call-1', content: updatedTask }]);
+    expect(result).toEqual([
+      { tool_call_id: 'call-1', toolName: 'update_todoist_task', content: updatedTask },
+    ]);
   });
 
   it('routes read, complete, delete, and completed-task calls', async () => {
@@ -187,17 +191,23 @@ describe('DirectToolCallDispatcher', () => {
       {},
     );
     expect(result).toEqual([
-      { tool_call_id: 'get-one', content: { id: 'task-1' } },
-      { tool_call_id: 'get-many', content: [{ id: 'task-2' }] },
+      { tool_call_id: 'get-one', toolName: 'get_todoist_task', content: { id: 'task-1' } },
+      { tool_call_id: 'get-many', toolName: 'get_tasks', content: [{ id: 'task-2' }] },
       {
         tool_call_id: 'complete',
+        toolName: 'complete_task',
         content: { success: true, message: 'Task task-3 marked as completed' },
       },
       {
         tool_call_id: 'delete',
+        toolName: 'delete_todoist_task',
         content: { success: true, message: 'Task task-4 deleted permanently' },
       },
-      { tool_call_id: 'completed', content: [{ id: 'done-1' }] },
+      {
+        tool_call_id: 'completed',
+        toolName: 'get_completed_todoist_tasks',
+        content: [{ id: 'done-1' }],
+      },
     ]);
   });
 
@@ -218,9 +228,31 @@ describe('DirectToolCallDispatcher', () => {
     expect(result[0].error).toBeTruthy();
     expect(result[1]).toEqual({
       tool_call_id: 'unknown',
+      toolName: 'unknown_function',
       content: null,
       error: 'Unknown function: unknown_function',
     });
+  });
+
+  it('returns ToolResult errors for invalid schema arguments without calling Todoist', async () => {
+    const dispatcher = new DirectToolCallDispatcher();
+
+    const result = await dispatcher.executeToolCalls(
+      [
+        createToolCall('invalid-priority', 'add_todoist_task', {
+          content: 'Task',
+          priority: 5,
+        }),
+      ],
+      'user-1',
+    );
+
+    expect(mockTodoistService.addTask).not.toHaveBeenCalled();
+    expect(result).toHaveLength(1);
+    expect(result[0].tool_call_id).toBe('invalid-priority');
+    expect(result[0].toolName).toBe('add_todoist_task');
+    expect(result[0].content).toBeNull();
+    expect(result[0].error).toContain('Invalid arguments for add_todoist_task');
   });
 
   it('preserves tool call IDs when some calls fail', async () => {
@@ -237,9 +269,14 @@ describe('DirectToolCallDispatcher', () => {
     );
 
     expect(result).toEqual([
-      { tool_call_id: 'success-call', content: { id: 'task-1' } },
+      {
+        tool_call_id: 'success-call',
+        toolName: 'get_todoist_task',
+        content: { id: 'task-1' },
+      },
       {
         tool_call_id: 'failed-call',
+        toolName: 'delete_todoist_task',
         content: null,
         error: 'Todoist API error (404): missing',
       },

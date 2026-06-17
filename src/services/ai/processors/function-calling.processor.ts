@@ -8,15 +8,17 @@ import OpenAI from 'openai';
 import { LogContext, logger, truncateForLog } from '../../../utils/logger';
 import { MessageProcessingResult } from '../../../types/gpt.types';
 import { GPT_CONSTANTS } from '../constants/gpt.constants';
-import { getFunctionCallingSystemPrompt, FINAL_RESPONSE_PROMPT } from '../../../types/gpt.prompts';
+import { getFunctionCallingSystemPrompt } from '../../../types/gpt.prompts';
 import { GPTToolsService } from '../../tools/todoist-tools.service';
 import { ToolDispatcher, ToolCall } from '../../../types/tool.types';
+import { ToolResultFormatter } from '../../telegram/formatters/tool-result-formatter';
 
 /**
  * Processor for handling GPT function calling capabilities
  */
 export class FunctionCallingProcessor {
   private readonly toolsService: GPTToolsService;
+  private readonly toolResultFormatter = new ToolResultFormatter();
 
   constructor(private readonly toolDispatcher?: ToolDispatcher) {
     this.toolsService = new GPTToolsService(toolDispatcher);
@@ -84,10 +86,6 @@ export class FunctionCallingProcessor {
       if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
         const finalResponse = await this.handleToolCalls(
           responseMessage,
-          openai,
-          model,
-          temperature,
-          message,
           userId,
           logContext,
         );
@@ -145,10 +143,6 @@ export class FunctionCallingProcessor {
    */
   private async handleToolCalls(
     responseMessage: OpenAI.Chat.Completions.ChatCompletionMessage,
-    openai: OpenAI,
-    model: string,
-    temperature: number,
-    originalMessage: string,
     userId: string,
     logContext: LogContext,
   ): Promise<string> {
@@ -219,18 +213,7 @@ export class FunctionCallingProcessor {
         })),
       });
 
-      // Generate final response based on tool execution results
-      const finalResponse = await this.generateFinalResponse(
-        openai,
-        model,
-        temperature,
-        originalMessage,
-        responseMessage,
-        toolResults,
-        logContext,
-      );
-
-      return finalResponse;
+      return this.toolResultFormatter.formatToolResults(toolResults);
     } catch (error) {
       logger.error('gpt.tool_execution.failed', {
         ...logContext,
@@ -239,93 +222,6 @@ export class FunctionCallingProcessor {
       });
 
       return `I encountered an error while trying to help you: ${(error as Error).message}. Please try again or rephrase your request.`;
-    }
-  }
-
-  /**
-   * Generates a final natural language response based on tool execution results
-   *
-   * @param openai - OpenAI client instance
-   * @param model - Model to use
-   * @param temperature - Temperature setting
-   * @param originalMessage - User's original message
-   * @param toolCallMessage - GPT's tool call message
-   * @param toolResults - Results from tool execution
-   * @returns Promise<string> - Final response
-   */
-  private async generateFinalResponse(
-    openai: OpenAI,
-    model: string,
-    temperature: number,
-    originalMessage: string,
-    toolCallMessage: OpenAI.Chat.Completions.ChatCompletionMessage,
-    toolResults: any[],
-    logContext: LogContext,
-  ): Promise<string> {
-    try {
-      const startedAt = Date.now();
-      logger.info('gpt.final_response.started', {
-        ...logContext,
-        toolResultsCount: toolResults.length,
-      });
-
-      // Create messages array including the tool results
-      const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-        {
-          role: 'system',
-          content: FINAL_RESPONSE_PROMPT,
-        },
-        {
-          role: 'user',
-          content: originalMessage,
-        },
-        {
-          role: 'assistant',
-          content: toolCallMessage.content || null,
-          tool_calls: toolCallMessage.tool_calls,
-        },
-      ];
-
-      // Add tool results as tool messages
-      toolResults.forEach((result) => {
-        messages.push({
-          role: 'tool',
-          tool_call_id: result.tool_call_id,
-          content: JSON.stringify(result.content),
-        });
-      });
-
-      const finalResponse = await openai.chat.completions.create({
-        model,
-        messages,
-        max_tokens: GPT_CONSTANTS.MAX_TOKENS,
-        temperature,
-      });
-
-      const response =
-        finalResponse.choices[0].message.content ||
-        'I completed the requested actions successfully.';
-
-      logger.info('gpt.final_response.completed', {
-        ...logContext,
-        responseLength: response.length,
-        durationMs: Date.now() - startedAt,
-      });
-
-      return response;
-    } catch (error) {
-      logger.error('gpt.final_response.failed', {
-        ...logContext,
-        error: (error as Error).message,
-      });
-
-      // Fallback: create a simple response based on results
-      const successfulActions = toolResults.filter((result) => !result.error);
-      if (successfulActions.length > 0) {
-        return `I successfully completed ${successfulActions.length} action(s) for you.`;
-      } else {
-        return 'I encountered some issues while processing your request. Please try again.';
-      }
     }
   }
 

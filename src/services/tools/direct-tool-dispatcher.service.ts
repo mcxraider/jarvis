@@ -8,12 +8,15 @@ import { logger } from '../../utils/logger';
 import { ToolCall, ToolResult, ToolDispatcher } from '../../types/tool.types';
 import { TodoistAPIService } from '../external/todoist-api.service';
 import { LogContext } from '../../utils/logger';
+import { ToolArgumentValidatorService } from './tool-argument-validator.service';
+import { TODOIST_TOOL_NAMES } from './todoist-tool-schemas';
 
 /**
  * Service for dispatching tool calls directly to external APIs
  */
 export class DirectToolCallDispatcher implements ToolDispatcher {
   private readonly todoistService: TodoistAPIService;
+  private readonly argumentValidator = new ToolArgumentValidatorService();
 
   constructor() {
     const todoistApiKey = process.env.TODOIST_API_KEY;
@@ -60,11 +63,13 @@ export class DirectToolCallDispatcher implements ToolDispatcher {
       if (result.status === 'fulfilled') {
         return {
           tool_call_id: toolCallId,
+          toolName: toolCalls[index].function.name,
           content: result.value,
         };
       } else {
         return {
           tool_call_id: toolCallId,
+          toolName: toolCalls[index].function.name,
           content: null,
           error: result.reason?.message || 'Tool execution failed',
         };
@@ -99,8 +104,7 @@ export class DirectToolCallDispatcher implements ToolDispatcher {
     const startedAt = Date.now();
 
     try {
-      const functionName = toolCall.function.name;
-      const parameters = JSON.parse(toolCall.function.arguments);
+      const { functionName, arguments: parameters } = this.argumentValidator.validate(toolCall);
 
       logger.debug('tool.call.started', {
         ...logContext,
@@ -218,15 +222,7 @@ export class DirectToolCallDispatcher implements ToolDispatcher {
    * @returns string[] - Array of supported function names
    */
   getSupportedFunctions(): string[] {
-    return [
-      'add_todoist_task',
-      'get_todoist_task',
-      'get_tasks',
-      'update_todoist_task',
-      'complete_task',
-      'delete_todoist_task',
-      'get_completed_todoist_tasks',
-    ];
+    return [...TODOIST_TOOL_NAMES];
   }
 
   /**
