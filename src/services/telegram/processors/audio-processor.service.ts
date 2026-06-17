@@ -35,24 +35,18 @@ export class AudioProcessorService {
 
       const { text, processingTimeMs } = transcriptionResult;
 
-      // If transcription is empty or too short, provide helpful feedback
       if (!text || text.trim().length < 2) {
-        return (
-          `🎵 Audio received and processed, but no speech was detected.\n` +
-          `⏱️ Processing time: ${Math.round(processingTimeMs / 1000)}s\n`
-        );
+        return 'No speech detected in the audio.';
       }
 
-      // Feed the transcribed text into the same text pipeline (DeepSeek + Todoist tool calling)
       try {
         const response = await this.textProcessor.processTextMessage(text, userId, logContext);
 
-        const finalResponse =
-          `📝 What you said: ${text}\n\n` +
-          `🤖 ${response}\n\n` +
-          `⏱️ Transcription: ${Math.round(processingTimeMs / 1000)}s`;
-
-        return finalResponse;
+        return (
+          `<b>Transcription:</b> ${this.escapeHtml(text)}\n\n` +
+          `${response}\n\n` +
+          `<i>${Math.round(processingTimeMs / 1000)}s transcription</i>`
+        );
       } catch (processingError) {
         logger.warn('audio_processor.text_processing_failed', {
           ...logContext,
@@ -62,9 +56,8 @@ export class AudioProcessorService {
         });
 
         return (
-          `📝 What you said: ${text}\n\n` +
-          `⏱️ Transcription: ${Math.round(processingTimeMs / 1000)}s\n` +
-          `🤖 (Response generation temporarily unavailable)`
+          `<b>Transcription:</b> ${this.escapeHtml(text)}\n\n` +
+          `<i>Could not process the request. Please try again.</i>`
         );
       }
     } catch (error) {
@@ -101,27 +94,18 @@ export class AudioProcessorService {
 
       const { text, processingTimeMs, fileSizeBytes } = transcriptionResult;
 
-      // If transcription is empty or too short, provide helpful feedback
       if (!text || text.trim().length < 2) {
-        return (
-          `📁 Audio document "${fileName}" processed, but no speech was detected.\n` +
-          `🎼 Type: ${mimeType}\n` +
-          `⏱️ Processing time: ${Math.round(processingTimeMs / 1000)}s\n`
-        );
+        return `No speech detected in <code>${this.escapeHtml(fileName)}</code>.`;
       }
 
-      // Feed the transcribed text into the same text pipeline (DeepSeek + Todoist tool calling)
       try {
         const response = await this.textProcessor.processTextMessage(text, userId, logContext);
 
-        const finalResponse =
-          `📁 Audio document "${fileName}" processed successfully!\n` +
-          `🎼 Type: ${mimeType}\n\n` +
-          `📝 What was said: ${text}\n\n` +
-          `🤖 ${response}\n\n` +
-          `⏱️ Transcription: ${Math.round(processingTimeMs / 1000)}s`;
-
-        return finalResponse;
+        return (
+          `<b>Transcription:</b> ${this.escapeHtml(text)}\n\n` +
+          `${response}\n\n` +
+          `<i>${Math.round(processingTimeMs / 1000)}s transcription</i>`
+        );
       } catch (processingError) {
         logger.warn('audio_processor.document_text_processing_failed', {
           ...logContext,
@@ -132,11 +116,8 @@ export class AudioProcessorService {
         });
 
         return (
-          `📁 Audio document "${fileName}" transcribed!\n` +
-          `🎼 Type: ${mimeType}\n\n` +
-          `📝 What was said: ${text}\n\n` +
-          `⏱️ ${Math.round(processingTimeMs / 1000)}s\n` +
-          `🤖 (Response generation temporarily unavailable)`
+          `<b>Transcription:</b> ${this.escapeHtml(text)}\n\n` +
+          `<i>Could not process the request. Please try again.</i>`
         );
       }
     } catch (error) {
@@ -152,99 +133,46 @@ export class AudioProcessorService {
     }
   }
 
-  /**
-   * Handles errors during audio message processing
-   */
   private handleAudioProcessingError(error: Error): string {
-    const errorMessage = error.message;
+    const msg = error.message;
 
-    if (errorMessage.includes('File size') && errorMessage.includes('exceeds')) {
-      return (
-        `🎵 Audio received, but the file is too large for processing.\n` +
-        `📏 Please send audio files smaller than 25MB.`
-      );
+    if (msg.includes('File size') && msg.includes('exceeds')) {
+      return 'Audio file is too large. Maximum size is 25 MB.';
     }
-
-    if (errorMessage.includes('Unsupported audio format')) {
-      return (
-        `🎵 Audio received, but the format is not supported.\n` +
-        `🔧 Please use common audio formats like MP3, OGG, WAV, or M4A.`
-      );
+    if (msg.includes('Unsupported audio format')) {
+      return 'Unsupported audio format. Please send MP3, OGG, WAV, or M4A.';
     }
-
-    if (errorMessage.includes('Audio format conversion is not available')) {
-      return (
-        `🎵 Audio received in a format that needs conversion, but the conversion service is not available.\n` +
-        `🔧 Please convert your audio to MP3, WAV, or OGG format and try again.`
-      );
+    if (msg.includes('Audio format conversion is not available')) {
+      return 'This format requires conversion but the converter is unavailable. Please send MP3 or WAV.';
     }
-
-    if (errorMessage.includes('Audio format conversion failed')) {
-      return (
-        `🎵 Audio received, but format conversion failed.\n` +
-        `🔧 Please try converting your audio to MP3, WAV, or OGG format and send again.`
-      );
+    if (msg.includes('Audio format conversion failed')) {
+      return 'Audio format conversion failed. Please send MP3 or WAV directly.';
     }
-
-    if (errorMessage.includes('Failed to download')) {
-      return (
-        `🎵 Audio received, but there was an issue downloading the file.\n` +
-        `🔄 Please try sending the audio again.`
-      );
+    if (msg.includes('Failed to download')) {
+      return 'Could not download the audio file. Please try sending it again.';
     }
-
-    // Generic error message for other failures
-    return (
-      `🎵 Audio received, but processing failed.\n` +
-      `❌ Error: Unable to transcribe the audio file.\n` +
-      `🔄 Please try again or contact support if the issue persists.`
-    );
+    return 'Transcription failed. Please try again.';
   }
 
-  /**
-   * Handles errors during audio document processing
-   */
-  private handleAudioDocumentError(error: Error, fileName: string, mimeType: string): string {
-    const errorMessage = error.message;
+  private handleAudioDocumentError(error: Error, fileName: string, _mimeType: string): string {
+    const msg = error.message;
 
-    if (errorMessage.includes('File size') && errorMessage.includes('exceeds')) {
-      return (
-        `📁 Audio document "${fileName}" received, but the file is too large for processing.\n` +
-        `🎼 Type: ${mimeType}\n` +
-        `📏 Please send audio files smaller than 25MB.`
-      );
+    if (msg.includes('File size') && msg.includes('exceeds')) {
+      return `<code>${this.escapeHtml(fileName)}</code> is too large. Maximum size is 25 MB.`;
     }
-
-    if (errorMessage.includes('Unsupported audio format')) {
-      return (
-        `📁 Audio document "${fileName}" received, but the format is not supported.\n` +
-        `🎼 Type: ${mimeType}\n` +
-        `🔧 Please use common audio formats like MP3, OGG, WAV, or M4A.`
-      );
+    if (msg.includes('Unsupported audio format')) {
+      return `<code>${this.escapeHtml(fileName)}</code> — unsupported format. Please send MP3, OGG, WAV, or M4A.`;
     }
-
-    if (errorMessage.includes('Audio format conversion is not available')) {
-      return (
-        `📁 Audio document "${fileName}" received in a format that needs conversion, but the conversion service is not available.\n` +
-        `🎼 Type: ${mimeType}\n` +
-        `🔧 Please convert your audio to MP3, WAV, or OGG format and try again.`
-      );
+    if (msg.includes('Audio format conversion')) {
+      return `<code>${this.escapeHtml(fileName)}</code> — conversion failed. Please send MP3 or WAV directly.`;
     }
+    return `Could not transcribe <code>${this.escapeHtml(fileName)}</code>. Please try again.`;
+  }
 
-    if (errorMessage.includes('Audio format conversion failed')) {
-      return (
-        `📁 Audio document "${fileName}" received, but format conversion failed.\n` +
-        `🎼 Type: ${mimeType}\n` +
-        `🔧 Please try converting your audio to MP3, WAV, or OGG format and send again.`
-      );
-    }
-
-    // Generic error message for other failures
-    return (
-      `📁 Audio document "${fileName}" received, but processing failed.\n` +
-      `🎼 Type: ${mimeType}\n` +
-      `❌ Error: Unable to transcribe the audio file.\n` +
-      `🔄 Please try again or contact support if the issue persists.`
-    );
+  private escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 }

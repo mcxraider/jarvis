@@ -72,7 +72,7 @@ export class TelegramBotService {
       });
 
       try {
-        await ctx.reply('❌ Sorry, something went wrong. Please try again.');
+        await ctx.reply('Something went wrong. Please try again.');
       } catch (replyError) {
         logger.error('Failed to send error message', {
           originalError: error.message,

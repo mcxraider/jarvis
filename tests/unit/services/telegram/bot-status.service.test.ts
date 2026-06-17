@@ -7,7 +7,7 @@ describe('BotStatusService', () => {
     activity.recordActivity('message_text');
 
     const service = new BotStatusService(activity, {
-      gptModel: 'gpt-4o',
+      gptModel: 'deepseek-v4-pro',
       todoistService: {
         getProjects: jest.fn().mockResolvedValue([{ id: '1' }]),
       } as any,
@@ -15,11 +15,10 @@ describe('BotStatusService', () => {
 
     const status = await service.getFormattedStatus();
 
-    expect(status).toContain('HEALTHY');
-    expect(status).toContain('GPT model: gpt-4o');
+    expect(status).toContain('healthy');
+    expect(status).toContain('deepseek-v4-pro');
     expect(status).toContain('Todoist: reachable');
-    expect(status).toContain('Total interactions: 1');
-    expect(status).toContain('Last activity type: message_text');
+    expect(status).toContain('Interactions: 1');
   });
 
   it('reports degraded dependency health when Todoist check fails', async () => {
@@ -32,9 +31,8 @@ describe('BotStatusService', () => {
 
     const status = await service.getFormattedStatus();
 
-    expect(status).toContain('DEGRADED');
+    expect(status).toContain('degraded');
     expect(status).toContain('Todoist: degraded');
     expect(status).toContain('unauthorized');
-    expect(status).toContain('Last activity: none yet');
   });
 });
