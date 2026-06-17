@@ -1,24 +1,22 @@
 // src/services/telegram/processors/audio-processor.service.ts
 import { LogContext, logger } from '../../../utils/logger';
 import { WhisperService } from '../../ai/whisper.service';
-import { GPTService } from '../../ai/gpt.service';
+import { TextProcessorService } from './text-processor.service';
 
 /**
  * Service responsible for processing audio messages and documents
  */
 export class AudioProcessorService {
   private readonly whisperService: WhisperService;
-  private readonly gptService: GPTService;
+  private readonly textProcessor: TextProcessorService;
 
-  constructor() {
-    // Initialize WhisperService with English-only enforcement
+  constructor(textProcessor: TextProcessorService) {
     this.whisperService = new WhisperService({
       enforceEnglishOnly: true,
       language: 'en',
     });
 
-    // Initialize GPTService for text processing
-    this.gptService = new GPTService();
+    this.textProcessor = textProcessor;
   }
 
   /**
@@ -45,34 +43,32 @@ export class AudioProcessorService {
         );
       }
 
-      // Process the transcribed text with GPT
+      // Feed the transcribed text into the same text pipeline (DeepSeek + Todoist tool calling)
       try {
-        const response = await this.gptService.processMessage(text, userId?.toString(), logContext);
+        const response = await this.textProcessor.processTextMessage(text, userId, logContext);
 
         const finalResponse =
           `📝 What you said: ${text}\n\n` +
-          `🤖 Response: ${response}\n\n` +
+          `🤖 ${response}\n\n` +
           `⏱️ Transcription: ${Math.round(processingTimeMs / 1000)}s`;
 
         return finalResponse;
-      } catch (gptError) {
-        logger.warn('Failed to process transcribed audio with GPT', {
+      } catch (processingError) {
+        logger.warn('audio_processor.text_processing_failed', {
           ...logContext,
           userId,
           transcribedText: text.substring(0, 100),
-          error: (gptError as Error).message,
+          error: (processingError as Error).message,
         });
 
-        // Fallback to just showing transcription if GPT processing fails
         return (
-          `🎵 Audio transcribed successfully!\n\n` +
           `📝 What you said: ${text}\n\n` +
-          `⏱️ ${Math.round(processingTimeMs / 1000)}s\n` +
+          `⏱️ Transcription: ${Math.round(processingTimeMs / 1000)}s\n` +
           `🤖 (Response generation temporarily unavailable)`
         );
       }
     } catch (error) {
-      logger.error('Failed to process audio message', {
+      logger.error('audio_processor.failed', {
         ...logContext,
         userId,
         error: (error as Error).message,
@@ -114,30 +110,29 @@ export class AudioProcessorService {
         );
       }
 
-      // Process the transcribed text with GPT
+      // Feed the transcribed text into the same text pipeline (DeepSeek + Todoist tool calling)
       try {
-        const response = await this.gptService.processMessage(text, userId?.toString(), logContext);
+        const response = await this.textProcessor.processTextMessage(text, userId, logContext);
 
         const finalResponse =
           `📁 Audio document "${fileName}" processed successfully!\n` +
           `🎼 Type: ${mimeType}\n\n` +
           `📝 What was said: ${text}\n\n` +
-          `🤖 Response: ${response}\n\n` +
+          `🤖 ${response}\n\n` +
           `⏱️ Transcription: ${Math.round(processingTimeMs / 1000)}s`;
 
         return finalResponse;
-      } catch (gptError) {
-        logger.warn('Failed to process transcribed audio document with GPT', {
+      } catch (processingError) {
+        logger.warn('audio_processor.document_text_processing_failed', {
           ...logContext,
           userId,
           fileName,
           transcribedText: text.substring(0, 100),
-          error: (gptError as Error).message,
+          error: (processingError as Error).message,
         });
 
-        // Fallback to just showing transcription if GPT processing fails
         return (
-          `📁 Audio document "${fileName}" transcribed successfully!\n` +
+          `📁 Audio document "${fileName}" transcribed!\n` +
           `🎼 Type: ${mimeType}\n\n` +
           `📝 What was said: ${text}\n\n` +
           `⏱️ ${Math.round(processingTimeMs / 1000)}s\n` +

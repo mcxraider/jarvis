@@ -33,7 +33,7 @@ export class TelegramBotService {
     this.fileService = new FileService(this.botToken, this.bot.telegram);
     this.activityService = new BotActivityService();
     this.statusService = new BotStatusService(this.activityService, {
-      gptModel: process.env.OPENAI_MODEL || GPT_CONSTANTS.DEFAULT_MODEL,
+      gptModel: process.env.DEEPSEEK_MODEL || GPT_CONSTANTS.DEFAULT_MODEL,
       todoistService: process.env.TODOIST_API_KEY
         ? new TodoistAPIService(process.env.TODOIST_API_KEY)
         : undefined,

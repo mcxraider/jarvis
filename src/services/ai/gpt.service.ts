@@ -42,12 +42,15 @@ export class GPTService {
    * @throws {Error} If OpenAI API key is not provided
    */
   constructor(toolDispatcher?: ToolDispatcher, config?: Partial<GPTConfig>) {
-    const apiKey = config?.apiKey || process.env.OPENAI_API_KEY;
+    const apiKey = config?.apiKey || process.env.DEEPSEEK_API_KEY;
 
     // Validate configuration
     GPTValidator.validateConfig(apiKey!);
 
-    this.openai = new OpenAI({ apiKey });
+    this.openai = new OpenAI({
+      apiKey,
+      baseURL: 'https://api.deepseek.com',
+    });
     this.toolDispatcher = toolDispatcher;
     this.enableFunctionCalling = config?.enableFunctionCalling !== false && !!toolDispatcher;
 

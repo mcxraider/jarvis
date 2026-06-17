@@ -34,7 +34,7 @@ export class GPTValidator {
   static validateConfig(apiKey: string): void {
     if (!apiKey) {
       throw new Error(
-        'OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass it in config.',
+        'DeepSeek API key is required. Set DEEPSEEK_API_KEY environment variable or pass it in config.',
       );
     }
   }
