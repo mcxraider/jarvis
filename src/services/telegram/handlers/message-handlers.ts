@@ -38,7 +38,7 @@ export class MessageHandlers {
         ...logContext,
         responseLength: response.length,
       });
-      await ctx.reply(response);
+      await ctx.reply(response, { parse_mode: 'HTML' });
       logger.info('telegram.reply.sent', {
         ...logContext,
         responseLength: response.length,
@@ -51,7 +51,7 @@ export class MessageHandlers {
         userId,
         durationMs: Date.now() - startedAt,
       });
-      await ctx.reply('❌ Sorry, I had trouble processing your message.');
+      await ctx.reply('Something went wrong processing your message. Please try again.');
     }
   }
 
@@ -74,7 +74,7 @@ export class MessageHandlers {
     try {
       const fileUrl = await this.fileService.getFileUrl(voice.file_id);
       const response = await this.messageProcessor.processAudioMessage(fileUrl, userId, logContext);
-      await ctx.reply(response);
+      await ctx.reply(response, { parse_mode: 'HTML' });
       logger.info('telegram.reply.sent', {
         ...logContext,
         responseLength: response.length,
@@ -87,7 +87,7 @@ export class MessageHandlers {
         userId,
         durationMs: Date.now() - startedAt,
       });
-      await ctx.reply('❌ Sorry, I had trouble processing your voice message.');
+      await ctx.reply('Something went wrong processing your voice message. Please try again.');
     }
   }
 
@@ -129,7 +129,7 @@ export class MessageHandlers {
           userId,
           logContext,
         );
-        await ctx.reply(response);
+        await ctx.reply(response, { parse_mode: 'HTML' });
         logger.info('telegram.reply.sent', {
           ...logContext,
           responseLength: response.length,
@@ -143,7 +143,7 @@ export class MessageHandlers {
           fileName,
           durationMs: Date.now() - startedAt,
         });
-        await ctx.reply('❌ Sorry, I had trouble processing your audio document.');
+        await ctx.reply('Something went wrong processing your audio document. Please try again.');
       }
     } else {
       logger.info('telegram.message.unsupported_document', {
@@ -152,7 +152,7 @@ export class MessageHandlers {
         mimeType: document.mime_type,
         fileName: document.file_name,
       });
-      await ctx.reply('📄 I received a document, but I only process audio files. Please send an audio file.');
+      await ctx.reply('I only process audio files and text messages. Please send one of those.');
     }
   }
 
@@ -166,9 +166,7 @@ export class MessageHandlers {
     });
     this.activityService.recordActivity('message_unknown');
 
-    await ctx.reply(
-      '🤔 I received your message, but I don\'t know how to handle this type yet. Try sending text or audio!'
-    );
+    await ctx.reply('I can only handle text and audio messages for now.');
   }
 
   private async processAudioFile(ctx: Context, audioFile: any): Promise<void> {
@@ -190,7 +188,7 @@ export class MessageHandlers {
     try {
       const fileUrl = await this.fileService.getFileUrl(audioFile.file_id);
       const response = await this.messageProcessor.processAudioMessage(fileUrl, userId, logContext);
-      await ctx.reply(response);
+      await ctx.reply(response, { parse_mode: 'HTML' });
       logger.info('telegram.reply.sent', {
         ...logContext,
         responseLength: response.length,
@@ -204,7 +202,7 @@ export class MessageHandlers {
         fileName,
         durationMs: Date.now() - startedAt,
       });
-      await ctx.reply('❌ Sorry, I had trouble processing your audio file.');
+      await ctx.reply('Something went wrong processing your audio file. Please try again.');
     }
   }
 

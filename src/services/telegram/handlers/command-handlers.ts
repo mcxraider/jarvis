@@ -18,24 +18,19 @@ export class CommandHandlers {
     logger.info('User requested help', { userId });
     this.activityService.recordActivity('command_help');
 
-    const helpMessage = `🆘 *JarvisMCP Help*
+    const helpMessage =
+      `<b>Jarvis</b>\n` +
+      `\n` +
+      `<b>Commands</b>\n` +
+      `/help — this message\n` +
+      `/status — system health\n` +
+      `\n` +
+      `<b>Capabilities</b>\n` +
+      `• Text — send a message and I'll handle it (task management via Todoist)\n` +
+      `• Voice — send a voice note and I'll transcribe + act on it\n` +
+      `• Audio files — OGG, MP3, WAV, M4A supported`;
 
-*Available Commands:*
-/help - Show this help message
-/status - Check bot status
-
-*Features:*
-📝 Send any text message and I'll process it
-🎵 Send audio files (.ogg, .mp3, .wav, .m4a) and I'll process them
-🔊 Send voice messages and I'll handle them right away
-
-*Supported Audio Formats:*
-• OGG Vorbis (Telegram voice messages)
-• MP3
-• WAV
-• M4A`;
-
-    await ctx.reply(helpMessage, { parse_mode: 'Markdown' });
+    await ctx.reply(helpMessage, { parse_mode: 'HTML' });
   }
 
   async handleStatus(ctx: Context): Promise<void> {
@@ -44,6 +39,6 @@ export class CommandHandlers {
     this.activityService.recordActivity('command_status');
 
     const statusMessage = await this.statusService.getFormattedStatus();
-    await ctx.reply(statusMessage, { parse_mode: 'Markdown' });
+    await ctx.reply(statusMessage, { parse_mode: 'HTML' });
   }
 }

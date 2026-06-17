@@ -115,11 +115,7 @@ export class MessageProcessorService {
           userId,
           messageType: messageData.type,
         });
-        return (
-          `🤖 I received a message, but I'm not sure how to process this type of content.\n` +
-          `📝 Supported types: text messages, voice notes, and audio files.\n` +
-          `🔄 Please try sending a different type of message.`
-        );
+        return 'Unsupported message type. I can handle text and audio messages.';
     }
   }
 }

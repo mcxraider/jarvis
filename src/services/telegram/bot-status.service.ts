@@ -69,23 +69,21 @@ export class BotStatusService {
     const overallStatus = snapshot.todoist.ok ? 'healthy' : 'degraded';
 
     return [
-      `🤖 *Jarvis Status: ${overallStatus.toUpperCase()}*`,
+      `<b>Jarvis — ${overallStatus}</b>`,
       '',
-      `*Runtime*`,
-      `• Bot: ${snapshot.runtime.ok ? 'online' : 'offline'}`,
+      `<b>Runtime</b>`,
+      `• Status: ${snapshot.runtime.ok ? 'online' : 'offline'}`,
       `• Uptime: ${this.formatDuration(snapshot.runtime.uptimeMs)}`,
-      `• Started: ${snapshot.runtime.startedAt.toISOString()}`,
       '',
-      `*AI*`,
-      `• GPT model: ${snapshot.gpt.model}`,
+      `<b>AI</b>`,
+      `• Model: <code>${snapshot.gpt.model}</code>`,
       '',
-      `*Dependencies*`,
+      `<b>Dependencies</b>`,
       `• Todoist: ${snapshot.todoist.ok ? 'reachable' : 'degraded'} (${snapshot.todoist.detail})`,
       '',
-      `*Recent Activity*`,
-      `• Total interactions: ${snapshot.activity.totalInteractions}`,
-      `• Last activity: ${this.formatLastActivity(snapshot.activity.lastActivityAt)}`,
-      `• Last activity type: ${snapshot.activity.lastActivityType || 'none yet'}`,
+      `<b>Activity</b>`,
+      `• Interactions: ${snapshot.activity.totalInteractions}`,
+      `• Last: ${this.formatLastActivity(snapshot.activity.lastActivityAt)} (${snapshot.activity.lastActivityType || 'none'})`,
     ].join('\n');
   }
 

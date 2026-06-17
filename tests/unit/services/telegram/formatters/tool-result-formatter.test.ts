@@ -8,7 +8,7 @@ describe('ToolResultFormatter', () => {
       formatter.formatToolResults([
         { tool_call_id: 'call-1', toolName: 'add_todoist_task', content: { id: 'task-1' } },
       ]),
-    ).toBe('Done. I completed the action successfully.');
+    ).toBe('Done.');
   });
 
   it('formats multiple successes', () => {
@@ -17,7 +17,7 @@ describe('ToolResultFormatter', () => {
         { tool_call_id: 'call-1', toolName: 'add_todoist_task', content: { id: 'task-1' } },
         { tool_call_id: 'call-2', toolName: 'get_tasks', content: [] },
       ]),
-    ).toBe('Done. I completed 2 actions successfully.');
+    ).toBe('Done — 2 actions completed.');
   });
 
   it('formats partial failure', () => {
@@ -32,7 +32,7 @@ describe('ToolResultFormatter', () => {
         },
       ]),
     ).toBe(
-      'Done. I completed 1 of 2 actions. Failed:\n- delete_todoist_task: Todoist API error (404): missing',
+      '1/2 completed.\n\n<b>Failed:</b>\n• delete_todoist_task: Todoist API error (404): missing',
     );
   });
 
@@ -46,9 +46,7 @@ describe('ToolResultFormatter', () => {
           error: 'Invalid arguments for add_todoist_task',
         },
       ]),
-    ).toBe(
-      "I couldn't complete the request. Failed:\n- add_todoist_task: Invalid arguments for add_todoist_task",
-    );
+    ).toBe('Failed:\n• add_todoist_task: Invalid arguments for add_todoist_task');
   });
 
   it('uses display labels when available', () => {
@@ -62,6 +60,6 @@ describe('ToolResultFormatter', () => {
           error: 'Todoist unavailable',
         },
       ]),
-    ).toBe("I couldn't complete the request. Failed:\n- Create rent task: Todoist unavailable");
+    ).toBe('Failed:\n• Create rent task: Todoist unavailable');
   });
 });

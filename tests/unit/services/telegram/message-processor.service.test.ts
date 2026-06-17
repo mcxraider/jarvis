@@ -81,6 +81,6 @@ describe('MessageProcessorService', () => {
   it('returns a fallback response for unknown message types', async () => {
     await expect(
       service.processMessage({ type: 'unsupported' as any, content: 'mystery' }, 7),
-    ).resolves.toContain("I'm not sure how to process this type of content");
+    ).resolves.toContain('Unsupported message type');
   });
 });
