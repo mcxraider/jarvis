@@ -115,6 +115,7 @@ describe('FunctionCallingProcessor integration', () => {
         }),
       ]),
       'user-1',
+      {},
     );
     expect(create).toHaveBeenCalledTimes(2);
   });
@@ -164,6 +165,7 @@ describe('FunctionCallingProcessor integration', () => {
         },
       ],
       'user-1',
+      {},
     );
     expect(result.response).toBe('Found your tasks.');
   });

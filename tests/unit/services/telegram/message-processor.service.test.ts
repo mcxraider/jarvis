@@ -27,7 +27,7 @@ describe('MessageProcessorService', () => {
       'text response',
     );
 
-    expect(spy).toHaveBeenCalledWith('hello world', 7);
+    expect(spy).toHaveBeenCalledWith('hello world', 7, {});
   });
 
   it('routes audio messages to the audio processor', async () => {
@@ -37,7 +37,7 @@ describe('MessageProcessorService', () => {
       service.processMessage({ type: 'audio', content: 'https://example.com/audio.ogg' }, 7),
     ).resolves.toBe('audio response');
 
-    expect(spy).toHaveBeenCalledWith('https://example.com/audio.ogg', 7);
+    expect(spy).toHaveBeenCalledWith('https://example.com/audio.ogg', 7, {});
   });
 
   it('routes audio documents with file metadata to the document processor', async () => {
@@ -57,7 +57,13 @@ describe('MessageProcessorService', () => {
       ),
     ).resolves.toBe('document response');
 
-    expect(spy).toHaveBeenCalledWith('https://example.com/audio.mp3', 'memo.mp3', 'audio/mpeg', 7);
+    expect(spy).toHaveBeenCalledWith(
+      'https://example.com/audio.mp3',
+      'memo.mp3',
+      'audio/mpeg',
+      7,
+      {},
+    );
   });
 
   it('throws when an audio document is missing required metadata', async () => {

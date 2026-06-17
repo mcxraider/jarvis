@@ -5,7 +5,7 @@
  * @module TodoistAPIService
  */
 
-import { logger } from '../../utils/logger';
+import { LogContext, logger, truncateForLog } from '../../utils/logger';
 
 /**
  * Todoist API response interfaces
@@ -101,7 +101,9 @@ export class TodoistAPIService {
     endpoint: string,
     method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
     body?: any,
+    logContext: LogContext & { operation?: string } = {},
   ): Promise<any> {
+    const startedAt = Date.now();
     const url = `${this.baseURL}${endpoint}`;
 
     const headers: Record<string, string> = {
@@ -119,7 +121,8 @@ export class TodoistAPIService {
     }
 
     try {
-      logger.debug('Making Todoist API request', {
+      logger.debug('todoist.api.request.started', {
+        ...logContext,
         url,
         method,
         hasBody: !!body,
@@ -129,28 +132,48 @@ export class TodoistAPIService {
 
       if (!response.ok) {
         const errorText = await response.text();
+        logger.error('todoist.api.request.failed', {
+          ...logContext,
+          url,
+          method,
+          statusCode: response.status,
+          durationMs: Date.now() - startedAt,
+        });
         throw new Error(`Todoist API error (${response.status}): ${errorText}`);
       }
 
       // Handle empty responses (like DELETE requests)
       if (response.status === 204 || response.headers.get('content-length') === '0') {
+        logger.info('todoist.api.request.completed', {
+          ...logContext,
+          url,
+          method,
+          statusCode: response.status,
+          hasData: false,
+          durationMs: Date.now() - startedAt,
+        });
         return null;
       }
 
       const data = await response.json();
 
-      logger.debug('Todoist API response received', {
+      logger.info('todoist.api.request.completed', {
+        ...logContext,
         url,
+        method,
         status: response.status,
         hasData: !!data,
+        durationMs: Date.now() - startedAt,
       });
 
       return data;
     } catch (error) {
-      logger.error('Todoist API request failed', {
+      logger.error('todoist.api.request.failed', {
+        ...logContext,
         url,
         method,
         error: (error as Error).message,
+        durationMs: Date.now() - startedAt,
       });
       throw error;
     }
@@ -162,18 +185,25 @@ export class TodoistAPIService {
    * @param payload - Task creation data
    * @returns Promise<TodoistTask> - Created task
    */
-  async addTask(payload: CreateTaskPayload): Promise<TodoistTask> {
-    logger.info('Creating Todoist task', {
-      content: payload.content,
+  async addTask(payload: CreateTaskPayload, logContext: LogContext = {}): Promise<TodoistTask> {
+    logger.info('todoist.task.create.started', {
+      ...logContext,
+      contentPreview: truncateForLog(payload.content),
       priority: payload.priority,
       hasDescription: !!payload.description,
+      hasDue: !!(payload.due_string || payload.due_date || payload.due_datetime),
+      labelCount: payload.labels?.length || 0,
     });
 
-    const task = await this.makeRequest('/tasks', 'POST', payload);
+    const task = await this.makeRequest('/tasks', 'POST', payload, {
+      ...logContext,
+      operation: 'todoist.task.create',
+    });
 
-    logger.info('Todoist task created successfully', {
+    logger.info('todoist.task.create.completed', {
+      ...logContext,
       taskId: task.id,
-      content: task.content,
+      contentPreview: truncateForLog(task.content),
     });
 
     return task;
@@ -185,14 +215,18 @@ export class TodoistAPIService {
    * @param taskId - Task ID to retrieve
    * @returns Promise<TodoistTask> - Task details
    */
-  async getTask(taskId: string): Promise<TodoistTask> {
-    logger.debug('Fetching Todoist task', { taskId });
+  async getTask(taskId: string, logContext: LogContext = {}): Promise<TodoistTask> {
+    logger.info('todoist.task.get.started', { ...logContext, taskId });
 
-    const task = await this.makeRequest(`/tasks/${taskId}`);
+    const task = await this.makeRequest(`/tasks/${taskId}`, 'GET', undefined, {
+      ...logContext,
+      operation: 'todoist.task.get',
+    });
 
-    logger.debug('Todoist task retrieved', {
+    logger.info('todoist.task.get.completed', {
+      ...logContext,
       taskId: task.id,
-      content: task.content,
+      contentPreview: truncateForLog(task.content),
     });
 
     return task;
@@ -213,8 +247,9 @@ export class TodoistAPIService {
       lang?: string;
       ids?: string[];
     } = {},
+    logContext: LogContext = {},
   ): Promise<TodoistTask[]> {
-    logger.debug('Fetching Todoist tasks', options);
+    logger.info('todoist.tasks.list.started', { ...logContext, ...options });
 
     const params = new URLSearchParams();
 
@@ -228,9 +263,13 @@ export class TodoistAPIService {
     }
 
     const endpoint = `/tasks${params.toString() ? '?' + params.toString() : ''}`;
-    const tasks = await this.makeRequest(endpoint);
+    const tasks = await this.makeRequest(endpoint, 'GET', undefined, {
+      ...logContext,
+      operation: 'todoist.tasks.list',
+    });
 
-    logger.debug('Todoist tasks retrieved', {
+    logger.info('todoist.tasks.list.completed', {
+      ...logContext,
       count: tasks.length,
       filter: options.filter,
     });
@@ -245,18 +284,29 @@ export class TodoistAPIService {
    * @param payload - Update data
    * @returns Promise<TodoistTask> - Updated task
    */
-  async updateTask(taskId: string, payload: UpdateTaskPayload): Promise<TodoistTask> {
-    logger.info('Updating Todoist task', {
+  async updateTask(
+    taskId: string,
+    payload: UpdateTaskPayload,
+    logContext: LogContext = {},
+  ): Promise<TodoistTask> {
+    logger.info('todoist.task.update.started', {
+      ...logContext,
       taskId,
       hasContent: !!payload.content,
       priority: payload.priority,
+      hasDue: !!(payload.due_string || payload.due_date || payload.due_datetime),
+      labelCount: payload.labels?.length || 0,
     });
 
-    const task = await this.makeRequest(`/tasks/${taskId}`, 'PUT', payload);
+    const task = await this.makeRequest(`/tasks/${taskId}`, 'PUT', payload, {
+      ...logContext,
+      operation: 'todoist.task.update',
+    });
 
-    logger.info('Todoist task updated successfully', {
+    logger.info('todoist.task.update.completed', {
+      ...logContext,
       taskId: task.id,
-      content: task.content,
+      contentPreview: truncateForLog(task.content),
     });
 
     return task;
@@ -268,12 +318,15 @@ export class TodoistAPIService {
    * @param taskId - Task ID to complete
    * @returns Promise<void>
    */
-  async completeTask(taskId: string): Promise<void> {
-    logger.info('Completing Todoist task', { taskId });
+  async completeTask(taskId: string, logContext: LogContext = {}): Promise<void> {
+    logger.info('todoist.task.complete.started', { ...logContext, taskId });
 
-    await this.makeRequest(`/tasks/${taskId}/close`, 'POST');
+    await this.makeRequest(`/tasks/${taskId}/close`, 'POST', undefined, {
+      ...logContext,
+      operation: 'todoist.task.complete',
+    });
 
-    logger.info('Todoist task completed successfully', { taskId });
+    logger.info('todoist.task.complete.completed', { ...logContext, taskId });
   }
 
   /**
@@ -282,12 +335,15 @@ export class TodoistAPIService {
    * @param taskId - Task ID to delete
    * @returns Promise<void>
    */
-  async deleteTask(taskId: string): Promise<void> {
-    logger.info('Deleting Todoist task', { taskId });
+  async deleteTask(taskId: string, logContext: LogContext = {}): Promise<void> {
+    logger.info('todoist.task.delete.started', { ...logContext, taskId });
 
-    await this.makeRequest(`/tasks/${taskId}`, 'DELETE');
+    await this.makeRequest(`/tasks/${taskId}`, 'DELETE', undefined, {
+      ...logContext,
+      operation: 'todoist.task.delete',
+    });
 
-    logger.info('Todoist task deleted successfully', { taskId });
+    logger.info('todoist.task.delete.completed', { ...logContext, taskId });
   }
 
   /**
@@ -295,12 +351,16 @@ export class TodoistAPIService {
    *
    * @returns Promise<TodoistProject[]> - Array of projects
    */
-  async getProjects(): Promise<TodoistProject[]> {
-    logger.debug('Fetching Todoist projects');
+  async getProjects(logContext: LogContext = {}): Promise<TodoistProject[]> {
+    logger.info('todoist.projects.list.started', logContext);
 
-    const projects = await this.makeRequest('/projects');
+    const projects = await this.makeRequest('/projects', 'GET', undefined, {
+      ...logContext,
+      operation: 'todoist.projects.list',
+    });
 
-    logger.debug('Todoist projects retrieved', {
+    logger.info('todoist.projects.list.completed', {
+      ...logContext,
       count: projects.length,
     });
 
@@ -337,8 +397,10 @@ export class TodoistAPIService {
       limit?: number;
       offset?: number;
     } = {},
+    logContext: LogContext = {},
   ): Promise<any[]> {
-    logger.debug('Fetching completed Todoist tasks', options);
+    const startedAt = Date.now();
+    logger.info('todoist.completed_tasks.list.started', { ...logContext, ...options });
 
     // Note: This uses the Sync API endpoint for completed tasks
     const syncUrl = 'https://api.todoist.com/sync/v9/completed/get_all';
@@ -362,19 +424,29 @@ export class TodoistAPIService {
 
       if (!response.ok) {
         const errorText = await response.text();
+        logger.error('todoist.sync_api.request.failed', {
+          ...logContext,
+          operation: 'todoist.completed_tasks.list',
+          statusCode: response.status,
+          durationMs: Date.now() - startedAt,
+        });
         throw new Error(`Todoist Sync API error (${response.status}): ${errorText}`);
       }
 
       const data = await response.json();
 
-      logger.debug('Completed Todoist tasks retrieved', {
+      logger.info('todoist.completed_tasks.list.completed', {
+        ...logContext,
         count: data.items?.length || 0,
+        durationMs: Date.now() - startedAt,
       });
 
       return data.items || [];
     } catch (error) {
-      logger.error('Failed to fetch completed tasks', {
+      logger.error('todoist.completed_tasks.list.failed', {
+        ...logContext,
         error: (error as Error).message,
+        durationMs: Date.now() - startedAt,
       });
       throw error;
     }

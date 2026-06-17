@@ -66,7 +66,7 @@ describe('createWebhookRouter', () => {
     );
 
     expect(response.sendStatus).toHaveBeenCalledWith(200);
-    expect(handleUpdate).toHaveBeenCalledWith(update);
+    expect(handleUpdate).toHaveBeenCalledWith(expect.objectContaining(update));
   });
 
   it('returns 500 when bot update handling fails', async () => {

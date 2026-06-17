@@ -12,7 +12,9 @@ const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
   try {
     await botService.setupWebhook(NGROK_URL, TELEGRAM_SECRET_TOKEN);
   } catch (err) {
-    logger.error('Error setting up webhook:', err);
+    logger.error('telegram.webhook.setup_failed', {
+      error: (err as Error).message,
+    });
   }
 })();
 
@@ -29,12 +31,12 @@ app.use(createWebhookRouter(botService));
 // Start listening
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  logger.info(`Server started at http://localhost:${PORT}`);
-  logger.info(`Waiting for Telegram updates on /webhook/:secret`);
+  logger.info('server.started', { url: `http://localhost:${PORT}` });
+  logger.info('telegram.webhook.awaiting_updates', { path: '/webhook/:secret' });
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-  logger.info('Shutting down gracefully...');
+  logger.info('server.shutdown.started', { signal: 'SIGTERM' });
   process.exit(0);
 });

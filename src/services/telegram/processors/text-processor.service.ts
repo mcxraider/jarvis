@@ -1,5 +1,5 @@
 // src/services/telegram/processors/text-processor.service.ts
-import { logger } from '../../../utils/logger';
+import { LogContext, logger } from '../../../utils/logger';
 import { GPTService } from '../../ai';
 import { ToolDispatcher } from '../../../types/tool.types';
 
@@ -17,28 +17,35 @@ export class TextProcessorService {
   /**
    * Processes text messages from users
    */
-  async processTextMessage(text: string, userId?: number): Promise<string> {
-    logger.info('Processing text message', {
+  async processTextMessage(text: string, userId?: number, logContext: LogContext = {}): Promise<string> {
+    const startedAt = Date.now();
+
+    logger.info('text_processor.started', {
+      ...logContext,
       userId,
       messageLength: text.length,
     });
 
     try {
       // Process the message using GPT
-      const response = await this.gptService.processMessage(text, userId?.toString());
+      const response = await this.gptService.processMessage(text, userId?.toString(), logContext);
 
-      logger.info('Text message processed successfully', {
+      logger.info('text_processor.completed', {
+        ...logContext,
         userId,
         messageLength: text.length,
         responseLength: response.length,
+        durationMs: Date.now() - startedAt,
       });
 
       return response;
     } catch (error) {
-      logger.error('Failed to process text message', {
+      logger.error('text_processor.failed', {
+        ...logContext,
         userId,
         messageLength: text.length,
         error: (error as Error).message,
+        durationMs: Date.now() - startedAt,
       });
 
       return this.handleTextProcessingError(error as Error, text);
