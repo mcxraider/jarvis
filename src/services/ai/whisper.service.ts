@@ -33,6 +33,27 @@ const WHISPER_CONSTANTS = {
   MAX_LOG_TEXT_LENGTH: 100,
 } as const;
 
+const GROQ_DIRECT_TRANSCRIPTION_FORMATS = [
+  'flac',
+  'mp3',
+  'mp4',
+  'mpeg',
+  'mpga',
+  'm4a',
+  'ogg',
+  'webm',
+  'wav',
+] as const;
+
+const FORMAT_REJECTION_PATTERNS = [
+  /invalid file format/i,
+  /unsupported audio format/i,
+  /unsupported file format/i,
+  /unrecognized file format/i,
+  /file format.*not supported/i,
+  /not a supported format/i,
+] as const;
+
 /**
  * Configuration interface for Whisper service options
  */
@@ -146,26 +167,87 @@ export class WhisperService {
       // Validate file size
       validateFileSize(audioBuffer.length, this.config.maxFileSizeBytes);
 
-      // Determine file extension from URL or default to supported format
-      const originalExtension = this.extractFileExtension(fileUrl) || 'ogg';
+      // Determine file extension from URL or default to supported Telegram voice format.
+      const originalExtension = this.extractFileExtension(fileUrl);
+      const normalizedExtension = this.normalizeAudioExtension(originalExtension);
 
       // Check if the audio format needs conversion
       let processedBuffer = audioBuffer;
-      let fileExtension = originalExtension;
+      let fileExtension = normalizedExtension;
       let conversionTimeMs = 0;
+      let attemptedDirectTranscription = false;
+      let directTranscriptionError: Error | undefined;
 
-      if (AudioConverter.needsConversion(originalExtension)) {
-        logger.info('audio.conversion.required', {
+      if (this.isGroqDirectTranscriptionFormat(normalizedExtension)) {
+        attemptedDirectTranscription = true;
+        logger.info('audio.transcription.direct_selected', {
           ...logContext,
           userId,
-          originalFormat: originalExtension,
-          targetFormat: AudioConverter.getTargetFormat(),
+          originalFormat: originalExtension || 'unknown',
+          normalizedFormat: normalizedExtension,
+        });
+
+        logger.info('audio.conversion.skipped', {
+          ...logContext,
+          userId,
+          originalFormat: originalExtension || 'unknown',
+          normalizedFormat: normalizedExtension,
+          reason: 'groq_direct_format',
         });
 
         try {
-          const conversionResult = await AudioConverter.convertToMp3(
-            audioBuffer,
+          const audioFile = this.createAudioFile(processedBuffer, fileExtension);
+          const transcription = await this.performTranscription(audioFile);
+          return this.buildTranscriptionResult({
+            transcription,
+            fileUrl,
+            processedBuffer,
+            startTime,
+            conversionTimeMs,
             originalExtension,
+            fileExtension,
+            userId,
+            logContext,
+          });
+        } catch (error) {
+          directTranscriptionError = error as Error;
+          logger.warn('audio.transcription.direct_failed', {
+            ...logContext,
+            userId,
+            originalFormat: originalExtension || 'unknown',
+            normalizedFormat: normalizedExtension,
+            error: directTranscriptionError.message,
+          });
+
+          if (!this.isFormatRejectionError(directTranscriptionError)) {
+            throw directTranscriptionError;
+          }
+        }
+      }
+
+      if (AudioConverter.needsConversion(normalizedExtension)) {
+        const fallbackReason = attemptedDirectTranscription
+          ? 'direct_format_rejected'
+          : 'unsupported_convertible_format';
+
+        logger.info(
+          attemptedDirectTranscription
+            ? 'audio.conversion.fallback_started'
+            : 'audio.conversion.required',
+          {
+            ...logContext,
+            userId,
+            originalFormat: originalExtension || 'unknown',
+            normalizedFormat: normalizedExtension,
+            targetFormat: AudioConverter.getTargetFormat(),
+            reason: fallbackReason,
+          },
+        );
+
+        try {
+          const conversionResult = await this.convertAudioToMp3(
+            audioBuffer,
+            normalizedExtension,
             userId,
           );
 
@@ -173,25 +255,35 @@ export class WhisperService {
           fileExtension = conversionResult.targetFormat;
           conversionTimeMs = conversionResult.conversionTimeMs;
 
-          // Validate converted file size
-          validateFileSize(processedBuffer.length, this.config.maxFileSizeBytes);
-
-          logger.info('audio.conversion.completed', {
-            ...logContext,
-            userId,
-            originalFormat: originalExtension,
-            targetFormat: fileExtension,
-            originalSize: audioBuffer.length,
-            convertedSize: processedBuffer.length,
-            conversionTimeMs,
-          });
+          logger.info(
+            attemptedDirectTranscription
+              ? 'audio.conversion.fallback_completed'
+              : 'audio.conversion.completed',
+            {
+              ...logContext,
+              userId,
+              originalFormat: originalExtension || 'unknown',
+              targetFormat: fileExtension,
+              originalSize: audioBuffer.length,
+              convertedSize: processedBuffer.length,
+              conversionTimeMs,
+              reason: fallbackReason,
+            },
+          );
         } catch (conversionError) {
-          logger.error('audio.conversion.failed', {
-            ...logContext,
-            userId,
-            originalFormat: originalExtension,
-            error: (conversionError as Error).message,
-          });
+          logger.error(
+            attemptedDirectTranscription
+              ? 'audio.conversion.fallback_failed'
+              : 'audio.conversion.failed',
+            {
+              ...logContext,
+              userId,
+              originalFormat: originalExtension || 'unknown',
+              normalizedFormat: normalizedExtension,
+              error: (conversionError as Error).message,
+              reason: fallbackReason,
+            },
+          );
 
           // Provide helpful error message for conversion failures
           const errorMessage = (conversionError as Error).message;
@@ -204,45 +296,27 @@ export class WhisperService {
 
           throw new Error(`Audio format conversion failed: ${errorMessage}`);
         }
+      } else if (directTranscriptionError) {
+        throw directTranscriptionError;
       }
 
       // Create a File object for the OpenAI API
-      const audioFile = new File([new Uint8Array(processedBuffer)], `audio.${fileExtension}`, {
-        type: this.getMimeTypeFromExtension(fileExtension),
-      });
+      const audioFile = this.createAudioFile(processedBuffer, fileExtension);
 
       // Perform transcription
       const transcription = await this.performTranscription(audioFile);
 
-      const processingTimeMs = Date.now() - startTime;
-
-      const result: TranscriptionResult = {
-        text: transcription,
+      return this.buildTranscriptionResult({
+        transcription,
         fileUrl,
-        processingTimeMs,
-        fileSizeBytes: processedBuffer.length,
-      };
-
-      // Add conversion information to logs if conversion was performed
-      const logData: any = {
-        ...logContext,
+        processedBuffer,
+        startTime,
+        conversionTimeMs,
+        originalExtension,
+        fileExtension,
         userId,
-        textPreview: truncateForLog(result.text, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH),
-        textLength: transcription.length,
-        processingTimeMs,
-        fileSizeBytes: processedBuffer.length,
-      };
-
-      if (conversionTimeMs > 0) {
-        logData.originalFormat = originalExtension;
-        logData.convertedFormat = fileExtension;
-        logData.conversionTimeMs = conversionTimeMs;
-        logData.transcriptionTimeMs = processingTimeMs - conversionTimeMs;
-      }
-
-      logger.info('whisper.transcription.completed', logData);
-
-      return result;
+        logContext,
+      });
     } catch (error) {
       const processingTimeMs = Date.now() - startTime;
 
@@ -256,6 +330,73 @@ export class WhisperService {
 
       throw new Error(`Transcription failed: ${(error as Error).message}`);
     }
+  }
+
+  private async convertAudioToMp3(
+    audioBuffer: Buffer,
+    normalizedExtension: string,
+    userId?: number,
+  ): Promise<{
+    convertedBuffer: Buffer;
+    targetFormat: string;
+    conversionTimeMs: number;
+  }> {
+    const conversionResult = await AudioConverter.convertToMp3(
+      audioBuffer,
+      normalizedExtension,
+      userId,
+    );
+
+    // Validate converted file size
+    validateFileSize(conversionResult.convertedBuffer.length, this.config.maxFileSizeBytes);
+
+    return {
+      convertedBuffer: conversionResult.convertedBuffer,
+      targetFormat: conversionResult.targetFormat,
+      conversionTimeMs: conversionResult.conversionTimeMs,
+    };
+  }
+
+  private buildTranscriptionResult(options: {
+    transcription: string;
+    fileUrl: string;
+    processedBuffer: Buffer;
+    startTime: number;
+    conversionTimeMs: number;
+    originalExtension: string | null;
+    fileExtension: string;
+    userId?: number;
+    logContext: LogContext;
+  }): TranscriptionResult {
+    const processingTimeMs = Date.now() - options.startTime;
+
+    const result: TranscriptionResult = {
+      text: options.transcription,
+      fileUrl: options.fileUrl,
+      processingTimeMs,
+      fileSizeBytes: options.processedBuffer.length,
+    };
+
+    // Add conversion information to logs if conversion was performed
+    const logData: any = {
+      ...options.logContext,
+      userId: options.userId,
+      textPreview: truncateForLog(result.text, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH),
+      textLength: options.transcription.length,
+      processingTimeMs,
+      fileSizeBytes: options.processedBuffer.length,
+    };
+
+    if (options.conversionTimeMs > 0) {
+      logData.originalFormat = options.originalExtension || 'unknown';
+      logData.convertedFormat = options.fileExtension;
+      logData.conversionTimeMs = options.conversionTimeMs;
+      logData.transcriptionTimeMs = processingTimeMs - options.conversionTimeMs;
+    }
+
+    logger.info('whisper.transcription.completed', logData);
+
+    return result;
   }
 
   /**
@@ -332,6 +473,10 @@ export class WhisperService {
     }
   }
 
+  private isFormatRejectionError(error: Error): boolean {
+    return FORMAT_REJECTION_PATTERNS.some((pattern) => pattern.test(error.message));
+  }
+
   /**
    * Validates that the transcribed content appears to be in English
    * Logs warnings if non-English content is detected
@@ -380,6 +525,24 @@ export class WhisperService {
     }
   }
 
+  private normalizeAudioExtension(extension: string | null): string {
+    const normalizedExtension = extension?.toLowerCase() || 'ogg';
+    return normalizedExtension === 'oga' ? 'ogg' : normalizedExtension;
+  }
+
+  private isGroqDirectTranscriptionFormat(extension: string): boolean {
+    return GROQ_DIRECT_TRANSCRIPTION_FORMATS.includes(
+      extension.toLowerCase() as (typeof GROQ_DIRECT_TRANSCRIPTION_FORMATS)[number],
+    );
+  }
+
+  private createAudioFile(buffer: Buffer, extension: string): File {
+    const normalizedExtension = this.normalizeAudioExtension(extension);
+    return new File([new Uint8Array(buffer)], `audio.${normalizedExtension}`, {
+      type: this.getMimeTypeFromExtension(normalizedExtension),
+    });
+  }
+
   /**
    * Gets MIME type from file extension
    *
@@ -389,8 +552,12 @@ export class WhisperService {
    */
   private getMimeTypeFromExtension(extension: string): string {
     const mimeTypeMap: Record<string, string> = {
+      flac: 'audio/flac',
       ogg: 'audio/ogg',
+      oga: 'audio/ogg',
       mp3: 'audio/mpeg',
+      mpeg: 'audio/mpeg',
+      mpga: 'audio/mpeg',
       wav: 'audio/wav',
       mp4: 'audio/mp4',
       m4a: 'audio/m4a',
