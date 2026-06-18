@@ -25,12 +25,24 @@ const WHISPER_CONSTANTS = {
   DEFAULT_MAX_FILE_SIZE_BYTES: 25 * 1024 * 1024,
   /** Default Whisper model on Groq */
   DEFAULT_MODEL: 'whisper-large-v3',
-  /** Default response format */
-  DEFAULT_RESPONSE_FORMAT: 'text' as const,
+  /** Default response format for segment metadata */
+  DEFAULT_RESPONSE_FORMAT: 'verbose_json' as const,
   /** Default language (English) */
   DEFAULT_LANGUAGE: 'en',
+  /** Default prompt for Groq speech-to-text context and style guidance */
+  DEFAULT_PROMPT:
+    'Telegram voice memo for a personal productivity assistant. Preserve task names, dates, labels, project names, Todoist, Groq, DeepSeek, and technical terms. Use clear punctuation.',
+  /** Groq speech-to-text prompt limit */
+  MAX_PROMPT_TOKENS: 224,
   /** Maximum text length to log for privacy */
   MAX_LOG_TEXT_LENGTH: 100,
+} as const;
+
+const DEFAULT_QUALITY_THRESHOLDS = {
+  minAvgLogprob: -0.5,
+  maxNoSpeechProb: 0.6,
+  minCompressionRatio: 0.8,
+  maxCompressionRatio: 2.4,
 } as const;
 
 const GROQ_DIRECT_TRANSCRIPTION_FORMATS = [
@@ -70,6 +82,56 @@ interface WhisperConfig {
   responseFormat?: 'json' | 'text' | 'srt' | 'verbose_json' | 'vtt';
   /** Whether to enforce English-only transcription (default: true) */
   enforceEnglishOnly?: boolean;
+  /** Context/style prompt for transcription. Groq limits this to 224 tokens. */
+  prompt?: string;
+  /** Whether to inspect verbose_json segment quality metadata (default: true) */
+  qualityMonitoringEnabled?: boolean;
+  /** Monitor-only thresholds for segment quality metadata */
+  qualityThresholds?: Partial<QualityThresholds>;
+}
+
+interface QualityThresholds {
+  minAvgLogprob: number;
+  maxNoSpeechProb: number;
+  minCompressionRatio: number;
+  maxCompressionRatio: number;
+}
+
+interface TranscriptionSegment {
+  id?: number;
+  start?: number;
+  end?: number;
+  text?: string;
+  avg_logprob?: number;
+  no_speech_prob?: number;
+  compression_ratio?: number;
+}
+
+interface QualityFlag {
+  segmentId?: number;
+  start?: number;
+  end?: number;
+  reason: 'low_avg_logprob' | 'high_no_speech_prob' | 'low_compression_ratio' | 'high_compression_ratio';
+  value: number;
+  threshold: number;
+}
+
+interface TranscriptionQuality {
+  flaggedSegments: number;
+  totalSegments: number;
+  flags: QualityFlag[];
+  worstValues: {
+    minAvgLogprob?: number;
+    maxNoSpeechProb?: number;
+    minCompressionRatio?: number;
+    maxCompressionRatio?: number;
+  };
+}
+
+interface ParsedTranscription {
+  text: string;
+  segments: TranscriptionSegment[];
+  detectedLanguage?: string;
 }
 
 /**
@@ -83,6 +145,7 @@ interface TranscriptionResult {
   processingTimeMs: number;
   detectedLanguage?: string;
   fileSizeBytes: number;
+  quality?: TranscriptionQuality;
 }
 
 /**
@@ -90,8 +153,9 @@ interface TranscriptionResult {
  */
 export class WhisperService {
   private readonly openai: OpenAI;
-  private readonly config: Required<Omit<WhisperConfig, 'language'>>;
+  private readonly config: Required<Omit<WhisperConfig, 'language' | 'qualityThresholds'>>;
   private readonly language: string;
+  private readonly qualityThresholds: QualityThresholds;
 
   /**
    * Creates a new WhisperService instance
@@ -123,6 +187,13 @@ export class WhisperService {
       model: config?.model || WHISPER_CONSTANTS.DEFAULT_MODEL,
       responseFormat: config?.responseFormat || WHISPER_CONSTANTS.DEFAULT_RESPONSE_FORMAT,
       enforceEnglishOnly,
+      prompt: this.normalizePrompt(config?.prompt || WHISPER_CONSTANTS.DEFAULT_PROMPT),
+      qualityMonitoringEnabled: config?.qualityMonitoringEnabled !== false,
+    };
+
+    this.qualityThresholds = {
+      ...DEFAULT_QUALITY_THRESHOLDS,
+      ...config?.qualityThresholds,
     };
 
     // Set language to English when enforcing English-only, otherwise use provided language
@@ -136,6 +207,9 @@ export class WhisperService {
       responseFormat: this.config.responseFormat,
       language: this.language,
       enforceEnglishOnly: this.config.enforceEnglishOnly,
+      promptLength: this.config.prompt.length,
+      qualityMonitoringEnabled: this.config.qualityMonitoringEnabled,
+      qualityThresholds: this.qualityThresholds,
     });
   }
 
@@ -358,7 +432,7 @@ export class WhisperService {
   }
 
   private buildTranscriptionResult(options: {
-    transcription: string;
+    transcription: ParsedTranscription;
     fileUrl: string;
     processedBuffer: Buffer;
     startTime: number;
@@ -371,20 +445,30 @@ export class WhisperService {
     const processingTimeMs = Date.now() - options.startTime;
 
     const result: TranscriptionResult = {
-      text: options.transcription,
+      text: options.transcription.text,
       fileUrl: options.fileUrl,
       processingTimeMs,
       fileSizeBytes: options.processedBuffer.length,
+      detectedLanguage: options.transcription.detectedLanguage,
     };
+
+    if (this.config.qualityMonitoringEnabled) {
+      result.quality = this.evaluateTranscriptionQuality(options.transcription.segments);
+      if (result.quality.flaggedSegments > 0) {
+        this.logQualityFlags(result.quality, options.transcription.segments, options.logContext, options.userId);
+      }
+    }
 
     // Add conversion information to logs if conversion was performed
     const logData: any = {
       ...options.logContext,
       userId: options.userId,
       textPreview: truncateForLog(result.text, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH),
-      textLength: options.transcription.length,
+      textLength: options.transcription.text.length,
       processingTimeMs,
       fileSizeBytes: options.processedBuffer.length,
+      qualityFlaggedSegments: result.quality?.flaggedSegments,
+      qualityTotalSegments: result.quality?.totalSegments,
     };
 
     if (options.conversionTimeMs > 0) {
@@ -434,30 +518,26 @@ export class WhisperService {
    * @returns Promise resolving to transcribed text
    * @private
    */
-  private async performTranscription(audioFile: File): Promise<string> {
+  private async performTranscription(audioFile: File): Promise<ParsedTranscription> {
     try {
       const transcription = await this.openai.audio.transcriptions.create({
         file: audioFile,
         model: this.config.model,
         language: this.language,
         response_format: this.config.responseFormat,
+        prompt: this.config.prompt,
+        timestamp_granularities: ['segment'],
         temperature: 0,
       });
 
-      // Handle different response formats
-      let transcribedText = '';
-      if (typeof transcription === 'object' && 'text' in transcription) {
-        transcribedText = transcription.text || '';
-      } else {
-        transcribedText = String(transcription || '');
-      }
+      const parsedTranscription = this.parseTranscriptionResponse(transcription);
 
       // Validate English content if enforcement is enabled
-      if (this.config.enforceEnglishOnly && transcribedText) {
-        this.validateEnglishContent(transcribedText);
+      if (this.config.enforceEnglishOnly && parsedTranscription.text) {
+        this.validateEnglishContent(parsedTranscription.text);
       }
 
-      return transcribedText;
+      return parsedTranscription;
     } catch (error) {
       if (error instanceof Error) {
         // Handle specific OpenAI API errors
@@ -471,6 +551,145 @@ export class WhisperService {
 
       throw new Error(`OpenAI API error: ${(error as Error).message}`);
     }
+  }
+
+  private parseTranscriptionResponse(transcription: unknown): ParsedTranscription {
+    if (typeof transcription === 'object' && transcription !== null) {
+      const response = transcription as {
+        text?: string;
+        segments?: TranscriptionSegment[];
+        language?: string;
+      };
+
+      return {
+        text: response.text || '',
+        segments: Array.isArray(response.segments) ? response.segments : [],
+        detectedLanguage: response.language,
+      };
+    }
+
+    return {
+      text: String(transcription || ''),
+      segments: [],
+    };
+  }
+
+  private evaluateTranscriptionQuality(segments: TranscriptionSegment[]): TranscriptionQuality {
+    const flags: QualityFlag[] = [];
+    const values = {
+      avgLogprobs: segments
+        .map((segment) => segment.avg_logprob)
+        .filter((value): value is number => typeof value === 'number'),
+      noSpeechProbs: segments
+        .map((segment) => segment.no_speech_prob)
+        .filter((value): value is number => typeof value === 'number'),
+      compressionRatios: segments
+        .map((segment) => segment.compression_ratio)
+        .filter((value): value is number => typeof value === 'number'),
+    };
+
+    for (const segment of segments) {
+      if (
+        typeof segment.avg_logprob === 'number' &&
+        segment.avg_logprob < this.qualityThresholds.minAvgLogprob
+      ) {
+        flags.push({
+          segmentId: segment.id,
+          start: segment.start,
+          end: segment.end,
+          reason: 'low_avg_logprob',
+          value: segment.avg_logprob,
+          threshold: this.qualityThresholds.minAvgLogprob,
+        });
+      }
+
+      if (
+        typeof segment.no_speech_prob === 'number' &&
+        segment.no_speech_prob > this.qualityThresholds.maxNoSpeechProb
+      ) {
+        flags.push({
+          segmentId: segment.id,
+          start: segment.start,
+          end: segment.end,
+          reason: 'high_no_speech_prob',
+          value: segment.no_speech_prob,
+          threshold: this.qualityThresholds.maxNoSpeechProb,
+        });
+      }
+
+      if (
+        typeof segment.compression_ratio === 'number' &&
+        segment.compression_ratio < this.qualityThresholds.minCompressionRatio
+      ) {
+        flags.push({
+          segmentId: segment.id,
+          start: segment.start,
+          end: segment.end,
+          reason: 'low_compression_ratio',
+          value: segment.compression_ratio,
+          threshold: this.qualityThresholds.minCompressionRatio,
+        });
+      }
+
+      if (
+        typeof segment.compression_ratio === 'number' &&
+        segment.compression_ratio > this.qualityThresholds.maxCompressionRatio
+      ) {
+        flags.push({
+          segmentId: segment.id,
+          start: segment.start,
+          end: segment.end,
+          reason: 'high_compression_ratio',
+          value: segment.compression_ratio,
+          threshold: this.qualityThresholds.maxCompressionRatio,
+        });
+      }
+    }
+
+    return {
+      flaggedSegments: new Set(flags.map((flag) => `${flag.segmentId ?? ''}:${flag.start ?? ''}:${flag.end ?? ''}`)).size,
+      totalSegments: segments.length,
+      flags,
+      worstValues: {
+        minAvgLogprob:
+          values.avgLogprobs.length > 0 ? Math.min(...values.avgLogprobs) : undefined,
+        maxNoSpeechProb:
+          values.noSpeechProbs.length > 0 ? Math.max(...values.noSpeechProbs) : undefined,
+        minCompressionRatio:
+          values.compressionRatios.length > 0 ? Math.min(...values.compressionRatios) : undefined,
+        maxCompressionRatio:
+          values.compressionRatios.length > 0 ? Math.max(...values.compressionRatios) : undefined,
+      },
+    };
+  }
+
+  private logQualityFlags(
+    quality: TranscriptionQuality,
+    segments: TranscriptionSegment[],
+    logContext: LogContext,
+    userId?: number,
+  ): void {
+    logger.warn('whisper.transcription.quality_flagged', {
+      ...logContext,
+      userId,
+      flaggedSegments: quality.flaggedSegments,
+      totalSegments: quality.totalSegments,
+      flags: quality.flags.map((flag) => {
+        const segment = segments.find(
+          (candidate) =>
+            candidate.id === flag.segmentId &&
+            candidate.start === flag.start &&
+            candidate.end === flag.end,
+        );
+
+        return {
+          ...flag,
+          textPreview: truncateForLog(segment?.text, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH),
+        };
+      }),
+      worstValues: quality.worstValues,
+      thresholds: this.qualityThresholds,
+    });
   }
 
   private isFormatRejectionError(error: Error): boolean {
@@ -543,6 +762,20 @@ export class WhisperService {
     });
   }
 
+  private normalizePrompt(prompt: string): string {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) {
+      return WHISPER_CONSTANTS.DEFAULT_PROMPT;
+    }
+
+    const promptTokens = trimmedPrompt.split(/\s+/);
+    if (promptTokens.length <= WHISPER_CONSTANTS.MAX_PROMPT_TOKENS) {
+      return trimmedPrompt;
+    }
+
+    return promptTokens.slice(0, WHISPER_CONSTANTS.MAX_PROMPT_TOKENS).join(' ');
+  }
+
   /**
    * Gets MIME type from file extension
    *
@@ -607,6 +840,9 @@ export class WhisperService {
       language: this.language,
       responseFormat: this.config.responseFormat,
       enforceEnglishOnly: this.config.enforceEnglishOnly,
+      prompt: this.config.prompt,
+      qualityMonitoringEnabled: this.config.qualityMonitoringEnabled,
+      qualityThresholds: this.qualityThresholds,
     };
   }
 }
