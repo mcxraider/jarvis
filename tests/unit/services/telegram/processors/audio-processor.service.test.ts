@@ -7,6 +7,7 @@ jest.mock('../../../../../src/services/ai/whisper.service', () => ({
 }));
 
 import { AudioProcessorService } from '../../../../../src/services/telegram/processors/audio-processor.service';
+import { WhisperService } from '../../../../../src/services/ai/whisper.service';
 
 describe('AudioProcessorService', () => {
   beforeEach(() => {
@@ -48,5 +49,22 @@ describe('AudioProcessorService', () => {
     expect(response).toContain('<b>Transcription:</b> Add a Todoist task to buy milk tomorrow');
     expect(response).toContain('Task created.');
     expect(response).toContain('<i>1s transcription</i>');
+  });
+
+  it('configures WhisperService with the default audio pipeline transcription settings', () => {
+    const textProcessor = {
+      processTextMessage: jest.fn(),
+    };
+
+    new AudioProcessorService(textProcessor as any);
+
+    expect(WhisperService).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enforceEnglishOnly: true,
+        language: 'en',
+        qualityMonitoringEnabled: true,
+        prompt: expect.stringContaining('personal productivity assistant'),
+      }),
+    );
   });
 });

@@ -3,6 +3,9 @@ import { LogContext, logger } from '../../../utils/logger';
 import { WhisperService } from '../../ai/whisper.service';
 import { TextProcessorService } from './text-processor.service';
 
+const DEFAULT_AUDIO_TRANSCRIPTION_PROMPT =
+  'Telegram voice memo for a personal productivity assistant. Preserve task names, dates, labels, project names, Todoist, Groq, DeepSeek, and technical terms. Use clear punctuation.';
+
 /**
  * Service responsible for processing audio messages and documents
  */
@@ -14,6 +17,8 @@ export class AudioProcessorService {
     this.whisperService = new WhisperService({
       enforceEnglishOnly: true,
       language: 'en',
+      prompt: DEFAULT_AUDIO_TRANSCRIPTION_PROMPT,
+      qualityMonitoringEnabled: true,
     });
 
     this.textProcessor = textProcessor;
