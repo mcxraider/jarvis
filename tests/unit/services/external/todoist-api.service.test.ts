@@ -62,7 +62,7 @@ describe('TodoistAPIService', () => {
 
     const [url, options] = fetchMock.mock.calls[0];
     logger.logRequest('addTask', { url, options });
-    expect(url).toBe('https://api.todoist.com/rest/v2/tasks');
+    expect(url).toBe('https://api.todoist.com/api/v1/tasks');
     expect(options).toMatchObject({
       method: 'POST',
       headers: {
@@ -84,7 +84,7 @@ describe('TodoistAPIService', () => {
     await service.getTask('task-1');
 
     logger.logRequest('getTask', { call: fetchMock.mock.calls[0] });
-    expect(fetchMock).toHaveBeenCalledWith('https://api.todoist.com/rest/v2/tasks/task-1', {
+    expect(fetchMock).toHaveBeenCalledWith('https://api.todoist.com/api/v1/tasks/task-1', {
       method: 'GET',
       headers: {
         Authorization: 'Bearer todoist-test-key',
@@ -108,11 +108,11 @@ describe('TodoistAPIService', () => {
     const [url] = fetchMock.mock.calls[0];
     logger.logRequest('getTasks', { url });
     expect(url).toBe(
-      'https://api.todoist.com/rest/v2/tasks?project_id=project-1&section_id=section-1&label=jarvis-test&filter=today&lang=en&ids=1%2C2',
+      'https://api.todoist.com/api/v1/tasks?project_id=project-1&section_id=section-1&label=jarvis-test&filter=today&lang=en&ids=1%2C2',
     );
   });
 
-  it('serializes updateTask as PUT /tasks/:id with JSON body', async () => {
+  it('serializes updateTask as POST /tasks/:id with JSON body', async () => {
     fetchMock.mockResolvedValue(createResponse({ body: { id: 'task-1' } }));
 
     await service.updateTask('task-1', {
@@ -122,8 +122,8 @@ describe('TodoistAPIService', () => {
 
     const [url, options] = fetchMock.mock.calls[0];
     logger.logRequest('updateTask', { url, options });
-    expect(url).toBe('https://api.todoist.com/rest/v2/tasks/task-1');
-    expect(options.method).toBe('PUT');
+    expect(url).toBe('https://api.todoist.com/api/v1/tasks/task-1');
+    expect(options.method).toBe('POST');
     expect(JSON.parse(options.body)).toEqual({
       content: 'Review invoices now',
       priority: 4,
@@ -137,7 +137,7 @@ describe('TodoistAPIService', () => {
 
     logger.logRequest('completeTask', { call: fetchMock.mock.calls[0] });
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.todoist.com/rest/v2/tasks/task-1/close',
+      'https://api.todoist.com/api/v1/tasks/task-1/close',
       expect.objectContaining({ method: 'POST' }),
     );
   });
@@ -149,7 +149,7 @@ describe('TodoistAPIService', () => {
 
     logger.logRequest('deleteTask', { call: fetchMock.mock.calls[0] });
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.todoist.com/rest/v2/tasks/task-1',
+      'https://api.todoist.com/api/v1/tasks/task-1',
       expect.objectContaining({ method: 'DELETE' }),
     );
   });
@@ -166,7 +166,7 @@ describe('TodoistAPIService', () => {
     logger.logRequest('getProjects', { calls: fetchMock.mock.calls });
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      'https://api.todoist.com/rest/v2/projects',
+      'https://api.todoist.com/api/v1/projects',
       expect.objectContaining({ method: 'GET' }),
     );
   });
