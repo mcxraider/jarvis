@@ -11,7 +11,13 @@ describe('FileService', () => {
     const telegram = { getFile: jest.fn() } as any;
     const service = new FileService('token-123', telegram);
 
+    expect(service.isAudioFile('audio/flac')).toBe(true);
     expect(service.isAudioFile('audio/mpeg')).toBe(true);
+    expect(service.isAudioFile('audio/mp4')).toBe(true);
+    expect(service.isAudioFile('audio/m4a')).toBe(true);
+    expect(service.isAudioFile('audio/ogg')).toBe(true);
+    expect(service.isAudioFile('audio/webm')).toBe(true);
+    expect(service.isAudioFile('audio/wav')).toBe(true);
     expect(service.isAudioFile('application/pdf')).toBe(false);
     expect(service.isAudioFile(undefined)).toBe(false);
   });

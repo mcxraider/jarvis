@@ -25,13 +25,46 @@ const WHISPER_CONSTANTS = {
   DEFAULT_MAX_FILE_SIZE_BYTES: 25 * 1024 * 1024,
   /** Default Whisper model on Groq */
   DEFAULT_MODEL: 'whisper-large-v3',
-  /** Default response format */
-  DEFAULT_RESPONSE_FORMAT: 'text' as const,
+  /** Default response format for segment metadata */
+  DEFAULT_RESPONSE_FORMAT: 'verbose_json' as const,
   /** Default language (English) */
   DEFAULT_LANGUAGE: 'en',
+  /** Default prompt for Groq speech-to-text context and style guidance */
+  DEFAULT_PROMPT:
+    'Telegram voice memo for a personal productivity assistant. Preserve task names, dates, labels, project names, Todoist, Groq, DeepSeek, and technical terms. Use clear punctuation.',
+  /** Groq speech-to-text prompt limit */
+  MAX_PROMPT_TOKENS: 224,
   /** Maximum text length to log for privacy */
   MAX_LOG_TEXT_LENGTH: 100,
 } as const;
+
+const DEFAULT_QUALITY_THRESHOLDS = {
+  minAvgLogprob: -0.5,
+  maxNoSpeechProb: 0.6,
+  minCompressionRatio: 0.8,
+  maxCompressionRatio: 2.4,
+} as const;
+
+const GROQ_DIRECT_TRANSCRIPTION_FORMATS = [
+  'flac',
+  'mp3',
+  'mp4',
+  'mpeg',
+  'mpga',
+  'm4a',
+  'ogg',
+  'webm',
+  'wav',
+] as const;
+
+const FORMAT_REJECTION_PATTERNS = [
+  /invalid file format/i,
+  /unsupported audio format/i,
+  /unsupported file format/i,
+  /unrecognized file format/i,
+  /file format.*not supported/i,
+  /not a supported format/i,
+] as const;
 
 /**
  * Configuration interface for Whisper service options
@@ -49,6 +82,56 @@ interface WhisperConfig {
   responseFormat?: 'json' | 'text' | 'srt' | 'verbose_json' | 'vtt';
   /** Whether to enforce English-only transcription (default: true) */
   enforceEnglishOnly?: boolean;
+  /** Context/style prompt for transcription. Groq limits this to 224 tokens. */
+  prompt?: string;
+  /** Whether to inspect verbose_json segment quality metadata (default: true) */
+  qualityMonitoringEnabled?: boolean;
+  /** Monitor-only thresholds for segment quality metadata */
+  qualityThresholds?: Partial<QualityThresholds>;
+}
+
+interface QualityThresholds {
+  minAvgLogprob: number;
+  maxNoSpeechProb: number;
+  minCompressionRatio: number;
+  maxCompressionRatio: number;
+}
+
+interface TranscriptionSegment {
+  id?: number;
+  start?: number;
+  end?: number;
+  text?: string;
+  avg_logprob?: number;
+  no_speech_prob?: number;
+  compression_ratio?: number;
+}
+
+interface QualityFlag {
+  segmentId?: number;
+  start?: number;
+  end?: number;
+  reason: 'low_avg_logprob' | 'high_no_speech_prob' | 'low_compression_ratio' | 'high_compression_ratio';
+  value: number;
+  threshold: number;
+}
+
+interface TranscriptionQuality {
+  flaggedSegments: number;
+  totalSegments: number;
+  flags: QualityFlag[];
+  worstValues: {
+    minAvgLogprob?: number;
+    maxNoSpeechProb?: number;
+    minCompressionRatio?: number;
+    maxCompressionRatio?: number;
+  };
+}
+
+interface ParsedTranscription {
+  text: string;
+  segments: TranscriptionSegment[];
+  detectedLanguage?: string;
 }
 
 /**
@@ -62,6 +145,7 @@ interface TranscriptionResult {
   processingTimeMs: number;
   detectedLanguage?: string;
   fileSizeBytes: number;
+  quality?: TranscriptionQuality;
 }
 
 /**
@@ -69,8 +153,9 @@ interface TranscriptionResult {
  */
 export class WhisperService {
   private readonly openai: OpenAI;
-  private readonly config: Required<Omit<WhisperConfig, 'language'>>;
+  private readonly config: Required<Omit<WhisperConfig, 'language' | 'qualityThresholds'>>;
   private readonly language: string;
+  private readonly qualityThresholds: QualityThresholds;
 
   /**
    * Creates a new WhisperService instance
@@ -102,6 +187,13 @@ export class WhisperService {
       model: config?.model || WHISPER_CONSTANTS.DEFAULT_MODEL,
       responseFormat: config?.responseFormat || WHISPER_CONSTANTS.DEFAULT_RESPONSE_FORMAT,
       enforceEnglishOnly,
+      prompt: this.normalizePrompt(config?.prompt || WHISPER_CONSTANTS.DEFAULT_PROMPT),
+      qualityMonitoringEnabled: config?.qualityMonitoringEnabled !== false,
+    };
+
+    this.qualityThresholds = {
+      ...DEFAULT_QUALITY_THRESHOLDS,
+      ...config?.qualityThresholds,
     };
 
     // Set language to English when enforcing English-only, otherwise use provided language
@@ -115,6 +207,9 @@ export class WhisperService {
       responseFormat: this.config.responseFormat,
       language: this.language,
       enforceEnglishOnly: this.config.enforceEnglishOnly,
+      promptLength: this.config.prompt.length,
+      qualityMonitoringEnabled: this.config.qualityMonitoringEnabled,
+      qualityThresholds: this.qualityThresholds,
     });
   }
 
@@ -146,26 +241,87 @@ export class WhisperService {
       // Validate file size
       validateFileSize(audioBuffer.length, this.config.maxFileSizeBytes);
 
-      // Determine file extension from URL or default to supported format
-      const originalExtension = this.extractFileExtension(fileUrl) || 'ogg';
+      // Determine file extension from URL or default to supported Telegram voice format.
+      const originalExtension = this.extractFileExtension(fileUrl);
+      const normalizedExtension = this.normalizeAudioExtension(originalExtension);
 
       // Check if the audio format needs conversion
       let processedBuffer = audioBuffer;
-      let fileExtension = originalExtension;
+      let fileExtension = normalizedExtension;
       let conversionTimeMs = 0;
+      let attemptedDirectTranscription = false;
+      let directTranscriptionError: Error | undefined;
 
-      if (AudioConverter.needsConversion(originalExtension)) {
-        logger.info('audio.conversion.required', {
+      if (this.isGroqDirectTranscriptionFormat(normalizedExtension)) {
+        attemptedDirectTranscription = true;
+        logger.info('audio.transcription.direct_selected', {
           ...logContext,
           userId,
-          originalFormat: originalExtension,
-          targetFormat: AudioConverter.getTargetFormat(),
+          originalFormat: originalExtension || 'unknown',
+          normalizedFormat: normalizedExtension,
+        });
+
+        logger.info('audio.conversion.skipped', {
+          ...logContext,
+          userId,
+          originalFormat: originalExtension || 'unknown',
+          normalizedFormat: normalizedExtension,
+          reason: 'groq_direct_format',
         });
 
         try {
-          const conversionResult = await AudioConverter.convertToMp3(
-            audioBuffer,
+          const audioFile = this.createAudioFile(processedBuffer, fileExtension);
+          const transcription = await this.performTranscription(audioFile);
+          return this.buildTranscriptionResult({
+            transcription,
+            fileUrl,
+            processedBuffer,
+            startTime,
+            conversionTimeMs,
             originalExtension,
+            fileExtension,
+            userId,
+            logContext,
+          });
+        } catch (error) {
+          directTranscriptionError = error as Error;
+          logger.warn('audio.transcription.direct_failed', {
+            ...logContext,
+            userId,
+            originalFormat: originalExtension || 'unknown',
+            normalizedFormat: normalizedExtension,
+            error: directTranscriptionError.message,
+          });
+
+          if (!this.isFormatRejectionError(directTranscriptionError)) {
+            throw directTranscriptionError;
+          }
+        }
+      }
+
+      if (AudioConverter.needsConversion(normalizedExtension)) {
+        const fallbackReason = attemptedDirectTranscription
+          ? 'direct_format_rejected'
+          : 'unsupported_convertible_format';
+
+        logger.info(
+          attemptedDirectTranscription
+            ? 'audio.conversion.fallback_started'
+            : 'audio.conversion.required',
+          {
+            ...logContext,
+            userId,
+            originalFormat: originalExtension || 'unknown',
+            normalizedFormat: normalizedExtension,
+            targetFormat: AudioConverter.getTargetFormat(),
+            reason: fallbackReason,
+          },
+        );
+
+        try {
+          const conversionResult = await this.convertAudioToMp3(
+            audioBuffer,
+            normalizedExtension,
             userId,
           );
 
@@ -173,25 +329,35 @@ export class WhisperService {
           fileExtension = conversionResult.targetFormat;
           conversionTimeMs = conversionResult.conversionTimeMs;
 
-          // Validate converted file size
-          validateFileSize(processedBuffer.length, this.config.maxFileSizeBytes);
-
-          logger.info('audio.conversion.completed', {
-            ...logContext,
-            userId,
-            originalFormat: originalExtension,
-            targetFormat: fileExtension,
-            originalSize: audioBuffer.length,
-            convertedSize: processedBuffer.length,
-            conversionTimeMs,
-          });
+          logger.info(
+            attemptedDirectTranscription
+              ? 'audio.conversion.fallback_completed'
+              : 'audio.conversion.completed',
+            {
+              ...logContext,
+              userId,
+              originalFormat: originalExtension || 'unknown',
+              targetFormat: fileExtension,
+              originalSize: audioBuffer.length,
+              convertedSize: processedBuffer.length,
+              conversionTimeMs,
+              reason: fallbackReason,
+            },
+          );
         } catch (conversionError) {
-          logger.error('audio.conversion.failed', {
-            ...logContext,
-            userId,
-            originalFormat: originalExtension,
-            error: (conversionError as Error).message,
-          });
+          logger.error(
+            attemptedDirectTranscription
+              ? 'audio.conversion.fallback_failed'
+              : 'audio.conversion.failed',
+            {
+              ...logContext,
+              userId,
+              originalFormat: originalExtension || 'unknown',
+              normalizedFormat: normalizedExtension,
+              error: (conversionError as Error).message,
+              reason: fallbackReason,
+            },
+          );
 
           // Provide helpful error message for conversion failures
           const errorMessage = (conversionError as Error).message;
@@ -204,45 +370,27 @@ export class WhisperService {
 
           throw new Error(`Audio format conversion failed: ${errorMessage}`);
         }
+      } else if (directTranscriptionError) {
+        throw directTranscriptionError;
       }
 
       // Create a File object for the OpenAI API
-      const audioFile = new File([new Uint8Array(processedBuffer)], `audio.${fileExtension}`, {
-        type: this.getMimeTypeFromExtension(fileExtension),
-      });
+      const audioFile = this.createAudioFile(processedBuffer, fileExtension);
 
       // Perform transcription
       const transcription = await this.performTranscription(audioFile);
 
-      const processingTimeMs = Date.now() - startTime;
-
-      const result: TranscriptionResult = {
-        text: transcription,
+      return this.buildTranscriptionResult({
+        transcription,
         fileUrl,
-        processingTimeMs,
-        fileSizeBytes: processedBuffer.length,
-      };
-
-      // Add conversion information to logs if conversion was performed
-      const logData: any = {
-        ...logContext,
+        processedBuffer,
+        startTime,
+        conversionTimeMs,
+        originalExtension,
+        fileExtension,
         userId,
-        textPreview: truncateForLog(result.text, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH),
-        textLength: transcription.length,
-        processingTimeMs,
-        fileSizeBytes: processedBuffer.length,
-      };
-
-      if (conversionTimeMs > 0) {
-        logData.originalFormat = originalExtension;
-        logData.convertedFormat = fileExtension;
-        logData.conversionTimeMs = conversionTimeMs;
-        logData.transcriptionTimeMs = processingTimeMs - conversionTimeMs;
-      }
-
-      logger.info('whisper.transcription.completed', logData);
-
-      return result;
+        logContext,
+      });
     } catch (error) {
       const processingTimeMs = Date.now() - startTime;
 
@@ -256,6 +404,83 @@ export class WhisperService {
 
       throw new Error(`Transcription failed: ${(error as Error).message}`);
     }
+  }
+
+  private async convertAudioToMp3(
+    audioBuffer: Buffer,
+    normalizedExtension: string,
+    userId?: number,
+  ): Promise<{
+    convertedBuffer: Buffer;
+    targetFormat: string;
+    conversionTimeMs: number;
+  }> {
+    const conversionResult = await AudioConverter.convertToMp3(
+      audioBuffer,
+      normalizedExtension,
+      userId,
+    );
+
+    // Validate converted file size
+    validateFileSize(conversionResult.convertedBuffer.length, this.config.maxFileSizeBytes);
+
+    return {
+      convertedBuffer: conversionResult.convertedBuffer,
+      targetFormat: conversionResult.targetFormat,
+      conversionTimeMs: conversionResult.conversionTimeMs,
+    };
+  }
+
+  private buildTranscriptionResult(options: {
+    transcription: ParsedTranscription;
+    fileUrl: string;
+    processedBuffer: Buffer;
+    startTime: number;
+    conversionTimeMs: number;
+    originalExtension: string | null;
+    fileExtension: string;
+    userId?: number;
+    logContext: LogContext;
+  }): TranscriptionResult {
+    const processingTimeMs = Date.now() - options.startTime;
+
+    const result: TranscriptionResult = {
+      text: options.transcription.text,
+      fileUrl: options.fileUrl,
+      processingTimeMs,
+      fileSizeBytes: options.processedBuffer.length,
+      detectedLanguage: options.transcription.detectedLanguage,
+    };
+
+    if (this.config.qualityMonitoringEnabled) {
+      result.quality = this.evaluateTranscriptionQuality(options.transcription.segments);
+      if (result.quality.flaggedSegments > 0) {
+        this.logQualityFlags(result.quality, options.transcription.segments, options.logContext, options.userId);
+      }
+    }
+
+    // Add conversion information to logs if conversion was performed
+    const logData: any = {
+      ...options.logContext,
+      userId: options.userId,
+      textPreview: truncateForLog(result.text, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH),
+      textLength: options.transcription.text.length,
+      processingTimeMs,
+      fileSizeBytes: options.processedBuffer.length,
+      qualityFlaggedSegments: result.quality?.flaggedSegments,
+      qualityTotalSegments: result.quality?.totalSegments,
+    };
+
+    if (options.conversionTimeMs > 0) {
+      logData.originalFormat = options.originalExtension || 'unknown';
+      logData.convertedFormat = options.fileExtension;
+      logData.conversionTimeMs = options.conversionTimeMs;
+      logData.transcriptionTimeMs = processingTimeMs - options.conversionTimeMs;
+    }
+
+    logger.info('whisper.transcription.completed', logData);
+
+    return result;
   }
 
   /**
@@ -293,30 +518,26 @@ export class WhisperService {
    * @returns Promise resolving to transcribed text
    * @private
    */
-  private async performTranscription(audioFile: File): Promise<string> {
+  private async performTranscription(audioFile: File): Promise<ParsedTranscription> {
     try {
       const transcription = await this.openai.audio.transcriptions.create({
         file: audioFile,
         model: this.config.model,
         language: this.language,
         response_format: this.config.responseFormat,
+        prompt: this.config.prompt,
+        timestamp_granularities: ['segment'],
         temperature: 0,
       });
 
-      // Handle different response formats
-      let transcribedText = '';
-      if (typeof transcription === 'object' && 'text' in transcription) {
-        transcribedText = transcription.text || '';
-      } else {
-        transcribedText = String(transcription || '');
-      }
+      const parsedTranscription = this.parseTranscriptionResponse(transcription);
 
       // Validate English content if enforcement is enabled
-      if (this.config.enforceEnglishOnly && transcribedText) {
-        this.validateEnglishContent(transcribedText);
+      if (this.config.enforceEnglishOnly && parsedTranscription.text) {
+        this.validateEnglishContent(parsedTranscription.text);
       }
 
-      return transcribedText;
+      return parsedTranscription;
     } catch (error) {
       if (error instanceof Error) {
         // Handle specific OpenAI API errors
@@ -330,6 +551,149 @@ export class WhisperService {
 
       throw new Error(`OpenAI API error: ${(error as Error).message}`);
     }
+  }
+
+  private parseTranscriptionResponse(transcription: unknown): ParsedTranscription {
+    if (typeof transcription === 'object' && transcription !== null) {
+      const response = transcription as {
+        text?: string;
+        segments?: TranscriptionSegment[];
+        language?: string;
+      };
+
+      return {
+        text: response.text || '',
+        segments: Array.isArray(response.segments) ? response.segments : [],
+        detectedLanguage: response.language,
+      };
+    }
+
+    return {
+      text: String(transcription || ''),
+      segments: [],
+    };
+  }
+
+  private evaluateTranscriptionQuality(segments: TranscriptionSegment[]): TranscriptionQuality {
+    const flags: QualityFlag[] = [];
+    const values = {
+      avgLogprobs: segments
+        .map((segment) => segment.avg_logprob)
+        .filter((value): value is number => typeof value === 'number'),
+      noSpeechProbs: segments
+        .map((segment) => segment.no_speech_prob)
+        .filter((value): value is number => typeof value === 'number'),
+      compressionRatios: segments
+        .map((segment) => segment.compression_ratio)
+        .filter((value): value is number => typeof value === 'number'),
+    };
+
+    for (const segment of segments) {
+      if (
+        typeof segment.avg_logprob === 'number' &&
+        segment.avg_logprob < this.qualityThresholds.minAvgLogprob
+      ) {
+        flags.push({
+          segmentId: segment.id,
+          start: segment.start,
+          end: segment.end,
+          reason: 'low_avg_logprob',
+          value: segment.avg_logprob,
+          threshold: this.qualityThresholds.minAvgLogprob,
+        });
+      }
+
+      if (
+        typeof segment.no_speech_prob === 'number' &&
+        segment.no_speech_prob > this.qualityThresholds.maxNoSpeechProb
+      ) {
+        flags.push({
+          segmentId: segment.id,
+          start: segment.start,
+          end: segment.end,
+          reason: 'high_no_speech_prob',
+          value: segment.no_speech_prob,
+          threshold: this.qualityThresholds.maxNoSpeechProb,
+        });
+      }
+
+      if (
+        typeof segment.compression_ratio === 'number' &&
+        segment.compression_ratio < this.qualityThresholds.minCompressionRatio
+      ) {
+        flags.push({
+          segmentId: segment.id,
+          start: segment.start,
+          end: segment.end,
+          reason: 'low_compression_ratio',
+          value: segment.compression_ratio,
+          threshold: this.qualityThresholds.minCompressionRatio,
+        });
+      }
+
+      if (
+        typeof segment.compression_ratio === 'number' &&
+        segment.compression_ratio > this.qualityThresholds.maxCompressionRatio
+      ) {
+        flags.push({
+          segmentId: segment.id,
+          start: segment.start,
+          end: segment.end,
+          reason: 'high_compression_ratio',
+          value: segment.compression_ratio,
+          threshold: this.qualityThresholds.maxCompressionRatio,
+        });
+      }
+    }
+
+    return {
+      flaggedSegments: new Set(flags.map((flag) => `${flag.segmentId ?? ''}:${flag.start ?? ''}:${flag.end ?? ''}`)).size,
+      totalSegments: segments.length,
+      flags,
+      worstValues: {
+        minAvgLogprob:
+          values.avgLogprobs.length > 0 ? Math.min(...values.avgLogprobs) : undefined,
+        maxNoSpeechProb:
+          values.noSpeechProbs.length > 0 ? Math.max(...values.noSpeechProbs) : undefined,
+        minCompressionRatio:
+          values.compressionRatios.length > 0 ? Math.min(...values.compressionRatios) : undefined,
+        maxCompressionRatio:
+          values.compressionRatios.length > 0 ? Math.max(...values.compressionRatios) : undefined,
+      },
+    };
+  }
+
+  private logQualityFlags(
+    quality: TranscriptionQuality,
+    segments: TranscriptionSegment[],
+    logContext: LogContext,
+    userId?: number,
+  ): void {
+    logger.warn('whisper.transcription.quality_flagged', {
+      ...logContext,
+      userId,
+      flaggedSegments: quality.flaggedSegments,
+      totalSegments: quality.totalSegments,
+      flags: quality.flags.map((flag) => {
+        const segment = segments.find(
+          (candidate) =>
+            candidate.id === flag.segmentId &&
+            candidate.start === flag.start &&
+            candidate.end === flag.end,
+        );
+
+        return {
+          ...flag,
+          textPreview: truncateForLog(segment?.text, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH),
+        };
+      }),
+      worstValues: quality.worstValues,
+      thresholds: this.qualityThresholds,
+    });
+  }
+
+  private isFormatRejectionError(error: Error): boolean {
+    return FORMAT_REJECTION_PATTERNS.some((pattern) => pattern.test(error.message));
   }
 
   /**
@@ -380,6 +744,38 @@ export class WhisperService {
     }
   }
 
+  private normalizeAudioExtension(extension: string | null): string {
+    const normalizedExtension = extension?.toLowerCase() || 'ogg';
+    return normalizedExtension === 'oga' ? 'ogg' : normalizedExtension;
+  }
+
+  private isGroqDirectTranscriptionFormat(extension: string): boolean {
+    return GROQ_DIRECT_TRANSCRIPTION_FORMATS.includes(
+      extension.toLowerCase() as (typeof GROQ_DIRECT_TRANSCRIPTION_FORMATS)[number],
+    );
+  }
+
+  private createAudioFile(buffer: Buffer, extension: string): File {
+    const normalizedExtension = this.normalizeAudioExtension(extension);
+    return new File([new Uint8Array(buffer)], `audio.${normalizedExtension}`, {
+      type: this.getMimeTypeFromExtension(normalizedExtension),
+    });
+  }
+
+  private normalizePrompt(prompt: string): string {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) {
+      return WHISPER_CONSTANTS.DEFAULT_PROMPT;
+    }
+
+    const promptTokens = trimmedPrompt.split(/\s+/);
+    if (promptTokens.length <= WHISPER_CONSTANTS.MAX_PROMPT_TOKENS) {
+      return trimmedPrompt;
+    }
+
+    return promptTokens.slice(0, WHISPER_CONSTANTS.MAX_PROMPT_TOKENS).join(' ');
+  }
+
   /**
    * Gets MIME type from file extension
    *
@@ -389,8 +785,12 @@ export class WhisperService {
    */
   private getMimeTypeFromExtension(extension: string): string {
     const mimeTypeMap: Record<string, string> = {
+      flac: 'audio/flac',
       ogg: 'audio/ogg',
+      oga: 'audio/ogg',
       mp3: 'audio/mpeg',
+      mpeg: 'audio/mpeg',
+      mpga: 'audio/mpeg',
       wav: 'audio/wav',
       mp4: 'audio/mp4',
       m4a: 'audio/m4a',
@@ -440,6 +840,9 @@ export class WhisperService {
       language: this.language,
       responseFormat: this.config.responseFormat,
       enforceEnglishOnly: this.config.enforceEnglishOnly,
+      prompt: this.config.prompt,
+      qualityMonitoringEnabled: this.config.qualityMonitoringEnabled,
+      qualityThresholds: this.qualityThresholds,
     };
   }
 }
