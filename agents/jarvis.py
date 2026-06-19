@@ -38,21 +38,21 @@ USER_PROMPTS = [
     # "block friday 2pm to 4pm for deep work",
 
     # # Querying tasks and calendar
-    "what tasks do i have today",
-    "what do i have on this weekend",
-    "how many tasks are overas of today",
-    "give me a morning brief at 8am – what tasks are today and what's on my calendar",
-    "show me everything due this week",
-    "what did i complete last week",
-    "do i have anything on tuesday afternoon",
-    "how many tasks are in my inbox today",
-    "what's my most overdue task today",
-    "am i free on thursday at 10am",
+    # "what tasks do i have today",
+    # "what do i have on this weekend",
+    # "how many tasks are overas of today",
+    # "give me a morning brief at 8am – what tasks are today and what's on my calendar",
+    # "show me everything due this week",
+    # "what did i complete this week",
+    # "do i have anything on tuesday afternoon",
+    # "how many tasks are in my inbox today",
+    # "what's my most overdue task today",
+    # "am i free on thursday at 10am",
 
     # # Task completion
-    # "mark buy groceries due today at 6pm as done",
-    # "complete the task called submit tax form due this friday at 5pm",
-    # "mark call dentist due next monday at 10am as done and add a follow-up for next monday at 2pm",
+    # "mark buy groceries today at 6pm as done",
+    # "complete the task called submit tax form this friday at 5pm",
+    "mark call dentist due next monday at 10am as done",
     # "complete all tasks related to taking meds due today",
 
     # # Priority / metadata updates
@@ -68,16 +68,7 @@ USER_PROMPTS = [
     # "reschedule the team standup from 9am to 10am for the rest of june",
     # "move the passport packing task due next friday at 9pm to next thursday at 7pm",
     # "reschedule my 8am meds reminder to 9am tomorrow",
-
-    # # Project and subtask workflows
-    # "create a project called korea trip due next friday and move the packing tasks due next friday at 9pm into it",
-    # "find the task about submit tax form due this friday at 5pm and add a subtask to double check the documents due this thursday at 8pm",
-    # "find the task about insurance claim due friday at 3pm and add a subtask to upload receipts due thursday at 6pm",
-
-    # # Duplicate / copy task workflows
-    # "duplicate the review my goals tasks from next week at 8pm into the following week at 8pm",
-    # "duplicate the korea packing tasks due next friday at 9pm for my next trip due next month",
-
+    
     # # Task deletion
     # "delete the task called buy airpods due tomorrow at 7pm",
     # "delete the travel pillow packing task due next friday at 9pm",
@@ -156,8 +147,6 @@ Ask before acting when:
 - two+ reasonable interpretations exist and a wrong guess wastes time or money
 - a required parameter has no sensible default
 Don't ask when a reasonable default exists — use it and state the assumption in your final answer. Don't ask if one more tool call would answer it yourself. One focused question, not an interrogation.
-
-Destructive/irreversible actions (delete, send, pay, cancel) always get a one-line confirmation summary before execution, even when fully specified — unless the user has already explicitly confirmed it this turn.
 
 ## Reasoning effort
 Default Think High. Non-think only for trivial single-tool lookups. Think Max only for 4+ dependent steps or reconciling conflicting tool results — it's expensive, don't default to it.
