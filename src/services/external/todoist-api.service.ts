@@ -75,12 +75,30 @@ export interface UpdateTaskPayload {
   assignee_id?: string;
 }
 
+export interface CompletedTasksQueryOptions {
+  since?: string;
+  until?: string;
+  project_id?: string;
+  section_id?: string;
+  parent_id?: string;
+  filter_query?: string;
+  filter_lang?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface CompletedTasksResponse {
+  items: unknown[];
+  next_cursor?: string | null;
+}
+
 /**
  * Service class for direct Todoist API integration
  */
 export class TodoistAPIService {
   private readonly apiKey: string;
   private readonly baseURL = 'https://api.todoist.com/api/v1';
+  private readonly defaultCompletedTasksRangeMs = 30 * 24 * 60 * 60 * 1000;
 
   constructor(apiKey: string) {
     if (!apiKey) {
@@ -382,73 +400,64 @@ export class TodoistAPIService {
     }
   }
 
+  private withDefaultCompletionDateRange(options: CompletedTasksQueryOptions): CompletedTasksQueryOptions {
+    const until = options.until ?? new Date().toISOString();
+    const since =
+      options.since ??
+      new Date(new Date(until).getTime() - this.defaultCompletedTasksRangeMs).toISOString();
+
+    return {
+      ...options,
+      since,
+      until,
+    };
+  }
+
   /**
-   * Get completed tasks (Note: This requires Todoist Premium)
-   * Uses the Sync API for retrieving completed tasks
+   * Get completed tasks by completion date using Todoist API v1.
    *
    * @param options - Query options
-   * @returns Promise<any[]> - Array of completed tasks
+   * @returns Promise<CompletedTasksResponse> - Completed tasks and pagination cursor
    */
   async getCompletedTasks(
-    options: {
-      since?: string;
-      until?: string;
-      project_id?: string;
-      limit?: number;
-      offset?: number;
-    } = {},
+    options: CompletedTasksQueryOptions = {},
     logContext: LogContext = {},
-  ): Promise<any[]> {
-    const startedAt = Date.now();
-    logger.info('todoist.completed_tasks.list.started', { ...logContext, ...options });
-
-    // Note: This uses the Sync API endpoint for completed tasks
-    const syncUrl = 'https://api.todoist.com/sync/v9/completed/get_all';
+  ): Promise<CompletedTasksResponse> {
+    const optionsWithRange = this.withDefaultCompletionDateRange(options);
+    logger.info('todoist.completed_tasks.list.started', { ...logContext, ...optionsWithRange });
 
     const params = new URLSearchParams();
-    if (options.since) params.append('since', options.since);
-    if (options.until) params.append('until', options.until);
-    if (options.project_id) params.append('project_id', options.project_id);
-    if (options.limit) params.append('limit', options.limit.toString());
-    if (options.offset) params.append('offset', options.offset.toString());
+    params.append('since', optionsWithRange.since as string);
+    params.append('until', optionsWithRange.until as string);
+    if (optionsWithRange.project_id) params.append('project_id', optionsWithRange.project_id);
+    if (optionsWithRange.section_id) params.append('section_id', optionsWithRange.section_id);
+    if (optionsWithRange.parent_id) params.append('parent_id', optionsWithRange.parent_id);
+    if (optionsWithRange.filter_query) params.append('filter_query', optionsWithRange.filter_query);
+    if (optionsWithRange.filter_lang) params.append('filter_lang', optionsWithRange.filter_lang);
+    if (optionsWithRange.cursor) params.append('cursor', optionsWithRange.cursor);
+    if (optionsWithRange.limit) params.append('limit', optionsWithRange.limit.toString());
 
-    const fullUrl = `${syncUrl}${params.toString() ? '?' + params.toString() : ''}`;
-
-    try {
-      const response = await fetch(fullUrl, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error('todoist.sync_api.request.failed', {
-          ...logContext,
-          operation: 'todoist.completed_tasks.list',
-          statusCode: response.status,
-          durationMs: Date.now() - startedAt,
-        });
-        throw new Error(`Todoist Sync API error (${response.status}): ${errorText}`);
-      }
-
-      const data = await response.json();
-
-      logger.info('todoist.completed_tasks.list.completed', {
+    const data = await this.makeRequest(
+      `/tasks/completed/by_completion_date?${params.toString()}`,
+      'GET',
+      undefined,
+      {
         ...logContext,
-        count: data.items?.length || 0,
-        durationMs: Date.now() - startedAt,
-      });
+        operation: 'todoist.completed_tasks.list',
+      },
+    );
 
-      return data.items || [];
-    } catch (error) {
-      logger.error('todoist.completed_tasks.list.failed', {
-        ...logContext,
-        error: (error as Error).message,
-        durationMs: Date.now() - startedAt,
-      });
-      throw error;
-    }
+    const result = {
+      items: data.items || [],
+      next_cursor: data.next_cursor ?? null,
+    };
+
+    logger.info('todoist.completed_tasks.list.completed', {
+      ...logContext,
+      count: result.items.length,
+      hasNextCursor: !!result.next_cursor,
+    });
+
+    return result;
   }
 }

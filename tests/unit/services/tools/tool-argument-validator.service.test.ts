@@ -79,7 +79,7 @@ describe('ToolArgumentValidatorService', () => {
     );
   });
 
-  it('rejects invalid priority, due_date, limit, and offset values', () => {
+  it('rejects invalid priority, due_date, limit, and unknown completed-task fields', () => {
     expect(() =>
       validator.validate(createToolCall('add_todoist_task', { content: 'Task', priority: 5 })),
     ).toThrow('Invalid arguments for add_todoist_task');
@@ -87,11 +87,46 @@ describe('ToolArgumentValidatorService', () => {
       validator.validate(createToolCall('add_todoist_task', { content: 'Task', due_date: 'tomorrow' })),
     ).toThrow('Invalid arguments for add_todoist_task');
     expect(() =>
-      validator.validate(createToolCall('get_completed_todoist_tasks', { limit: 201 })),
-    ).toThrow('Invalid arguments for get_completed_todoist_tasks');
+      validator.validate(
+        createToolCall('get_completed_todoist_tasks_by_completion_date', { limit: 201 }),
+      ),
+    ).toThrow('Invalid arguments for get_completed_todoist_tasks_by_completion_date');
     expect(() =>
-      validator.validate(createToolCall('get_completed_todoist_tasks', { offset: -1 })),
-    ).toThrow('Invalid arguments for get_completed_todoist_tasks');
+      validator.validate(
+        createToolCall('get_completed_todoist_tasks_by_completion_date', { offset: 0 }),
+      ),
+    ).toThrow('Invalid arguments for get_completed_todoist_tasks_by_completion_date');
+  });
+
+  it('validates completed task queries by completion date', () => {
+    expect(
+      validator.validate(
+        createToolCall('get_completed_todoist_tasks_by_completion_date', {
+          since: '2026-06-01T00:00:00Z',
+          until: '2026-06-16T23:59:59Z',
+          project_id: 'project-1',
+          section_id: 'section-1',
+          parent_id: 'parent-1',
+          filter_query: '@work',
+          filter_lang: 'en',
+          cursor: 'page-2',
+          limit: 50,
+        }),
+      ),
+    ).toEqual({
+      functionName: 'get_completed_todoist_tasks_by_completion_date',
+      arguments: {
+        since: '2026-06-01T00:00:00Z',
+        until: '2026-06-16T23:59:59Z',
+        project_id: 'project-1',
+        section_id: 'section-1',
+        parent_id: 'parent-1',
+        filter_query: '@work',
+        filter_lang: 'en',
+        cursor: 'page-2',
+        limit: 50,
+      },
+    });
   });
 
   it('rejects unsupported function names', () => {

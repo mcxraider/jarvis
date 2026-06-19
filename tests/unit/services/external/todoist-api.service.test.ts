@@ -40,6 +40,7 @@ describe('TodoistAPIService', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     global.fetch = originalFetch;
   });
 
@@ -182,33 +183,52 @@ describe('TodoistAPIService', () => {
     });
   });
 
-  it('serializes completed task requests through the Sync API', async () => {
-    fetchMock.mockResolvedValue(createResponse({ body: { items: [{ id: 'done-1' }] } }));
+  it('serializes completed task requests through Todoist API v1', async () => {
+    fetchMock.mockResolvedValue(
+      createResponse({ body: { items: [{ id: 'done-1' }], next_cursor: 'next-page' } }),
+    );
 
     await expect(
       service.getCompletedTasks({
         since: '2026-06-01T00:00:00Z',
         until: '2026-06-16T23:59:59Z',
         project_id: 'project-1',
+        section_id: 'section-1',
+        parent_id: 'parent-1',
+        filter_query: '@work',
+        filter_lang: 'en',
+        cursor: 'page-2',
         limit: 25,
-        offset: 5,
       }),
-    ).resolves.toEqual([{ id: 'done-1' }]);
+    ).resolves.toEqual({ items: [{ id: 'done-1' }], next_cursor: 'next-page' });
 
     const [url, options] = fetchMock.mock.calls[0];
     logger.logRequest('getCompletedTasks', { url, options });
     expect(url).toBe(
-      'https://api.todoist.com/sync/v9/completed/get_all?since=2026-06-01T00%3A00%3A00Z&until=2026-06-16T23%3A59%3A59Z&project_id=project-1&limit=25&offset=5',
+      'https://api.todoist.com/api/v1/tasks/completed/by_completion_date?since=2026-06-01T00%3A00%3A00Z&until=2026-06-16T23%3A59%3A59Z&project_id=project-1&section_id=section-1&parent_id=parent-1&filter_query=%40work&filter_lang=en&cursor=page-2&limit=25',
     );
-    expect(options).toEqual({
+    expect(options).toMatchObject({
       method: 'GET',
       headers: {
         Authorization: 'Bearer todoist-test-key',
+        'Content-Type': 'application/json',
       },
     });
   });
 
-  it('throws useful errors for REST and Sync API failures', async () => {
+  it('defaults completed task requests to the last 30 days', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-19T12:00:00.000Z'));
+    fetchMock.mockResolvedValue(createResponse({ body: { items: [] } }));
+
+    await expect(service.getCompletedTasks()).resolves.toEqual({ items: [], next_cursor: null });
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toBe(
+      'https://api.todoist.com/api/v1/tasks/completed/by_completion_date?since=2026-05-20T12%3A00%3A00.000Z&until=2026-06-19T12%3A00%3A00.000Z',
+    );
+  });
+
+  it('throws useful errors for REST and completed-task API failures', async () => {
     fetchMock.mockResolvedValueOnce(
       createResponse({ ok: false, status: 500, text: 'rest exploded' }),
     );
@@ -217,15 +237,15 @@ describe('TodoistAPIService', () => {
     );
 
     fetchMock.mockResolvedValueOnce(
-      createResponse({ ok: false, status: 403, text: 'sync denied' }),
+      createResponse({ ok: false, status: 403, text: 'completed denied' }),
     );
     await expect(service.getCompletedTasks()).rejects.toThrow(
-      'Todoist Sync API error (403): sync denied',
+      'Todoist API error (403): completed denied',
     );
 
     logger.logResponse('apiFailures', {
       restError: 'Todoist API error (500): rest exploded',
-      syncError: 'Todoist Sync API error (403): sync denied',
+      completedTasksError: 'Todoist API error (403): completed denied',
     });
   });
 });

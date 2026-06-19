@@ -45,13 +45,17 @@ export const todoistToolArgumentSchemas = {
       task_id: z.string(),
     })
     .strict(),
-  get_completed_todoist_tasks: z
+  get_completed_todoist_tasks_by_completion_date: z
     .object({
       since: z.string().optional(),
       until: z.string().optional(),
       project_id: z.string().optional(),
+      section_id: z.string().optional(),
+      parent_id: z.string().optional(),
+      filter_query: z.string().optional(),
+      filter_lang: z.string().optional(),
+      cursor: z.string().optional(),
       limit: z.number().int().min(1).max(200).optional(),
-      offset: z.number().int().min(0).optional(),
     })
     .strict(),
   get_tasks: z
@@ -216,18 +220,32 @@ const completedTasksParameters = {
       type: 'string',
       description: 'Filter completed tasks by specific project ID (optional)',
     },
+    section_id: {
+      type: 'string',
+      description: 'Filter completed tasks by specific section ID (optional)',
+    },
+    parent_id: {
+      type: 'string',
+      description: 'Filter completed subtasks by parent task ID (optional)',
+    },
+    filter_query: {
+      type: 'string',
+      description: 'Todoist filter query to limit completed tasks (optional)',
+    },
+    filter_lang: {
+      type: 'string',
+      description: 'Language code used to parse filter_query (optional)',
+    },
+    cursor: {
+      type: 'string',
+      description: 'Pagination cursor returned as next_cursor from a previous response',
+    },
     limit: {
       type: 'integer',
       minimum: 1,
       maximum: 200,
       default: 50,
       description: 'Maximum number of completed tasks to return (1-200, default 50)',
-    },
-    offset: {
-      type: 'integer',
-      minimum: 0,
-      default: 0,
-      description: 'Offset for pagination (default 0)',
     },
   },
   required: [],
@@ -309,8 +327,8 @@ export const TODOIST_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionToo
   {
     type: 'function',
     function: {
-      name: 'get_completed_todoist_tasks',
-      description: 'Retrieve completed tasks from Todoist within a date range using the Sync API',
+      name: 'get_completed_todoist_tasks_by_completion_date',
+      description: 'Retrieve completed Todoist tasks by completion date using Todoist API v1',
       parameters: completedTasksParameters,
 
     },

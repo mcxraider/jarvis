@@ -139,7 +139,10 @@ describe('DirectToolCallDispatcher', () => {
     mockTodoistService.getTasks.mockResolvedValue([{ id: 'task-2' }]);
     mockTodoistService.completeTask.mockResolvedValue(undefined);
     mockTodoistService.deleteTask.mockResolvedValue(undefined);
-    mockTodoistService.getCompletedTasks.mockResolvedValue([{ id: 'done-1' }]);
+    mockTodoistService.getCompletedTasks.mockResolvedValue({
+      items: [{ id: 'done-1' }],
+      next_cursor: 'next-page',
+    });
     const dispatcher = new DirectToolCallDispatcher();
 
     const result = await dispatcher.executeToolCalls(
@@ -155,12 +158,16 @@ describe('DirectToolCallDispatcher', () => {
         }),
         createToolCall('complete', 'complete_task', { task_id: 'task-3' }),
         createToolCall('delete', 'delete_todoist_task', { task_id: 'task-4' }),
-        createToolCall('completed', 'get_completed_todoist_tasks', {
+        createToolCall('completed', 'get_completed_todoist_tasks_by_completion_date', {
           since: '2026-06-01T00:00:00Z',
           until: '2026-06-16T23:59:59Z',
           project_id: 'project-1',
+          section_id: 'section-1',
+          parent_id: 'parent-1',
+          filter_query: '@home',
+          filter_lang: 'en',
+          cursor: 'page-2',
           limit: 25,
-          offset: 5,
         }),
       ],
       'user-1',
@@ -185,8 +192,12 @@ describe('DirectToolCallDispatcher', () => {
         since: '2026-06-01T00:00:00Z',
         until: '2026-06-16T23:59:59Z',
         project_id: 'project-1',
+        section_id: 'section-1',
+        parent_id: 'parent-1',
+        filter_query: '@home',
+        filter_lang: 'en',
+        cursor: 'page-2',
         limit: 25,
-        offset: 5,
       },
       {},
     );
@@ -205,8 +216,8 @@ describe('DirectToolCallDispatcher', () => {
       },
       {
         tool_call_id: 'completed',
-        toolName: 'get_completed_todoist_tasks',
-        content: [{ id: 'done-1' }],
+        toolName: 'get_completed_todoist_tasks_by_completion_date',
+        content: { items: [{ id: 'done-1' }], next_cursor: 'next-page' },
       },
     ]);
   });
