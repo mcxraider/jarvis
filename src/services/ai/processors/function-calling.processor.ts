@@ -12,6 +12,7 @@ import { getFunctionCallingSystemPrompt } from '../../../types/gpt.prompts';
 import { GPTToolsService } from '../../tools/todoist-tools.service';
 import { ToolDispatcher, ToolCall } from '../../../types/tool.types';
 import { ToolResultFormatter } from '../../telegram/formatters/tool-result-formatter';
+import { buildUserPromptWithRequestDateTime } from '../../../utils/ai/requestPrompt';
 
 /**
  * Processor for handling GPT function calling capabilities
@@ -62,7 +63,7 @@ export class FunctionCallingProcessor {
           },
           {
             role: 'user',
-            content: message,
+            content: buildUserPromptWithRequestDateTime(message),
           },
         ],
         tools: this.toolsService.getAvailableTools(),

@@ -60,11 +60,76 @@ const redactionFormat = winston.format((info) => {
   return info;
 });
 
+const READABLE_CONTEXT_KEYS = [
+  'requestId',
+  'updateId',
+  'userId',
+  'chatId',
+  'messageId',
+  'messageType',
+];
+
+function formatReadableValue(value: unknown): string {
+  if (value === undefined) {
+    return 'undefined';
+  }
+
+  if (value === null || typeof value !== 'object') {
+    return String(value);
+  }
+
+  return JSON.stringify(value, null, 2);
+}
+
+function indentMultiline(value: string, spaces = 4): string {
+  const padding = ' '.repeat(spaces);
+  return value
+    .split('\n')
+    .map((line) => `${padding}${line}`)
+    .join('\n');
+}
+
+const readableFileFormat = winston.format.printf((info) => {
+  const { timestamp, level, message, stack, ...metadata } = info;
+  const metadataRecord = metadata as Record<string, unknown>;
+  const contextLines = READABLE_CONTEXT_KEYS.filter((key) => metadataRecord[key] !== undefined).map(
+    (key) => `  ${key}: ${formatReadableValue(metadataRecord[key])}`,
+  );
+
+  const remainingMetadata = Object.fromEntries(
+    Object.entries(metadataRecord).filter(([key]) => !READABLE_CONTEXT_KEYS.includes(key)),
+  );
+  const metadataLines =
+    Object.keys(remainingMetadata).length > 0
+      ? [`  details:`, indentMultiline(JSON.stringify(remainingMetadata, null, 2))]
+      : [];
+  const stackLines = typeof stack === 'string' ? [`  stack:`, indentMultiline(stack)] : [];
+
+  return [
+    `[${timestamp}] ${level.toUpperCase()} ${message}`,
+    ...contextLines,
+    ...metadataLines,
+    ...stackLines,
+  ].join('\n');
+});
+
 const prettyConsoleFormat = winston.format.printf((info) => {
   const { timestamp, level, message, ...metadata } = info;
   const metadataText = Object.keys(metadata).length > 0 ? ` ${JSON.stringify(metadata)}` : '';
   return `${timestamp} ${level.padEnd(5)} ${message}${metadataText}`;
 });
+
+const jsonFileFormat = winston.format.combine(
+  winston.format.timestamp(),
+  redactionFormat(),
+  winston.format.json(),
+);
+
+const humanReadableFileFormat = winston.format.combine(
+  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+  redactionFormat(),
+  readableFileFormat,
+);
 
 ensureLogDir();
 
@@ -112,20 +177,21 @@ export const logger = winston.createLogger({
     }),
     new winston.transports.File({
       filename: path.join(LOG_DIR, 'app.log'),
-      format: winston.format.combine(
-        winston.format.timestamp(),
-        redactionFormat(),
-        winston.format.json(),
-      ),
+      format: jsonFileFormat,
     }),
     new winston.transports.File({
       filename: path.join(LOG_DIR, 'error.log'),
       level: 'warn',
-      format: winston.format.combine(
-        winston.format.timestamp(),
-        redactionFormat(),
-        winston.format.json(),
-      ),
+      format: jsonFileFormat,
+    }),
+    new winston.transports.File({
+      filename: path.join(LOG_DIR, 'app-readable.log'),
+      format: humanReadableFileFormat,
+    }),
+    new winston.transports.File({
+      filename: path.join(LOG_DIR, 'error-readable.log'),
+      level: 'warn',
+      format: humanReadableFileFormat,
     }),
   ],
 });

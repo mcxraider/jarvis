@@ -14,7 +14,7 @@
 # testing
 /coverage
 /logs
-
+venv/
 # next.js
 /.next/
 /out/

@@ -8,6 +8,7 @@ import OpenAI from 'openai';
 import { logger } from '../../../utils/logger';
 import { GPT_CONSTANTS } from '../constants/gpt.constants';
 import { SIMPLE_CONVERSATION_PROMPT } from '../../../types/gpt.prompts';
+import { buildUserPromptWithRequestDateTime } from '../../../utils/ai/requestPrompt';
 
 /**
  * Processor for handling simple text generation without function calling
@@ -40,7 +41,7 @@ export class SimpleTextProcessor {
           },
           {
             role: 'user',
-            content: message,
+            content: buildUserPromptWithRequestDateTime(message),
           },
         ],
         max_tokens: GPT_CONSTANTS.MAX_TOKENS,
