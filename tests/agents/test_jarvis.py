@@ -61,8 +61,8 @@ class FakeTodoistClient:
     def delete_todoist_task(self, arguments: Dict[str, Any]) -> Any:
         return self._record("delete_todoist_task", arguments)
 
-    def get_completed_todoist_tasks(self, arguments: Dict[str, Any]) -> Any:
-        return [self._record("get_completed_todoist_tasks", arguments)]
+    def get_completed_todoist_tasks_by_completion_date(self, arguments: Dict[str, Any]) -> Any:
+        return [self._record("get_completed_todoist_tasks_by_completion_date", arguments)]
 
 
 class ParallelTrackingTodoistClient(FakeTodoistClient):
@@ -417,7 +417,11 @@ class JarvisGraphTests(unittest.TestCase):
                     "role": "assistant",
                     "content": "",
                     "tool_calls": [
-                        fake_tool_call("call_2", "get_completed_todoist_tasks", {"limit": 5})
+                        fake_tool_call(
+                            "call_2",
+                            "get_completed_todoist_tasks_by_completion_date",
+                            {"limit": 5},
+                        )
                     ],
                 },
                 {"role": "assistant", "content": "Here is the combined summary."},
