@@ -15,6 +15,73 @@ fields such as `reasoning_content` intact so follow-up tool-call turns do not
 lose DeepSeek thinking metadata.
 """
 
+USER_PROMPTS = [
+    # # Simple task creation
+    # "add buy groceries, today at 6pm",
+    # "add submit tax form, this friday at 5pm",
+    # "add lunch with feebee next week wednesday at 12:30pm",
+    # "add a task for my side project, next sunday at 8pm",
+
+    # # Bulk task creation
+    # "add 8 packing tasks for my korea trip next friday at 9pm: passport, adapter, sunscreen, snacks, headphones, powerbank, meds, travel pillow",
+    # "add buy airpods tomorrow at 7pm, submit insurance claim friday at 3pm, and call dentist next monday at 10am to my list",
+    # "add todo items for every item in this list, all next thursday at 6pm: [pasted list]",
+    # "add a task for each day of next week at 8pm to review my goals",
+
+    # Recurring tasks / scheduled reminders
+    # "remind me to drink water every 2 hours starting tomorrow at 9am",
+    # "schedule team standup every weekday at 9am for the rest of june",
+    # "send myself reminders at 8am, 1pm, and 6pm every day this week to take meds",
+    # "set a reminder for the thing we talked about tomorrow at 10am",
+
+    # # Calendar / time blocking
+    "block friday 2pm to 4pm for deep work",
+
+    # # Querying tasks and calendar
+    # "what tasks do i have today",
+    # "what do i have on this weekend",
+    # "how many tasks are overas of today",
+    # "give me a morning brief at 8am – what tasks are today and what's on my calendar",
+    # "show me everything due this week",
+    # "what did i complete last week",
+    # "do i have anything on tuesday afternoon",
+    # "how many tasks are in my inbox today",
+    # "what's my most overdue task today",
+    # "am i free on thursday at 10am",
+
+    # # Task completion
+    # "mark buy groceries due today at 6pm as done",
+    # "complete the task called submit tax form due this friday at 5pm",
+    # "mark call dentist due next monday at 10am as done and add a follow-up for next monday at 2pm",
+    # "complete all tasks related to taking meds due today",
+
+    # # Priority / metadata updates
+    # "set my submit tax form task due this friday at 5pm to high priority",
+    # "set passport packing task due next friday at 9pm to high priority",
+    # "mark lunch with feebee next wednesday at 12:30pm as low priority",
+
+    # # Rescheduling / moving tasks
+    # "reschedule lunch with feebee from next wednesday at 12:30pm to next friday at 1pm",
+    # "move submit tax form from this friday at 5pm to next monday at 9am",
+    # "reschedule all review my goals tasks from next week at 8pm to the week after at 8pm",
+    # "move the friday deep work block from 2pm to 4pm",
+    # "reschedule the team standup from 9am to 10am for the rest of june",
+    # "move the passport packing task due next friday at 9pm to next thursday at 7pm",
+    # "reschedule my 8am meds reminder to 9am tomorrow",
+
+    # # Project and subtask workflows
+    # "create a project called korea trip due next friday and move the packing tasks due next friday at 9pm into it",
+    # "find the task about submit tax form due this friday at 5pm and add a subtask to double check the documents due this thursday at 8pm",
+    # "find the task about insurance claim due friday at 3pm and add a subtask to upload receipts due thursday at 6pm",
+
+    # # Duplicate / copy task workflows
+    # "duplicate the review my goals tasks from next week at 8pm into the following week at 8pm",
+    # "duplicate the korea packing tasks due next friday at 9pm for my next trip due next month",
+
+    # # Task deletion
+    # "delete the task called buy airpods due tomorrow at 7pm",
+    # "delete the travel pillow packing task due next friday at 9pm",
+]
 import copy
 import json
 import os
@@ -46,12 +113,9 @@ if load_dotenv is not None:
     load_dotenv()
 
 
-# ======================================================================
-# Step 1: Editable Runtime Configuration
-# ======================================================================
-USER_PROMPT = "Show me my tasks due today"
+USER_PROMPT = USER_PROMPTS[0]
 USER_ID = "local-user"
-ALLOW_MUTATIONS = False
+ALLOW_MUTATIONS = True
 MAX_AGENT_TURNS = 8
 DEBUG_TRACE = os.getenv("JARVIS_DEBUG", "1") != "0"
 DEBUG_PAYLOADS = os.getenv("JARVIS_DEBUG_PAYLOADS", "1") != "0"
@@ -71,9 +135,9 @@ ASK_USER_TOOL_NAME = "ask_user"
 DEFAULT_CHECKPOINTER = InMemorySaver()
 LANGSMITH_TAGS = ["jarvis", "langgraph", "todoist", "local"]
 
-# The orchestrator/worker prompts describe the target architecture. The current
-# graph only implements the orchestrator's direct answer/tool-call loop.
-ORCHESTRATOR_PROMPT = """You are Jarvis, the user's personal orchestrator agent. You do not execute tasks yourself — you decompose requests, dispatch work, and synthesize results.
+# The orchestrator/worker prompts describe the target architecture. 
+ORCHESTRATOR_PROMPT = """\
+You are Jarvis, the user's personal orchestrator agent. You do not execute tasks yourself — you decompose requests, dispatch work, and synthesize results.
 
 ## Your loop
 On every turn, choose exactly one branch:
@@ -502,7 +566,7 @@ class DeepSeekAgentClient:
             messages=messages,
             tools=tools,
             tool_choice="auto",
-            temperature=0.2,
+            temperature=0,
             max_tokens=2000, # increase this to 10000 or more for more complex reasoning and tool calls
         )
         message = raw_message_from_openai(response.choices[0].message)
@@ -1530,13 +1594,117 @@ def run_jarvis(
     return result
 
 
+def send_clarification_message_to_user(payload: Dict[str, Any]) -> None:
+    """Placeholder for sending HITL clarification questions to the user."""
+
+    print("\nClarification needed")
+    print("--------------------")
+    print(payload.get("question") or "Jarvis needs more information before continuing.")
+    if payload.get("reason"):
+        print(f"Reason: {payload['reason']}")
+    if payload.get("missing_fields"):
+        print(f"Missing: {', '.join(str(item) for item in payload['missing_fields'])}")
+    if payload.get("risk"):
+        print(f"Risk: {payload['risk']}")
+
+
+def ask_user_for_clarification(payload: Dict[str, Any]) -> str:
+    """Ask the local user for clarification and return their reply."""
+
+    send_clarification_message_to_user(payload)
+    return input("Your reply: ").strip()
+
+
+def run_jarvis_with_local_clarifications(
+    user_prompt: str = USER_PROMPT,
+    allow_mutations: bool = ALLOW_MUTATIONS,
+    agent_client: Optional[Any] = None,
+    todoist_client: Optional[Any] = None,
+    max_agent_turns: int = MAX_AGENT_TURNS,
+    tracer: Optional[TracePrinter] = None,
+    checkpointer: Optional[Any] = None,
+) -> JarvisState:
+    """Run Jarvis and resume local HITL clarifications via input()."""
+
+    tracer = tracer if tracer is not None else TracePrinter()
+    checkpointer = checkpointer or DEFAULT_CHECKPOINTER
+    thread_id = str(uuid.uuid4())
+    agent_client = agent_client or DeepSeekAgentClient(tracer=tracer)
+    todoist_client = todoist_client or TodoistApiClient(tracer=tracer)
+
+    result = run_jarvis(
+        user_prompt=user_prompt,
+        allow_mutations=allow_mutations,
+        agent_client=agent_client,
+        todoist_client=todoist_client,
+        max_agent_turns=max_agent_turns,
+        tracer=tracer,
+        thread_id=thread_id,
+        checkpointer=checkpointer,
+    )
+    while result.get("interrupted"):
+        clarification_reply = ask_user_for_clarification(result.get("interrupt_payload", {}))
+        result = run_jarvis(
+            user_prompt=user_prompt,
+            allow_mutations=allow_mutations,
+            agent_client=agent_client,
+            todoist_client=todoist_client,
+            max_agent_turns=max_agent_turns,
+            tracer=tracer,
+            thread_id=thread_id,
+            clarification_reply=clarification_reply,
+            checkpointer=checkpointer,
+        )
+
+    return result
+
+
+def run_jarvis_sequence(
+    user_prompts: List[str],
+    allow_mutations: bool = ALLOW_MUTATIONS,
+    agent_client: Optional[Any] = None,
+    todoist_client: Optional[Any] = None,
+    max_agent_turns: int = MAX_AGENT_TURNS,
+    tracer: Optional[TracePrinter] = None,
+    checkpointer: Optional[Any] = None,
+) -> List[JarvisState]:
+    """Run one graph invocation per prompt, sequentially, in list order."""
+
+    prompts = [prompt for prompt in user_prompts if prompt.strip()]
+    if not prompts:
+        raise ValueError("At least one user prompt is required.")
+
+    tracer = tracer if tracer is not None else TracePrinter()
+    agent_client = agent_client or DeepSeekAgentClient(tracer=tracer)
+    todoist_client = todoist_client or TodoistApiClient(tracer=tracer)
+    results: List[JarvisState] = []
+
+    for index, prompt in enumerate(prompts, start=1):
+        tracer.section(f"Jarvis Sequential Run {index}/{len(prompts)}")
+        tracer.event("runtime.sequence", "Starting prompt.", index=index, total=len(prompts))
+        results.append(
+            run_jarvis_with_local_clarifications(
+                user_prompt=prompt,
+                allow_mutations=allow_mutations,
+                agent_client=agent_client,
+                todoist_client=todoist_client,
+                max_agent_turns=max_agent_turns,
+                tracer=tracer,
+                checkpointer=checkpointer,
+            )
+        )
+
+    return results
+
+
 # ======================================================================
 # Step 9: Runtime Output and Main Entrypoint
 # ======================================================================
-def print_run_summary(result: JarvisState) -> None:
+def print_run_summary(result: JarvisState, run_label: Optional[str] = None) -> None:
     """Print a compact terminal summary for local runs."""
 
-    print("\nJarvis response")
+    heading = "Jarvis response" if run_label is None else f"Jarvis response ({run_label})"
+    print(f"\n{heading}")
     print("---------------")
     if result.get("interrupted"):
         payload = result.get("interrupt_payload", {})
@@ -1571,9 +1739,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     del argv
 
     try:
-        result = run_jarvis(USER_PROMPT, allow_mutations=ALLOW_MUTATIONS)
-        print_run_summary(result)
-        return 1 if result.get("error") else 0
+        results = run_jarvis_sequence(USER_PROMPTS, allow_mutations=ALLOW_MUTATIONS)
+        for index, result in enumerate(results, start=1):
+            print_run_summary(result, run_label=f"{index}/{len(results)}")
+        has_error = any(result.get("error") for result in results)
+        return 1 if has_error else 0
     except Exception as error:
         print("Jarvis failed before the graph completed.")
         print(str(error))

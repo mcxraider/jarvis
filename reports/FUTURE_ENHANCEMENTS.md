@@ -2,9 +2,7 @@
 
 This document captures planned product and backend enhancements that are not part of the current Todoist-first Telegram assistant surface.
 
-## Agentic Multi-Tool Orchestration With LangGraph
-
-### Goal
+## 1. Agentic Orchestration With LangGraph
 
 Add an agentic orchestration flow where Jarvis can turn one natural-language Telegram message into one or many tool calls, run independent calls in parallel, ask for clarification when required, and report a clear success/failure summary back to the user.
 
@@ -17,63 +15,80 @@ put in my cal im going holiday from 15th to 20th June korea
 Expected behavior:
 
 - Jarvis understands this as a multi-day calendar/task creation request.
-- The orchestrator expands the range from 15 June through 20 June into six add operations.
-- The generated items should be named consistently, for example:
-  - `Korea day 1`
-  - `Korea day 2`
-  - `Korea day 3`
-  - `Korea day 4`
-  - `Korea day 5`
-  - `Korea day 6`
-- Each add operation should target the correct date.
-- The final Telegram response should say what succeeded and what failed.
+- The orchestrator expands the range from 15 June through 20 June into six planned operations.
+- Each generated item targets the correct date.
+- The final Telegram response says what succeeded, what failed, and what needs user follow-up.
 
-### Current Limitation
+Current limitations:
 
-The current runtime is built around a single GPT tool-decision pass followed by direct tool execution and a final GPT response. The dispatcher already exposes an array-based `executeToolCalls()` API and executes supported calls with `Promise.allSettled()`, but the product behavior is still not a full agentic planning loop:
-
+- The current runtime is built around a single GPT tool-decision pass followed by direct tool execution and a final GPT response.
 - There is no explicit planning node that expands one user intent into multiple concrete operations.
 - There is no first-class clarification branch before execution.
 - There is no durable orchestration state for many related tool calls.
 - There is no sequential worker flow for dependent tasks such as "find this task by name, then update it."
-- Reporting is delegated to a final GPT response instead of a deterministic success/failure formatter.
-- Calendar-style multi-day expansion is not modeled as its own use case.
+- Reporting is delegated to a final GPT response instead of a deterministic response node.
 
-### High-Level Architecture Flow
+Target graph:
 
 ```text
 Telegram user message
   -> Webhook / Telegram message handler
   -> Message processor
-  -> LangGraph Orchestrator
+  -> LangGraph orchestrator
       -> Intent + context extraction node
       -> Planner node
-          -> decide whether tools are needed
-          -> emit one or many proposed tool calls
-          -> identify missing required details
       -> Clarification router
-          -> if details missing: ask user "Do you mean ...?"
-          -> if details complete: continue
+      -> Worker/parser nodes
       -> Tool execution node
-          -> validate and normalize tool calls
-          -> run independent tool calls in parallel
-          -> run dependent tool calls sequentially when later calls need earlier outputs
-          -> collect per-call success/failure
-      -> Result aggregation node
-          -> produce structured execution report
-      -> Response formatting node
-          -> send user-friendly Telegram summary
+      -> Verification/result aggregation node
+      -> Return to user node
 ```
 
-### Proposed LangGraph State
+## 2. Separate Planner, Workers, And Executors
 
-Introduce a graph state object that can carry the request through planning, clarification, execution, and reporting.
+Separate planning from parameter construction and execution for complex requests.
+
+For simple Todoist actions, one agent pass can still be enough. For complex requests such as:
+
+```text
+add 8 packing tasks for my Korea trip: passport, adapter, sunscreen...
+```
+
+Use a staged flow:
+
+```text
+orchestrator/planner
+  -> task parser worker
+  -> bulk create executor
+  -> verification summarizer
+  -> return to user node
+```
+
+The orchestrator/planner decides the overall action and which functions should be used. Worker nodes create, normalize, and validate the parameters for those functions. Executor nodes perform side effects only after the plan is structured.
+
+Do not let the model blindly call `add_todoist_task` eight times without an execution plan. First create a structured batch:
+
+```json
+[
+  { "content": "Pack passport", "project": "Korea trip" },
+  { "content": "Pack adapter", "project": "Korea trip" },
+  { "content": "Pack sunscreen", "project": "Korea trip" }
+]
+```
+
+Then execute the batch through the proper Todoist tool layer.
+
+## 3. Proposed Graph State
+
+Introduce a graph state object that can carry the request through planning, clarification, execution, verification, and user response.
 
 ```ts
 type OrchestrationState = {
+  threadId: string;
   userId: string;
   chatId: string;
   originalMessage: string;
+  userPromptHash: string;
   normalizedIntent?: {
     action: 'create' | 'update' | 'delete' | 'complete' | 'list' | 'conversation';
     domain: 'todoist' | 'calendar' | 'general';
@@ -86,6 +101,7 @@ type OrchestrationState = {
   };
   plannedToolCalls: PlannedToolCall[];
   executionResults: ToolExecutionResult[];
+  returnToUserContext?: ReturnToUserContext;
   finalResponse?: string;
 };
 
@@ -93,6 +109,7 @@ type PlannedToolCall = {
   id: string;
   toolName: string;
   arguments: Record<string, unknown>;
+  normalizedArgsHash: string;
   dependsOn?: string[];
   displayLabel: string;
 };
@@ -101,27 +118,27 @@ type ToolExecutionResult = {
   toolCallId: string;
   toolName: string;
   displayLabel: string;
-  status: 'success' | 'failure';
+  status: 'success' | 'failure' | 'skipped';
   result?: unknown;
   error?: string;
+  externalId?: string;
 };
 
-type WorkerOutput = {
-  workerId: string;
-  sourceToolCallId: string;
-  selectedEntityId?: string;
-  candidates?: unknown[];
-  confidence: number;
-  needsClarification?: boolean;
-  clarificationQuestion?: string;
+type ReturnToUserContext = {
+  originalMessage: string;
+  normalizedIntent?: OrchestrationState['normalizedIntent'];
+  plannedToolCalls: PlannedToolCall[];
+  executionResults: ToolExecutionResult[];
+  verifiedFacts: string[];
+  warnings: string[];
 };
 ```
 
-### Planner Behavior
+## 4. Planner Behavior
 
 The planner should use GPT tool-calling or structured output to produce a normalized plan before tools are executed.
 
-For the Korea holiday example, the planner should produce six independent add operations:
+For a Korea holiday example, the planner should produce independent add operations:
 
 ```json
 [
@@ -144,9 +161,15 @@ For the Korea holiday example, the planner should produce six independent add op
 ]
 ```
 
-The real plan would continue through 20 June. The planner must use the current date and user timezone when resolving dates. If the year is ambiguous, use the nearest future matching date unless the user explicitly says otherwise.
+Planner rules:
 
-### Sequential Dependent Tool Flow
+- Use the current date and user timezone when resolving dates.
+- If the year is ambiguous, use the nearest future matching date unless the user explicitly says otherwise.
+- Ask for clarification before risky or ambiguous side effects.
+- Emit structured plans, not direct side effects.
+- Mark independent calls separately from dependent calls.
+
+## 5. Sequential Dependent Tool Flow
 
 Some user requests cannot be executed as one independent batch because later actions require outputs from earlier lookup work.
 
@@ -159,11 +182,10 @@ rename my dentist appointment to dentist appointment at 3pm tomorrow
 Expected behavior:
 
 - The planner identifies this as an update request without a known Todoist task ID.
-- The graph starts a lookup worker that searches Todoist by likely task name, for example `dentist appointment`.
-- The lookup worker returns either one confident task, multiple candidates, or no match.
+- A lookup worker searches Todoist by likely task name, for example `dentist appointment`.
+- The lookup worker returns one confident task, multiple candidates, or no match.
 - If one confident task is found, a second node uses that returned task ID to call `update_todoist_task`.
 - If multiple plausible tasks are found, the graph routes to clarification before any update happens.
-- The final Telegram response reports both the lookup and the update outcome in user-friendly language.
 
 Example dependent plan:
 
@@ -191,175 +213,221 @@ Example dependent plan:
 ]
 ```
 
-The dependency placeholder is not sent directly to Todoist. The sequential execution node must resolve it from the worker output after the lookup succeeds. If the lookup result is ambiguous, the graph should pause and ask the user to choose a task instead of guessing.
+The dependency placeholder must never be sent directly to Todoist. The sequential execution node resolves it from worker output after lookup succeeds.
 
-### Clarification Flow
+## 6. Todoist Sync Batching And Rate Limits
 
-Before execution, the graph should route to clarification when required information is missing or risky to infer.
+Todoist API limits are mainly per authenticated user, so the orchestration layer should avoid one network request per small action when a batch can express the same work.
 
-Examples:
+Current Todoist limits to design around:
 
-- Missing destination: "put my holiday from 15th to 20th June"
-- Ambiguous year: "15th to 20th June" when both past and future interpretations are plausible
-- Ambiguous target system: "put in my cal" while only Todoist is configured, or if both Todoist and calendar tools are configured later
-- Ambiguous item granularity: one all-day event versus one item per day
+| Area | Limit |
+|---|---:|
+| Partial sync requests | 1000 requests / 15 minutes / user |
+| Full sync requests | 100 requests / 15 minutes / user |
+| Commands per sync request | 100 commands / request |
+| POST request body size | 1 MiB |
+| Standard request timeout | 15 seconds |
+| Upload request timeout | 5 minutes |
 
-The clarification node should send one concise Telegram question, such as:
+Sync behavior:
 
-```text
-Do you mean six separate items, one for each day from 15 June to 20 June, named Korea day 1 through Korea day 6?
-```
+- Use a full sync only for initial state hydration.
+- Use incremental/partial syncs after initial hydration to avoid burning through the stricter full-sync limit.
+- For write-heavy operations, use the Todoist `/sync` batching pattern where possible.
+- Send up to 100 commands in one sync request, while keeping the request body under 1 MiB.
+- Treat one batched sync request as one request against the rate limit, even when it contains many commands.
 
-The follow-up user answer should resume the same orchestration state instead of starting from scratch.
+Agent behavior:
 
-### Tool Execution Flow
+- The planner emits a collection of intended Todoist changes.
+- The Todoist tool layer translates compatible independent mutations into one batched sync request instead of dispatching many REST calls.
+- The execution report still preserves per-item success, failure, and display labels when the wire request is batched.
+- Oversized plans are split into chunks of at most 100 commands and below the 1 MiB body limit.
+- Broad or risky batches still pass through confirmation thresholds before side effects happen.
 
-The execution node should:
+## 7. Idempotency And Tool Execution Records
 
-- Validate every planned call against the tool registry schema before execution.
-- Reject unsupported tool names before any side effects happen.
-- Split calls into independent and dependent groups.
-- Run independent calls with `Promise.allSettled()` or LangGraph parallel branches.
-- Run dependent calls in topological order so each node can consume outputs from the calls it depends on.
-- Support worker nodes for lookup/ranking steps that return structured outputs such as selected task ID, candidate list, confidence, and clarification question.
-- Resolve dependency placeholders from worker outputs before executing side-effecting calls.
-- Pause before mutation when the worker output is ambiguous, low-confidence, or empty.
-- Preserve each tool call ID and display label through execution.
-- Return one result per planned call, including failures.
+Add idempotency before mutating tools so retries and graph resumes do not create duplicate Todoist tasks.
 
-For v1, all generated "add" calls for the holiday example are independent and can run in parallel.
-
-For v1.1, natural-language edit/delete flows should use sequential execution:
-
-```text
-Lookup worker node
-  -> returns confident task ID or candidate list
-  -> if confident: mutation node updates/deletes/completes the task
-  -> if ambiguous: clarification node asks the user to choose
-```
-
-### Telegram Reporting
-
-Final reporting should be deterministic and easy to scan. GPT may be used for tone, but the success/failure facts should come from structured execution results.
-
-Example final response:
+Risk scenario:
 
 ```text
-Done. I created 5 of 6 Korea holiday items.
-
-Created:
-- Korea day 1 - 15 Jun
-- Korea day 2 - 16 Jun
-- Korea day 3 - 17 Jun
-- Korea day 4 - 18 Jun
-- Korea day 5 - 19 Jun
-
-Failed:
-- Korea day 6 - 20 Jun: Todoist API rate limit. Please retry.
+1. Jarvis creates a Todoist task.
+2. The graph crashes before sending the final Telegram response.
+3. The run is retried.
+4. Jarvis creates the same task again.
 ```
 
-If all calls succeed, keep the response shorter:
+Use an idempotency key based on stable request inputs:
 
 ```text
-Done. I created 6 Korea holiday items from 15 Jun to 20 Jun.
+thread_id + user_prompt_hash + normalized_action
 ```
 
-### Backend Engineering Changes
+Also store tool execution records:
 
-Add a new orchestration layer instead of expanding the existing function-calling processor in place.
+```json
+{
+  "thread_id": "telegram:123:456",
+  "tool_name": "add_todoist_task",
+  "normalized_args_hash": "b7348d...",
+  "external_id": "6gvm5qCX9fr7p3HG",
+  "status": "success"
+}
+```
 
-Recommended components:
+Before executing a mutating tool:
 
-- `AgentOrchestratorService`: owns the LangGraph graph and exposes `processMessage()`.
-- `PlanningNode`: turns the user message into a structured intent, clarification state, and planned tool calls.
-- `ClarificationNode`: formats the clarification question and marks the run as waiting for user input.
-- `ToolExecutionNode`: validates, groups, and executes planned calls through the existing dispatcher.
-- `LookupWorkerNode`: runs retrieval-style tools, ranks candidates, and produces structured worker outputs for downstream dependent calls.
-- `SequentialExecutionNode`: executes dependent calls in order and resolves arguments from previous worker outputs before side effects.
-- `ResultAggregatorNode`: converts raw tool results into a stable report model.
-- `TelegramResponseFormatter`: formats clarification, success, partial failure, and total failure messages.
-- `ConversationStateStore`: stores pending clarifications by Telegram chat/user so the next user message can resume the graph.
+- Normalize arguments into a stable representation.
+- Hash the normalized arguments.
+- Check whether the same mutation already succeeded for the same thread/request.
+- If it already succeeded, reuse the stored external ID and return a skipped/reused execution result.
+- If a previous attempt is in progress or uncertain, resolve its status before retrying the mutation.
+- Store the final result after Todoist confirms success.
 
-### Public Interfaces
+This is especially important for create, update, delete, complete, and batched sync operations.
 
-Keep the existing tool dispatcher contract where possible, but add planner-facing types:
+## 8. Error Handling, Retries, And User Recovery
+
+Make the app resilient enough that failures are expected, classified, retried when safe, logged clearly, and explained to the user without exposing raw stack traces or leaving them unsure whether anything happened.
+
+Error handling goals:
+
+- Classify errors by source: Telegram, OpenAI, Todoist, validation, orchestration, network, timeout, configuration, and unexpected runtime failures.
+- Separate retryable errors from non-retryable errors.
+- Preserve structured context for debugging, including request IDs, chat IDs, tool names, tool call IDs, operation names, status codes, and retry attempts.
+- Avoid leaking API keys, full prompts, private task content, or stack traces in user-facing messages.
+- Ensure every user request ends with a clear Telegram response, even when the system cannot complete the requested action.
+- Make partial failures explicit so the user knows what succeeded, what failed, and what can be retried.
+
+Retry behavior:
+
+- Use bounded retries with exponential backoff and jitter for transient network failures, HTTP 429, HTTP 408, HTTP 409 where safe, and HTTP 5xx responses.
+- Respect provider retry metadata such as Todoist `error_extra.retry_after` and `Retry-After` headers.
+- Do not retry validation failures, authentication failures, missing configuration, unsupported tool names, or dangerous mutations when idempotency cannot be guaranteed.
+- Add request idempotency where supported.
+- Cap total retry time so Telegram responses do not hang indefinitely.
+
+Shared Todoist request wrapper:
 
 ```ts
-interface AgentOrchestrator {
-  processMessage(input: AgentMessageInput): Promise<AgentMessageResult>;
-}
+async function todoistRequest(fn, retries = 3) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fn();
 
-type AgentMessageInput = {
-  userId: string;
-  chatId: string;
-  message: string;
-  timezone: string;
-};
+    if (res.ok) return res;
 
-type AgentMessageResult =
-  | {
-      type: 'clarification';
-      message: string;
+    let body: any = null;
+    try {
+      body = await res.json();
+    } catch {}
+
+    const retryAfter =
+      body?.error_extra?.retry_after ??
+      Number(res.headers.get('Retry-After'));
+
+    if (res.status === 429 || retryAfter) {
+      const waitMs = (retryAfter ?? Math.min(2 ** attempt, 30)) * 1000;
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      continue;
     }
-  | {
-      type: 'completed';
-      message: string;
-      report: ExecutionReport;
-    };
 
-type ExecutionReport = {
-  total: number;
-  successCount: number;
-  failureCount: number;
-  items: ToolExecutionResult[];
-};
+    throw new Error(`Todoist API error ${res.status}: ${JSON.stringify(body)}`);
+  }
+
+  throw new Error('Todoist API rate-limited after retries');
+}
 ```
 
-### Testing Strategy
+User-facing error responses should be deterministic and specific:
 
-Unit tests:
+```text
+I could not reach Todoist after a few tries, so I did not create the packing tasks. Please try again in a minute.
+```
 
-- Planner expands "holiday from 15th to 20th June Korea" into six add calls.
-- Planner sets day labels and due dates correctly.
-- Clarification is requested when destination, year, target system, or granularity is unclear.
-- Execution node runs independent calls in parallel and preserves per-call IDs.
-- Execution node runs dependent lookup-then-update plans sequentially and resolves the selected task ID.
-- Lookup worker routes to clarification when multiple Todoist candidates match the requested task name.
-- Result aggregator returns correct success and failure counts.
-- Telegram formatter handles all-success, partial-failure, and all-failure reports.
+```text
+I created 6 of 8 packing tasks. Two failed because Todoist rate-limited the request. You can ask me to retry the failed ones.
+```
 
-Integration tests:
+## 9. Return To User Node
 
-- Telegram text message enters the LangGraph orchestrator and produces multiple tool calls.
-- Mixed success/failure dispatcher responses produce a formatted Telegram report.
-- Clarification response resumes the same pending orchestration.
-- Natural-language "find task by name, then update it" request performs lookup first and mutation second.
+Add a separate `ReturnToUserNode` that runs when there are no more tool calls to execute.
 
-Live/gated tests:
+Trigger condition:
 
-- Optional Todoist live test for creating two or more dated tasks from one message.
-- Future calendar live tests only after a real calendar integration exists.
+```text
+agent.response received assistant message
+has_tool_calls=false
+tool_calls=0
+has_content=true
+has_reasoning=true
+```
 
-### Rollout Plan
+Purpose:
 
-1. Add LangGraph and orchestration types behind a feature flag, for example `AGENT_ORCHESTRATOR_ENABLED=false`.
-2. Keep the current GPT function-calling path as the fallback while the graph is developed.
-3. Enable the new graph first for text messages only.
-4. Add observability for graph node duration, planned tool count, success count, failure count, and clarification count.
-5. Once stable, route audio transcriptions through the same orchestrator so text and voice share behavior.
+- Produce the final user-facing Telegram message.
+- Keep the message nice, concise, and grounded in verified execution results.
+- Summarize what Jarvis actually did, not what the model assumes happened.
+- Handle success, partial success, failure, skipped/idempotent reuse, and clarification states.
 
-### Open Product Decisions
+The return node should receive enough context to answer well:
 
-- Whether "cal" should map to Todoist tasks for now or wait for a real calendar tool.
-- Whether a multi-day holiday should create Todoist tasks, calendar events, or both.
-- Whether date ranges should default to one item per day or one all-day range item.
-- Whether the user should confirm before executing more than a threshold number of side-effecting tool calls.
+- Original user message.
+- Normalized intent.
+- Planned tool calls.
+- Tool execution results.
+- Todoist response fields that were actually returned.
+- Verification facts from the result aggregation node.
+- Warnings, skipped calls, and recoverable errors.
 
-## Additional Feature Ideas
+Do not trust final model claims blindly. For example, a final model message might say:
 
-These enhancements build on the same agentic foundation but are separate from multi-event or multi-day support.
+```text
+The task will keep rolling until you mark it complete for the day.
+```
 
-### Natural-Language Task Lookup Before Edit/Delete
+That may or may not match Todoist behavior exactly. The return node should summarize only fields confirmed by the tool response unless Jarvis has deterministic recurrence expansion or provider documentation-backed behavior.
+
+Better:
+
+```text
+Todoist accepted it as a recurring task starting June 20, 2026 at 9:00 AM.
+```
+
+Return node rules:
+
+- Prefer verified facts over model-generated assumptions.
+- Avoid overexplaining provider behavior unless it is deterministic.
+- Mention exact task names, dates, priorities, and descriptions only when confirmed.
+- Keep success messages short.
+- Include clear next steps when there are failures or ambiguity.
+- Never expose raw JSON, stack traces, or internal chain-of-thought.
+
+## 10. Clarification Memory And Confirmation Thresholds
+
+Store pending clarifications so short follow-up replies can resume the original orchestration instead of starting a new request.
+
+Example:
+
+```text
+User: put my holiday from 15th to 20th June
+Jarvis: Do you mean six separate items, one per day?
+User: yes
+Jarvis: creates the six planned items
+```
+
+Ask for confirmation before high-impact plans:
+
+- Delete more than one task.
+- Complete more than a configured number of tasks.
+- Create more than a configured number of tasks.
+- Reschedule many tasks at once.
+- Touch multiple external systems.
+
+The confirmation message should summarize intended side effects before anything mutates.
+
+## 11. Natural-Language Task Lookup Before Edit/Delete
 
 Allow Jarvis to handle edit and delete requests even when the user does not know the Todoist task ID.
 
@@ -382,24 +450,9 @@ User request
   -> report result
 ```
 
-This would close the current limitation where natural-language edits and deletes work best only when the task ID is known.
+This closes the current limitation where natural-language edits and deletes work best only when the task ID is known.
 
-### Clarification Memory
-
-Store pending clarifications so short follow-up replies can resume the original orchestration instead of starting a new request.
-
-Example:
-
-```text
-User: put my holiday from 15th to 20th June
-Jarvis: Do you mean six separate items, one per day?
-User: yes
-Jarvis: creates the six planned items
-```
-
-This should be handled by the same `ConversationStateStore` proposed for the LangGraph orchestration flow.
-
-### Bulk Task Operations
+## 12. Bulk Task Operations
 
 Support batch changes across existing Todoist tasks.
 
@@ -413,27 +466,29 @@ reschedule this week's low priority tasks to next week
 
 Expected behavior:
 
-- Search for the affected tasks.
+- Search for affected tasks.
 - Preview the affected count when the action is broad or risky.
 - Ask for confirmation before destructive or large updates.
-- Execute independent updates in parallel.
+- Execute compatible independent updates through the batch executor.
 - Return a clear success/failure report.
 
-### Confirmation Thresholds For Risky Actions
+## 13. Recurring Task Support
 
-Add a safety layer before executing high-impact plans.
+Support natural-language recurring tasks.
 
-Require confirmation when a plan would:
+Example messages:
 
-- Delete more than one task.
-- Complete more than a configured number of tasks.
-- Create more than a configured number of tasks.
-- Reschedule many tasks at once.
-- Touch multiple external systems.
+```text
+remind me every Monday to submit timesheet
+water plants every 3 days
+pay rent on the first of every month
+```
 
-The confirmation message should summarize the intended action before any side effects happen.
+The planner should parse recurrence carefully, preview the interpreted schedule when ambiguous, and ask for confirmation before creating the recurring item.
 
-### Daily And Weekly Planning Assistant
+The return node must avoid inventing recurrence behavior. It should say what Todoist accepted, such as the due string or recurring due object returned by Todoist, and avoid claims about future reminders unless those are deterministically verified.
+
+## 14. Daily Planning And Task Decomposition
 
 Let Jarvis help the user plan work rather than only mutate tasks.
 
@@ -443,6 +498,7 @@ Example messages:
 plan my day
 what should I do today?
 organize my week
+I need to prepare for my Korea trip
 ```
 
 Expected behavior:
@@ -451,30 +507,10 @@ Expected behavior:
 - Group tasks by urgency, priority, label, or project.
 - Identify overload when there are too many tasks due.
 - Suggest a realistic plan.
-- Optionally reschedule tasks after user confirmation.
+- Decompose broad goals into actionable subtasks.
+- Optionally create or reschedule tasks after user confirmation.
 
-### Task Decomposition
-
-Expand broad goals into actionable subtasks.
-
-Example message:
-
-```text
-I need to prepare for my Korea trip
-```
-
-Possible generated tasks:
-
-- Check passport validity.
-- Book flights.
-- Book accommodation.
-- Buy travel insurance.
-- Exchange currency.
-- Pack luggage.
-
-This differs from multi-event support because the agent is decomposing a goal into logical subtasks, not expanding a date range.
-
-### Calendar Integration
+## 15. Calendar Integration
 
 Add a real calendar integration so Jarvis can decide whether a request belongs in Todoist, a calendar, or both.
 
@@ -490,46 +526,156 @@ Expected behavior:
 
 - Calendar events go to the calendar tool.
 - Actionable reminders go to Todoist.
-- Requests with both scheduling and action items can create both, after confirmation when appropriate.
+- Requests with both scheduling and action items can create both after confirmation when appropriate.
 
-### Recurring Task Support
+## 16. Backend Engineering Changes
 
-Support natural-language recurring tasks.
+Add a new orchestration layer instead of expanding the existing function-calling processor in place.
 
-Example messages:
+Because the LangGraph agent is now being built in Python, route the agentic layer through Python while keeping the surrounding application services in TypeScript. TypeScript should continue to own Telegram webhook handling, API/server concerns, environment configuration, logging glue, and existing service integrations. Python should own the graph, planning, worker nodes, execution policy, result aggregation, and return-to-user decisioning.
+
+Target service boundary:
 
 ```text
-remind me every Monday to submit timesheet
-water plants every 3 days
-pay rent on the first of every month
+Telegram / HTTP entrypoint (TypeScript)
+  -> Agent bridge client (TypeScript)
+  -> LangGraph agent service (Python)
+      -> planner / workers / executors / return-to-user node
+  -> Tool/service adapters
+      -> Todoist, Telegram, OpenAI, storage
+  -> Telegram response send (TypeScript)
 ```
 
-The planner should parse recurrence carefully, preview the interpreted schedule when ambiguous, and ask for confirmation before creating the recurring item.
+Migration goals:
 
-### Deterministic Result Reports
+- Keep TypeScript services available as stable integration adapters rather than duplicating every integration in Python immediately.
+- Define a typed request/response contract between TypeScript and Python.
+- Pass `threadId`, `chatId`, `userId`, `timezone`, message text, and correlation IDs across the boundary.
+- Return structured graph results from Python, including final user message, execution report, retry/skipped status, and safe diagnostics.
+- Decide whether Python calls Todoist directly or calls TypeScript tool endpoints; prefer one path per tool to avoid split-brain behavior.
+- Keep idempotency and conversation state in a shared durable store that both runtimes can read consistently.
+- Add local development commands that start both the TypeScript app and Python agent service together.
 
-Move success/failure reporting out of free-form GPT responses and into a stable formatter backed by structured execution results.
+Recommended components:
 
-Reports should distinguish:
+- TypeScript `AgentBridgeClient`: calls the Python LangGraph service from the existing message processor.
+- Python `AgentOrchestrator`: owns the LangGraph graph and exposes `process_message()`.
+- Python `PlanningNode`: turns the user message into a structured intent, clarification state, and planned tool calls.
+- Python `TaskParserWorkerNode`: converts complex user text into normalized task payloads.
+- Python `ClarificationNode`: formats the clarification question and marks the run as waiting for user input.
+- Python `ToolExecutionNode`: validates, groups, and executes planned calls through tool adapters.
+- Python or TypeScript `BulkTodoistExecutor`: executes compatible create/update/delete/complete operations through Todoist sync batching.
+- Python `LookupWorkerNode`: runs retrieval-style tools, ranks candidates, and produces structured worker outputs for downstream dependent calls.
+- Python `SequentialExecutionNode`: executes dependent calls in order and resolves arguments from previous worker outputs before side effects.
+- Shared `IdempotencyStore`: records successful mutating tool calls and external IDs.
+- Python `ResultAggregatorNode`: converts raw tool results into a stable report model.
+- Python `ReturnToUserNode`: creates the final concise user-facing response from verified facts.
+- Shared `ConversationStateStore`: stores pending clarifications by Telegram chat/user so the next user message can resume the graph.
 
-- Created
-- Updated
-- Completed
-- Deleted
-- Skipped
-- Failed
-- Needs clarification
+## 17. Public Interfaces
 
-This becomes more important as Jarvis supports parallel execution and multi-step plans.
+Keep the existing tool dispatcher contract where possible, but add planner-facing types:
 
-### Suggested Priority
+```ts
+interface AgentOrchestrator {
+  processMessage(input: AgentMessageInput): Promise<AgentMessageResult>;
+}
+
+type AgentMessageInput = {
+  threadId: string;
+  userId: string;
+  chatId: string;
+  message: string;
+  timezone: string;
+};
+
+type AgentMessageResult =
+  | {
+      type: 'clarification';
+      message: string;
+    }
+  | {
+      type: 'completed';
+      message: string;
+      report: ExecutionReport;
+    };
+
+type ExecutionReport = {
+  total: number;
+  successCount: number;
+  failureCount: number;
+  skippedCount: number;
+  items: ToolExecutionResult[];
+};
+```
+
+## 18. Testing Strategy
+
+Unit tests:
+
+- Planner expands "holiday from 15th to 20th June Korea" into six add calls.
+- Planner sets day labels and due dates correctly.
+- Task parser turns "add 8 packing tasks" into a structured batch before execution.
+- Clarification is requested when destination, year, target system, or granularity is unclear.
+- Execution node runs independent calls in parallel and preserves per-call IDs.
+- Execution node runs dependent lookup-then-update plans sequentially and resolves the selected task ID.
+- Lookup worker routes to clarification when multiple Todoist candidates match the requested task name.
+- Idempotency store prevents duplicate create/update/delete side effects on retry.
+- Return-to-user node summarizes only verified tool response fields.
+- Return-to-user node avoids unsupported recurrence claims.
+- Error formatter handles all-success, partial-failure, all-failure, skipped, and clarification reports.
+- Secret values and raw stack traces are redacted from logs and Telegram responses.
+
+Integration tests:
+
+- TypeScript message processor calls the Python agent bridge and handles completed, clarification, and failed responses.
+- Telegram text message enters the LangGraph orchestrator and produces multiple tool calls.
+- Mixed success/failure dispatcher responses produce a formatted Telegram report.
+- Clarification response resumes the same pending orchestration.
+- Natural-language "find task by name, then update it" request performs lookup first and mutation second.
+- Simulated Todoist 429, 5xx, timeout, and malformed error bodies produce retry or user-safe failure behavior.
+- Failed Telegram send is logged and does not crash the process.
+- Retry after a post-creation crash reuses the stored Todoist external ID instead of creating a duplicate.
+
+Live/gated tests:
+
+- Optional Todoist live test for creating two or more dated tasks from one message.
+- Optional Todoist live test for creating a small batched task set.
+- Future calendar live tests only after a real calendar integration exists.
+
+## 19. Rollout Plan
+
+1. Add the Python LangGraph service and TypeScript `AgentBridgeClient` behind a feature flag, for example `AGENT_ORCHESTRATOR_ENABLED=false`.
+2. Define the cross-runtime request/response contract and shared error envelope.
+3. Add the idempotency store before enabling retries for mutating tools.
+4. Add the return-to-user node and deterministic report model in Python.
+5. Keep the current TypeScript GPT function-calling path as the fallback while the Python graph is developed.
+6. Enable the Python graph first for text messages only.
+7. Add observability across both runtimes: graph node duration, bridge latency, planned tool count, success count, failure count, retry count, skipped count, and clarification count.
+8. Add Todoist sync batching for compatible bulk writes.
+9. Route audio transcriptions through the same orchestrator so text and voice share behavior.
+
+## 20. Open Product Decisions
+
+- Whether "cal" should map to Todoist tasks for now or wait for a real calendar tool.
+- Whether a multi-day holiday should create Todoist tasks, calendar events, or both.
+- Whether date ranges should default to one item per day or one all-day range item.
+- Whether the user should confirm before executing more than a threshold number of side-effecting tool calls.
+- Whether failed batch items should be automatically retryable by saying "retry the failed ones."
+
+## 21. Suggested Priority
 
 Recommended implementation order:
 
-1. Clarification memory.
-2. Natural-language lookup before edit/delete.
-3. Deterministic execution reports.
-4. Voice parity through the same orchestrator.
-5. Bulk operations with confirmation.
-6. Calendar integration.
-7. Task decomposition and planning assistant.
+1. Python LangGraph service boundary and TypeScript bridge.
+2. Idempotency store for mutating Todoist operations.
+3. Error handling, retry classification, and user-safe failures.
+4. Return-to-user node with verified-facts-only summaries.
+5. Clarification memory.
+6. Planner/worker/executor split for structured batch plans.
+7. Todoist sync batching.
+8. Natural-language lookup before edit/delete.
+9. Bulk operations with confirmation.
+10. Voice parity through the same orchestrator.
+11. Calendar integration.
+12. Daily planning and task decomposition.
