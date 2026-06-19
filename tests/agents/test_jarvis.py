@@ -5,6 +5,7 @@ import threading
 import unittest
 from pathlib import Path
 from typing import Any, Dict, List
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -139,6 +140,61 @@ class JarvisGraphTests(unittest.TestCase):
 
         self.assertEqual(result["final_response"], "Hello.")
         self.assertEqual(result["tool_results"], [])
+
+    def test_run_jarvis_sequence_invokes_prompts_in_order(self) -> None:
+        agent_client = FakeDeepSeekAgentClient(
+            [
+                {"role": "assistant", "content": "First done."},
+                {"role": "assistant", "content": "Second done."},
+            ]
+        )
+
+        results = jarvis.run_jarvis_sequence(
+            ["first prompt", "second prompt"],
+            allow_mutations=False,
+            agent_client=agent_client,
+            todoist_client=FakeTodoistClient(),
+            tracer=jarvis.NULL_TRACE,
+        )
+
+        self.assertEqual(
+            [result["final_response"] for result in results],
+            ["First done.", "Second done."],
+        )
+        self.assertIn("User request:\nfirst prompt", agent_client.calls[0][1]["content"])
+        self.assertIn("User request:\nsecond prompt", agent_client.calls[1][1]["content"])
+
+    def test_local_clarification_wrapper_prompts_and_resumes(self) -> None:
+        agent_client = FakeDeepSeekAgentClient(
+            [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        fake_tool_call(
+                            "call_ask",
+                            jarvis.ASK_USER_TOOL_NAME,
+                            {"question": "Which task should I update?"},
+                        )
+                    ],
+                },
+                {"role": "assistant", "content": "Updated the dentist task."},
+            ]
+        )
+
+        with patch.object(jarvis, "ask_user_for_clarification", return_value="the dentist task") as ask:
+            result = jarvis.run_jarvis_with_local_clarifications(
+                user_prompt="update my task",
+                allow_mutations=False,
+                agent_client=agent_client,
+                todoist_client=FakeTodoistClient(),
+                tracer=jarvis.NULL_TRACE,
+            )
+
+        self.assertFalse(result["interrupted"])
+        self.assertEqual(result["final_response"], "Updated the dentist task.")
+        ask.assert_called_once()
+        self.assertEqual(ask.call_args[0][0]["question"], "Which task should I update?")
 
     def test_ask_user_tool_schema_available(self) -> None:
         tools = jarvis.get_todoist_tools()
