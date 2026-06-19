@@ -35,19 +35,19 @@ USER_PROMPTS = [
     # "set a reminder for the thing we talked about tomorrow at 10am",
 
     # # Calendar / time blocking
-    "block friday 2pm to 4pm for deep work",
+    # "block friday 2pm to 4pm for deep work",
 
     # # Querying tasks and calendar
-    # "what tasks do i have today",
-    # "what do i have on this weekend",
-    # "how many tasks are overas of today",
-    # "give me a morning brief at 8am – what tasks are today and what's on my calendar",
-    # "show me everything due this week",
-    # "what did i complete last week",
-    # "do i have anything on tuesday afternoon",
-    # "how many tasks are in my inbox today",
-    # "what's my most overdue task today",
-    # "am i free on thursday at 10am",
+    "what tasks do i have today",
+    "what do i have on this weekend",
+    "how many tasks are overas of today",
+    "give me a morning brief at 8am – what tasks are today and what's on my calendar",
+    "show me everything due this week",
+    "what did i complete last week",
+    "do i have anything on tuesday afternoon",
+    "how many tasks are in my inbox today",
+    "what's my most overdue task today",
+    "am i free on thursday at 10am",
 
     # # Task completion
     # "mark buy groceries due today at 6pm as done",
@@ -91,7 +91,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any, Dict, List, Optional, TypedDict
 
 from langchain_core.messages import ToolMessage
@@ -123,7 +123,9 @@ DEBUG_PAYLOADS = os.getenv("JARVIS_DEBUG_PAYLOADS", "1") != "0"
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 TODOIST_REST_BASE_URL = "https://api.todoist.com/api/v1"
-TODOIST_SYNC_COMPLETED_URL = "https://api.todoist.com/sync/v9/completed/get_all"
+TODOIST_COMPLETED_BY_COMPLETION_DATE_URL = (
+    "https://api.todoist.com/api/v1/tasks/completed/by_completion_date"
+)
 
 MUTATING_TOOL_NAMES = {
     "add_todoist_task",
@@ -137,34 +139,42 @@ LANGSMITH_TAGS = ["jarvis", "langgraph", "todoist", "local"]
 
 # The orchestrator/worker prompts describe the target architecture. 
 ORCHESTRATOR_PROMPT = """\
-You are Jarvis, the user's personal orchestrator agent. You do not execute tasks yourself — you decompose requests, dispatch work, and synthesize results.
+You are Jarvis, the user's personal orchestrator agent. You decompose complex requests and dispatch independent subtasks to workers. You may also execute simple, single-step actions yourself via TOOL_CALL — reserve dispatch for genuine decomposition, not as a rule you must always follow.
+
+Todoist is the user's single app for both tasks and calendar — route any task, to-do, or calendar/scheduling request there unless the user names a different tool.
 
 ## Your loop
-On every turn, choose exactly one branch:
+On every turn, evaluate in this order and act on the first branch that fits:
 1. ANSWER — you have enough information, nothing more to call. Respond to the user.
-2. TOOL_CALL — a single well-defined action you can do yourself, no decomposition needed.
+2. ASK_USER — you cannot proceed safely or correctly without more from the user. Call ask_user with one focused question. This pauses the loop until they reply.
 3. DISPATCH — the request has 2+ independent subtasks (none depends on another's output). Call dispatch_workers with a list of {subtask, tools, context}. If subtasks are sequential/dependent, handle them yourself as ordered tool calls instead — do not dispatch.
-4. ASK_USER — you cannot proceed safely or correctly without more from the user. Call ask_user with one focused question. This pauses the loop until they reply.
+4. TOOL_CALL — a single well-defined action you can do yourself, no decomposition needed.
 Loop (think → act → observe) until you choose ANSWER.
 
 ## Clarification policy
 Ask before acting when:
-- the action is destructive/irreversible (delete, send, cancel, pay) and details are underspecified
 - two+ reasonable interpretations exist and a wrong guess wastes time or money
 - a required parameter has no sensible default
 Don't ask when a reasonable default exists — use it and state the assumption in your final answer. Don't ask if one more tool call would answer it yourself. One focused question, not an interrogation.
+
+Destructive/irreversible actions (delete, send, pay, cancel) always get a one-line confirmation summary before execution, even when fully specified — unless the user has already explicitly confirmed it this turn.
 
 ## Reasoning effort
 Default Think High. Non-think only for trivial single-tool lookups. Think Max only for 4+ dependent steps or reconciling conflicting tool results — it's expensive, don't default to it.
 
 ## Dispatch contract
-Each dispatched subtask gets only: one unambiguous sentence, the minimal tool subset it needs, and only the facts it needs — not the full conversation. Workers return a short result summary only; never request their reasoning trace.
+Each dispatched subtask gets only: one unambiguous sentence, the minimal tool subset it needs, and only the facts it needs — not the full conversation. When uncertain whether a fact is needed, include it: a worker with one extra fact is cheap, a worker missing a needed fact produces a wrong result you can't diagnose later, since workers return a short result summary only and never their reasoning trace.
+
+## On failure
+- Tool or worker error: retry once if the fix is obvious (e.g. bad date format); otherwise treat it as missing data.
+- If a failure blocks a destructive or irreversible action, stop and ASK_USER rather than guessing a workaround.
+- Never silently drop a failed subtask from the final answer — surface what couldn't be retrieved and why.
 
 ## On worker results
 Before answering, check: do results conflict, is anything missing? If so, issue a follow-up call or ASK_USER — don't paper over gaps.
 
 ## Limits
-Max 8 loop iterations per user turn. If still unresolved, ASK_USER with your best partial answer and what's blocking — never fail silently."""
+Max 8 loop iterations per user turn. One dispatch_workers call counts as one iteration regardless of how many subtasks it contains; a follow-up call to re-query a single worker also counts as one. If still unresolved after 8, ASK_USER with your best partial answer and what's blocking — never fail silently."""
 
 WORKER_PROMPT = """You are a Jarvis worker agent, spawned for exactly one subtask. You never talk to the end user — your only output goes back to the orchestrator.
 
@@ -401,8 +411,18 @@ def get_todoist_tools() -> List[Dict[str, Any]]:
             "since": {"type": "string", "description": "ISO 8601 start date"},
             "until": {"type": "string", "description": "ISO 8601 end date"},
             "project_id": {"type": "string"},
+            "section_id": {"type": "string"},
+            "parent_id": {"type": "string"},
+            "filter_query": {
+                "type": "string",
+                "description": "Todoist filter query to limit completed tasks",
+            },
+            "filter_lang": {
+                "type": "string",
+                "description": "Language code used to parse filter_query",
+            },
+            "cursor": {"type": "string", "description": "Pagination cursor"},
             "limit": {"type": "integer", "minimum": 1, "maximum": 200},
-            "offset": {"type": "integer", "minimum": 0},
         },
         "required": [],
         "additionalProperties": False,
@@ -496,8 +516,8 @@ def get_todoist_tools() -> List[Dict[str, Any]]:
         {
             "type": "function",
             "function": {
-                "name": "get_completed_todoist_tasks",
-                "description": "List completed Todoist tasks from the Sync API.",
+                "name": "get_completed_todoist_tasks_by_completion_date",
+                "description": "List completed Todoist tasks by completion date.",
                 "parameters": completed_tasks_parameters,
             },
         },
@@ -585,7 +605,7 @@ class DeepSeekAgentClient:
 # Step 5: Todoist API Client
 # ======================================================================
 class TodoistApiClient:
-    """Direct Todoist REST/Sync API client using only the Python stdlib."""
+    """Direct Todoist API client using only the Python stdlib."""
 
     def __init__(self, api_key: Optional[str] = None, tracer: Optional[TracePrinter] = None):
         self.api_key = api_key or os.getenv("TODOIST_API_KEY")
@@ -613,8 +633,6 @@ class TodoistApiClient:
         data = None
         headers = {"Authorization": f"Bearer {self.api_key}"}
 
-        # Todoist REST endpoints accept JSON bodies; the completed-tasks Sync
-        # endpoint is a GET-only special case that does not need Content-Type.
         if payload is not None:
             data = json.dumps(payload).encode("utf-8")
             if content_type:
@@ -680,17 +698,40 @@ class TodoistApiClient:
         self._request(f"{TODOIST_REST_BASE_URL}/tasks/{arguments['task_id']}", "DELETE")
         return {"success": True, "message": f"Task {arguments['task_id']} deleted permanently"}
 
-    def get_completed_todoist_tasks(self, arguments: Dict[str, Any]) -> Any:
-        params = _query_params(_without_none(arguments))
+    def get_completed_todoist_tasks_by_completion_date(self, arguments: Dict[str, Any]) -> Any:
+        arguments = _with_default_completion_date_range(_without_none(arguments))
+        params = _query_params(arguments)
         suffix = f"?{params}" if params else ""
-        data = self._request(f"{TODOIST_SYNC_COMPLETED_URL}{suffix}", content_type=False)
-        return data.get("items", []) if isinstance(data, dict) else data
+        data = self._request(f"{TODOIST_COMPLETED_BY_COMPLETION_DATE_URL}{suffix}")
+        if not isinstance(data, dict):
+            return {"items": [], "next_cursor": None}
+        return {"items": data.get("items", []), "next_cursor": data.get("next_cursor")}
 
 
 def _without_none(data: Dict[str, Any]) -> Dict[str, Any]:
     """Drop None values before sending arguments to Todoist."""
 
     return {key: value for key, value in data.items() if value is not None}
+
+
+def _with_default_completion_date_range(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Default completed-task queries to the last 30 days in UTC."""
+
+    if "until" in data:
+        until = datetime.fromisoformat(data["until"].replace("Z", "+00:00"))
+    else:
+        until = datetime.now(timezone.utc)
+
+    if "since" in data:
+        since = datetime.fromisoformat(data["since"].replace("Z", "+00:00"))
+    else:
+        since = until - timedelta(days=30)
+
+    return {
+        **data,
+        "since": since.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "until": until.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
 
 
 def _query_params(
@@ -731,7 +772,9 @@ class TodoistToolDispatcher:
             "update_todoist_task": todoist_client.update_todoist_task,
             "complete_task": todoist_client.complete_task,
             "delete_todoist_task": todoist_client.delete_todoist_task,
-            "get_completed_todoist_tasks": todoist_client.get_completed_todoist_tasks,
+            "get_completed_todoist_tasks_by_completion_date": (
+                todoist_client.get_completed_todoist_tasks_by_completion_date
+            ),
         }
 
     def execute_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1043,25 +1086,33 @@ def build_todoist_langchain_tools(tool_dispatcher: TodoistToolDispatcher) -> Lis
         return dispatch(tool_call_id, "delete_todoist_task", {"task_id": task_id})
 
     @tool
-    def get_completed_todoist_tasks(
+    def get_completed_todoist_tasks_by_completion_date(
         tool_call_id: Annotated[str, InjectedToolCallId],
         since: Optional[str] = None,
         until: Optional[str] = None,
         project_id: Optional[str] = None,
+        section_id: Optional[str] = None,
+        parent_id: Optional[str] = None,
+        filter_query: Optional[str] = None,
+        filter_lang: Optional[str] = None,
+        cursor: Optional[str] = None,
         limit: Optional[int] = None,
-        offset: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """List completed Todoist tasks from the Sync API."""
+        """List completed Todoist tasks by completion date."""
 
         return dispatch(
             tool_call_id,
-            "get_completed_todoist_tasks",
+            "get_completed_todoist_tasks_by_completion_date",
             {
                 "since": since,
                 "until": until,
                 "project_id": project_id,
+                "section_id": section_id,
+                "parent_id": parent_id,
+                "filter_query": filter_query,
+                "filter_lang": filter_lang,
+                "cursor": cursor,
                 "limit": limit,
-                "offset": offset,
             },
         )
 
@@ -1072,7 +1123,7 @@ def build_todoist_langchain_tools(tool_dispatcher: TodoistToolDispatcher) -> Lis
         update_todoist_task,
         complete_task,
         delete_todoist_task,
-        get_completed_todoist_tasks,
+        get_completed_todoist_tasks_by_completion_date,
     ]
 
 

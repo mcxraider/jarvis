@@ -202,13 +202,17 @@ export class DirectToolCallDispatcher implements ToolDispatcher {
         await this.todoistService.deleteTask(parameters.task_id, logContext);
         return { success: true, message: `Task ${parameters.task_id} deleted permanently` };
 
-      case 'get_completed_todoist_tasks':
+      case 'get_completed_todoist_tasks_by_completion_date':
         return await this.todoistService.getCompletedTasks({
           since: parameters.since,
           until: parameters.until,
           project_id: parameters.project_id,
+          section_id: parameters.section_id,
+          parent_id: parameters.parent_id,
+          filter_query: parameters.filter_query,
+          filter_lang: parameters.filter_lang,
+          cursor: parameters.cursor,
           limit: parameters.limit,
-          offset: parameters.offset,
         }, logContext);
 
       default:

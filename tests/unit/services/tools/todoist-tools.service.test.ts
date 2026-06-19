@@ -40,7 +40,7 @@ describe('GPTToolsService', () => {
       'get_todoist_task',
       'update_todoist_task',
       'delete_todoist_task',
-      'get_completed_todoist_tasks',
+      'get_completed_todoist_tasks_by_completion_date',
       'get_tasks',
       'complete_task',
     ]);
