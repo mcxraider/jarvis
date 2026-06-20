@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { TextProcessorService } from '../../../../../src/services/telegram/processors/text-processor.service';
+import { MemoryPendingClarificationStore } from '../../../../../src/services/telegram/pending-clarification.store';
 
 function telegramThreadId(identity: number | string, messageKey: number | string): string {
   const hash = crypto.createHash('sha256').update(String(identity)).digest('hex').slice(0, 10);
@@ -13,6 +14,7 @@ function telegramThreadId(identity: number | string, messageKey: number | string
 
 describe('TextProcessorService', () => {
   const originalTelegramUserMap = process.env.TELEGRAM_USER_MAP;
+  const originalTelegramPendingTtlMs = process.env.TELEGRAM_PENDING_TTL_MS;
 
   afterEach(() => {
     if (originalTelegramUserMap === undefined) {
@@ -20,8 +22,17 @@ describe('TextProcessorService', () => {
     } else {
       process.env.TELEGRAM_USER_MAP = originalTelegramUserMap;
     }
+    if (originalTelegramPendingTtlMs === undefined) {
+      delete process.env.TELEGRAM_PENDING_TTL_MS;
+    } else {
+      process.env.TELEGRAM_PENDING_TTL_MS = originalTelegramPendingTtlMs;
+    }
     jest.restoreAllMocks();
   });
+
+  function createService(agentClient: unknown, store = new MemoryPendingClarificationStore()): TextProcessorService {
+    return new TextProcessorService(agentClient as any, store);
+  }
 
   it('invokes the Python agent and returns the final response', async () => {
     process.env.TELEGRAM_USER_MAP = '701122767:jerry';
@@ -34,7 +45,7 @@ describe('TextProcessorService', () => {
       }),
       resume: jest.fn(),
     };
-    const service = new TextProcessorService(agentClient as any);
+    const service = createService(agentClient);
 
     await expect(
       service.processTextMessage('add milk', 701122767, {
@@ -73,7 +84,7 @@ describe('TextProcessorService', () => {
       }),
       resume: jest.fn(),
     };
-    const service = new TextProcessorService(agentClient as any);
+    const service = createService(agentClient);
     const logContext = { requestId: 'tg_retry', chatId: 555, messageId: 42 };
 
     await service.processTextMessage('add milk', 701122767, logContext);
@@ -93,7 +104,7 @@ describe('TextProcessorService', () => {
       }),
       resume: jest.fn(),
     };
-    const service = new TextProcessorService(agentClient as any);
+    const service = createService(agentClient);
 
     await service.processTextMessage('add milk', 701122767, { chatId: 555, messageId: 42 });
     await service.processTextMessage('add milk', 701122767, { chatId: 777, messageId: 42 });
@@ -119,7 +130,7 @@ describe('TextProcessorService', () => {
         toolResults: [],
       }),
     };
-    const service = new TextProcessorService(agentClient as any);
+    const service = createService(agentClient);
 
     await expect(
       service.processTextMessage('update my task', 42, { chatId: 100, messageId: 10 }),
@@ -142,6 +153,46 @@ describe('TextProcessorService', () => {
         messageId: 11,
         threadId: 'thread-hitl',
       },
+    );
+  });
+
+  it('resumes pending clarifications across processor instances when they share a store', async () => {
+    const store = new MemoryPendingClarificationStore();
+    const firstAgentClient = {
+      invoke: jest.fn().mockResolvedValue({
+        status: 'interrupted',
+        threadId: 'thread-hitl',
+        response: 'Which task should I update?',
+        interrupt: { question: 'Which task should I update?' },
+        toolResults: [],
+      }),
+      resume: jest.fn(),
+    };
+    const secondAgentClient = {
+      invoke: jest.fn(),
+      resume: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'thread-hitl',
+        response: 'Updated the dentist task.',
+        toolResults: [],
+      }),
+    };
+
+    await createService(firstAgentClient, store).processTextMessage('update my task', 42, {
+      chatId: 100,
+      messageId: 10,
+    });
+    await expect(
+      createService(secondAgentClient, store).processTextMessage('the dentist task', 42, {
+        chatId: 100,
+        messageId: 11,
+      }),
+    ).resolves.toBe('Updated the dentist task.');
+
+    expect(secondAgentClient.invoke).not.toHaveBeenCalled();
+    expect(secondAgentClient.resume).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: 'thread-hitl' }),
+      expect.objectContaining({ threadId: 'thread-hitl' }),
     );
   });
 
@@ -169,7 +220,7 @@ describe('TextProcessorService', () => {
         toolResults: [],
       }),
     };
-    const service = new TextProcessorService(agentClient as any);
+    const service = createService(agentClient);
 
     await service.processTextMessage('update my task', 42, { chatId: 100, messageId: 10 });
     await expect(
@@ -195,7 +246,7 @@ describe('TextProcessorService', () => {
       }),
       resume: jest.fn(),
     };
-    const service = new TextProcessorService(agentClient as any);
+    const service = createService(agentClient);
 
     await expect(service.processTextMessage('hello', 42)).resolves.toBe(
       'Jarvis is temporarily unavailable. Please try again in a moment.',
@@ -227,13 +278,45 @@ describe('TextProcessorService', () => {
         error: 'connection refused',
       }),
     };
-    const service = new TextProcessorService(agentClient as any);
+    const service = createService(agentClient);
 
     await service.processTextMessage('update my task', 42);
     await service.processTextMessage('the dentist task', 42);
     await expect(service.processTextMessage('show today', 42)).resolves.toBe('Started a new request.');
 
     expect(agentClient.resume).toHaveBeenCalledTimes(1);
+    expect(agentClient.invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('starts a new invoke when a pending clarification has expired', async () => {
+    process.env.TELEGRAM_PENDING_TTL_MS = '1';
+    const agentClient = {
+      invoke: jest
+        .fn()
+        .mockResolvedValueOnce({
+          status: 'interrupted',
+          threadId: 'thread-hitl',
+          response: 'Which task should I update?',
+          interrupt: { question: 'Which task should I update?' },
+          toolResults: [],
+        })
+        .mockResolvedValueOnce({
+          status: 'completed',
+          threadId: 'thread-new',
+          response: 'Started a new request.',
+          toolResults: [],
+        }),
+      resume: jest.fn(),
+    };
+    const service = createService(agentClient);
+
+    await service.processTextMessage('update my task', 42, { chatId: 100, messageId: 10 });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await expect(
+      service.processTextMessage('the dentist task', 42, { chatId: 100, messageId: 11 }),
+    ).resolves.toBe('Started a new request.');
+
+    expect(agentClient.resume).not.toHaveBeenCalled();
     expect(agentClient.invoke).toHaveBeenCalledTimes(2);
   });
 });

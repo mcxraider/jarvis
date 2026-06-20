@@ -5,6 +5,7 @@ import { TelegramBotService } from './services/telegram/telegram-bot.service';
 import { MessageProcessorService } from './services/telegram/message-processor.service';
 import { TelegramConfig } from './types/telegram.types';
 import { LangGraphAgentClient } from './services/ai/langgraph-agent-client.service';
+import { createPendingClarificationStore } from './services/telegram/pending-clarification.store';
 
 // Validate required environment variables before constructing any service
 const REQUIRED_ENV_VARS = [
@@ -49,7 +50,8 @@ if (
 
 // Wire up services
 const agentClient = new LangGraphAgentClient();
-const messageProcessor = new MessageProcessorService(agentClient);
+const pendingClarificationStore = createPendingClarificationStore();
+const messageProcessor = new MessageProcessorService(agentClient, pendingClarificationStore);
 
 const telegramConfig: TelegramConfig = {
   token: BOT_TOKEN,
@@ -64,4 +66,5 @@ logger.info('app.services.initialized', {
   telegramConfigured: true,
   langGraphAgentConfigured: true,
   audioTranscriptionConfigured: true,
+  telegramPendingStoreConfigured: true,
 });

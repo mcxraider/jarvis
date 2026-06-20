@@ -4,6 +4,7 @@ import { TextProcessorService } from './processors/text-processor.service';
 import { AudioProcessorService } from './processors/audio-processor.service';
 import { LogContext } from '../../utils/logger';
 import { LangGraphAgentClient, LangGraphProgressCallback } from '../ai/langgraph-agent-client.service';
+import { PendingClarificationStore } from './pending-clarification.store';
 
 /**
  * Main service responsible for coordinating message processing
@@ -13,8 +14,8 @@ export class MessageProcessorService {
   private readonly textProcessor: TextProcessorService;
   private readonly audioProcessor: AudioProcessorService;
 
-  constructor(agentClient?: LangGraphAgentClient) {
-    this.textProcessor = new TextProcessorService(agentClient);
+  constructor(agentClient?: LangGraphAgentClient, pendingClarificationStore?: PendingClarificationStore) {
+    this.textProcessor = new TextProcessorService(agentClient, pendingClarificationStore);
     this.audioProcessor = new AudioProcessorService(this.textProcessor);
   }
 
