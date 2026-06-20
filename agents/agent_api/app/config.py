@@ -40,6 +40,9 @@ class Settings:
     api_key: Optional[str]
     deepseek_model: str
     deepseek_base_url: str
+    deepseek_request_timeout_seconds: float
+    deepseek_max_retry_attempts: int
+    deepseek_retry_max_delay_seconds: float
     todoist_rest_base_url: str
     allow_mutations: bool
     max_agent_turns: int
@@ -66,6 +69,9 @@ def load_settings() -> Settings:
         api_key=os.getenv("LANGGRAPH_AGENT_API_KEY"),
         deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
         deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+        deepseek_request_timeout_seconds=_float_env("DEEPSEEK_REQUEST_TIMEOUT_SECONDS", 30.0),
+        deepseek_max_retry_attempts=_int_env("DEEPSEEK_MAX_RETRY_ATTEMPTS", 3),
+        deepseek_retry_max_delay_seconds=_float_env("DEEPSEEK_RETRY_MAX_DELAY_SECONDS", 8.0),
         todoist_rest_base_url=os.getenv(
             "TODOIST_REST_BASE_URL",
             "https://api.todoist.com/api/v1",
