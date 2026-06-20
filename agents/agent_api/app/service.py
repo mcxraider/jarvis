@@ -44,7 +44,10 @@ from agents.agent_api.app.constants import (
     DEBUG_PAYLOADS,
     DEBUG_TRACE,
     DEEPSEEK_BASE_URL,
+    DEEPSEEK_MAX_RETRY_ATTEMPTS,
     DEEPSEEK_MODEL,
+    DEEPSEEK_REQUEST_TIMEOUT_SECONDS,
+    DEEPSEEK_RETRY_MAX_DELAY_SECONDS,
     LANGSMITH_TAGS,
     MAX_AGENT_TURNS,
     USER_ID,
@@ -63,6 +66,8 @@ from agents.agent_api.app.graph.nodes.hitl import (
 )
 from agents.agent_api.app.graph.nodes.orchestrator import (
     DeepSeekAgentClient,
+    DeepSeekAgentClientError,
+    LLM_FAILURE_MESSAGE,
     create_agent_node,
     raw_message_from_openai,
 )
@@ -125,7 +130,10 @@ __all__ = [
     "DEBUG_PAYLOADS",
     "DEBUG_TRACE",
     "DEEPSEEK_BASE_URL",
+    "DEEPSEEK_MAX_RETRY_ATTEMPTS",
     "DEEPSEEK_MODEL",
+    "DEEPSEEK_REQUEST_TIMEOUT_SECONDS",
+    "DEEPSEEK_RETRY_MAX_DELAY_SECONDS",
     "LANGSMITH_TAGS",
     "MAX_AGENT_TURNS",
     "USER_ID",
@@ -174,6 +182,8 @@ __all__ = [
     "get_worker_prompt",
     # nodes + edges
     "DeepSeekAgentClient",
+    "DeepSeekAgentClientError",
+    "LLM_FAILURE_MESSAGE",
     "create_agent_node",
     "raw_message_from_openai",
     "create_tools_node",
