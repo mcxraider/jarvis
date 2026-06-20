@@ -6,15 +6,16 @@ Resilience around the correct agent loop. The goal is that transient failures ar
 
 ## 4.1 LLM Call Resilience
 
-**Status:** `DeepSeekAgentClient.create_message` has no try/except, no retry, and no timeout. A transient 429/500 or dropped connection throws straight up and kills the entire run.
+**Status:** Implemented on branch `fix/deepseek-llm-resilience` in commit `86c12b3`. `DeepSeekAgentClient.create_message` now has explicit timeout configuration, bounded retry with exponential backoff + jitter, retry classification for transient provider failures, and graceful graph termination through structured `JarvisState["error"]` JSON.
 
-**Fix:**
-- Wrap the call with bounded retry + exponential backoff + jitter (e.g. `tenacity`).
-- Set an explicit request timeout on the OpenAI client.
-- Retry only on 429 / 5xx / timeout — never on 4xx schema errors.
-- On final failure, write a structured error into `JarvisState["error"]` so the graph ends gracefully instead of raising to the caller.
+**Implemented:**
+- Added `tenacity`-based retry with exponential backoff + jitter.
+- Set an explicit OpenAI request timeout via DeepSeek config.
+- Retry only on 429 / 5xx / timeout / connection failures; 4xx client/schema/auth errors fail fast.
+- On final failure, write structured DeepSeek error metadata into `JarvisState["error"]` so the graph ends gracefully instead of raising to the caller.
+- Covered retryable failures, non-retryable 4xx failures, and graph-level final failure behavior in `tests/agents/test_jarvis.py`.
 
-**Trade-off:** Retries add latency and cost on genuinely broken requests; cap attempts and total elapsed time.
+**Trade-off:** Retries add latency and cost on genuinely broken requests; attempts are capped at 3 and per-wait delay is capped at 8 seconds by default.
 
 ---
 
