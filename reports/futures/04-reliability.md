@@ -20,15 +20,19 @@ Resilience around the correct agent loop. The goal is that transient failures ar
 
 ## 4.2 Todoist API Retry and Error Taxonomy
 
-**Status:** Todoist errors are passed back to the model for retry decisions. The model may retry the same broken call or surface backend errors to the user as if they were clarification problems.
+**Status:** Done in branch `todoist-api-retry-taxonomy`.
 
-**Fix inside `TodoistApiClient._request`:**
-- Classify errors: rate-limit / transient / auth / validation / not-found / deprecated.
-- Auto-retry transient + rate-limit with backoff, honoring `Retry-After` headers.
-- Surface auth/validation/deprecated errors to the error classifier (3.4), not back to the model as raw strings.
-- Never retry validation failures, auth failures, missing config, or deprecated endpoints.
+**Implemented:**
+- `TodoistApiClient._request` now classifies errors as rate-limit, transient, auth, validation, not-found, or deprecated.
+- Transient and rate-limit failures retry with bounded backoff and `Retry-After` support.
+- Auth, validation, missing config, not-found, and deprecated endpoint failures are never retried.
+- Todoist failures now surface safe structured `classified_error` metadata through tool results instead of raw provider bodies.
+- Retry tuning is environment-backed with defaults for max attempts, total retry budget, base delay, and max delay.
 
-**Bounds:** Cap total retry time so Telegram responses do not hang indefinitely.
+**Validation:**
+- Added Python tests for retry success, retry exhaustion, `Retry-After`, non-retryable classifications, missing API key, `URLError`, and dispatcher/graph propagation.
+- Verified with `/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/venv/bin/python -m unittest tests.agents.test_jarvis`.
+- Verified with `/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/venv/bin/python -m compileall agents/agent_api/app tests/agents/test_jarvis.py`.
 
 ---
 
