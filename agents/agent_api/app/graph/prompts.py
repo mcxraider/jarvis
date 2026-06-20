@@ -3,6 +3,12 @@
 from datetime import date, datetime
 from typing import Any, Dict, List
 
+
+FOR_TELE = [
+    "show me everything due next week",
+    "put in my cal"
+]
+
 USER_PROMPTS = [
     # "put in my cal"
     # "show me my tasks"
@@ -138,9 +144,6 @@ Default Think High. Non-think only for trivial single-tool lookups. Think Max on
 - If a failure blocks a destructive or irreversible action, stop and ASK_USER rather than guessing a workaround.
 - Never silently drop a failed subtask from the final answer — surface what couldn't be retrieved and why.
 
-## On worker results
-Before answering, check: do results conflict, is anything missing? If so, issue a follow-up call or ASK_USER — don't paper over gaps.
-
 ## Telegram response formatting
 Final answers are sent to the user in Telegram MarkdownV2. Write concise Markdown that renders cleanly in Telegram:
 - Use *bold* for important labels and short emphasis.
@@ -149,9 +152,10 @@ Final answers are sent to the user in Telegram MarkdownV2. Write concise Markdow
 - Use simple bullet lists for tasks, schedules, and grouped results.
 - Do not use GitHub Markdown tables, ### headings, **bold**, raw horizontal rules, or unescaped MarkdownV2 control characters.
 - Prefer compact lists over tables for dates, times, tasks, and priorities.
+- Do not ask follow up questions inside ANSWER — if you find yourself writing a question, that's a signal you should have chosen ASK_USER instead.
 
 ## Limits
-Max 8 loop iterations per user turn. One dispatch_workers call counts as one iteration regardless of how many subtasks it contains; a follow-up call to re-query a single worker also counts as one. If still unresolved after 8, ASK_USER with your best partial answer and what's blocking — never fail silently."""
+Max 8 loop iterations per user turn. One follow-up call to re-query a single worker also counts as one. If still unresolved after 8, ASK_USER with your best partial answer and what's blocking — never fail silently."""
 
 
 WORKER_PROMPT = """You are a Jarvis worker agent, spawned for exactly one subtask. You never talk to the end user — your only output goes back to the orchestrator.

@@ -6,6 +6,7 @@ import { MessageProcessorService } from './services/telegram/message-processor.s
 import { TelegramConfig } from './types/telegram.types';
 import { LangGraphAgentClient } from './services/ai/langgraph-agent-client.service';
 import { createPendingClarificationStore } from './services/telegram/pending-clarification.store';
+import { setRichMessagesEnabled } from './services/telegram/formatters/telegram-rich';
 
 // Validate required environment variables before constructing any service
 const REQUIRED_ENV_VARS = [
@@ -53,11 +54,16 @@ const agentClient = new LangGraphAgentClient();
 const pendingClarificationStore = createPendingClarificationStore();
 const messageProcessor = new MessageProcessorService(agentClient, pendingClarificationStore);
 
+// Opt-in Telegram Rich Messages (Bot API 10.1). Defaults off; falls back to MarkdownV2.
+const RICH_MESSAGES_ENABLED = process.env.TELEGRAM_RICH_MESSAGES === 'true';
+setRichMessagesEnabled(RICH_MESSAGES_ENABLED);
+
 const telegramConfig: TelegramConfig = {
   token: BOT_TOKEN,
   allowedUserIds: ALLOWED_TELEGRAM_USER_IDS,
   webhookUrl: NGROK_URL,
   secretToken: TELEGRAM_SECRET_TOKEN,
+  richMessages: RICH_MESSAGES_ENABLED,
 };
 
 export const botService = new TelegramBotService(telegramConfig, messageProcessor);

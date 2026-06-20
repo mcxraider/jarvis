@@ -4,7 +4,7 @@ import { createRequestId, LogContext, logger, truncateForLog } from '../../../ut
 import { FileService } from '../file.service';
 import { MessageProcessorService } from '../message-processor.service';
 import { BotActivityService } from '../bot-activity.service';
-import { replyWithMarkdown } from '../formatters/telegram-markdown';
+import { sendFinalReply } from '../formatters/telegram-rich';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
 import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service';
 
@@ -54,7 +54,7 @@ export class MessageHandlers {
         ...logContext,
         responseLength: response.length,
       });
-      await replyWithMarkdown(ctx.reply.bind(ctx), response, logContext);
+      await sendFinalReply(ctx, response, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
         responseLength: response.length,
@@ -91,7 +91,7 @@ export class MessageHandlers {
     try {
       const fileUrl = await this.fileService.getFileUrl(voice.file_id);
       const response = await this.messageProcessor.processAudioMessage(fileUrl, userId, logContext);
-      await replyWithMarkdown(ctx.reply.bind(ctx), response, logContext);
+      await sendFinalReply(ctx, response, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
         responseLength: response.length,
@@ -146,7 +146,7 @@ export class MessageHandlers {
           userId,
           logContext,
         );
-        await replyWithMarkdown(ctx.reply.bind(ctx), response, logContext);
+        await sendFinalReply(ctx, response, logContext);
         logger.info('telegram.reply.sent', {
           ...logContext,
           responseLength: response.length,
@@ -205,7 +205,7 @@ export class MessageHandlers {
     try {
       const fileUrl = await this.fileService.getFileUrl(audioFile.file_id);
       const response = await this.messageProcessor.processAudioMessage(fileUrl, userId, logContext);
-      await replyWithMarkdown(ctx.reply.bind(ctx), response, logContext);
+      await sendFinalReply(ctx, response, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
         responseLength: response.length,
