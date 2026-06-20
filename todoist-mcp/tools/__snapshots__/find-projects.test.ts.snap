@@ -1,0 +1,38 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`find-projects tool > listing all projects > should handle pagination with limit and cursor 1`] = `
+"Projects: 1 (limit 10), more available.
+Preview:
+    First Project • id=project-1
+Possible suggested next step:
+- Pass cursor 'next-page-cursor' to fetch more results."
+`;
+
+exports[`find-projects tool > listing all projects > should list all projects when no search parameter is provided 1`] = `
+"Projects: 3 (limit 50).
+Preview:
+    Inbox • Inbox • id=inbox-project-id
+    test-abc123def456-project • id=6cfCcrrCFg2xP94Q
+    Work Project • ⭐ • Shared • board • id=work-project-id"
+`;
+
+exports[`find-projects tool > searching projects > should handle search with 'case insensitive matching' 1`] = `
+"All projects matching "IMPORTANT": 1.
+Filter: searchText: "IMPORTANT".
+Preview:
+    Important Project • id=6cfCcrrCFg2xP94Q"
+`;
+
+exports[`find-projects tool > searching projects > should handle search with 'no matches' 1`] = `
+"All projects matching "nonexistent": 0.
+Filter: searchText: "nonexistent".
+No results. Try broader search terms; Check spelling; Remove searchText to see all projects."
+`;
+
+exports[`find-projects tool > searching projects > should search projects by name (case insensitive) 1`] = `
+"All projects matching "work": 2.
+Filter: searchText: "work".
+Preview:
+    Work Project • id=work-project-id
+    Hobby Work • id=hobby-project-id"
+`;

@@ -3,6 +3,12 @@ import { Message } from 'telegraf/typings/core/types/typegram';
 import { LangGraphProgressEvent } from '../ai/langgraph-agent-client.service';
 import { LogContext, logger } from '../../utils/logger';
 import { editMessageTextWithMarkdown, replyWithMarkdown } from './formatters/telegram-markdown';
+import {
+  isRichMessagesEnabled,
+  newDraftId,
+  sendRichDraft,
+  sendRichMessage,
+} from './formatters/telegram-rich';
 
 const DEFAULT_MIN_EDIT_INTERVAL_MS = 800;
 
@@ -11,15 +17,39 @@ export class TelegramProgressReporter {
   private statusMessage?: Message.TextMessage;
   private lastEditAt = 0;
   private lastProgressMessage = '';
+  // Rich mode streams ephemeral drafts under one draft_id, then persists on complete.
+  private richActive: boolean;
+  private draftId?: number;
 
   constructor(
     private readonly ctx: Context,
     private readonly logContext: LogContext = {},
     private readonly minEditIntervalMs = DEFAULT_MIN_EDIT_INTERVAL_MS,
-  ) {}
+  ) {
+    this.richActive = isRichMessagesEnabled();
+  }
 
   async start(): Promise<void> {
     this.lines.push('Agent started and opened a Jarvis run');
+
+    if (this.richActive && this.ctx.chat) {
+      this.draftId = newDraftId();
+      try {
+        await sendRichDraft(this.ctx, this.draftId, this.render('Jarvis is working'));
+        this.lastEditAt = Date.now();
+        return;
+      } catch (error) {
+        // Drop to the plain path for the rest of this run.
+        this.richActive = false;
+        this.draftId = undefined;
+        logger.warn('telegram.rich.fallback', {
+          ...this.logContext,
+          stage: 'progress.start',
+          error: (error as Error).message,
+        });
+      }
+    }
+
     try {
       this.statusMessage = await replyWithMarkdown(
         this.ctx.reply.bind(this.ctx),
@@ -51,6 +81,30 @@ export class TelegramProgressReporter {
   }
 
   private async flush(force: boolean, title = 'Jarvis is working'): Promise<void> {
+    if (this.richActive && this.draftId && this.ctx.chat) {
+      const richNow = Date.now();
+      if (!force && richNow - this.lastEditAt < this.minEditIntervalMs) {
+        return;
+      }
+
+      try {
+        if (force) {
+          // The streamed draft is ephemeral; persist the final state as a real message.
+          await sendRichMessage(this.ctx, this.render(title));
+        } else {
+          await sendRichDraft(this.ctx, this.draftId, this.render(title));
+        }
+        this.lastEditAt = richNow;
+      } catch (error) {
+        logger.warn('telegram.rich.fallback', {
+          ...this.logContext,
+          stage: 'progress.flush',
+          error: (error as Error).message,
+        });
+      }
+      return;
+    }
+
     if (!this.statusMessage || !this.ctx.chat || !('editMessageText' in this.ctx.telegram)) {
       return;
     }

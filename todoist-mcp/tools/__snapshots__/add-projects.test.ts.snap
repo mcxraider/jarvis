@@ -1,0 +1,28 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`add-projects tool > creating a single project > should create a project and return mapped result 1`] = `
+"Added 1 project:
+• test-abc123def456-project (id=6cfCcrrCFg2xP94Q)"
+`;
+
+exports[`add-projects tool > creating a single project > should create project with isFavorite and viewStyle options 1`] = `
+"Added 1 project:
+• Board Project (id=project-789)"
+`;
+
+exports[`add-projects tool > creating a single project > should create project with parentId to create a sub-project 1`] = `
+"Added 1 project:
+• Child Project (id=project-child)"
+`;
+
+exports[`add-projects tool > creating a single project > should handle different project properties from API 1`] = `
+"Added 1 project:
+• My Blue Project (id=project-456)"
+`;
+
+exports[`add-projects tool > creating multiple projects > should create multiple projects and return mapped results 1`] = `
+"Added 3 projects:
+• First Project (id=project-1)
+• Second Project (id=project-2)
+• Third Project (id=project-3)"
+`;

@@ -1,4 +1,5 @@
 import { TelegramProgressReporter } from '../../../../src/services/telegram/telegram-progress-reporter';
+import { setRichMessagesEnabled } from '../../../../src/services/telegram/formatters/telegram-rich';
 
 describe('TelegramProgressReporter', () => {
   function createContext() {
@@ -71,5 +72,62 @@ describe('TelegramProgressReporter', () => {
     expect(lastEditText).toContain('2\\. Progress event 1');
     expect(lastEditText).toContain('13\\. Progress event 12');
     expect(lastEditText).toContain('14\\. Done');
+  });
+
+  describe('rich mode', () => {
+    afterEach(() => setRichMessagesEnabled(false));
+
+    function createRichContext() {
+      return {
+        chat: { id: 123 },
+        reply: jest.fn().mockResolvedValue({ message_id: 77 }),
+        telegram: {
+          editMessageText: jest.fn().mockResolvedValue(true),
+          callApi: jest.fn().mockResolvedValue({ message_id: 9 }),
+        },
+      } as any;
+    }
+
+    it('streams drafts and persists the final state via sendRichMessage', async () => {
+      setRichMessagesEnabled(true);
+      const ctx = createRichContext();
+      const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' }, 0);
+
+      await reporter.start();
+      await reporter.record({ sequence: 1, stage: 'thinking', message: 'Thinking' });
+      await reporter.complete('Done');
+
+      expect(ctx.reply).not.toHaveBeenCalled();
+      expect(ctx.telegram.editMessageText).not.toHaveBeenCalled();
+
+      const methods = ctx.telegram.callApi.mock.calls.map((c: unknown[]) => c[0]);
+      expect(methods).toEqual(['sendRichMessageDraft', 'sendRichMessageDraft', 'sendRichMessage']);
+
+      // Drafts share one non-zero draft_id; final call persists with markdown content.
+      const draftCalls = ctx.telegram.callApi.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'sendRichMessageDraft',
+      );
+      const draftIds = draftCalls.map((c: any[]) => c[1].draft_id);
+      expect(draftIds[0]).toBeGreaterThan(0);
+      expect(new Set(draftIds).size).toBe(1);
+
+      const finalCall = ctx.telegram.callApi.mock.calls.at(-1) as any[];
+      expect(finalCall[1].rich_message.markdown).toContain('Jarvis finished');
+    });
+
+    it('falls back to the plain status message when the first draft fails', async () => {
+      setRichMessagesEnabled(true);
+      const ctx = createRichContext();
+      ctx.telegram.callApi.mockRejectedValueOnce(new Error('404 method not found'));
+      const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' }, 0);
+
+      await reporter.start();
+      await reporter.complete('Done');
+
+      // Reverted to the MarkdownV2 send+edit path; no further rich calls.
+      expect(ctx.reply).toHaveBeenCalledTimes(1);
+      expect(ctx.telegram.editMessageText).toHaveBeenCalled();
+      expect(ctx.telegram.callApi).toHaveBeenCalledTimes(1);
+    });
   });
 });

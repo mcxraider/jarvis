@@ -173,6 +173,37 @@ Graph and API tests should use `source="test"` when they need to distinguish aut
 
 ---
 
+## 1.3 Cancellation and Clarification Expiry
+
+**Status:** Paused clarification threads do not yet have an explicit user cancellation path or a durable validity check.
+
+**Why it matters:**
+
+* A user may decide to abandon a clarification prompt and should be able to cancel the paused run directly with `cancel` or a `[Cancel request]` action.
+* If the user replies hours later, the system must know whether that paused thread is still valid before resuming it.
+* Once clarification state moves from `InMemorySaver` to Redis/Postgres-backed storage, the expiry decision must live alongside the checkpoint metadata rather than in process memory.
+
+**Required behavior:**
+
+* Store `created_at`, `expires_at`, and `status` with each pending clarification record.
+* Treat `cancel` and the equivalent Telegram button as a terminal action that clears the pending clarification and prevents future resume attempts on that thread.
+* Before resuming a paused graph, verify that the thread still exists and has not expired.
+* If the thread is stale, return a deterministic message such as:
+
+```text
+This request expired because it was waiting for details for too long. Please start again.
+```
+
+* Make the expiry check durable and shared so Telegram retries, process restarts, and multiple workers all reach the same answer.
+
+**Implementation notes:**
+
+* Reuse the pending-clarification store from 1.2 rather than adding a second temporary cache.
+* Expired or cancelled threads should be marked so duplicate Telegram deliveries do not accidentally resume them.
+* The cancel path should clear both the active run lock and the pending clarification record.
+
+---
+
 ## 1.4 Single Source of Truth for Tool Schemas
 
 **Status:** Tools are defined twice — `get_todoist_tools()` (OpenAI schema with constraints) and `build_todoist_langchain_tools()` (executable `@tool` wrappers with no validation). Constraints shown to the model are not enforced at execution; the two definitions can silently drift.
