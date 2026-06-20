@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 
 from langgraph.graph import END, StateGraph
 from langgraph.types import Command
+from langsmith import tracing_context
 
 from agents.agent_api.app.checkpointing import DEFAULT_CHECKPOINTER
 from agents.agent_api.app.constants import (
@@ -20,10 +21,10 @@ from agents.agent_api.app.graph.nodes.orchestrator import DeepSeekAgentClient, c
 from agents.agent_api.app.graph.nodes.tools import create_tools_node
 from agents.agent_api.app.graph.prompts import USER_PROMPT, build_initial_messages
 from agents.agent_api.app.graph.state import JarvisState, enrich_interrupt_status
+from agents.agent_api.app.langsmith_final_logger import log_final_conversation_run
 from agents.agent_api.app.tools.todoist.client import TodoistApiClient
 from agents.agent_api.app.tools.todoist.tools import TodoistToolDispatcher
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
-from langsmith import traceable
 
 
 def create_jarvis_graph(
@@ -84,21 +85,6 @@ def build_initial_state(
     }
 
 
-@traceable(
-    name="run_jarvis",
-    run_type="chain",
-    tags=LANGSMITH_TAGS,
-    process_inputs=lambda inputs: {
-        "run_id": inputs.get("thread_id"),
-        "thread_id": inputs.get("thread_id"),
-        "user_prompt": inputs.get("user_prompt", USER_PROMPT),
-        "user_id": inputs.get("user_id", USER_ID),
-        "request_source": inputs.get("request_source", "api"),
-        "allow_mutations": inputs.get("allow_mutations", ALLOW_MUTATIONS),
-        "max_agent_turns": inputs.get("max_agent_turns", MAX_AGENT_TURNS),
-        "resuming": inputs.get("clarification_reply") is not None,
-    },
-)
 def run_jarvis(
     user_prompt: str = USER_PROMPT,
     user_id: str = USER_ID,
@@ -111,6 +97,7 @@ def run_jarvis(
     thread_id: Optional[str] = None,
     clarification_reply: Optional[str] = None,
     checkpointer: Optional[Any] = None,
+    final_logger: Optional[Any] = None,
 ) -> JarvisState:
     """Run the full Jarvis graph for one hardcoded prompt."""
 
@@ -159,18 +146,19 @@ def run_jarvis(
         },
     }
     tracer.event("runtime.graph", "Compiled graph.", nodes="agent, hitl, tools")
-    if clarification_reply is not None:
-        result = app.invoke(Command(resume=clarification_reply), config)
-    else:
-        result = app.invoke(
-            build_initial_state(
-                user_prompt,
-                user_id=user_id,
-                thread_id=thread_id,
-                request_source=request_source,
-            ),
-            config,
-        )
+    with tracing_context(enabled=False):
+        if clarification_reply is not None:
+            result = app.invoke(Command(resume=clarification_reply), config)
+        else:
+            result = app.invoke(
+                build_initial_state(
+                    user_prompt,
+                    user_id=user_id,
+                    thread_id=thread_id,
+                    request_source=request_source,
+                ),
+                config,
+            )
     result = enrich_interrupt_status(result, thread_id)
     tracer.event(
         "runtime.done",
@@ -180,6 +168,18 @@ def run_jarvis(
         has_error=bool(result.get("error")),
         interrupted=bool(result.get("interrupted")),
     )
+    if not result.get("interrupted"):
+        try:
+            (final_logger or log_final_conversation_run)(
+                result,
+                user_prompt=user_prompt,
+                user_id=user_id,
+                request_source=request_source,
+                allow_mutations=allow_mutations,
+                max_agent_turns=max_agent_turns,
+            )
+        except Exception as error:
+            tracer.event("langsmith.final.error", "Final LangSmith logging failed.", error=str(error))
     return result
 
 

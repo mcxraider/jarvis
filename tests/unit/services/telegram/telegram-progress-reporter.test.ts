@@ -52,4 +52,24 @@ describe('TelegramProgressReporter', () => {
       }),
     ).resolves.toBeUndefined();
   });
+
+  it('keeps the full progress history instead of trimming to recent lines', async () => {
+    const ctx = createContext();
+    const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' }, 0);
+
+    await reporter.start();
+    for (let index = 1; index <= 12; index += 1) {
+      await reporter.record({
+        sequence: index,
+        stage: 'progress',
+        message: `Progress event ${index}`,
+      });
+    }
+    await reporter.complete('Done');
+
+    const lastEditText = ctx.telegram.editMessageText.mock.calls.at(-1)?.[3];
+    expect(lastEditText).toContain('2\\. Progress event 1');
+    expect(lastEditText).toContain('13\\. Progress event 12');
+    expect(lastEditText).toContain('14\\. Done');
+  });
 });

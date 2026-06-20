@@ -4,7 +4,6 @@ import { LangGraphProgressEvent } from '../ai/langgraph-agent-client.service';
 import { LogContext, logger } from '../../utils/logger';
 import { editMessageTextWithMarkdown, replyWithMarkdown } from './formatters/telegram-markdown';
 
-const MAX_PROGRESS_LINES = 10;
 const DEFAULT_MIN_EDIT_INTERVAL_MS = 800;
 
 export class TelegramProgressReporter {
@@ -41,14 +40,12 @@ export class TelegramProgressReporter {
 
     this.lastProgressMessage = event.message;
     this.lines.push(event.message);
-    this.trimLines();
     await this.flush(false);
   }
 
   async complete(status: 'Done' | 'Paused for clarification' | 'Something went wrong'): Promise<void> {
     if (this.lines[this.lines.length - 1] !== status) {
       this.lines.push(status);
-      this.trimLines();
     }
     await this.flush(true, status === 'Done' ? 'Jarvis finished' : 'Jarvis update');
   }
@@ -78,12 +75,6 @@ export class TelegramProgressReporter {
         ...this.logContext,
         error: (error as Error).message,
       });
-    }
-  }
-
-  private trimLines(): void {
-    if (this.lines.length > MAX_PROGRESS_LINES) {
-      this.lines.splice(0, this.lines.length - MAX_PROGRESS_LINES);
     }
   }
 
