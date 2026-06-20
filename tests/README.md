@@ -1,7 +1,7 @@
 # Testing Jarvis
 
 This directory contains offline tests, mocked integration tests, and opt-in live tests for
-Telegram, OpenAI, and Todoist.
+Telegram, the Python LangGraph agent, and Todoist.
 
 ## Quick Start
 
@@ -48,7 +48,7 @@ npm run test:integration -- --runInBand
 
 These tests exercise larger code paths with fake external services:
 
-- GPT function-calling flow with a fake OpenAI client and fake dispatcher.
+- Legacy GPT function-calling flow with a fake OpenAI client and fake dispatcher.
 - Webhook text update flow with mocked message processing and reply behavior.
 
 ### Live Telegram Smoke Tests
@@ -88,23 +88,23 @@ TODOIST_API_KEY=...
 These tests create, fetch, update, list, complete, and delete real Todoist
 tasks. Test tasks use timestamped names and the label `jarvis-test`.
 
-### Live OpenAI + Todoist Pipeline Tests
+### Live LangGraph + Todoist Pipeline Tests
 
 Command:
 
 ```bash
-RUN_LIVE_OPENAI_TODOIST_TESTS=true npm run test:integration -- --runInBand
+RUN_LIVE_LANGGRAPH_TODOIST_TESTS=true npm run test:integration -- --runInBand
 ```
 
 Required environment variables:
 
 ```bash
-OPENAI_API_KEY=...
+LANGGRAPH_AGENT_URL=http://localhost:8000
 TODOIST_API_KEY=...
 ```
 
-These tests call the real OpenAI API through `MessageProcessorService`, expect a
-Todoist tool call to create a task, then verify the task exists in Todoist.
+These tests call the real Python LangGraph API through `MessageProcessorService`,
+expect a Todoist tool call to create a task, then verify the task exists in Todoist.
 
 ### Live Webhook Tests
 

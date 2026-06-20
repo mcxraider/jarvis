@@ -4,6 +4,7 @@
 
 // Main service
 export { GPTService } from './gpt.service';
+export * from './langgraph-agent-client.service';
 
 // Types
 export * from '../../types/gpt.types';

@@ -1,0 +1,71 @@
+"""Environment-backed settings for the Jarvis agent API."""
+
+import os
+from dataclasses import dataclass
+from typing import Optional
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+if load_dotenv is not None:
+    load_dotenv()
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def _int_env(name: str, default: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return int(raw_value)
+
+
+@dataclass(frozen=True)
+class Settings:
+    api_title: str
+    api_key: Optional[str]
+    deepseek_model: str
+    deepseek_base_url: str
+    todoist_rest_base_url: str
+    allow_mutations: bool
+    max_agent_turns: int
+    debug_trace: bool
+    debug_payloads: bool
+    postgres_dsn: Optional[str]
+    redis_url: Optional[str]
+
+    @property
+    def checkpoint_backend(self) -> str:
+        configured = os.getenv("JARVIS_CHECKPOINT_BACKEND")
+        if configured:
+            return configured.strip().lower()
+        return "postgres" if self.postgres_dsn else "memory"
+
+
+def load_settings() -> Settings:
+    return Settings(
+        api_title=os.getenv("JARVIS_AGENT_API_TITLE", "Jarvis LangGraph Agent API"),
+        api_key=os.getenv("LANGGRAPH_AGENT_API_KEY"),
+        deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
+        deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+        todoist_rest_base_url=os.getenv(
+            "TODOIST_REST_BASE_URL",
+            "https://api.todoist.com/api/v1",
+        ),
+        allow_mutations=_bool_env("JARVIS_ALLOW_MUTATIONS", True),
+        max_agent_turns=_int_env("JARVIS_MAX_AGENT_TURNS", 8),
+        debug_trace=_bool_env("JARVIS_DEBUG", True),
+        debug_payloads=_bool_env("JARVIS_DEBUG_PAYLOADS", True),
+        postgres_dsn=os.getenv("JARVIS_POSTGRES_DSN") or os.getenv("DATABASE_URL"),
+        redis_url=os.getenv("JARVIS_REDIS_URL") or os.getenv("REDIS_URL"),
+    )
+
+
+settings = load_settings()

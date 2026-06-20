@@ -1,0 +1,2 @@
+"""Notion tool integration placeholder."""
+
