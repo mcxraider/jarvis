@@ -10,13 +10,18 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agents import jarvis
+from agents.agent_api.app.langsmith_final_logger import (
+    LangSmithFinalConversationLogger,
+    build_final_run_payload,
+)
+from agents.agent_api.app import langsmith_final_logger as final_logger_module
 from agents.agent_api.app.tools.todoist import client as todoist_client_module
 from agents.agent_api.app.graph.nodes import orchestrator as orchestrator_module
 
@@ -386,6 +391,112 @@ class JarvisGraphTests(unittest.TestCase):
 
         self.assertEqual(result["final_response"], "Hello.")
         self.assertEqual(result["tool_results"], [])
+
+    def test_final_logger_receives_completed_end_state(self) -> None:
+        calls: List[Dict[str, Any]] = []
+
+        result = jarvis.run_jarvis(
+            user_prompt="fake prompt",
+            user_id="jerry",
+            request_source="telegram",
+            allow_mutations=False,
+            agent_client=FakeDeepSeekAgentClient([{"role": "assistant", "content": "Hello."}]),
+            todoist_client=FakeTodoistClient(),
+            max_agent_turns=3,
+            tracer=jarvis.NULL_TRACE,
+            final_logger=lambda result, **kwargs: calls.append(
+                {"result": copy.deepcopy(result), "kwargs": copy.deepcopy(kwargs)}
+            ),
+        )
+
+        self.assertEqual(result["final_response"], "Hello.")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["result"]["messages"][-1]["content"], "Hello.")
+        self.assertEqual(calls[0]["kwargs"]["user_prompt"], "fake prompt")
+        self.assertEqual(calls[0]["kwargs"]["user_id"], "jerry")
+        self.assertEqual(calls[0]["kwargs"]["request_source"], "telegram")
+        self.assertFalse(calls[0]["kwargs"]["allow_mutations"])
+        self.assertEqual(calls[0]["kwargs"]["max_agent_turns"], 3)
+
+    def test_final_logger_skips_interrupted_runs(self) -> None:
+        calls: List[Dict[str, Any]] = []
+
+        result = jarvis.run_jarvis(
+            user_prompt="fake prompt",
+            agent_client=FakeDeepSeekAgentClient(
+                [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            fake_tool_call(
+                                "call_ask",
+                                jarvis.ASK_USER_TOOL_NAME,
+                                {"question": "Which task should I update?"},
+                            )
+                        ],
+                    }
+                ]
+            ),
+            todoist_client=FakeTodoistClient(),
+            tracer=jarvis.NULL_TRACE,
+            final_logger=lambda result, **kwargs: calls.append({"result": result, "kwargs": kwargs}),
+        )
+
+        self.assertTrue(result["interrupted"])
+        self.assertEqual(calls, [])
+
+    def test_final_run_payload_contains_full_conversation(self) -> None:
+        result = self.run_graph_with_fakes(
+            [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [fake_tool_call("call_1", "get_tasks", {"filter": "today"})],
+                },
+                {"role": "assistant", "content": "You have one task today."},
+            ]
+        )
+
+        payload = build_final_run_payload(
+            result,
+            user_prompt="fake prompt",
+            user_id="jerry",
+            request_source="telegram",
+            allow_mutations=False,
+            max_agent_turns=8,
+        )
+
+        self.assertEqual(payload["outputs"]["status"], "completed")
+        self.assertEqual(payload["outputs"]["final_response"], "You have one task today.")
+        self.assertEqual(payload["outputs"]["messages"], result["messages"])
+        self.assertEqual(payload["outputs"]["tool_results"], result["tool_results"])
+        self.assertEqual(payload["metadata"]["request_source"], "telegram")
+        self.assertFalse(payload["metadata"]["interrupted"])
+
+    def test_final_logger_posts_single_runtree_with_metadata(self) -> None:
+        result = self.run_graph_with_fakes([{"role": "assistant", "content": "Hello."}])
+        run = SimpleNamespace(post=Mock(), patch=Mock())
+
+        with patch.object(final_logger_module, "RunTree", return_value=run) as run_tree:
+            LangSmithFinalConversationLogger(client=object()).log_final_run(
+                result,
+                user_prompt="fake prompt",
+                user_id="jerry",
+                request_source="telegram",
+                allow_mutations=False,
+                max_agent_turns=8,
+            )
+
+        run_tree.assert_called_once()
+        kwargs = run_tree.call_args.kwargs
+        self.assertEqual(kwargs["name"], "jarvis_final_conversation")
+        self.assertEqual(kwargs["run_type"], "chain")
+        self.assertEqual(kwargs["outputs"]["messages"], result["messages"])
+        self.assertEqual(kwargs["extra"]["metadata"]["request_source"], "telegram")
+        self.assertIn("final-only", kwargs["tags"])
+        run.post.assert_called_once()
+        run.patch.assert_called_once()
 
     def test_request_source_is_kept_in_state_and_interrupt_payload(self) -> None:
         result = jarvis.run_jarvis(
