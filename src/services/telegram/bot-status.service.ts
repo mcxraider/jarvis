@@ -69,19 +69,19 @@ export class BotStatusService {
     const overallStatus = snapshot.todoist.ok ? 'healthy' : 'degraded';
 
     return [
-      `<b>Jarvis — ${overallStatus}</b>`,
+      `**Jarvis — ${overallStatus}**`,
       '',
-      `<b>Runtime</b>`,
+      `**Runtime**`,
       `• Status: ${snapshot.runtime.ok ? 'online' : 'offline'}`,
       `• Uptime: ${this.formatDuration(snapshot.runtime.uptimeMs)}`,
       '',
-      `<b>AI</b>`,
-      `• Model: <code>${snapshot.gpt.model}</code>`,
+      `**AI**`,
+      `• Model: \`${snapshot.gpt.model}\``,
       '',
-      `<b>Dependencies</b>`,
+      `**Dependencies**`,
       `• Todoist: ${snapshot.todoist.ok ? 'reachable' : 'degraded'} (${snapshot.todoist.detail})`,
       '',
-      `<b>Activity</b>`,
+      `**Activity**`,
       `• Interactions: ${snapshot.activity.totalInteractions}`,
       `• Last: ${this.formatLastActivity(snapshot.activity.lastActivityAt)} (${snapshot.activity.lastActivityType || 'none'})`,
     ].join('\n');

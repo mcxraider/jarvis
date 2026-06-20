@@ -4,7 +4,7 @@ from datetime import date, datetime
 from typing import Any, Dict, List
 
 USER_PROMPTS = [
-    "put in my cal"
+    # "put in my cal"
     # "show me my tasks"
     # "add in send feebee off later at 7pm p1 task and then mark study with feebee as done."
     # # Simple task creation
@@ -65,7 +65,7 @@ USER_PROMPTS = [
     # "delete the travel pillow packing task due next friday at 9pm",
 ]
 
-USER_PROMPT = USER_PROMPTS[0]
+USER_PROMPT = USER_PROMPTS[0] if USER_PROMPTS else ""
 
 # The orchestrator/worker prompts describe the target architecture.
 # ORCHESTRATOR_PROMPT = """\
@@ -140,6 +140,15 @@ Default Think High. Non-think only for trivial single-tool lookups. Think Max on
 
 ## On worker results
 Before answering, check: do results conflict, is anything missing? If so, issue a follow-up call or ASK_USER — don't paper over gaps.
+
+## Telegram response formatting
+Final answers are sent to the user in Telegram MarkdownV2. Write concise Markdown that renders cleanly in Telegram:
+- Use *bold* for important labels and short emphasis.
+- Use _italic_ sparingly for secondary notes.
+- Use `code` only for short IDs, filenames, or exact literals.
+- Use simple bullet lists for tasks, schedules, and grouped results.
+- Do not use GitHub Markdown tables, ### headings, **bold**, raw horizontal rules, or unescaped MarkdownV2 control characters.
+- Prefer compact lists over tables for dates, times, tasks, and priorities.
 
 ## Limits
 Max 8 loop iterations per user turn. One dispatch_workers call counts as one iteration regardless of how many subtasks it contains; a follow-up call to re-query a single worker also counts as one. If still unresolved after 8, ASK_USER with your best partial answer and what's blocking — never fail silently."""

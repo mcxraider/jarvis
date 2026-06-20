@@ -3,6 +3,18 @@ import { LangGraphAgentClient } from '../../../../src/services/ai/langgraph-agen
 describe('LangGraphAgentClient', () => {
   const originalFetch = global.fetch;
 
+  function streamBody(lines: unknown[]): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        const encoder = new TextEncoder();
+        for (const line of lines) {
+          controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
+        }
+        controller.close();
+      },
+    });
+  }
+
   afterEach(() => {
     global.fetch = originalFetch;
     jest.restoreAllMocks();
@@ -35,6 +47,7 @@ describe('LangGraphAgentClient', () => {
         source: 'test',
         telegramUserId: 123,
         requestId: 'tg_test',
+        threadId: 'tg_test_thread',
       }),
     ).resolves.toEqual({
       status: 'completed',
@@ -59,7 +72,7 @@ describe('LangGraphAgentClient', () => {
           source: 'test',
           telegram_user_id: 123,
           request_id: 'tg_test',
-          thread_id: undefined,
+          thread_id: 'tg_test_thread',
         }),
       }),
     );
@@ -118,5 +131,86 @@ describe('LangGraphAgentClient', () => {
         error: 'connection refused',
       }),
     );
+  });
+
+  it('parses streamed progress events and the final invoke response', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      body: streamBody([
+        {
+          type: 'progress',
+          sequence: 1,
+          stage: 'run_started',
+          message: 'Agent started and opened a Jarvis run',
+        },
+        {
+          type: 'final',
+          response: {
+            status: 'completed',
+            thread_id: 'thread-1',
+            response: 'Done.',
+            tool_results: [],
+          },
+        },
+      ]),
+    });
+    global.fetch = fetchMock as any;
+    const onProgress = jest.fn();
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    await expect(
+      client.invoke({ message: 'hello', userId: 'local-user' }, {}, onProgress),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        status: 'completed',
+        threadId: 'thread-1',
+        response: 'Done.',
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8000/invoke/stream',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(onProgress).toHaveBeenCalledWith({
+      sequence: 1,
+      stage: 'run_started',
+      message: 'Agent started and opened a Jarvis run',
+    });
+  });
+
+  it('falls back to non-streaming invoke when stream setup fails', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('stream unavailable'))
+      .mockResolvedValueOnce({
+        ok: true,
+        text: jest.fn().mockResolvedValue(
+          JSON.stringify({
+            status: 'completed',
+            thread_id: 'thread-fallback',
+            response: 'Fallback done.',
+          }),
+        ),
+      });
+    global.fetch = fetchMock as any;
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    await expect(
+      client.invoke({ message: 'hello', userId: 'local-user' }, {}, jest.fn()),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        status: 'completed',
+        threadId: 'thread-fallback',
+        response: 'Fallback done.',
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:8000/invoke/stream',
+      expect.any(Object),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(2, 'http://localhost:8000/invoke', expect.any(Object));
   });
 });

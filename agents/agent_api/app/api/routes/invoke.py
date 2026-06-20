@@ -1,12 +1,17 @@
 """Invocation routes for starting Jarvis runs."""
 
+import json
+import queue
+import threading
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Header, HTTPException
+from fastapi.responses import StreamingResponse
 
 from agents.agent_api.app.api.schemas import AgentResponse, BulkAgentResponse, BulkInvokeRequest, InvokeRequest
 from agents.agent_api.app.errors import require_api_key
 from agents.agent_api.app.service import ALLOW_MUTATIONS, MAX_AGENT_TURNS, NULL_TRACE, JarvisState, run_jarvis
+from agents.agent_api.app.tracing import UserProgressTracePrinter
 
 router = APIRouter()
 
@@ -65,6 +70,61 @@ def to_response(result: JarvisState) -> AgentResponse:
     )
 
 
+def response_payload(response: AgentResponse) -> Dict[str, Any]:
+    if hasattr(response, "model_dump"):
+        return response.model_dump()
+    return response.dict()
+
+
+def stream_agent_run(run_callable: Any):
+    events: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue()
+    sequence = 0
+
+    def emit_progress(progress: Dict[str, Any]) -> None:
+        nonlocal sequence
+        sequence += 1
+        events.put(
+            {
+                "type": "progress",
+                "sequence": sequence,
+                "stage": progress.get("stage", "progress"),
+                "message": progress.get("message", "Jarvis is working"),
+            }
+        )
+
+    def worker() -> None:
+        try:
+            result = run_callable(UserProgressTracePrinter(emit_progress, enabled=False))
+            events.put({"type": "final", "response": response_payload(to_response(result))})
+        except Exception as error:
+            events.put(
+                {
+                    "type": "final",
+                    "response": response_payload(
+                        AgentResponse(
+                            status="failed",
+                            thread_id="",
+                            response="Jarvis is temporarily unavailable. Please try again in a moment.",
+                            error=str(error),
+                        )
+                    ),
+                }
+            )
+        finally:
+            events.put(None)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def iterator():
+        while True:
+            event = events.get()
+            if event is None:
+                break
+            yield json.dumps(event, default=str) + "\n"
+
+    return StreamingResponse(iterator(), media_type="application/x-ndjson")
+
+
 @router.post("/invoke", response_model=AgentResponse)
 def invoke(
     request: InvokeRequest,
@@ -88,6 +148,26 @@ def invoke(
             response="Jarvis is temporarily unavailable. Please try again in a moment.",
             error=str(error),
         )
+
+
+@router.post("/invoke/stream")
+def invoke_stream(
+    request: InvokeRequest,
+    x_jarvis_agent_key: Optional[str] = Header(default=None),
+) -> StreamingResponse:
+    require_api_key(x_jarvis_agent_key)
+
+    def run_with_tracer(tracer: UserProgressTracePrinter) -> JarvisState:
+        return run_jarvis(
+            user_prompt=request.message,
+            user_id=request.user_id,
+            request_source=request_source(request.source, request.telegram_user_id),
+            allow_mutations=allow_mutations(request.allow_mutations),
+            tracer=tracer,
+            thread_id=request.thread_id,
+        )
+
+    return stream_agent_run(run_with_tracer)
 
 
 @router.post("/invoke-bulk", response_model=BulkAgentResponse)

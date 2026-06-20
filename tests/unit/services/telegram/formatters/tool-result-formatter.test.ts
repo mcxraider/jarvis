@@ -32,7 +32,7 @@ describe('ToolResultFormatter', () => {
         },
       ]),
     ).toBe(
-      '1/2 completed.\n\n<b>Failed:</b>\n• delete_todoist_task: Todoist API error (404): missing',
+      '1/2 completed.\n\n**Failed:**\n• delete_todoist_task: Todoist API error (404): missing',
     );
   });
 

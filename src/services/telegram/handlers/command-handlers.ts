@@ -3,6 +3,7 @@ import { Context } from 'telegraf';
 import { logger } from '../../../utils/logger';
 import { BotActivityService } from '../bot-activity.service';
 import { BotStatusService } from '../bot-status.service';
+import { replyWithMarkdown } from '../formatters/telegram-markdown';
 
 /**
  * Handles bot commands
@@ -19,18 +20,18 @@ export class CommandHandlers {
     this.activityService.recordActivity('command_help');
 
     const helpMessage =
-      `<b>Jarvis</b>\n` +
+      `**Jarvis**\n` +
       `\n` +
-      `<b>Commands</b>\n` +
+      `**Commands**\n` +
       `/help — this message\n` +
       `/status — system health\n` +
       `\n` +
-      `<b>Capabilities</b>\n` +
+      `**Capabilities**\n` +
       `• Text — send a message and I'll handle it (task management via Todoist)\n` +
       `• Voice — send a voice note and I'll transcribe + act on it\n` +
       `• Audio files — OGG, MP3, WAV, M4A supported`;
 
-    await ctx.reply(helpMessage, { parse_mode: 'HTML' });
+    await replyWithMarkdown(ctx.reply.bind(ctx), helpMessage, { userId });
   }
 
   async handleStatus(ctx: Context): Promise<void> {
@@ -39,6 +40,6 @@ export class CommandHandlers {
     this.activityService.recordActivity('command_status');
 
     const statusMessage = await this.statusService.getFormattedStatus();
-    await ctx.reply(statusMessage, { parse_mode: 'HTML' });
+    await replyWithMarkdown(ctx.reply.bind(ctx), statusMessage, { userId });
   }
 }

@@ -39,14 +39,11 @@ Making the agent correct on complex, multi-step tasks. Single-shot model discret
 
 **Selection pipeline:**
 1. Hard filters: availability, user-enabled integrations, auth, environment, safety policy.
-2. Deterministic domain/alias matching for obvious requests ("task", "todo", "due" → Todoist; "meeting", "calendar" → calendar tools).
-3. Lexical or embedding retrieval over the remaining tool registry.
-4. Context-aware boosting: tools connected to recent list results or active conversation state rank higher.
-5. Return closer matched candidates with selection reasons and confidence score.
-6. If confidence is low, just include all the tools and route toward clarification.
+2. Deterministic domain/alias matching for obvious requests ("task", "todo", "due" → Todoist tools, then "add", "update" have regex expression filters to narrow down the tool matches in the tool registry based on regex expression matching done on the user query. ).
+3. Return closer matched candidates with selection reasons and confidence score.
+4. If confidence is low, just include all the tools.
 
 **Success criteria:**
-- A 100-tool registry normally narrows to fewer than 12 orchestrator-visible tools.
 - Obvious single-domain requests route without an extra model call.
 - Disabled or unhealthy tools are never selected.
 
