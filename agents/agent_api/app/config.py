@@ -27,6 +27,13 @@ def _int_env(name: str, default: int) -> int:
     return int(raw_value)
 
 
+def _float_env(name: str, default: float) -> float:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return float(raw_value)
+
+
 @dataclass(frozen=True)
 class Settings:
     api_title: str
@@ -36,6 +43,10 @@ class Settings:
     todoist_rest_base_url: str
     allow_mutations: bool
     max_agent_turns: int
+    todoist_max_retry_attempts: int
+    todoist_retry_total_timeout_seconds: float
+    todoist_retry_base_delay_seconds: float
+    todoist_retry_max_delay_seconds: float
     debug_trace: bool
     debug_payloads: bool
     postgres_dsn: Optional[str]
@@ -61,6 +72,13 @@ def load_settings() -> Settings:
         ),
         allow_mutations=_bool_env("JARVIS_ALLOW_MUTATIONS", True),
         max_agent_turns=_int_env("JARVIS_MAX_AGENT_TURNS", 8),
+        todoist_max_retry_attempts=_int_env("TODOIST_MAX_RETRY_ATTEMPTS", 3),
+        todoist_retry_total_timeout_seconds=_float_env(
+            "TODOIST_RETRY_TOTAL_TIMEOUT_SECONDS",
+            8.0,
+        ),
+        todoist_retry_base_delay_seconds=_float_env("TODOIST_RETRY_BASE_DELAY_SECONDS", 0.5),
+        todoist_retry_max_delay_seconds=_float_env("TODOIST_RETRY_MAX_DELAY_SECONDS", 4.0),
         debug_trace=_bool_env("JARVIS_DEBUG", True),
         debug_payloads=_bool_env("JARVIS_DEBUG_PAYLOADS", True),
         postgres_dsn=os.getenv("JARVIS_POSTGRES_DSN") or os.getenv("DATABASE_URL"),

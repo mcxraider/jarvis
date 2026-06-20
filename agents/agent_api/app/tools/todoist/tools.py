@@ -9,6 +9,7 @@ from langgraph.prebuilt import ToolNode
 from langsmith import traceable
 
 from agents.agent_api.app.constants import ALLOW_MUTATIONS
+from agents.agent_api.app.tools.todoist.client import TodoistApiError
 from agents.agent_api.app.tools.todoist.schemas import ASK_USER_TOOL_NAME, MUTATING_TOOL_NAMES
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
@@ -118,6 +119,24 @@ class TodoistToolDispatcher:
             self.tracer.event("tool.done", "Tool call completed.", name=tool_name)
             self.tracer.payload("tool.result", tool_name, content)
             return self._result(tool_call_id, tool_name, success=True, content=content)
+        except TodoistApiError as error:
+            classified_error = error.to_classifier_payload()
+            self.tracer.event(
+                "tool.error",
+                "Todoist tool call failed with a classified API error.",
+                name=tool_name,
+                kind=error.kind,
+                retryable=error.retryable,
+                status_code=error.status_code,
+                attempts=error.attempts,
+            )
+            return self._result(
+                tool_call_id,
+                tool_name,
+                success=False,
+                error=error.message,
+                classified_error=classified_error,
+            )
         except Exception as error:
             self.tracer.event("tool.error", "Tool call failed.", name=tool_name, error=str(error))
             return self._result(
@@ -146,6 +165,7 @@ class TodoistToolDispatcher:
         content: Any = None,
         error: Optional[str] = None,
         mutation_blocked: bool = False,
+        classified_error: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         return {
             "tool_call_id": tool_call_id,
@@ -154,6 +174,7 @@ class TodoistToolDispatcher:
             "content": content,
             "error": error,
             "mutation_blocked": mutation_blocked,
+            "classified_error": classified_error,
         }
 
 
