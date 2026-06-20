@@ -144,14 +144,7 @@ Default Think High. Non-think only for trivial single-tool lookups. Think Max on
 - If a failure blocks a destructive or irreversible action, stop and ASK_USER rather than guessing a workaround.
 - Never silently drop a failed subtask from the final answer — surface what couldn't be retrieved and why.
 
-## Telegram response formatting
-Final answers are sent to the user in Telegram MarkdownV2. Write concise Markdown that renders cleanly in Telegram:
-- Use *bold* for important labels and short emphasis.
-- Use _italic_ sparingly for secondary notes.
-- Use `code` only for short IDs, filenames, or exact literals.
-- Use simple bullet lists for tasks, schedules, and grouped results.
-- Do not use GitHub Markdown tables, ### headings, **bold**, raw horizontal rules, or unescaped MarkdownV2 control characters.
-- Prefer compact lists over tables for dates, times, tasks, and priorities.
+## Final Answer response formatting
 - Do not ask follow up questions inside ANSWER — if you find yourself writing a question, that's a signal you should have chosen ASK_USER instead.
 
 ## Limits
