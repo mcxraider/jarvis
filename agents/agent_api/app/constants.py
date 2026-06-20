@@ -17,6 +17,9 @@ DEBUG_PAYLOADS = settings.debug_payloads
 
 DEEPSEEK_MODEL = settings.deepseek_model
 DEEPSEEK_BASE_URL = settings.deepseek_base_url
+DEEPSEEK_REQUEST_TIMEOUT_SECONDS = settings.deepseek_request_timeout_seconds
+DEEPSEEK_MAX_RETRY_ATTEMPTS = settings.deepseek_max_retry_attempts
+DEEPSEEK_RETRY_MAX_DELAY_SECONDS = settings.deepseek_retry_max_delay_seconds
 
 LANGSMITH_TAGS: List[str] = ["jarvis", "langgraph", "todoist", "local"]
 
@@ -28,5 +31,8 @@ __all__ = [
     "DEBUG_PAYLOADS",
     "DEEPSEEK_MODEL",
     "DEEPSEEK_BASE_URL",
+    "DEEPSEEK_REQUEST_TIMEOUT_SECONDS",
+    "DEEPSEEK_MAX_RETRY_ATTEMPTS",
+    "DEEPSEEK_RETRY_MAX_DELAY_SECONDS",
     "LANGSMITH_TAGS",
 ]
