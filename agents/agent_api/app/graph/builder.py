@@ -89,12 +89,13 @@ def build_initial_state(
     run_type="chain",
     tags=LANGSMITH_TAGS,
     process_inputs=lambda inputs: {
+        "run_id": inputs.get("thread_id"),
+        "thread_id": inputs.get("thread_id"),
         "user_prompt": inputs.get("user_prompt", USER_PROMPT),
         "user_id": inputs.get("user_id", USER_ID),
         "request_source": inputs.get("request_source", "api"),
         "allow_mutations": inputs.get("allow_mutations", ALLOW_MUTATIONS),
         "max_agent_turns": inputs.get("max_agent_turns", MAX_AGENT_TURNS),
-        "thread_id": inputs.get("thread_id"),
         "resuming": inputs.get("clarification_reply") is not None,
     },
 )
