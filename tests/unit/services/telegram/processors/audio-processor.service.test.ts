@@ -46,9 +46,9 @@ describe('AudioProcessorService', () => {
       701122767,
       logContext,
     );
-    expect(response).toContain('<b>Transcription:</b> Add a Todoist task to buy milk tomorrow');
+    expect(response).toContain('**Transcription:** Add a Todoist task to buy milk tomorrow');
     expect(response).toContain('Task created.');
-    expect(response).toContain('<i>1s transcription</i>');
+    expect(response).toContain('_1s transcription_');
   });
 
   it('configures WhisperService with the default audio pipeline transcription settings', () => {

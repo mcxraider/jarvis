@@ -48,9 +48,9 @@ export class AudioProcessorService {
         const response = await this.textProcessor.processTextMessage(text, userId, logContext);
 
         return (
-          `<b>Transcription:</b> ${this.escapeHtml(text)}\n\n` +
+          `**Transcription:** ${text}\n\n` +
           `${response}\n\n` +
-          `<i>${Math.round(processingTimeMs / 1000)}s transcription</i>`
+          `_${Math.round(processingTimeMs / 1000)}s transcription_`
         );
       } catch (processingError) {
         logger.warn('audio_processor.text_processing_failed', {
@@ -61,8 +61,8 @@ export class AudioProcessorService {
         });
 
         return (
-          `<b>Transcription:</b> ${this.escapeHtml(text)}\n\n` +
-          `<i>Could not process the request. Please try again.</i>`
+          `**Transcription:** ${text}\n\n` +
+          `_Could not process the request. Please try again._`
         );
       }
     } catch (error) {
@@ -100,16 +100,16 @@ export class AudioProcessorService {
       const { text, processingTimeMs, fileSizeBytes } = transcriptionResult;
 
       if (!text || text.trim().length < 2) {
-        return `No speech detected in <code>${this.escapeHtml(fileName)}</code>.`;
+        return `No speech detected in \`${fileName}\`.`;
       }
 
       try {
         const response = await this.textProcessor.processTextMessage(text, userId, logContext);
 
         return (
-          `<b>Transcription:</b> ${this.escapeHtml(text)}\n\n` +
+          `**Transcription:** ${text}\n\n` +
           `${response}\n\n` +
-          `<i>${Math.round(processingTimeMs / 1000)}s transcription</i>`
+          `_${Math.round(processingTimeMs / 1000)}s transcription_`
         );
       } catch (processingError) {
         logger.warn('audio_processor.document_text_processing_failed', {
@@ -121,8 +121,8 @@ export class AudioProcessorService {
         });
 
         return (
-          `<b>Transcription:</b> ${this.escapeHtml(text)}\n\n` +
-          `<i>Could not process the request. Please try again.</i>`
+          `**Transcription:** ${text}\n\n` +
+          `_Could not process the request. Please try again._`
         );
       }
     } catch (error) {
@@ -163,21 +163,14 @@ export class AudioProcessorService {
     const msg = error.message;
 
     if (msg.includes('File size') && msg.includes('exceeds')) {
-      return `<code>${this.escapeHtml(fileName)}</code> is too large. Maximum size is 25 MB.`;
+      return `\`${fileName}\` is too large. Maximum size is 25 MB.`;
     }
     if (msg.includes('Unsupported audio format')) {
-      return `<code>${this.escapeHtml(fileName)}</code> — unsupported format. Please send MP3, OGG, WAV, or M4A.`;
+      return `\`${fileName}\` — unsupported format. Please send MP3, OGG, WAV, or M4A.`;
     }
     if (msg.includes('Audio format conversion')) {
-      return `<code>${this.escapeHtml(fileName)}</code> — conversion failed. Please send MP3 or WAV directly.`;
+      return `\`${fileName}\` — conversion failed. Please send MP3 or WAV directly.`;
     }
-    return `Could not transcribe <code>${this.escapeHtml(fileName)}</code>. Please try again.`;
-  }
-
-  private escapeHtml(text: string): string {
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+    return `Could not transcribe \`${fileName}\`. Please try again.`;
   }
 }

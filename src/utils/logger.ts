@@ -67,6 +67,7 @@ const READABLE_CONTEXT_KEYS = [
   'chatId',
   'messageId',
   'messageType',
+  'threadId',
 ];
 
 function formatReadableValue(value: unknown): string {
@@ -140,6 +141,7 @@ export interface LogContext {
   chatId?: number | string;
   messageId?: number;
   messageType?: string;
+  threadId?: string;
 }
 
 export function createRequestId(prefix = 'req'): string {

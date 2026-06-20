@@ -1,6 +1,7 @@
 // src/services/telegram/processors/text-processor.service.ts
+import crypto from 'crypto';
 import { LogContext, logger } from '../../../utils/logger';
-import { LangGraphAgentClient } from '../../ai/langgraph-agent-client.service';
+import { LangGraphAgentClient, LangGraphProgressCallback } from '../../ai/langgraph-agent-client.service';
 
 interface PendingClarification {
   threadId: string;
@@ -21,7 +22,12 @@ export class TextProcessorService {
   /**
    * Processes text messages from users
    */
-  async processTextMessage(text: string, userId?: number, logContext: LogContext = {}): Promise<string> {
+  async processTextMessage(
+    text: string,
+    userId?: number,
+    logContext: LogContext = {},
+    onProgress?: LangGraphProgressCallback,
+  ): Promise<string> {
     const startedAt = Date.now();
 
     logger.info('text_processor.started', {
@@ -32,30 +38,26 @@ export class TextProcessorService {
 
     try {
       const internalUserId = this.mapTelegramUserId(userId);
-      const pendingKey = this.pendingKey(userId, internalUserId);
+      const pendingKey = this.pendingKey(userId, internalUserId, logContext);
       const pendingClarification = this.getPendingClarification(pendingKey);
+      const threadId =
+        pendingClarification?.threadId || this.buildTelegramThreadId(userId, internalUserId, logContext);
+      const requestContext = { ...logContext, threadId };
+      const agentRequest = {
+        message: text,
+        userId: internalUserId,
+        source: 'telegram',
+        telegramUserId: userId,
+        requestId: logContext.requestId,
+        threadId,
+      };
       const agentResponse = pendingClarification
-        ? await this.agentClient.resume(
-            {
-              message: text,
-              userId: internalUserId,
-              source: 'telegram',
-              telegramUserId: userId,
-              requestId: logContext.requestId,
-              threadId: pendingClarification.threadId,
-            },
-            logContext,
-          )
-        : await this.agentClient.invoke(
-            {
-              message: text,
-              userId: internalUserId,
-              source: 'telegram',
-              telegramUserId: userId,
-              requestId: logContext.requestId,
-            },
-            logContext,
-          );
+        ? onProgress
+          ? await this.agentClient.resume(agentRequest, requestContext, onProgress)
+          : await this.agentClient.resume(agentRequest, requestContext)
+        : onProgress
+          ? await this.agentClient.invoke(agentRequest, requestContext, onProgress)
+          : await this.agentClient.invoke(agentRequest, requestContext);
 
       if (agentResponse.status === 'interrupted') {
         this.pendingClarifications.set(pendingKey, {
@@ -76,6 +78,7 @@ export class TextProcessorService {
         responseLength: response.length,
         agentStatus: agentResponse.status,
         threadId: agentResponse.threadId,
+        requestedThreadId: threadId,
         durationMs: Date.now() - startedAt,
       });
 
@@ -120,8 +123,34 @@ export class TextProcessorService {
     return pending;
   }
 
-  private pendingKey(telegramUserId: number | undefined, internalUserId: string): string {
-    return telegramUserId ? `telegram:${telegramUserId}` : `internal:${internalUserId}`;
+  private pendingKey(telegramUserId: number | undefined, internalUserId: string, logContext: LogContext = {}): string {
+    if (logContext.chatId !== undefined) {
+      const userSegment = telegramUserId ?? internalUserId;
+      return `telegram-chat:${this.hashIdentifier(`${logContext.chatId}:${userSegment}`)}`;
+    }
+
+    return telegramUserId ? `telegram:${this.hashIdentifier(telegramUserId)}` : `internal:${internalUserId}`;
+  }
+
+  private buildTelegramThreadId(
+    telegramUserId: number | undefined,
+    internalUserId: string,
+    logContext: LogContext,
+  ): string {
+    const identity = logContext.chatId ?? telegramUserId ?? internalUserId;
+    const messageKey = logContext.messageId ?? logContext.requestId ?? Date.now();
+    return `tg_${this.hashIdentifier(identity)}_${this.sanitizeThreadSegment(messageKey)}`;
+  }
+
+  private hashIdentifier(value: number | string): string {
+    return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 10);
+  }
+
+  private sanitizeThreadSegment(value: number | string): string {
+    return String(value)
+      .trim()
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .slice(0, 64);
   }
 
   private mapTelegramUserId(telegramUserId: number | undefined): string {

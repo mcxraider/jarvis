@@ -1,4 +1,5 @@
 import unittest
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -83,6 +84,68 @@ class JarvisApiTests(unittest.TestCase):
         self.assertEqual(response.json()["thread_id"], "thread-hitl")
         self.assertEqual(response.json()["response"], "Which task should I update?")
         self.assertEqual(response.json()["interrupt"], interrupt)
+
+    def test_invoke_stream_emits_progress_and_final_response(self) -> None:
+        def fake_run(**kwargs):
+            tracer = kwargs["tracer"]
+            tracer.event("runtime.start", "Starting graph invocation.", resuming=False)
+            tracer.event("graph.agent", "Entering agent node.", turn=1, max_turns=8)
+            tracer.event("agent.request", "Calling DeepSeek chat completions.")
+            tracer.event("agent.response", "Received assistant message.", tool_calls=1)
+            tracer.event("graph.route", "Agent node completed.", next="tools")
+            tracer.event("graph.tools", "Entering tools node.", tool_calls=1)
+            tracer.event("tools.batch", "Executing tool call batch.", count=1)
+            tracer.event("tool.done", "Tool call completed.")
+            tracer.event("runtime.done", "Graph invocation completed.", interrupted=False)
+            return {
+                "thread_id": "thread-1",
+                "interrupted": False,
+                "final_response": "Done.",
+                "tool_results": [],
+                "error": "",
+            }
+
+        with patch("agents.agent_api.app.api.routes.invoke.run_jarvis", side_effect=fake_run):
+            response = self.client.post(
+                "/invoke/stream",
+                json={"message": "show today", "user_id": "jerry"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        events = [json.loads(line) for line in response.text.strip().splitlines()]
+        self.assertEqual(events[-1]["type"], "final")
+        self.assertEqual(events[-1]["response"]["response"], "Done.")
+        progress_messages = [event["message"] for event in events if event["type"] == "progress"]
+        self.assertIn("Agent started and opened a Jarvis run", progress_messages)
+        self.assertIn("Calling Todoist (1 request(s))", progress_messages)
+
+    def test_resume_stream_emits_resume_progress(self) -> None:
+        def fake_run(**kwargs):
+            tracer = kwargs["tracer"]
+            tracer.event("runtime.start", "Starting graph invocation.", resuming=True)
+            tracer.event("runtime.done", "Graph invocation completed.", interrupted=False)
+            return {
+                "thread_id": "thread-hitl",
+                "interrupted": False,
+                "final_response": "Updated.",
+                "tool_results": [],
+                "error": "",
+            }
+
+        with patch("agents.agent_api.app.api.routes.resume.run_jarvis", side_effect=fake_run):
+            response = self.client.post(
+                "/resume/stream",
+                json={
+                    "thread_id": "thread-hitl",
+                    "message": "the dentist task",
+                    "user_id": "jerry",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        events = [json.loads(line) for line in response.text.strip().splitlines()]
+        self.assertEqual(events[0]["message"], "Resuming the previous Jarvis run")
+        self.assertEqual(events[-1]["response"]["response"], "Updated.")
 
     def test_resume_uses_thread_id_and_reply(self) -> None:
         with patch(

@@ -3,7 +3,7 @@ import { logger } from '../../utils/logger';
 import { TextProcessorService } from './processors/text-processor.service';
 import { AudioProcessorService } from './processors/audio-processor.service';
 import { LogContext } from '../../utils/logger';
-import { LangGraphAgentClient } from '../ai/langgraph-agent-client.service';
+import { LangGraphAgentClient, LangGraphProgressCallback } from '../ai/langgraph-agent-client.service';
 
 /**
  * Main service responsible for coordinating message processing
@@ -21,7 +21,12 @@ export class MessageProcessorService {
   /**
    * Processes text messages from users
    */
-  async processTextMessage(text: string, userId?: number, logContext: LogContext = {}): Promise<string> {
+  async processTextMessage(
+    text: string,
+    userId?: number,
+    logContext: LogContext = {},
+    onProgress?: LangGraphProgressCallback,
+  ): Promise<string> {
     logger.info('processor.route.selected', {
       ...logContext,
       userId,
@@ -30,7 +35,7 @@ export class MessageProcessorService {
       processor: 'TextProcessorService',
     });
 
-    return this.textProcessor.processTextMessage(text, userId, logContext);
+    return this.textProcessor.processTextMessage(text, userId, logContext, onProgress);
   }
 
   /**

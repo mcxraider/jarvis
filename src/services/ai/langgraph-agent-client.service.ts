@@ -23,6 +23,14 @@ export interface LangGraphAgentResponse {
   error?: string;
 }
 
+export interface LangGraphProgressEvent {
+  sequence?: number;
+  stage: string;
+  message: string;
+}
+
+export type LangGraphProgressCallback = (event: LangGraphProgressEvent) => void | Promise<void>;
+
 export interface LangGraphAgentRequest {
   message: string;
   userId: string;
@@ -39,6 +47,14 @@ interface RawAgentResponse {
   interrupt?: LangGraphInterrupt;
   tool_results?: Record<string, unknown>[];
   error?: string;
+}
+
+interface RawStreamEvent {
+  type?: 'progress' | 'final';
+  sequence?: number;
+  stage?: string;
+  message?: string;
+  response?: RawAgentResponse;
 }
 
 export interface LangGraphAgentClientConfig {
@@ -70,14 +86,22 @@ export class LangGraphAgentClient {
   async invoke(
     request: LangGraphAgentRequest,
     logContext: LogContext = {},
+    onProgress?: LangGraphProgressCallback,
   ): Promise<LangGraphAgentResponse> {
+    if (onProgress) {
+      return this.postStream('/invoke/stream', '/invoke', request, logContext, onProgress);
+    }
     return this.post('/invoke', request, logContext);
   }
 
   async resume(
     request: LangGraphAgentRequest & { threadId: string },
     logContext: LogContext = {},
+    onProgress?: LangGraphProgressCallback,
   ): Promise<LangGraphAgentResponse> {
+    if (onProgress) {
+      return this.postStream('/resume/stream', '/resume', request, logContext, onProgress);
+    }
     return this.post('/resume', request, logContext);
   }
 
@@ -97,6 +121,7 @@ export class LangGraphAgentClient {
         userId: request.userId,
         hasTelegramUserId: request.telegramUserId !== undefined,
         hasThreadId: !!request.threadId,
+        threadId: request.threadId,
       });
 
       const response = await fetch(`${this.baseUrl}${path}`, {
@@ -120,6 +145,7 @@ export class LangGraphAgentClient {
         userId: request.userId,
         status: normalized.status,
         threadId: normalized.threadId,
+        requestedThreadId: request.threadId,
         durationMs: Date.now() - startedAt,
       });
       return normalized;
@@ -142,6 +168,154 @@ export class LangGraphAgentClient {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private async postStream(
+    streamPath: '/invoke/stream' | '/resume/stream',
+    fallbackPath: '/invoke' | '/resume',
+    request: LangGraphAgentRequest & { threadId?: string },
+    logContext: LogContext,
+    onProgress: LangGraphProgressCallback,
+  ): Promise<LangGraphAgentResponse> {
+    const startedAt = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    let streamStarted = false;
+
+    try {
+      logger.info('langgraph.stream.started', {
+        ...logContext,
+        path: streamPath,
+        userId: request.userId,
+        hasTelegramUserId: request.telegramUserId !== undefined,
+        hasThreadId: !!request.threadId,
+        threadId: request.threadId,
+      });
+
+      const response = await fetch(`${this.baseUrl}${streamPath}`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(this.toPayload(request)),
+        signal: controller.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`LangGraph stream returned ${response.status}`);
+      }
+
+      streamStarted = true;
+      const finalResponse = await this.readStream(response.body, onProgress);
+      logger.info('langgraph.stream.completed', {
+        ...logContext,
+        path: streamPath,
+        userId: request.userId,
+        status: finalResponse.status,
+        threadId: finalResponse.threadId,
+        requestedThreadId: request.threadId,
+        durationMs: Date.now() - startedAt,
+      });
+      return finalResponse;
+    } catch (error) {
+      logger.warn('langgraph.stream.failed', {
+        ...logContext,
+        path: streamPath,
+        userId: request.userId,
+        streamStarted,
+        error: (error as Error).message,
+        durationMs: Date.now() - startedAt,
+      });
+
+      if (!streamStarted) {
+        return this.post(fallbackPath, request, logContext);
+      }
+
+      return {
+        status: 'failed',
+        threadId: request.threadId || '',
+        response: 'Jarvis is temporarily unavailable. Please try again in a moment.',
+        toolResults: [],
+        error: (error as Error).message,
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async readStream(
+    body: ReadableStream<Uint8Array>,
+    onProgress: LangGraphProgressCallback,
+  ): Promise<LangGraphAgentResponse> {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finalResponse: LangGraphAgentResponse | undefined;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (value) {
+        buffer += decoder.decode(value, { stream: true });
+        finalResponse = await this.consumeStreamBuffer(buffer, onProgress, finalResponse);
+        buffer = this.remainingPartialLine(buffer);
+      }
+      if (done) break;
+    }
+
+    buffer += decoder.decode();
+    if (buffer.trim()) {
+      finalResponse = await this.consumeStreamLine(buffer.trim(), onProgress, finalResponse);
+    }
+
+    if (!finalResponse) {
+      throw new Error('LangGraph stream ended without a final response');
+    }
+
+    return finalResponse;
+  }
+
+  private async consumeStreamBuffer(
+    buffer: string,
+    onProgress: LangGraphProgressCallback,
+    finalResponse: LangGraphAgentResponse | undefined,
+  ): Promise<LangGraphAgentResponse | undefined> {
+    const lines = buffer.split(/\r?\n/);
+    const completeLines = lines.slice(0, -1);
+    let latestFinal = finalResponse;
+
+    for (const line of completeLines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      latestFinal = await this.consumeStreamLine(trimmed, onProgress, latestFinal);
+    }
+
+    return latestFinal;
+  }
+
+  private remainingPartialLine(buffer: string): string {
+    const lines = buffer.split(/\r?\n/);
+    return lines[lines.length - 1] || '';
+  }
+
+  private async consumeStreamLine(
+    line: string,
+    onProgress: LangGraphProgressCallback,
+    finalResponse: LangGraphAgentResponse | undefined,
+  ): Promise<LangGraphAgentResponse | undefined> {
+    const event = JSON.parse(line) as RawStreamEvent;
+
+    if (event.type === 'progress' && event.stage && event.message) {
+      await onProgress({
+        sequence: event.sequence,
+        stage: event.stage,
+        message: event.message,
+      });
+      return finalResponse;
+    }
+
+    if (event.type === 'final' && event.response) {
+      return this.normalize(event.response);
+    }
+
+    return finalResponse;
   }
 
   private headers(): Record<string, string> {

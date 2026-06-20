@@ -26,13 +26,13 @@ describe('CommandHandlers', () => {
 
     expect(activityService.recordActivity).toHaveBeenCalledWith('command_help');
     expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('/help'), {
-      parse_mode: 'HTML',
+      parse_mode: 'MarkdownV2',
     });
     expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('/status'), {
-      parse_mode: 'HTML',
+      parse_mode: 'MarkdownV2',
     });
     expect(ctx.reply).toHaveBeenCalledWith(expect.not.stringContaining('/start'), {
-      parse_mode: 'HTML',
+      parse_mode: 'MarkdownV2',
     });
   });
 
@@ -48,7 +48,7 @@ describe('CommandHandlers', () => {
 
     expect(activityService.recordActivity).toHaveBeenCalledWith('command_status');
     expect(statusService.getFormattedStatus).toHaveBeenCalled();
-    expect(ctx.reply).toHaveBeenCalledWith('healthy status', { parse_mode: 'HTML' });
+    expect(ctx.reply).toHaveBeenCalledWith('healthy status', { parse_mode: 'MarkdownV2' });
   });
 
   it('returns a formatted degraded status response without throwing', async () => {
@@ -61,6 +61,6 @@ describe('CommandHandlers', () => {
 
     await handlers.handleStatus(ctx);
 
-    expect(ctx.reply).toHaveBeenCalledWith('degraded status', { parse_mode: 'HTML' });
+    expect(ctx.reply).toHaveBeenCalledWith('degraded status', { parse_mode: 'MarkdownV2' });
   });
 });
