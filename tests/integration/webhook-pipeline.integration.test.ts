@@ -23,7 +23,8 @@ describe('Webhook pipeline integration', () => {
 
   it('passes a Telegram text update through the webhook and attempts a reply', async () => {
     process.env.TELEGRAM_SECRET_TOKEN = 'test-secret';
-    const reply = jest.fn().mockResolvedValue(undefined);
+    const reply = jest.fn().mockResolvedValue({ message_id: 10 });
+    const editMessageText = jest.fn().mockResolvedValue(true);
     const messageProcessor = {
       processTextMessage: jest.fn().mockResolvedValue('Mocked Jarvis reply'),
     } as any;
@@ -36,8 +37,10 @@ describe('Webhook pipeline integration', () => {
       handleUpdate: jest.fn(async (update: any) => {
         await handlers.handleText({
           from: update.message.from,
+          chat: update.message.chat,
           message: update.message,
           reply,
+          telegram: { editMessageText },
         } as any);
       }),
     };
@@ -67,8 +70,10 @@ describe('Webhook pipeline integration', () => {
       'Add a Todoist task to review invoices tomorrow',
       123456,
       expect.objectContaining({ messageType: 'text' }),
+      expect.any(Function),
     );
-    expect(reply).toHaveBeenCalledWith('Mocked Jarvis reply', { parse_mode: 'HTML' });
+    expect(editMessageText).toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith('Mocked Jarvis reply', { parse_mode: 'MarkdownV2' });
   });
 
   it('returns 200 when the bot service denies a valid webhook update', async () => {

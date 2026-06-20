@@ -10,6 +10,7 @@ import { BotActivityService } from './bot-activity.service';
 import { BotStatusService } from './bot-status.service';
 import { TodoistAPIService } from '../external/todoist-api.service';
 import { GPT_CONSTANTS } from '../ai/constants/gpt.constants';
+import { sendMessageWithMarkdown } from './formatters/telegram-markdown';
 
 /**
  * Service class responsible for managing Telegram bot operations
@@ -208,7 +209,13 @@ export class TelegramBotService {
     if (!chatId) return;
 
     try {
-      await this.bot.telegram.sendMessage(chatId, 'Sorry, this bot is private.');
+      await sendMessageWithMarkdown(
+        this.bot.telegram.sendMessage.bind(this.bot.telegram),
+        chatId,
+        'Sorry, this bot is private.',
+        {},
+        { requestId, updateId: update.update_id },
+      );
     } catch (error) {
       logger.warn('telegram.update.denied_reply_failed', {
         requestId,
@@ -227,7 +234,12 @@ export class TelegramBotService {
     options?: any
   ): Promise<Message.TextMessage> {
     try {
-      return await this.bot.telegram.sendMessage(chatId, text, options);
+      return await sendMessageWithMarkdown(
+        this.bot.telegram.sendMessage.bind(this.bot.telegram),
+        chatId,
+        text,
+        options,
+      );
     } catch (error) {
       logger.error('Failed to send message', {
         chatId,

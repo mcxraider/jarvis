@@ -44,7 +44,7 @@ describe('MessageHandlers', () => {
     );
     expect(messageProcessor.processAudioMessage).not.toHaveBeenCalled();
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_document');
-    expect(ctx.reply).toHaveBeenCalledWith('processed document', { parse_mode: 'HTML' });
+    expect(ctx.reply).toHaveBeenCalledWith('processed document', { parse_mode: 'MarkdownV2' });
   });
 
   it('rejects non-audio documents with a helpful reply', async () => {

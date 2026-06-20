@@ -4,7 +4,7 @@ Guidance for coding agents working in this repository.
 
 ## Project
 
-Jarvis is a single-user Telegram assistant focused on Todoist task management. Text messages are interpreted by OpenAI GPT tool calling and executed against Todoist through a direct REST API integration.
+Jarvis is a single-user Telegram assistant focused on Todoist task management. The TypeScript service owns Telegram and audio transcription; text is sent to the Python LangGraph agent API, which owns DeepSeek calls, HITL interrupts, and Todoist tool execution.
 
 Notion, MCP child-process infrastructure, and tool-search experiments are not active scope.
 
@@ -17,6 +17,7 @@ npm start
 npm test -- --runInBand
 npm run test:integration -- --runInBand
 npm run lint
+uvicorn agents.api:app --host 127.0.0.1 --port 8000
 ```
 
 ## Runtime
@@ -43,22 +44,23 @@ Telegram update
   -> TelegramHandlers / MessageHandlers
   -> MessageProcessorService
   -> TextProcessorService
-  -> GPTService
-  -> FunctionCallingProcessor
-  -> DirectToolCallDispatcher
-  -> TodoistAPIService
+  -> LangGraphAgentClient
+  -> Python FastAPI /invoke or /resume
+  -> agents/jarvis.py LangGraph loop
+  -> TodoistApiClient
   -> Todoist REST API
 ```
 
-Audio messages are transcribed, but audio processing currently creates a GPT service without Todoist tool dispatching. Text is the primary Todoist path.
+Audio messages are transcribed and then routed through the same `TextProcessorService`, so typed and spoken requests share the Python LangGraph path.
 
 ## Important Source Areas
 
 - `src/app.ts` wires services and validates env vars.
 - `src/server.ts` starts Express and registers the webhook.
 - `src/services/telegram/` handles Telegram lifecycle, commands, messages, and routing.
-- `src/services/ai/` owns GPT, transcription, validation, and function-calling processors.
-- `src/services/tools/` owns OpenAI tool schemas and direct tool dispatch.
+- `src/services/ai/` owns the LangGraph API client, transcription, and the legacy GPT modules.
+- `agents/jarvis.py` owns the LangGraph agent/tool loop and Todoist execution.
+- `agents/api.py` exposes `/health`, `/invoke`, and `/resume` for the Telegram service.
 - `src/services/external/todoist-api.service.ts` owns Todoist REST calls.
 - `src/utils/logger.ts` owns redacted structured logging.
 
@@ -77,9 +79,8 @@ Logs should be concise event logs with request context. Prefer event names like:
 
 ```text
 telegram.message.received
-gpt.tool_decision.received
-tool.dispatch.completed
-todoist.task.create.completed
+langgraph.request.started
+langgraph.request.completed
 telegram.reply.sent
 ```
 

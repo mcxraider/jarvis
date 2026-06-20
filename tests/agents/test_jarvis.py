@@ -1,9 +1,14 @@
 import copy
+import email.message
+import io
 import json
 import sys
+import tempfile
 import threading
+import urllib.error
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List
 from unittest.mock import patch
 
@@ -12,6 +17,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agents import jarvis
+from agents.agent_api.app.tools.todoist import client as todoist_client_module
+from agents.agent_api.app.graph.nodes import orchestrator as orchestrator_module
 
 
 class FakeDeepSeekAgentClient:
@@ -88,6 +95,57 @@ class ParallelTrackingTodoistClient(FakeTodoistClient):
                 self.active_calls -= 1
 
 
+class FailingTodoistClient(FakeTodoistClient):
+    """Fake client that raises a structured Todoist API failure."""
+
+    def get_tasks(self, arguments: Dict[str, Any]) -> Any:
+        del arguments
+        raise jarvis.TodoistApiError(
+            kind="deprecated",
+            message="This Todoist endpoint is no longer available.",
+            status_code=410,
+            retryable=False,
+            operation="todoist.request",
+            url="https://api.todoist.com/api/v1/tasks/completed/by_completion_date",
+            method="GET",
+            attempts=1,
+        )
+
+
+class FakeUrlopenResponse:
+    """Minimal context-manager response for urllib.request.urlopen tests."""
+
+    def __init__(self, status: int, body: bytes):
+        self.status = status
+        self.body = body
+
+    def __enter__(self) -> "FakeUrlopenResponse":
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return self.body
+
+
+def http_error(
+    status: int,
+    body: str = "raw provider body",
+    retry_after: str = "",
+) -> urllib.error.HTTPError:
+    headers = email.message.Message()
+    if retry_after:
+        headers["Retry-After"] = retry_after
+    return urllib.error.HTTPError(
+        url="https://api.todoist.com/api/v1/tasks",
+        code=status,
+        msg="error",
+        hdrs=headers,
+        fp=io.BytesIO(body.encode("utf-8")),
+    )
+
+
 def fake_tool_call(call_id: str, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": call_id,
@@ -96,12 +154,200 @@ def fake_tool_call(call_id: str, name: str, arguments: Dict[str, Any]) -> Dict[s
     }
 
 
+class TodoistApiClientRetryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.settings = SimpleNamespace(
+            todoist_max_retry_attempts=3,
+            todoist_retry_total_timeout_seconds=8.0,
+            todoist_retry_base_delay_seconds=0.1,
+            todoist_retry_max_delay_seconds=1.0,
+        )
+
+    def request_client(self) -> jarvis.TodoistApiClient:
+        return jarvis.TodoistApiClient(api_key="todoist-test-key", tracer=jarvis.NULL_TRACE)
+
+    def test_rate_limit_retries_with_retry_after_then_succeeds(self) -> None:
+        client = self.request_client()
+        effects = [
+            http_error(429, body="quota exceeded", retry_after="2"),
+            FakeUrlopenResponse(200, b'{"id": "task-1"}'),
+        ]
+
+        with (
+            patch.object(todoist_client_module, "settings", self.settings),
+            patch.object(todoist_client_module.random, "uniform", return_value=0),
+            patch.object(todoist_client_module.time, "sleep") as sleep,
+            patch.object(
+                todoist_client_module.urllib.request,
+                "urlopen",
+                side_effect=effects,
+            ) as urlopen,
+        ):
+            result = client._request("https://api.todoist.com/api/v1/tasks")
+
+        self.assertEqual(result, {"id": "task-1"})
+        self.assertEqual(urlopen.call_count, 2)
+        sleep.assert_called_once_with(2.0)
+
+    def test_transient_server_error_retries_then_succeeds(self) -> None:
+        client = self.request_client()
+        effects = [
+            http_error(503, body="service unavailable"),
+            FakeUrlopenResponse(200, b'{"items": []}'),
+        ]
+
+        with (
+            patch.object(todoist_client_module, "settings", self.settings),
+            patch.object(todoist_client_module.random, "uniform", return_value=0),
+            patch.object(todoist_client_module.time, "sleep") as sleep,
+            patch.object(
+                todoist_client_module.urllib.request,
+                "urlopen",
+                side_effect=effects,
+            ) as urlopen,
+        ):
+            result = client._request("https://api.todoist.com/api/v1/tasks")
+
+        self.assertEqual(result, {"items": []})
+        self.assertEqual(urlopen.call_count, 2)
+        sleep.assert_called_once_with(0.1)
+
+    def test_retry_after_past_budget_does_not_retry(self) -> None:
+        client = self.request_client()
+        bounded_settings = SimpleNamespace(
+            **{
+                **self.settings.__dict__,
+                "todoist_retry_total_timeout_seconds": 1.0,
+            }
+        )
+
+        with (
+            patch.object(todoist_client_module, "settings", bounded_settings),
+            patch.object(
+                todoist_client_module.urllib.request,
+                "urlopen",
+                side_effect=http_error(429, retry_after="5"),
+            ) as urlopen,
+        ):
+            with self.assertRaises(jarvis.TodoistApiError) as raised:
+                client._request("https://api.todoist.com/api/v1/tasks")
+
+        self.assertEqual(raised.exception.kind, "rate-limit")
+        self.assertEqual(raised.exception.retry_after_seconds, 5.0)
+        self.assertEqual(urlopen.call_count, 1)
+
+    def test_non_retryable_http_statuses_are_classified_without_retry(self) -> None:
+        cases = {
+            400: "validation",
+            401: "auth",
+            403: "auth",
+            404: "not-found",
+            410: "deprecated",
+            422: "validation",
+        }
+
+        for status, kind in cases.items():
+            with self.subTest(status=status):
+                client = self.request_client()
+                with (
+                    patch.object(todoist_client_module, "settings", self.settings),
+                    patch.object(
+                        todoist_client_module.urllib.request,
+                        "urlopen",
+                        side_effect=http_error(status, "private details"),
+                    ) as urlopen,
+                ):
+                    with self.assertRaises(jarvis.TodoistApiError) as raised:
+                        client._request("https://api.todoist.com/api/v1/tasks")
+
+                self.assertEqual(raised.exception.kind, kind)
+                self.assertFalse(raised.exception.retryable)
+                self.assertEqual(raised.exception.status_code, status)
+                self.assertEqual(urlopen.call_count, 1)
+                self.assertNotIn("private details", str(raised.exception))
+
+    def test_missing_api_key_is_auth_without_network_call(self) -> None:
+        client = jarvis.TodoistApiClient(api_key="", tracer=jarvis.NULL_TRACE)
+        client.api_key = ""
+
+        with patch.object(todoist_client_module.urllib.request, "urlopen") as urlopen:
+            with self.assertRaises(jarvis.TodoistApiError) as raised:
+                client._request("https://api.todoist.com/api/v1/tasks")
+
+        self.assertEqual(raised.exception.kind, "auth")
+        self.assertFalse(raised.exception.retryable)
+        urlopen.assert_not_called()
+
+    def test_url_error_retries_then_raises_transient(self) -> None:
+        client = self.request_client()
+        effects = [
+            urllib.error.URLError("temporary failure"),
+            urllib.error.URLError("temporary failure"),
+            urllib.error.URLError("temporary failure"),
+        ]
+
+        with (
+            patch.object(todoist_client_module, "settings", self.settings),
+            patch.object(todoist_client_module.random, "uniform", return_value=0),
+            patch.object(todoist_client_module.time, "sleep"),
+            patch.object(
+                todoist_client_module.urllib.request,
+                "urlopen",
+                side_effect=effects,
+            ) as urlopen,
+        ):
+            with self.assertRaises(jarvis.TodoistApiError) as raised:
+                client._request("https://api.todoist.com/api/v1/tasks")
+
+        self.assertEqual(raised.exception.kind, "transient")
+        self.assertTrue(raised.exception.retryable)
+        self.assertEqual(raised.exception.attempts, 3)
+        self.assertEqual(urlopen.call_count, 3)
+
+
+class FakeOpenAIStatusError(Exception):
+    def __init__(self, status_code: int):
+        self.status_code = status_code
+        super().__init__(f"fake status error {status_code}")
+
+
+class FakeOpenAIRateLimitError(FakeOpenAIStatusError):
+    pass
+
+
+class FakeOpenAITimeoutError(Exception):
+    pass
+
+
+class FakeOpenAIConnectionError(Exception):
+    pass
+
+
+class FakeOpenAICompletions:
+    def __init__(self, effects: List[Any]):
+        self.effects = list(effects)
+        self.calls = 0
+
+    def create(self, **_kwargs: Any) -> Any:
+        self.calls += 1
+        effect = self.effects.pop(0)
+        if isinstance(effect, BaseException):
+            raise effect
+        return SimpleNamespace(choices=[SimpleNamespace(message=copy.deepcopy(effect))])
+
+
+class FakeOpenAIClient:
+    def __init__(self, effects: List[Any]):
+        self.completions = FakeOpenAICompletions(effects)
+        self.chat = SimpleNamespace(completions=self.completions)
+
+
 class JarvisGraphTests(unittest.TestCase):
     def test_system_prompt_uses_orchestrator_contract(self) -> None:
         prompt = jarvis.get_system_prompt()
 
         self.assertIn("You are Jarvis, the user's personal orchestrator agent.", prompt)
-        self.assertIn("Call dispatch_workers", prompt)
+        self.assertIn("DISPATCH requires a dispatch_workers tool", prompt)
         self.assertIn("Call ask_user", prompt)
         self.assertIn("Max 8 loop iterations per user turn", prompt)
         self.assertIn("Current LangGraph runner supports ANSWER and TOOL_CALL", prompt)
@@ -141,6 +387,32 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(result["final_response"], "Hello.")
         self.assertEqual(result["tool_results"], [])
 
+    def test_request_source_is_kept_in_state_and_interrupt_payload(self) -> None:
+        result = jarvis.run_jarvis(
+            user_prompt="fake prompt",
+            request_source="test",
+            agent_client=FakeDeepSeekAgentClient(
+                [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            fake_tool_call(
+                                "call_ask",
+                                jarvis.ASK_USER_TOOL_NAME,
+                                {"question": "Which task should I update?"},
+                            )
+                        ],
+                    }
+                ]
+            ),
+            todoist_client=FakeTodoistClient(),
+            tracer=jarvis.NULL_TRACE,
+        )
+
+        self.assertEqual(result["request_source"], "test")
+        self.assertEqual(result["interrupt_payload"]["request_source"], "test")
+
     def test_run_jarvis_sequence_invokes_prompts_in_order(self) -> None:
         agent_client = FakeDeepSeekAgentClient(
             [
@@ -164,6 +436,52 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertIn("User request:\nfirst prompt", agent_client.calls[0][1]["content"])
         self.assertIn("User request:\nsecond prompt", agent_client.calls[1][1]["content"])
 
+    def test_load_user_prompts_from_text_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "prompts.txt"
+            path.write_text(
+                "\n".join(["# ignored comment", "first prompt", "", "second prompt"]),
+                encoding="utf-8",
+            )
+
+            prompts = jarvis.load_user_prompts_from_file(str(path))
+
+        self.assertEqual(prompts, ["first prompt", "second prompt"])
+
+    def test_load_user_prompts_from_json_object_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "prompts.json"
+            path.write_text(
+                json.dumps({"prompts": ["first prompt", "second prompt"]}),
+                encoding="utf-8",
+            )
+
+            prompts = jarvis.load_user_prompts_from_file(str(path))
+
+        self.assertEqual(prompts, ["first prompt", "second prompt"])
+
+    def test_collect_cli_prompts_combines_files_flags_and_positionals(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "prompts.txt"
+            path.write_text("file prompt\n", encoding="utf-8")
+            args = jarvis.build_arg_parser().parse_args(
+                [
+                    "--prompts-file",
+                    str(path),
+                    "--prompt",
+                    "flag prompt",
+                    "--source",
+                    "test",
+                    "positional prompt",
+                ]
+            )
+
+            prompts = jarvis.collect_cli_prompts(args)
+
+        self.assertEqual(prompts, ["file prompt", "flag prompt", "positional prompt"])
+        self.assertTrue(args.allow_mutations)
+        self.assertEqual(args.source, "test")
+
     def test_local_clarification_wrapper_prompts_and_resumes(self) -> None:
         agent_client = FakeDeepSeekAgentClient(
             [
@@ -182,7 +500,10 @@ class JarvisGraphTests(unittest.TestCase):
             ]
         )
 
-        with patch.object(jarvis, "ask_user_for_clarification", return_value="the dentist task") as ask:
+        with patch(
+            "agents.agent_api.app.runner.ask_user_for_clarification",
+            return_value="the dentist task",
+        ) as ask:
             result = jarvis.run_jarvis_with_local_clarifications(
                 user_prompt="update my task",
                 allow_mutations=False,
@@ -476,6 +797,37 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertFalse(tool_result["success"])
         self.assertIn("Unsupported tool", tool_result["error"])
 
+    def test_classified_todoist_error_survives_tool_result_and_message(self) -> None:
+        result = jarvis.run_jarvis(
+            user_prompt="fake prompt",
+            agent_client=FakeDeepSeekAgentClient(
+                [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [fake_tool_call("call_1", "get_tasks", {"filter": "today"})],
+                    },
+                    {"role": "assistant", "content": "Todoist is unavailable."},
+                ]
+            ),
+            todoist_client=FailingTodoistClient(),
+            tracer=jarvis.NULL_TRACE,
+        )
+
+        tool_result = result["tool_results"][0]
+        self.assertFalse(tool_result["success"])
+        self.assertEqual(tool_result["error"], "This Todoist endpoint is no longer available.")
+        self.assertEqual(tool_result["classified_error"]["source"], "todoist")
+        self.assertEqual(tool_result["classified_error"]["kind"], "deprecated")
+        self.assertEqual(tool_result["classified_error"]["status_code"], 410)
+        self.assertFalse(tool_result["classified_error"]["retryable"])
+
+        tool_messages = [message for message in result["messages"] if message.get("role") == "tool"]
+        self.assertEqual(len(tool_messages), 1)
+        message_content = json.loads(tool_messages[0]["content"])
+        self.assertEqual(message_content["classified_error"]["kind"], "deprecated")
+        self.assertNotIn("api/v1/tasks/completed", tool_messages[0]["content"])
+
     def test_max_turn_guard(self) -> None:
         result = self.run_graph_with_fakes(
             [
@@ -563,6 +915,98 @@ class JarvisGraphTests(unittest.TestCase):
             agent_client.calls[1][2].get("reasoning_content"),
             "private ask metadata",
         )
+
+    def test_deepseek_client_retries_retryable_failures(self) -> None:
+        cases = [
+            (FakeOpenAIRateLimitError(429), "rate_limit"),
+            (FakeOpenAIStatusError(503), "server_error"),
+            (FakeOpenAITimeoutError("timeout"), "timeout"),
+            (FakeOpenAIConnectionError("connection"), "connection_error"),
+        ]
+
+        for error, expected_type in cases:
+            with self.subTest(expected_type=expected_type):
+                client = jarvis.DeepSeekAgentClient(
+                    api_key="test",
+                    tracer=jarvis.NULL_TRACE,
+                    retry_sleep=lambda _seconds: None,
+                )
+                fake_client = FakeOpenAIClient(
+                    [error, {"role": "assistant", "content": "Recovered."}]
+                )
+                client.client = fake_client
+
+                with patch.multiple(
+                    orchestrator_module,
+                    APIStatusError=FakeOpenAIStatusError,
+                    RateLimitError=FakeOpenAIRateLimitError,
+                    APITimeoutError=FakeOpenAITimeoutError,
+                    APIConnectionError=FakeOpenAIConnectionError,
+                ):
+                    message = client.create_message(
+                        [{"role": "user", "content": "hello"}],
+                        [],
+                    )
+                    self.assertEqual(client._error_type(error), expected_type)
+
+                self.assertEqual(message["content"], "Recovered.")
+                self.assertEqual(fake_client.completions.calls, 2)
+
+    def test_deepseek_client_does_not_retry_client_status_errors(self) -> None:
+        cases = [400, 401, 422]
+
+        for status_code in cases:
+            with self.subTest(status_code=status_code):
+                client = jarvis.DeepSeekAgentClient(
+                    api_key="test",
+                    tracer=jarvis.NULL_TRACE,
+                    retry_sleep=lambda _seconds: None,
+                )
+                fake_client = FakeOpenAIClient([FakeOpenAIStatusError(status_code)])
+                client.client = fake_client
+
+                with patch.multiple(
+                    orchestrator_module,
+                    APIStatusError=FakeOpenAIStatusError,
+                    RateLimitError=FakeOpenAIRateLimitError,
+                    APITimeoutError=FakeOpenAITimeoutError,
+                    APIConnectionError=FakeOpenAIConnectionError,
+                ):
+                    with self.assertRaises(jarvis.DeepSeekAgentClientError) as raised:
+                        client.create_message([{"role": "user", "content": "hello"}], [])
+
+                self.assertEqual(fake_client.completions.calls, 1)
+                self.assertEqual(raised.exception.payload["type"], "client_error")
+                self.assertFalse(raised.exception.payload["retryable"])
+                self.assertEqual(raised.exception.payload["status_code"], status_code)
+
+    def test_deepseek_final_failure_ends_graph_with_structured_error(self) -> None:
+        payload = {
+            "source": "deepseek",
+            "type": "timeout",
+            "retryable": True,
+            "attempts": 3,
+            "message": "timed out",
+        }
+
+        class FailingDeepSeekAgentClient:
+            def create_message(
+                self,
+                _messages: List[Dict[str, Any]],
+                _tools: List[Dict[str, Any]],
+            ) -> Dict[str, Any]:
+                raise jarvis.DeepSeekAgentClientError(payload)
+
+        result = jarvis.run_jarvis(
+            user_prompt="fake prompt",
+            agent_client=FailingDeepSeekAgentClient(),
+            todoist_client=FakeTodoistClient(),
+            tracer=jarvis.NULL_TRACE,
+        )
+
+        self.assertEqual(result["next"], "end")
+        self.assertEqual(result["final_response"], jarvis.LLM_FAILURE_MESSAGE)
+        self.assertEqual(json.loads(result["error"]), payload)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,9 @@ import { createRequestId, LogContext, logger, truncateForLog } from '../../../ut
 import { FileService } from '../file.service';
 import { MessageProcessorService } from '../message-processor.service';
 import { BotActivityService } from '../bot-activity.service';
+import { replyWithMarkdown } from '../formatters/telegram-markdown';
+import { TelegramProgressReporter } from '../telegram-progress-reporter';
+import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service';
 
 /**
  * Handles different types of messages
@@ -32,13 +35,26 @@ export class MessageHandlers {
     });
     this.activityService.recordActivity('message_text');
 
+    const progressReporter = new TelegramProgressReporter(ctx, logContext);
+    let lastProgressStage = '';
+
     try {
-      const response = await this.messageProcessor.processTextMessage(messageText, userId, logContext);
+      await progressReporter.start();
+      const response = await this.messageProcessor.processTextMessage(
+        messageText,
+        userId,
+        logContext,
+        async (event: LangGraphProgressEvent) => {
+          lastProgressStage = event.stage;
+          await progressReporter.record(event);
+        },
+      );
+      await progressReporter.complete(this.completionStatus(lastProgressStage));
       logger.info('telegram.reply.sending', {
         ...logContext,
         responseLength: response.length,
       });
-      await ctx.reply(response, { parse_mode: 'HTML' });
+      await replyWithMarkdown(ctx.reply.bind(ctx), response, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
         responseLength: response.length,
@@ -51,6 +67,7 @@ export class MessageHandlers {
         userId,
         durationMs: Date.now() - startedAt,
       });
+      await progressReporter.complete('Something went wrong');
       await ctx.reply('Something went wrong processing your message. Please try again.');
     }
   }
@@ -74,7 +91,7 @@ export class MessageHandlers {
     try {
       const fileUrl = await this.fileService.getFileUrl(voice.file_id);
       const response = await this.messageProcessor.processAudioMessage(fileUrl, userId, logContext);
-      await ctx.reply(response, { parse_mode: 'HTML' });
+      await replyWithMarkdown(ctx.reply.bind(ctx), response, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
         responseLength: response.length,
@@ -129,7 +146,7 @@ export class MessageHandlers {
           userId,
           logContext,
         );
-        await ctx.reply(response, { parse_mode: 'HTML' });
+        await replyWithMarkdown(ctx.reply.bind(ctx), response, logContext);
         logger.info('telegram.reply.sent', {
           ...logContext,
           responseLength: response.length,
@@ -188,7 +205,7 @@ export class MessageHandlers {
     try {
       const fileUrl = await this.fileService.getFileUrl(audioFile.file_id);
       const response = await this.messageProcessor.processAudioMessage(fileUrl, userId, logContext);
-      await ctx.reply(response, { parse_mode: 'HTML' });
+      await replyWithMarkdown(ctx.reply.bind(ctx), response, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
         responseLength: response.length,
@@ -218,5 +235,13 @@ export class MessageHandlers {
       messageId: message?.message_id,
       messageType,
     };
+  }
+
+  private completionStatus(lastProgressStage: string): 'Done' | 'Paused for clarification' {
+    if (lastProgressStage === 'paused' || lastProgressStage.includes('clarification')) {
+      return 'Paused for clarification';
+    }
+
+    return 'Done';
   }
 }

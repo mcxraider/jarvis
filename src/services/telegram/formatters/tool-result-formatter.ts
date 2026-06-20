@@ -25,7 +25,7 @@ export class ToolResultFormatter {
       return `Failed:\n${failureSummary}`;
     }
 
-    return `${successfulResults.length}/${toolResults.length} completed.\n\n<b>Failed:</b>\n${failureSummary}`;
+    return `${successfulResults.length}/${toolResults.length} completed.\n\n**Failed:**\n${failureSummary}`;
   }
 
   private formatFailures(failedResults: ToolResult[]): string {

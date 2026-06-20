@@ -120,7 +120,8 @@ describe('TelegramBotService', () => {
     expect(service.bot.handleUpdate).not.toHaveBeenCalled();
     expect(service.bot.telegram.sendMessage).toHaveBeenCalledWith(
       123456,
-      'Sorry, this bot is private.',
+      'Sorry, this bot is private\\.',
+      { parse_mode: 'MarkdownV2' },
     );
   });
 
@@ -132,7 +133,8 @@ describe('TelegramBotService', () => {
     expect(service.bot.handleUpdate).not.toHaveBeenCalled();
     expect(service.bot.telegram.sendMessage).toHaveBeenCalledWith(
       123456,
-      'Sorry, this bot is private.',
+      'Sorry, this bot is private\\.',
+      { parse_mode: 'MarkdownV2' },
     );
   });
 

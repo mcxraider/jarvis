@@ -4,7 +4,7 @@ import { logger } from './utils/logger';
 import { TelegramBotService } from './services/telegram/telegram-bot.service';
 import { MessageProcessorService } from './services/telegram/message-processor.service';
 import { TelegramConfig } from './types/telegram.types';
-import { DirectToolCallDispatcher } from './services/tools/direct-tool-dispatcher.service';
+import { LangGraphAgentClient } from './services/ai/langgraph-agent-client.service';
 
 // Validate required environment variables before constructing any service
 const REQUIRED_ENV_VARS = [
@@ -12,9 +12,8 @@ const REQUIRED_ENV_VARS = [
   'NGROK_URL',
   'TELEGRAM_SECRET_TOKEN',
   'ALLOWED_TELEGRAM_USER_IDS',
-  'DEEPSEEK_API_KEY',
   'GROQ_API_KEY',
-  'TODOIST_API_KEY',
+  'LANGGRAPH_AGENT_URL',
 ];
 
 for (const key of REQUIRED_ENV_VARS) {
@@ -49,8 +48,8 @@ if (
 }
 
 // Wire up services
-const toolDispatcher = new DirectToolCallDispatcher();
-const messageProcessor = new MessageProcessorService(toolDispatcher);
+const agentClient = new LangGraphAgentClient();
+const messageProcessor = new MessageProcessorService(agentClient);
 
 const telegramConfig: TelegramConfig = {
   token: BOT_TOKEN,
@@ -63,7 +62,6 @@ export const botService = new TelegramBotService(telegramConfig, messageProcesso
 
 logger.info('app.services.initialized', {
   telegramConfigured: true,
-  openaiConfigured: true,
-  todoistConfigured: true,
-  functionCallingEnabled: true,
+  langGraphAgentConfigured: true,
+  audioTranscriptionConfigured: true,
 });

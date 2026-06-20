@@ -1,6 +1,6 @@
 # Jarvis MCP
 
-Jarvis is a personal Telegram assistant for Todoist. Send a text message to the bot, and Jarvis uses OpenAI GPT tool calling to create, list, update, complete, or delete Todoist tasks through the Todoist REST API.
+Jarvis is a personal Telegram assistant for Todoist. Send a text message to the bot, and the TypeScript Telegram service forwards it to a Python LangGraph agent API that creates, lists, updates, completes, or deletes Todoist tasks.
 
 The app runs as an Express webhook server with Telegraf handling Telegram updates.
 
@@ -8,7 +8,8 @@ The app runs as an Express webhook server with Telegraf handling Telegram update
 
 - Telegram webhook server with secret validation.
 - `/help` and `/status` bot commands.
-- Text messages routed through GPT function calling.
+- Text and transcribed audio messages routed through the Python LangGraph agent.
+- Human-in-the-loop clarification via LangGraph interrupts and `/resume`.
 - Todoist REST actions:
   - `add_todoist_task`
   - `get_todoist_task`
@@ -17,7 +18,7 @@ The app runs as an Express webhook server with Telegraf handling Telegram update
   - `complete_task`
   - `delete_todoist_task`
   - `get_completed_todoist_tasks`
-- Voice/audio transcription exists, but audio messages currently use GPT without Todoist tools.
+- Voice/audio transcription through Groq Whisper before routing into the same text processor.
 - Structured runtime logs with request IDs and redaction.
 - Offline, mocked integration, and gated live tests.
 
@@ -27,7 +28,8 @@ The app runs as an Express webhook server with Telegraf handling Telegram update
 - npm `>=7`
 - Telegram bot token from `@BotFather`
 - Public HTTPS webhook URL, usually via ngrok for local development
-- OpenAI API key
+- DeepSeek API key for the Python LangGraph agent
+- Groq API key for audio transcription
 - Todoist REST API token
 
 ## Environment
@@ -44,7 +46,10 @@ Required for normal runtime:
 BOT_TOKEN=...
 NGROK_URL=https://your-ngrok-url.ngrok-free.app
 TELEGRAM_SECRET_TOKEN=...
-OPENAI_API_KEY=...
+ALLOWED_TELEGRAM_USER_IDS=...
+LANGGRAPH_AGENT_URL=http://localhost:8000
+GROQ_API_KEY=...
+DEEPSEEK_API_KEY=...
 TODOIST_API_KEY=...
 PORT=3000
 NODE_ENV=development
@@ -65,6 +70,48 @@ Install dependencies:
 
 ```bash
 npm install
+python -m pip install -r requirements.txt
+```
+
+Start the Python LangGraph agent API in one terminal:
+
+```bash
+uvicorn agents.api:app --host 127.0.0.1 --port 8000
+```
+
+Python health check:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Run the LangGraph directly against a prompt batch without Telegram:
+
+```bash
+venv/bin/python agents/jarvis.py --prompts-file agents/prompts.txt --json
+```
+
+Prompt files can be newline-delimited text:
+
+```text
+show me today tasks
+add buy milk tomorrow
+```
+
+Or JSON:
+
+```json
+{ "prompts": ["show me today tasks", "add buy milk tomorrow"] }
+```
+
+Bulk graph runs are read-only by default. Add `--allow-mutations` only when you want real Todoist writes.
+
+If the FastAPI service is already running, you can run the same kind of batch through the service:
+
+```bash
+curl -X POST http://localhost:8000/invoke-bulk \
+  -H 'Content-Type: application/json' \
+  -d '{"user_id":"local-user","messages":["show me today tasks","add buy milk tomorrow"]}'
 ```
 
 Start ngrok in another terminal:
@@ -139,8 +186,9 @@ Expected flow:
 ```text
 Telegram message
   -> local Express backend through ngrok
-  -> GPT decides which Todoist tool to call
-  -> Todoist REST API is called
+  -> TextProcessorService calls Python /invoke or /resume
+  -> LangGraph decides whether to answer, call Todoist tools, or ask for clarification
+  -> Todoist REST API is called by Python when tools are needed
   -> Telegram receives Jarvis's reply
 ```
 
@@ -175,12 +223,12 @@ Telegram
   -> MessageHandlers.handleText()
   -> MessageProcessorService
   -> TextProcessorService
-  -> GPTService
-  -> FunctionCallingProcessor
-  -> DirectToolCallDispatcher
-  -> TodoistAPIService
+  -> LangGraphAgentClient
+  -> Python FastAPI /invoke or /resume
+  -> agents/jarvis.py LangGraph loop
+  -> TodoistApiClient
   -> Todoist REST API
-  -> GPT final response
+  -> LangGraph final response or HITL clarification
   -> Telegram reply
 ```
 
@@ -199,9 +247,9 @@ Useful events include:
 
 - `telegram.webhook.received`
 - `telegram.message.received`
-- `gpt.tool_decision.received`
-- `tool.dispatch.completed`
-- `todoist.task.create.completed`
+- `langgraph.request.started`
+- `langgraph.request.completed`
+- Python LangSmith / TracePrinter events from `agents/jarvis.py`
 - `telegram.reply.sent`
 
 `logs/` is ignored by git.
