@@ -95,6 +95,7 @@ from agents.agent_api.app.runner import (
 from agents.agent_api.app.tools.todoist.client import (
     TODOIST_COMPLETED_BY_COMPLETION_DATE_URL,
     TODOIST_REST_BASE_URL,
+    TodoistApiError,
     TodoistApiClient,
 )
 from agents.agent_api.app.tools.todoist.schemas import (
@@ -142,6 +143,7 @@ __all__ = [
     # todoist client
     "TODOIST_COMPLETED_BY_COMPLETION_DATE_URL",
     "TODOIST_REST_BASE_URL",
+    "TodoistApiError",
     "TodoistApiClient",
     # todoist schemas
     "ASK_USER_TOOL_NAME",
