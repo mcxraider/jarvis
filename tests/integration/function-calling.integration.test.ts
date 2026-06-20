@@ -95,7 +95,7 @@ describe('FunctionCallingProcessor integration', () => {
       toolCalls,
       finalResponse: result.response,
     });
-    expect(result.response).toBe('Done. I completed 5 actions successfully.');
+    expect(result.response).toBe('Done — 5 actions completed.');
     expect(result.usedFunctionCalling).toBe(true);
     expect(result.functionCallsCount).toBe(5);
     expect(dispatcher.executeToolCalls).toHaveBeenCalledWith(
@@ -155,7 +155,7 @@ describe('FunctionCallingProcessor integration', () => {
       'user-1',
       {},
     );
-    expect(result.response).toBe('Done. I completed the action successfully.');
+    expect(result.response).toBe('Done.');
     expect(create).toHaveBeenCalledTimes(1);
   });
 
@@ -247,7 +247,7 @@ describe('FunctionCallingProcessor integration', () => {
     );
 
     expect(result.response).toBe(
-      "I couldn't complete the request. Failed:\n- add_todoist_task: Invalid arguments for add_todoist_task",
+      'Failed:\n• add_todoist_task: Invalid arguments for add_todoist_task',
     );
     expect(create).toHaveBeenCalledTimes(1);
   });

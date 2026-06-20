@@ -2,8 +2,8 @@
 import { logger } from '../../utils/logger';
 import { TextProcessorService } from './processors/text-processor.service';
 import { AudioProcessorService } from './processors/audio-processor.service';
-import { ToolDispatcher } from '../../types/tool.types';
 import { LogContext } from '../../utils/logger';
+import { LangGraphAgentClient } from '../ai/langgraph-agent-client.service';
 
 /**
  * Main service responsible for coordinating message processing
@@ -13,8 +13,8 @@ export class MessageProcessorService {
   private readonly textProcessor: TextProcessorService;
   private readonly audioProcessor: AudioProcessorService;
 
-  constructor(toolDispatcher?: ToolDispatcher) {
-    this.textProcessor = new TextProcessorService(toolDispatcher);
+  constructor(agentClient?: LangGraphAgentClient) {
+    this.textProcessor = new TextProcessorService(agentClient);
     this.audioProcessor = new AudioProcessorService(this.textProcessor);
   }
 

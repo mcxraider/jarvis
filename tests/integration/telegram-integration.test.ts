@@ -28,7 +28,20 @@ describeIntegration('Telegram Integration Tests', () => {
       secretToken: process.env.TELEGRAM_SECRET_TOKEN!,
     };
 
-    botService = new TelegramBotService(telegramConfig, new MessageProcessorService());
+    const fakeAgentClient = {
+      invoke: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'telegram-smoke',
+        response: 'ok',
+        toolResults: [],
+      }),
+      resume: jest.fn(),
+    };
+
+    botService = new TelegramBotService(
+      telegramConfig,
+      new MessageProcessorService(fakeAgentClient as any),
+    );
   });
 
   it(

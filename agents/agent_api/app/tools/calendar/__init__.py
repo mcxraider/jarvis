@@ -1,0 +1,2 @@
+"""Calendar tool integration placeholder."""
+

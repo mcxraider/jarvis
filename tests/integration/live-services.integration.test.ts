@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import { TodoistAPIService, TodoistTask } from '../../src/services/external/todoist-api.service';
 import { MessageProcessorService } from '../../src/services/telegram/message-processor.service';
-import { DirectToolCallDispatcher } from '../../src/services/tools/direct-tool-dispatcher.service';
+import { LangGraphAgentClient } from '../../src/services/ai/langgraph-agent-client.service';
 import { createTestRunLogger } from '../helpers/test-run-logger';
 
 dotenv.config();
@@ -120,10 +120,10 @@ describeIf(process.env.RUN_LIVE_TODOIST_TESTS === 'true' && !!process.env.TODOIS
 );
 
 describeIf(
-  process.env.RUN_LIVE_OPENAI_TODOIST_TESTS === 'true' &&
-    !!process.env.OPENAI_API_KEY &&
+  process.env.RUN_LIVE_LANGGRAPH_TODOIST_TESTS === 'true' &&
+    !!process.env.LANGGRAPH_AGENT_URL &&
     !!process.env.TODOIST_API_KEY,
-)('Live OpenAI + Todoist pipeline', () => {
+)('Live LangGraph + Todoist pipeline', () => {
   let todoist: TodoistAPIService;
 
   beforeAll(() => {
@@ -131,21 +131,21 @@ describeIf(
   });
 
   it(
-    'creates a Todoist task through MessageProcessorService and GPT tool calling',
+    'creates a Todoist task through MessageProcessorService and LangGraph tool calling',
     async () => {
-      const taskName = uniqueName('jarvis-openai-test');
+      const taskName = uniqueName('jarvis-langgraph-test');
       let createdTaskId: string | undefined;
 
       try {
-        const messageProcessor = new MessageProcessorService(new DirectToolCallDispatcher());
+        const messageProcessor = new MessageProcessorService(new LangGraphAgentClient());
         const prompt = `Add a Todoist task named ${taskName} with label ${TEST_LABEL} and normal priority.`;
         const response = await messageProcessor.processTextMessage(prompt, 123456);
-        logger.logResponse('openai_todoist_pipeline', { prompt, response });
+        logger.logResponse('langgraph_todoist_pipeline', { prompt, response });
 
         expect(response.length).toBeGreaterThan(0);
 
         const created = await findTaskByContent(todoist, taskName);
-        logger.logAssertion('openai_task_lookup', { created });
+        logger.logAssertion('langgraph_task_lookup', { created });
         expect(created).toBeDefined();
         createdTaskId = created?.id;
       } finally {

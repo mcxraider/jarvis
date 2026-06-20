@@ -1,6 +1,7 @@
 import copy
 import json
 import sys
+import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -101,7 +102,7 @@ class JarvisGraphTests(unittest.TestCase):
         prompt = jarvis.get_system_prompt()
 
         self.assertIn("You are Jarvis, the user's personal orchestrator agent.", prompt)
-        self.assertIn("Call dispatch_workers", prompt)
+        self.assertIn("DISPATCH requires a dispatch_workers tool", prompt)
         self.assertIn("Call ask_user", prompt)
         self.assertIn("Max 8 loop iterations per user turn", prompt)
         self.assertIn("Current LangGraph runner supports ANSWER and TOOL_CALL", prompt)
@@ -141,6 +142,32 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(result["final_response"], "Hello.")
         self.assertEqual(result["tool_results"], [])
 
+    def test_request_source_is_kept_in_state_and_interrupt_payload(self) -> None:
+        result = jarvis.run_jarvis(
+            user_prompt="fake prompt",
+            request_source="test",
+            agent_client=FakeDeepSeekAgentClient(
+                [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            fake_tool_call(
+                                "call_ask",
+                                jarvis.ASK_USER_TOOL_NAME,
+                                {"question": "Which task should I update?"},
+                            )
+                        ],
+                    }
+                ]
+            ),
+            todoist_client=FakeTodoistClient(),
+            tracer=jarvis.NULL_TRACE,
+        )
+
+        self.assertEqual(result["request_source"], "test")
+        self.assertEqual(result["interrupt_payload"]["request_source"], "test")
+
     def test_run_jarvis_sequence_invokes_prompts_in_order(self) -> None:
         agent_client = FakeDeepSeekAgentClient(
             [
@@ -164,6 +191,52 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertIn("User request:\nfirst prompt", agent_client.calls[0][1]["content"])
         self.assertIn("User request:\nsecond prompt", agent_client.calls[1][1]["content"])
 
+    def test_load_user_prompts_from_text_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "prompts.txt"
+            path.write_text(
+                "\n".join(["# ignored comment", "first prompt", "", "second prompt"]),
+                encoding="utf-8",
+            )
+
+            prompts = jarvis.load_user_prompts_from_file(str(path))
+
+        self.assertEqual(prompts, ["first prompt", "second prompt"])
+
+    def test_load_user_prompts_from_json_object_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "prompts.json"
+            path.write_text(
+                json.dumps({"prompts": ["first prompt", "second prompt"]}),
+                encoding="utf-8",
+            )
+
+            prompts = jarvis.load_user_prompts_from_file(str(path))
+
+        self.assertEqual(prompts, ["first prompt", "second prompt"])
+
+    def test_collect_cli_prompts_combines_files_flags_and_positionals(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "prompts.txt"
+            path.write_text("file prompt\n", encoding="utf-8")
+            args = jarvis.build_arg_parser().parse_args(
+                [
+                    "--prompts-file",
+                    str(path),
+                    "--prompt",
+                    "flag prompt",
+                    "--source",
+                    "test",
+                    "positional prompt",
+                ]
+            )
+
+            prompts = jarvis.collect_cli_prompts(args)
+
+        self.assertEqual(prompts, ["file prompt", "flag prompt", "positional prompt"])
+        self.assertTrue(args.allow_mutations)
+        self.assertEqual(args.source, "test")
+
     def test_local_clarification_wrapper_prompts_and_resumes(self) -> None:
         agent_client = FakeDeepSeekAgentClient(
             [
@@ -182,7 +255,10 @@ class JarvisGraphTests(unittest.TestCase):
             ]
         )
 
-        with patch.object(jarvis, "ask_user_for_clarification", return_value="the dentist task") as ask:
+        with patch(
+            "agents.agent_api.app.runner.ask_user_for_clarification",
+            return_value="the dentist task",
+        ) as ask:
             result = jarvis.run_jarvis_with_local_clarifications(
                 user_prompt="update my task",
                 allow_mutations=False,
