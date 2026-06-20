@@ -20,7 +20,7 @@ USER_PROMPTS = [
     # "add a task for each day of next week at 8pm to review my goals",
 
     # Recurring tasks / scheduled reminders
-    # "remind me to drink water every 2 hours starting tomorrow at 9am",
+    # "remind me to sign claims form every day starting tomorrow at 9am till wed",
     # "schedule team standup every weekday at 9am for the rest of june",
     # "send myself reminders at 8am, 1pm, and 6pm every day this week to take meds",
     # "set a reminder for the thing we talked about tomorrow at 10am",
