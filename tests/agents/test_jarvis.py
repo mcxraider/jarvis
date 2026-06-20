@@ -5,6 +5,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List
 from unittest.mock import patch
 
@@ -13,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agents import jarvis
+from agents.agent_api.app.graph.nodes import orchestrator as orchestrator_module
 
 
 class FakeDeepSeekAgentClient:
@@ -95,6 +97,43 @@ def fake_tool_call(call_id: str, name: str, arguments: Dict[str, Any]) -> Dict[s
         "type": "function",
         "function": {"name": name, "arguments": json.dumps(arguments)},
     }
+
+
+class FakeOpenAIStatusError(Exception):
+    def __init__(self, status_code: int):
+        self.status_code = status_code
+        super().__init__(f"fake status error {status_code}")
+
+
+class FakeOpenAIRateLimitError(FakeOpenAIStatusError):
+    pass
+
+
+class FakeOpenAITimeoutError(Exception):
+    pass
+
+
+class FakeOpenAIConnectionError(Exception):
+    pass
+
+
+class FakeOpenAICompletions:
+    def __init__(self, effects: List[Any]):
+        self.effects = list(effects)
+        self.calls = 0
+
+    def create(self, **_kwargs: Any) -> Any:
+        self.calls += 1
+        effect = self.effects.pop(0)
+        if isinstance(effect, BaseException):
+            raise effect
+        return SimpleNamespace(choices=[SimpleNamespace(message=copy.deepcopy(effect))])
+
+
+class FakeOpenAIClient:
+    def __init__(self, effects: List[Any]):
+        self.completions = FakeOpenAICompletions(effects)
+        self.chat = SimpleNamespace(completions=self.completions)
 
 
 class JarvisGraphTests(unittest.TestCase):
@@ -639,6 +678,98 @@ class JarvisGraphTests(unittest.TestCase):
             agent_client.calls[1][2].get("reasoning_content"),
             "private ask metadata",
         )
+
+    def test_deepseek_client_retries_retryable_failures(self) -> None:
+        cases = [
+            (FakeOpenAIRateLimitError(429), "rate_limit"),
+            (FakeOpenAIStatusError(503), "server_error"),
+            (FakeOpenAITimeoutError("timeout"), "timeout"),
+            (FakeOpenAIConnectionError("connection"), "connection_error"),
+        ]
+
+        for error, expected_type in cases:
+            with self.subTest(expected_type=expected_type):
+                client = jarvis.DeepSeekAgentClient(
+                    api_key="test",
+                    tracer=jarvis.NULL_TRACE,
+                    retry_sleep=lambda _seconds: None,
+                )
+                fake_client = FakeOpenAIClient(
+                    [error, {"role": "assistant", "content": "Recovered."}]
+                )
+                client.client = fake_client
+
+                with patch.multiple(
+                    orchestrator_module,
+                    APIStatusError=FakeOpenAIStatusError,
+                    RateLimitError=FakeOpenAIRateLimitError,
+                    APITimeoutError=FakeOpenAITimeoutError,
+                    APIConnectionError=FakeOpenAIConnectionError,
+                ):
+                    message = client.create_message(
+                        [{"role": "user", "content": "hello"}],
+                        [],
+                    )
+                    self.assertEqual(client._error_type(error), expected_type)
+
+                self.assertEqual(message["content"], "Recovered.")
+                self.assertEqual(fake_client.completions.calls, 2)
+
+    def test_deepseek_client_does_not_retry_client_status_errors(self) -> None:
+        cases = [400, 401, 422]
+
+        for status_code in cases:
+            with self.subTest(status_code=status_code):
+                client = jarvis.DeepSeekAgentClient(
+                    api_key="test",
+                    tracer=jarvis.NULL_TRACE,
+                    retry_sleep=lambda _seconds: None,
+                )
+                fake_client = FakeOpenAIClient([FakeOpenAIStatusError(status_code)])
+                client.client = fake_client
+
+                with patch.multiple(
+                    orchestrator_module,
+                    APIStatusError=FakeOpenAIStatusError,
+                    RateLimitError=FakeOpenAIRateLimitError,
+                    APITimeoutError=FakeOpenAITimeoutError,
+                    APIConnectionError=FakeOpenAIConnectionError,
+                ):
+                    with self.assertRaises(jarvis.DeepSeekAgentClientError) as raised:
+                        client.create_message([{"role": "user", "content": "hello"}], [])
+
+                self.assertEqual(fake_client.completions.calls, 1)
+                self.assertEqual(raised.exception.payload["type"], "client_error")
+                self.assertFalse(raised.exception.payload["retryable"])
+                self.assertEqual(raised.exception.payload["status_code"], status_code)
+
+    def test_deepseek_final_failure_ends_graph_with_structured_error(self) -> None:
+        payload = {
+            "source": "deepseek",
+            "type": "timeout",
+            "retryable": True,
+            "attempts": 3,
+            "message": "timed out",
+        }
+
+        class FailingDeepSeekAgentClient:
+            def create_message(
+                self,
+                _messages: List[Dict[str, Any]],
+                _tools: List[Dict[str, Any]],
+            ) -> Dict[str, Any]:
+                raise jarvis.DeepSeekAgentClientError(payload)
+
+        result = jarvis.run_jarvis(
+            user_prompt="fake prompt",
+            agent_client=FailingDeepSeekAgentClient(),
+            todoist_client=FakeTodoistClient(),
+            tracer=jarvis.NULL_TRACE,
+        )
+
+        self.assertEqual(result["next"], "end")
+        self.assertEqual(result["final_response"], jarvis.LLM_FAILURE_MESSAGE)
+        self.assertEqual(json.loads(result["error"]), payload)
 
 
 if __name__ == "__main__":
