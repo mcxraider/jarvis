@@ -42,8 +42,8 @@ Making the agent correct on complex, multi-step tasks. Single-shot model discret
 2. Deterministic domain/alias matching for obvious requests ("task", "todo", "due" → Todoist; "meeting", "calendar" → calendar tools).
 3. Lexical or embedding retrieval over the remaining tool registry.
 4. Context-aware boosting: tools connected to recent list results or active conversation state rank higher.
-5. Return 5–12 candidates with selection reasons and confidence score.
-6. If confidence is low, include only safe read-only discovery tools and route toward clarification.
+5. Return closer matched candidates with selection reasons and confidence score.
+6. If confidence is low, just include all the tools and route toward clarification.
 
 **Success criteria:**
 - A 100-tool registry normally narrows to fewer than 12 orchestrator-visible tools.
