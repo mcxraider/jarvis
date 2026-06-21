@@ -38,6 +38,10 @@ export class TelegramHandlers {
     bot.on('text', this.messageHandlers.handleText.bind(this.messageHandlers));
     bot.on('voice', this.messageHandlers.handleVoice.bind(this.messageHandlers));
     bot.on('audio', this.messageHandlers.handleAudio.bind(this.messageHandlers));
+    bot.on('photo', this.messageHandlers.handlePhoto.bind(this.messageHandlers));
+    bot.on('sticker', this.messageHandlers.handleSticker.bind(this.messageHandlers));
+    bot.on('video_note', this.messageHandlers.handleVideoNote.bind(this.messageHandlers));
+    bot.on('animation', this.messageHandlers.handleAnimation.bind(this.messageHandlers));
     bot.on('document', this.messageHandlers.handleDocument.bind(this.messageHandlers));
     bot.on('message', this.messageHandlers.handleUnknown.bind(this.messageHandlers));
   }

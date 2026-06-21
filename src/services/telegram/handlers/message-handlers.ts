@@ -116,6 +116,87 @@ export class MessageHandlers {
     await this.processAudioFile(ctx, audio);
   }
 
+  async handlePhoto(ctx: Context): Promise<void> {
+    if (!ctx.message || !('photo' in ctx.message)) return;
+
+    const photo = ctx.message.photo;
+    const bestPhoto = photo[photo.length - 1];
+    if (!bestPhoto) return;
+
+    const userId = ctx.from?.id;
+    const logContext = this.createLogContext(ctx, 'photo');
+    const startedAt = Date.now();
+
+    logger.info('telegram.message.received', {
+      ...logContext,
+      userId,
+      fileId: bestPhoto.file_id,
+      width: bestPhoto.width,
+      height: bestPhoto.height,
+      fileSize: bestPhoto.file_size,
+      caption: ctx.message.caption ? truncateForLog(ctx.message.caption) : undefined,
+    });
+    this.activityService.recordActivity('message_photo');
+
+    try {
+      const response = await this.messageProcessor.processPhotoMessage(
+        {
+          fileId: bestPhoto.file_id,
+          caption: ctx.message.caption,
+          width: bestPhoto.width,
+          height: bestPhoto.height,
+          fileSize: bestPhoto.file_size,
+        },
+        userId,
+        logContext,
+      );
+      await sendFinalReply(ctx, response, logContext);
+      logger.info('telegram.reply.sent', {
+        ...logContext,
+        responseLength: response.length,
+        totalDurationMs: Date.now() - startedAt,
+      });
+    } catch (error) {
+      logger.error('telegram.message.failed', {
+        ...logContext,
+        error: (error as Error).message,
+        userId,
+        durationMs: Date.now() - startedAt,
+      });
+      await ctx.reply('Something went wrong processing your image. Please try again.');
+    }
+  }
+
+  async handleSticker(ctx: Context): Promise<void> {
+    if (!ctx.message || !('sticker' in ctx.message)) return;
+
+    await this.rejectUnsupportedMedia(
+      ctx,
+      'sticker',
+      'Stickers are not supported yet. Please send text, audio, voice, or an image with a caption.',
+    );
+  }
+
+  async handleVideoNote(ctx: Context): Promise<void> {
+    if (!ctx.message || !('video_note' in ctx.message)) return;
+
+    await this.rejectUnsupportedMedia(
+      ctx,
+      'video_note',
+      'Round video notes are not supported yet. Please send text, audio, voice, or an image with a caption.',
+    );
+  }
+
+  async handleAnimation(ctx: Context): Promise<void> {
+    if (!ctx.message || !('animation' in ctx.message)) return;
+
+    await this.rejectUnsupportedMedia(
+      ctx,
+      'animation',
+      'GIFs and animations are not supported yet. Please send text, audio, voice, or an image with a caption.',
+    );
+  }
+
   async handleDocument(ctx: Context): Promise<void> {
     if (!ctx.message || !('document' in ctx.message)) return;
 
@@ -169,11 +250,26 @@ export class MessageHandlers {
         mimeType: document.mime_type,
         fileName: document.file_name,
       });
-      await ctx.reply('I only process audio files and text messages. Please send one of those.');
+      await ctx.reply('I only process audio files, images, voice notes, and text messages. Please send one of those.');
     }
   }
 
   async handleUnknown(ctx: Context): Promise<void> {
+    if (!ctx.message) return;
+
+    if (
+      'text' in ctx.message ||
+      'voice' in ctx.message ||
+      'audio' in ctx.message ||
+      'document' in ctx.message ||
+      'photo' in ctx.message ||
+      'sticker' in ctx.message ||
+      'video_note' in ctx.message ||
+      'animation' in ctx.message
+    ) {
+      return;
+    }
+
     const userId = ctx.from?.id;
 
     logger.info('telegram.message.unsupported', {
@@ -183,7 +279,7 @@ export class MessageHandlers {
     });
     this.activityService.recordActivity('message_unknown');
 
-    await ctx.reply('I can only handle text and audio messages for now.');
+    await ctx.reply('I can only handle text, audio, voice, and images for now.');
   }
 
   private async processAudioFile(ctx: Context, audioFile: any): Promise<void> {
@@ -221,6 +317,19 @@ export class MessageHandlers {
       });
       await ctx.reply('Something went wrong processing your audio file. Please try again.');
     }
+  }
+
+  private async rejectUnsupportedMedia(ctx: Context, messageType: string, replyText: string): Promise<void> {
+    const userId = ctx.from?.id;
+
+    logger.info('telegram.message.unsupported', {
+      ...this.createLogContext(ctx, messageType),
+      userId,
+      messageType,
+    });
+    this.activityService.recordActivity('message_unknown');
+
+    await ctx.reply(replyText);
   }
 
   private createLogContext(ctx: Context, messageType: string): LogContext {
