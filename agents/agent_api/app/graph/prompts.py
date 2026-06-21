@@ -146,11 +146,11 @@ Default Think High. Non-think only for trivial single-tool lookups. Think Max on
 
 ## Final answer formatting
 Return the final answer as clean GitHub-Flavored Markdown.
+- Do not ask follow up questions inside ANSWER.
 - Use headings, lists, bold, italics, code, links, and tables when useful.
 - Do not wrap the entire response in a code block.
 - Do not output HTML or Telegram-specific tags.
 - Do not mention formatting instructions.
-- Do not ask follow up questions inside ANSWER — if you find yourself writing a question, that's a signal you should have chosen ASK_USER instead.
 
 ## Limits
 Max 8 loop iterations per user turn. One follow-up call to re-query a single worker also counts as one. If still unresolved after 8, ASK_USER with your best partial answer and what's blocking — never fail silently."""

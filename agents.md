@@ -1,47 +1,56 @@
-# Agent Handoff Log
+# Agent Git Publishing Guide
 
-## 2026-06-21 commit and push
+Use this as a method, not as a literal command transcript. Adapt file paths, tests, branch names, and commit messages to the change being published.
 
-### Scope
+## 1. Confirm the scope
 
-- Published the entire worktree that was present on `main` when the request was received.
-- The worktree included Telegram progress/message-processing changes, related unit tests, prompt and future-scope documentation updates, a new coverage-gap report, and removal of the legacy `todoist-mcp/` tree and `AUDIO_CONVERSION_SETUP.md`.
-- Remote: `origin` (`git@github.com:mcxraider/jarvis-mcp.git`).
-- Commit message: `Update Telegram progress handling and remove legacy Todoist MCP`.
-- `gh` was not installed. It was not needed because the requested operation was a normal Git commit and SSH push; no pull request was requested.
+- Run `git status -sb` and inspect both staged and unstaged diffs.
+- Treat existing changes as user-owned. Do not discard or rewrite them.
+- If the worktree contains unrelated changes, stage explicit paths instead of using `git add -A`.
+- Before pushing directly to `main`, confirm that a direct default-branch push is intended. Otherwise, use a feature branch and pull request.
 
-### Validation
+## 2. Validate the change
 
-- `npm run build`: passed.
-- Three changed Telegram unit-test suites: passed (3 suites, 17 tests).
-- `git diff --check`: passed. The first staged check found one extra blank line at EOF in the new coverage report; it was removed and the staged check was rerun successfully.
-- The first commit attempt failed because configured GPG signing could not launch an interactive PIN entry (`Inappropriate ioctl for device`). The commit was retried unsigned with a command-scoped override; repository and global Git configuration were not changed.
+- Run the smallest relevant tests plus any build, type-check, or lint command affected by the diff.
+- For Telegram TypeScript changes in this repository, `npm run build` and the relevant Jest suites are a sensible minimum.
+- Run `git diff --check` before staging and `git diff --cached --check` after staging.
+- Record what passed, failed, or was intentionally not run in the handoff.
 
-### Exact shell commands run
-
-Commands are listed in execution order. Codex created this file with its patch-editing tool; that edit was not a shell command.
+## 3. Stage and review
 
 ```bash
-sed -n '1,240p' '/Users/Jerry_YANG_from.TP/.codex/plugins/cache/openai-curated-remote/github/0.1.5/skills/yeet/SKILL.md'
-git status -sb && git diff --stat && git diff -- . ':(exclude)agents.md' && git diff --cached --stat && git branch --show-current && git remote -v && gh --version && gh auth status
-rg --files -g 'agents.md' -g 'AGENTS.md' -g 'package.json' -g 'pyproject.toml' -g 'README*' | sort && git diff --numstat | tail -n 30 && git log -5 --oneline --decorate
-sed -n '1,220p' package.json && sed -n '1,220p' README.md
-npm run build && npm test -- --runInBand tests/unit/services/telegram/handlers/message-handlers.test.ts tests/unit/services/telegram/message-processor.service.test.ts tests/unit/services/telegram/telegram-progress-reporter.test.ts && git diff --check
-git status -sb
-git add -A
-git diff --cached --stat && git diff --cached --check
-tail -n 8 reports/test-coverage-gap-analysis.md
-git add -A
+git add <intended-paths>
+git diff --cached --stat
+git diff --cached
 git diff --cached --check
-git commit -m "Update Telegram progress handling and remove legacy Todoist MCP"
-git add agents.md
-git diff --cached --check
-git -c commit.gpgsign=false commit -m "Update Telegram progress handling and remove legacy Todoist MCP"
-git push -u origin main
 ```
 
-### Important follow-up notes
+Use `git add -A` only when the entire worktree has been confirmed as the intended scope.
 
-- The push intentionally updates the repository's default branch directly because the request explicitly asked for the current changes to be committed and pushed.
-- Only the changed Telegram test suites were run, not the entire repository test matrix.
-- The deleted `todoist-mcp/` implementation is retained in Git history if restoration is ever needed.
+## 4. Create a signed commit
+
+Signed commits are the default for this repository. Keep the configured signing policy intact.
+
+In an interactive terminal, make GPG aware of the current terminal before committing:
+
+```bash
+export GPG_TTY="$(tty)"
+gpg-connect-agent updatestartuptty /bye
+git commit -S -m "<concise commit message>"
+git log -1 --show-signature
+```
+
+If signing fails because PIN entry cannot open, do not silently bypass signing with `commit.gpgsign=false`. Ask the user to unlock the key or run the signed commit from an interactive terminal. Create an unsigned commit only when the user explicitly approves that exception.
+
+## 5. Push
+
+```bash
+git push -u origin "$(git branch --show-current)"
+```
+
+After pushing, report the branch, commit hash, validation performed, and whether the commit signature was verified. Do not create or update a pull request unless requested.
+
+## Repository notes
+
+- GitHub remote: `origin` (`git@github.com:mcxraider/jarvis-mcp.git`).
+- The root project uses npm, TypeScript, and Jest; see `package.json` for current scripts.
