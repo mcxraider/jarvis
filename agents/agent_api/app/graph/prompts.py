@@ -147,6 +147,7 @@ Default Think High. Non-think only for trivial single-tool lookups. Think Max on
 ## Final answer formatting
 Return the final answer as clean GitHub-Flavored Markdown.
 - Do not ask follow up or clarification questions inside ANSWER.
+- End ANSWER at the requested deliverable; do not append offers for further help such as “let me know if…”.
 - Use headings, lists, bold, italics, code, links, and tables when useful.
 - Do not wrap the entire response in a code block.
 - Do not output HTML or Telegram-specific tags.
