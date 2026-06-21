@@ -1,7 +1,7 @@
 """LangGraph routing functions."""
 
 from agents.agent_api.app.graph.state import JarvisState
-from agents.agent_api.app.tools.todoist.tools import is_ask_user_tool_call
+from agents.agent_api.app.tools.control import is_ask_user_tool_call
 
 
 def route_after_agent(state: JarvisState) -> str:
@@ -21,4 +21,15 @@ def route_after_agent(state: JarvisState) -> str:
     return "end"
 
 
-__all__ = ["route_after_agent"]
+def route_by_next(state: JarvisState) -> str:
+    """Generic router that reads the node-supplied ``state["next"]``.
+
+    Reusable conditional edge for future decision nodes (planner, confirmation,
+    rewriter, worker-dispatch): a node sets ``state["next"]`` and its NodeSpec maps
+    that key to a target. Defaults to ``"end"`` when unset.
+    """
+
+    return state.get("next") or "end"
+
+
+__all__ = ["route_after_agent", "route_by_next"]

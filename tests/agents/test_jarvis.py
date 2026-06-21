@@ -433,7 +433,7 @@ class JarvisGraphTests(unittest.TestCase):
     def test_system_prompt_uses_orchestrator_contract(self) -> None:
         prompt = jarvis.get_system_prompt()
 
-        self.assertIn("You are Jarvis, the user's personal orchestrator agent.", prompt)
+        self.assertIn("You are Jarvis, the Jerry's personal orchestrator agent.", prompt)
         self.assertIn("DISPATCH requires a dispatch_workers tool", prompt)
         self.assertIn("Call ask_user", prompt)
         self.assertIn(

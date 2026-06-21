@@ -19,8 +19,8 @@ from agents.agent_api.app.constants import (
     DEEPSEEK_RETRY_MAX_DELAY_SECONDS,
 )
 from agents.agent_api.app.graph.state import JarvisState
-from agents.agent_api.app.tools.todoist.schemas import get_todoist_tools
-from agents.agent_api.app.tools.todoist.tools import is_ask_user_tool_call
+from agents.agent_api.app.tools.base import ToolRegistry
+from agents.agent_api.app.tools.control import is_ask_user_tool_call
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 
@@ -213,10 +213,15 @@ class DeepSeekAgentClient:
 
 def create_agent_node(
     agent_client: Any,
+    registry: ToolRegistry,
     max_agent_turns: int,
     tracer: Optional[TracePrinter] = None,
 ):
-    """Create the graph node that asks the model what to do next."""
+    """Create the graph node that asks the model what to do next.
+
+    The available tool catalogue comes from ``registry`` so the agent node is
+    domain-agnostic — adding a tool domain never edits this node.
+    """
 
     tracer = tracer or NULL_TRACE
 
@@ -241,7 +246,7 @@ def create_agent_node(
 
         messages = copy.deepcopy(state.get("messages", []))
         try:
-            assistant_message = agent_client.create_message(messages, get_todoist_tools())
+            assistant_message = agent_client.create_message(messages, registry.openai_schemas())
         except DeepSeekAgentClientError as error:
             tracer.event(
                 "graph.agent",
