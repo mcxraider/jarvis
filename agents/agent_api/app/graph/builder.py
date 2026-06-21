@@ -1,6 +1,7 @@
 """LangGraph builder: graph factory, initial state, and the run entrypoint."""
 
 import uuid
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from langgraph.graph import END, StateGraph
@@ -22,6 +23,7 @@ from agents.agent_api.app.graph.nodes.tools import create_tools_node
 from agents.agent_api.app.graph.prompts import USER_PROMPT, build_initial_messages
 from agents.agent_api.app.graph.state import JarvisState, enrich_interrupt_status
 from agents.agent_api.app.langsmith_final_logger import log_final_conversation_run
+from agents.agent_api.app.run_logging import FileLoggingTracer, open_run_log
 from agents.agent_api.app.tools.todoist.client import TodoistApiClient
 from agents.agent_api.app.tools.todoist.tools import TodoistToolDispatcher
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
@@ -101,12 +103,29 @@ def run_jarvis(
 ) -> JarvisState:
     """Run the full Jarvis graph for one hardcoded prompt."""
 
-    tracer = tracer if tracer is not None else TracePrinter()
-    tracer.section("Jarvis LangGraph Run")
     if clarification_reply is not None and not thread_id:
         raise ValueError("thread_id is required when resuming with clarification_reply.")
     thread_id = thread_id or str(uuid.uuid4())
     checkpointer = checkpointer or DEFAULT_CHECKPOINTER
+
+    base_tracer = tracer if tracer is not None else TracePrinter()
+    run_log = open_run_log(thread_id)
+    if run_log is not None:
+        run_log.write_header(
+            started_at=datetime.now().isoformat(timespec="seconds"),
+            thread_id=thread_id,
+            user_id=user_id,
+            request_source=request_source,
+            model=DEEPSEEK_MODEL,
+            allow_mutations=allow_mutations,
+            max_agent_turns=max_agent_turns,
+            resuming=clarification_reply is not None,
+        )
+        tracer = FileLoggingTracer(base_tracer, run_log)
+    else:
+        tracer = base_tracer
+
+    tracer.section("Jarvis LangGraph Run")
     tracer.event(
         "runtime.start",
         "Starting graph invocation.",
@@ -121,6 +140,12 @@ def run_jarvis(
 
     agent_client = agent_client or DeepSeekAgentClient(tracer=tracer)
     todoist_client = todoist_client or TodoistApiClient(tracer=tracer)
+    # Caller-provided clients (e.g. the CLI runner) are built before run_jarvis
+    # wraps the tracer, so retarget them at this run's tracer to keep their
+    # agent.* / todoist.* events flowing into the per-run file log.
+    for client in (agent_client, todoist_client):
+        if getattr(client, "tracer", None) is not None:
+            client.tracer = tracer
     dispatcher = TodoistToolDispatcher(
         todoist_client,
         allow_mutations=allow_mutations,
@@ -168,6 +193,14 @@ def run_jarvis(
         has_error=bool(result.get("error")),
         interrupted=bool(result.get("interrupted")),
     )
+    if run_log is not None:
+        run_log.write_footer(
+            finished_at=datetime.now().isoformat(timespec="seconds"),
+            turns=result.get("turn_count"),
+            tool_results=len(result.get("tool_results", [])),
+            has_error=bool(result.get("error")),
+            interrupted=bool(result.get("interrupted")),
+        )
     if not result.get("interrupted"):
         try:
             (final_logger or log_final_conversation_run)(
