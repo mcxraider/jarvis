@@ -6,6 +6,7 @@ import { TextProcessorService } from './text-processor.service';
 
 const DEFAULT_AUDIO_TRANSCRIPTION_PROMPT =
   'Telegram voice memo for a personal productivity assistant. Preserve task names, dates, labels, project names, Todoist, Groq, DeepSeek, and technical terms. Use clear punctuation.';
+const TRANSCRIPTION_SEPARATOR = '\n\n---\n\n';
 
 export interface AudioProcessingHooks {
   onTranscribed?: () => void | Promise<void>;
@@ -64,7 +65,7 @@ export class AudioProcessorService {
           hooks?.onProgress,
         );
 
-        return `🗣️: ${text}\n\n${response}`;
+        return `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}${response}`;
       } catch (processingError) {
         logger.warn('audio_processor.text_processing_failed', {
           ...logContext,
@@ -74,7 +75,7 @@ export class AudioProcessorService {
         });
 
         return (
-          `🗣️: ${text}\n\n` +
+          `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}` +
           `_Could not process the request. Please try again._`
         );
       }
@@ -126,7 +127,7 @@ export class AudioProcessorService {
           hooks?.onProgress,
         );
 
-        return `🗣️: ${text}\n\n${response}`;
+        return `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}${response}`;
       } catch (processingError) {
         logger.warn('audio_processor.document_text_processing_failed', {
           ...logContext,
@@ -137,7 +138,7 @@ export class AudioProcessorService {
         });
 
         return (
-          `🗣️: ${text}\n\n` +
+          `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}` +
           `_Could not process the request. Please try again._`
         );
       }
