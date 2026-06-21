@@ -6,9 +6,8 @@ from typing import Optional
 from langgraph.prebuilt import ToolNode
 
 from agents.agent_api.app.graph.state import JarvisState
-from agents.agent_api.app.tools.todoist.tools import (
-    TodoistToolDispatcher,
-    build_todoist_langchain_tools,
+from agents.agent_api.app.tools.dispatcher import (
+    ToolDispatcher,
     execute_tool_calls_with_toolnode,
     tool_result_to_message,
 )
@@ -16,14 +15,14 @@ from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 
 def create_tools_node(
-    tool_dispatcher: TodoistToolDispatcher,
+    tool_dispatcher: ToolDispatcher,
     tracer: Optional[TracePrinter] = None,
 ):
     """Create the graph node that executes requested tools and records results."""
 
     tracer = tracer or NULL_TRACE
     tool_node = ToolNode(
-        build_todoist_langchain_tools(tool_dispatcher),
+        tool_dispatcher.build_langchain_tools(),
         handle_tool_errors=True,
     )
 

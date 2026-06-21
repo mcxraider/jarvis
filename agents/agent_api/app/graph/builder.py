@@ -4,7 +4,6 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from langgraph.graph import END, StateGraph
 from langgraph.types import Command
 from langsmith import tracing_context
 
@@ -16,6 +15,7 @@ from agents.agent_api.app.constants import (
     MAX_AGENT_TURNS,
     USER_ID,
 )
+from agents.agent_api.app.graph.assembly import NodeSpec, build_graph
 from agents.agent_api.app.graph.edges import route_after_agent
 from agents.agent_api.app.graph.nodes.hitl import create_hitl_node
 from agents.agent_api.app.graph.nodes.orchestrator import DeepSeekAgentClient, create_agent_node
@@ -24,40 +24,44 @@ from agents.agent_api.app.graph.prompts import USER_PROMPT, build_initial_messag
 from agents.agent_api.app.graph.state import JarvisState, enrich_interrupt_status
 from agents.agent_api.app.langsmith_final_logger import log_final_conversation_run
 from agents.agent_api.app.run_logging import FileLoggingTracer, open_run_log
+from agents.agent_api.app.tools.dispatcher import ToolDispatcher
+from agents.agent_api.app.tools.registry_factory import build_default_registry
 from agents.agent_api.app.tools.todoist.client import TodoistApiClient
-from agents.agent_api.app.tools.todoist.tools import TodoistToolDispatcher
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 
 def create_jarvis_graph(
     agent_client: Any,
-    tool_dispatcher: TodoistToolDispatcher,
+    tool_dispatcher: ToolDispatcher,
     max_agent_turns: int = MAX_AGENT_TURNS,
     tracer: Optional[TracePrinter] = None,
     checkpointer: Optional[Any] = None,
 ):
-    """Create the Jarvis LangGraph app."""
+    """Create the Jarvis LangGraph app from declarative node specs.
+
+    The tool catalogue the agent sees comes from ``tool_dispatcher.registry``, so
+    new tool domains plug in via the registry and new nodes/stages via NodeSpec —
+    neither requires editing this function's body beyond the spec list.
+    """
 
     tracer = tracer or NULL_TRACE
     checkpointer = checkpointer or DEFAULT_CHECKPOINTER
-    workflow = StateGraph(JarvisState)
-    workflow.add_node("agent", create_agent_node(agent_client, max_agent_turns, tracer))
-    workflow.add_node("tools", create_tools_node(tool_dispatcher, tracer))
-    workflow.add_node("hitl", create_hitl_node(tracer))
+    registry = tool_dispatcher.registry
 
-    workflow.set_entry_point("agent")
-    
-    # Conditional edge: after the model speaks, ask, execute tools, or stop.
-    workflow.add_conditional_edges(
-        "agent",
-        route_after_agent,
-        {"hitl": "hitl", "tools": "tools", "end": END},
-    )
-    # Tool observations always return to the model for synthesis or another step.
-    workflow.add_edge("tools", "agent")
-    workflow.add_edge("hitl", "agent")
+    node_specs = [
+        NodeSpec(
+            name="agent",
+            node=create_agent_node(agent_client, registry, max_agent_turns, tracer),
+            # After the model speaks: ask, execute tools, or stop.
+            router=route_after_agent,
+            route_map={"hitl": "hitl", "tools": "tools", "end": "end"},
+        ),
+        # Tool/clarification observations always return to the model.
+        NodeSpec(name="tools", node=create_tools_node(tool_dispatcher, tracer), static_route="agent"),
+        NodeSpec(name="hitl", node=create_hitl_node(tracer), static_route="agent"),
+    ]
 
-    return workflow.compile(checkpointer=checkpointer)
+    return build_graph(JarvisState, node_specs, entry="agent", checkpointer=checkpointer)
 
 
 def build_initial_state(
@@ -146,8 +150,9 @@ def run_jarvis(
     for client in (agent_client, todoist_client):
         if getattr(client, "tracer", None) is not None:
             client.tracer = tracer
-    dispatcher = TodoistToolDispatcher(
-        todoist_client,
+    registry = build_default_registry(todoist_client)
+    dispatcher = ToolDispatcher(
+        registry,
         allow_mutations=allow_mutations,
         tracer=tracer,
     )

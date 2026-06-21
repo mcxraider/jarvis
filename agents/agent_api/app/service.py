@@ -52,12 +52,13 @@ from agents.agent_api.app.constants import (
     MAX_AGENT_TURNS,
     USER_ID,
 )
+from agents.agent_api.app.graph.assembly import NodeSpec, build_graph
 from agents.agent_api.app.graph.builder import (
     build_initial_state,
     create_jarvis_graph,
     run_jarvis,
 )
-from agents.agent_api.app.graph.edges import route_after_agent
+from agents.agent_api.app.graph.edges import route_after_agent, route_by_next
 from agents.agent_api.app.graph.nodes.hitl import (
     ask_user_tool_message,
     build_ask_user_payload,
@@ -85,6 +86,18 @@ from agents.agent_api.app.graph.prompts import (
     get_worker_prompt,
 )
 from agents.agent_api.app.graph.state import JarvisState, enrich_interrupt_status
+from agents.agent_api.app.tools.base import (
+    ToolRegistry,
+    ToolSpec,
+    openai_schema_from_tool,
+)
+from agents.agent_api.app.tools.control import (
+    get_ask_user_schema,
+    get_control_tool_specs,
+    get_control_tools,
+)
+from agents.agent_api.app.tools.dispatcher import ToolDispatcher, build_tool_result
+from agents.agent_api.app.tools.registry_factory import build_default_registry
 from agents.agent_api.app.runner import (
     ask_user_for_clarification,
     build_arg_parser,
@@ -106,12 +119,14 @@ from agents.agent_api.app.tools.todoist.client import (
 from agents.agent_api.app.tools.todoist.schemas import (
     ASK_USER_TOOL_NAME,
     MUTATING_TOOL_NAMES,
+    get_todoist_tool_schemas,
     get_todoist_tools,
 )
 from agents.agent_api.app.tools.todoist.tools import (
     TodoistToolDispatcher,
     build_todoist_langchain_tools,
     execute_tool_calls_with_toolnode,
+    get_todoist_tool_specs,
     is_ask_user_tool_call,
     openai_tool_call_to_toolnode_call,
     parse_tool_call_arguments,
@@ -153,14 +168,27 @@ __all__ = [
     "TODOIST_REST_BASE_URL",
     "TodoistApiError",
     "TodoistApiClient",
-    # todoist schemas
+    # tool registry / dispatcher (domain-neutral)
+    "ToolRegistry",
+    "ToolSpec",
+    "ToolDispatcher",
+    "build_default_registry",
+    "build_tool_result",
+    "openai_schema_from_tool",
+    # control pseudo-tools
     "ASK_USER_TOOL_NAME",
+    "get_ask_user_schema",
+    "get_control_tool_specs",
+    "get_control_tools",
+    # todoist schemas
     "MUTATING_TOOL_NAMES",
+    "get_todoist_tool_schemas",
     "get_todoist_tools",
     # todoist tools/dispatcher
     "TodoistToolDispatcher",
     "build_todoist_langchain_tools",
     "execute_tool_calls_with_toolnode",
+    "get_todoist_tool_specs",
     "is_ask_user_tool_call",
     "openai_tool_call_to_toolnode_call",
     "parse_tool_call_arguments",
@@ -192,6 +220,10 @@ __all__ = [
     "create_hitl_node",
     "deferred_tool_message",
     "route_after_agent",
+    "route_by_next",
+    # graph assembly
+    "NodeSpec",
+    "build_graph",
     # builder
     "build_initial_state",
     "create_jarvis_graph",

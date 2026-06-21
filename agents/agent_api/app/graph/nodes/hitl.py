@@ -8,12 +8,8 @@ from langgraph.types import interrupt
 
 from agents.agent_api.app.constants import USER_ID
 from agents.agent_api.app.graph.state import JarvisState
-from agents.agent_api.app.tools.todoist.schemas import ASK_USER_TOOL_NAME
-from agents.agent_api.app.tools.todoist.tools import (
-    is_ask_user_tool_call,
-    parse_tool_call_arguments,
-    tool_call_name,
-)
+from agents.agent_api.app.tools.base import parse_tool_call_arguments, tool_call_name
+from agents.agent_api.app.tools.control import ASK_USER_TOOL_NAME, is_ask_user_tool_call
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 

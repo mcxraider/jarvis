@@ -2,11 +2,14 @@
 
 These OpenAI/DeepSeek-compatible function schemas are the contract the model sees
 when deciding whether to call a Todoist function and what arguments to provide.
+
+The generic ``ask_user`` control pseudo-tool lives in ``tools/control.py``;
+``ASK_USER_TOOL_NAME`` is re-exported here for backward compatibility.
 """
 
 from typing import Any, Dict, List
 
-ASK_USER_TOOL_NAME = "ask_user"
+from agents.agent_api.app.tools.control import ASK_USER_TOOL_NAME, get_control_tools
 
 MUTATING_TOOL_NAMES = {
     "add_todoist_task",
@@ -16,8 +19,8 @@ MUTATING_TOOL_NAMES = {
 }
 
 
-def get_todoist_tools() -> List[Dict[str, Any]]:
-    """Return OpenAI/DeepSeek-compatible function tool schemas."""
+def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
+    """Return the Todoist-only OpenAI/DeepSeek function tool schemas."""
 
     add_task_parameters = {
         "type": "object",
@@ -173,43 +176,7 @@ def get_todoist_tools() -> List[Dict[str, Any]]:
         "additionalProperties": False,
     }
 
-    ask_user_parameters = {
-        "type": "object",
-        "properties": {
-            "question": {
-                "type": "string",
-                "description": "One concise question to ask the user before continuing.",
-            },
-            "reason": {
-                "type": "string",
-                "description": "Optional short explanation of why clarification is needed.",
-            },
-            "missing_fields": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Optional missing inputs needed to continue safely.",
-            },
-            "risk": {
-                "type": "string",
-                "description": "Optional risk if Jarvis guessed instead of asking.",
-            },
-        },
-        "required": ["question"],
-        "additionalProperties": False,
-    }
-
     return [
-        {
-            "type": "function",
-            "function": {
-                "name": ASK_USER_TOOL_NAME,
-                "description": (
-                    "Ask the user for one missing or risky detail. This pauses the "
-                    "LangGraph run with a human-in-the-loop interrupt."
-                ),
-                "parameters": ask_user_parameters,
-            },
-        },
         {
             "type": "function",
             "function": {
@@ -277,4 +244,19 @@ def get_todoist_tools() -> List[Dict[str, Any]]:
     ]
 
 
-__all__ = ["ASK_USER_TOOL_NAME", "MUTATING_TOOL_NAMES", "get_todoist_tools"]
+def get_todoist_tools() -> List[Dict[str, Any]]:
+    """Return the full LLM tool list: control pseudo-tools then Todoist tools.
+
+    Preserved for backward compatibility. New code should read the tool list from
+    the :class:`ToolRegistry` (``registry.openai_schemas()``) instead.
+    """
+
+    return get_control_tools() + get_todoist_tool_schemas()
+
+
+__all__ = [
+    "ASK_USER_TOOL_NAME",
+    "MUTATING_TOOL_NAMES",
+    "get_todoist_tool_schemas",
+    "get_todoist_tools",
+]
