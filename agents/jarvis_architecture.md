@@ -107,6 +107,7 @@ thinking metadata survives across tool turns.
 |---|---|---|---|
 | `ask_user` | pseudo-tool | — | routes to **hitl** `interrupt()` |
 | `get_tasks` | read | no | `GET /tasks` |
+| `get_tasks_by_filter` | read | no | `GET /tasks/filter` |
 | `get_todoist_task` | read | no | `GET /tasks/{id}` |
 | `get_completed_todoist_tasks_by_completion_date` | read | no | `GET /tasks/completed/by_completion_date` |
 | `add_todoist_task` | write | **yes** | `POST /tasks` |

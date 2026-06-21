@@ -42,9 +42,9 @@ describe('ToolArgumentValidatorService', () => {
         }),
       ).functionName,
     ).toBe('update_todoist_task');
-    expect(validator.validate(createToolCall('get_tasks', { filter: 'today' })).functionName).toBe(
-      'get_tasks',
-    );
+    expect(
+      validator.validate(createToolCall('get_tasks_by_filter', { query: 'today' })).functionName,
+    ).toBe('get_tasks_by_filter');
     expect(validator.validate(createToolCall('complete_task', { task_id: 'task-1' })).functionName).toBe(
       'complete_task',
     );
@@ -96,6 +96,40 @@ describe('ToolArgumentValidatorService', () => {
         createToolCall('get_completed_todoist_tasks_by_completion_date', { offset: 0 }),
       ),
     ).toThrow('Invalid arguments for get_completed_todoist_tasks_by_completion_date');
+  });
+
+  it('validates Todoist v1 list and duration contracts', () => {
+    expect(() => validator.validate(createToolCall('get_tasks', { filter: 'today' }))).toThrow(
+      'Invalid arguments for get_tasks',
+    );
+    expect(() => validator.validate(createToolCall('get_tasks_by_filter', {}))).toThrow(
+      'Invalid arguments for get_tasks_by_filter',
+    );
+    expect(() => validator.validate(createToolCall('add_todoist_task', {
+      content: 'Task',
+      duration: 30,
+    }))).toThrow('Invalid arguments for add_todoist_task');
+    expect(() => validator.validate(createToolCall('update_todoist_task', {
+      task_id: 'task-1',
+      duration_unit: 'minute',
+    }))).toThrow('Invalid arguments for update_todoist_task');
+    expect(() => validator.validate(createToolCall('update_todoist_task', {
+      task_id: 'task-1',
+      duration: null,
+    }))).toThrow('Invalid arguments for update_todoist_task');
+
+    expect(validator.validate(createToolCall('update_todoist_task', {
+      task_id: 'task-1',
+      assignee_id: null,
+      duration: null,
+      duration_unit: null,
+      deadline_date: null,
+    })).arguments).toMatchObject({
+      assignee_id: null,
+      duration: null,
+      duration_unit: null,
+      deadline_date: null,
+    });
   });
 
   it('validates completed task queries by completion date', () => {

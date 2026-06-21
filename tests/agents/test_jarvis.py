@@ -62,7 +62,13 @@ class FakeTodoistClient:
         return self._record("get_todoist_task", arguments)
 
     def get_tasks(self, arguments: Dict[str, Any]) -> Any:
-        return [self._record("get_tasks", arguments)]
+        return {"results": [self._record("get_tasks", arguments)], "next_cursor": None}
+
+    def get_tasks_by_filter(self, arguments: Dict[str, Any]) -> Any:
+        return {
+            "results": [self._record("get_tasks_by_filter", arguments)],
+            "next_cursor": None,
+        }
 
     def update_todoist_task(self, arguments: Dict[str, Any]) -> Any:
         return self._record("update_todoist_task", arguments)
@@ -103,7 +109,7 @@ class ParallelTrackingTodoistClient(FakeTodoistClient):
 class FailingTodoistClient(FakeTodoistClient):
     """Fake client that raises a structured Todoist API failure."""
 
-    def get_tasks(self, arguments: Dict[str, Any]) -> Any:
+    def get_tasks_by_filter(self, arguments: Dict[str, Any]) -> Any:
         del arguments
         raise jarvis.TodoistApiError(
             kind="deprecated",
@@ -309,6 +315,82 @@ class TodoistApiClientRetryTests(unittest.TestCase):
         self.assertEqual(raised.exception.attempts, 3)
         self.assertEqual(urlopen.call_count, 3)
 
+    def test_v1_task_list_and_filter_endpoints(self) -> None:
+        client = self.request_client()
+        page = {"results": [{"id": "task-1"}], "next_cursor": "next-page"}
+        with patch.object(client, "_request", return_value=page) as request:
+            self.assertEqual(
+                client.get_tasks(
+                    {
+                        "parent_id": "parent-1",
+                        "ids": ["task-1", "task-2"],
+                        "cursor": "page-2",
+                        "limit": 25,
+                    }
+                ),
+                page,
+            )
+            request.assert_called_once_with(
+                "https://api.todoist.com/api/v1/tasks?"
+                "parent_id=parent-1&ids=task-1%2Ctask-2&cursor=page-2&limit=25"
+            )
+
+        with patch.object(client, "_request", return_value=page) as request:
+            self.assertEqual(
+                client.get_tasks_by_filter(
+                    {"query": "Jun 25 & p1", "lang": "en", "limit": 10}
+                ),
+                page,
+            )
+            request.assert_called_once_with(
+                "https://api.todoist.com/api/v1/tasks/filter?"
+                "query=Jun+25+%26+p1&lang=en&limit=10"
+            )
+
+    def test_update_preserves_explicit_null_fields(self) -> None:
+        client = self.request_client()
+        with patch.object(client, "_request", return_value={"id": "task-1"}) as request:
+            client.update_todoist_task(
+                {
+                    "task_id": "task-1",
+                    "assignee_id": None,
+                    "duration": None,
+                    "duration_unit": None,
+                    "deadline_date": None,
+                }
+            )
+        request.assert_called_once_with(
+            "https://api.todoist.com/api/v1/tasks/task-1",
+            "POST",
+            {
+                "assignee_id": None,
+                "duration": None,
+                "duration_unit": None,
+                "deadline_date": None,
+            },
+        )
+
+    def test_completed_task_range_validation(self) -> None:
+        client = self.request_client()
+        with self.assertRaisesRegex(ValueError, "later than since"):
+            client.get_completed_todoist_tasks_by_completion_date(
+                {
+                    "since": "2026-06-20T00:00:00Z",
+                    "until": "2026-06-19T00:00:00Z",
+                }
+            )
+        with self.assertRaisesRegex(ValueError, "cannot exceed three months"):
+            client.get_completed_todoist_tasks_by_completion_date(
+                {
+                    "since": "2026-01-01T00:00:00Z",
+                    "until": "2026-05-01T00:00:00Z",
+                }
+            )
+        with self.assertRaisesRegex(ValueError, "RFC3339"):
+            client.get_completed_todoist_tasks_by_completion_date(
+                {"since": "2026-01-01", "until": "2026-02-01T00:00:00Z"}
+            )
+
 
 class FakeOpenAIStatusError(Exception):
     def __init__(self, status_code: int):
@@ -452,7 +534,7 @@ class JarvisGraphTests(unittest.TestCase):
                 {
                     "role": "assistant",
                     "content": "",
-                    "tool_calls": [fake_tool_call("call_1", "get_tasks", {"filter": "today"})],
+                    "tool_calls": [fake_tool_call("call_1", "get_tasks_by_filter", {"query": "today"})],
                 },
                 {"role": "assistant", "content": "You have one task today."},
             ]
@@ -643,13 +725,26 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertIn("missing_fields", parameters["properties"])
         self.assertIn("risk", parameters["properties"])
 
+    def test_todoist_v1_list_tool_schemas_are_separate(self) -> None:
+        tools_by_name = {
+            tool["function"]["name"]: tool["function"] for tool in jarvis.get_todoist_tools()
+        }
+        list_parameters = tools_by_name["get_tasks"]["parameters"]
+        filter_parameters = tools_by_name["get_tasks_by_filter"]["parameters"]
+
+        self.assertNotIn("filter", list_parameters["properties"])
+        self.assertNotIn("lang", list_parameters["properties"])
+        self.assertIn("parent_id", list_parameters["properties"])
+        self.assertIn("cursor", list_parameters["properties"])
+        self.assertEqual(filter_parameters["required"], ["query"])
+
     def test_single_read_tool_call(self) -> None:
         result = self.run_graph_with_fakes(
             [
                 {
                     "role": "assistant",
                     "content": "",
-                    "tool_calls": [fake_tool_call("call_1", "get_tasks", {"filter": "today"})],
+                    "tool_calls": [fake_tool_call("call_1", "get_tasks_by_filter", {"query": "today"})],
                 },
                 {"role": "assistant", "content": "You have one task today."},
             ]
@@ -781,6 +876,43 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertTrue(tool_result["success"])
         self.assertFalse(tool_result["mutation_blocked"])
 
+    def test_update_tool_preserves_explicit_nulls_and_omits_missing_fields(self) -> None:
+        result = self.run_graph_with_fakes(
+            [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        fake_tool_call(
+                            "call_1",
+                            "update_todoist_task",
+                            {
+                                "task_id": "task-1",
+                                "assignee_id": None,
+                                "duration": None,
+                                "duration_unit": None,
+                                "deadline_date": None,
+                            },
+                        )
+                    ],
+                },
+                {"role": "assistant", "content": "Cleared the scheduling fields."},
+            ],
+            allow_mutations=True,
+        )
+
+        arguments = result["tool_results"][0]["content"]["arguments"]
+        self.assertEqual(
+            arguments,
+            {
+                "task_id": "task-1",
+                "assignee_id": None,
+                "duration": None,
+                "duration_unit": None,
+                "deadline_date": None,
+            },
+        )
+
     def test_mixed_ask_user_and_mutating_tool_defers_mutation(self) -> None:
         thread_id = "test-hitl-mixed"
         checkpointer = jarvis.InMemorySaver()
@@ -843,7 +975,7 @@ class JarvisGraphTests(unittest.TestCase):
                 {
                     "role": "assistant",
                     "content": "",
-                    "tool_calls": [fake_tool_call("call_1", "get_tasks", {"filter": "today"})],
+                    "tool_calls": [fake_tool_call("call_1", "get_tasks_by_filter", {"query": "today"})],
                 },
                 {
                     "role": "assistant",
@@ -873,8 +1005,8 @@ class JarvisGraphTests(unittest.TestCase):
                         "role": "assistant",
                         "content": "",
                         "tool_calls": [
-                            fake_tool_call("call_today", "get_tasks", {"filter": "today"}),
-                            fake_tool_call("call_tomorrow", "get_tasks", {"filter": "tomorrow"}),
+                            fake_tool_call("call_today", "get_tasks_by_filter", {"query": "today"}),
+                            fake_tool_call("call_tomorrow", "get_tasks_by_filter", {"query": "tomorrow"}),
                         ],
                     },
                     {"role": "assistant", "content": "Here are both lists."},
@@ -916,7 +1048,7 @@ class JarvisGraphTests(unittest.TestCase):
                     {
                         "role": "assistant",
                         "content": "",
-                        "tool_calls": [fake_tool_call("call_1", "get_tasks", {"filter": "today"})],
+                        "tool_calls": [fake_tool_call("call_1", "get_tasks_by_filter", {"query": "today"})],
                     },
                     {"role": "assistant", "content": "Todoist is unavailable."},
                 ]
@@ -945,12 +1077,12 @@ class JarvisGraphTests(unittest.TestCase):
                 {
                     "role": "assistant",
                     "content": "",
-                    "tool_calls": [fake_tool_call("call_1", "get_tasks", {"filter": "today"})],
+                    "tool_calls": [fake_tool_call("call_1", "get_tasks_by_filter", {"query": "today"})],
                 },
                 {
                     "role": "assistant",
                     "content": "",
-                    "tool_calls": [fake_tool_call("call_2", "get_tasks", {"filter": "tomorrow"})],
+                    "tool_calls": [fake_tool_call("call_2", "get_tasks_by_filter", {"query": "tomorrow"})],
                 },
             ],
             max_agent_turns=1,
@@ -965,7 +1097,7 @@ class JarvisGraphTests(unittest.TestCase):
                     "role": "assistant",
                     "content": "",
                     "reasoning_content": "private chain metadata",
-                    "tool_calls": [fake_tool_call("call_1", "get_tasks", {"filter": "today"})],
+                    "tool_calls": [fake_tool_call("call_1", "get_tasks_by_filter", {"query": "today"})],
                 },
                 {"role": "assistant", "content": "Done."},
             ]

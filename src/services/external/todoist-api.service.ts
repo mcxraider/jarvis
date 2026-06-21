@@ -11,42 +11,60 @@ import { LogContext, logger, truncateForLog } from '../../utils/logger';
  * Todoist API response interfaces
  */
 export interface TodoistTask {
+  user_id: string;
   id: string;
   content: string;
-  description?: string;
+  description: string;
   project_id: string;
-  section_id?: string;
-  parent_id?: string;
-  order: number;
+  section_id: string | null;
+  parent_id: string | null;
+  added_by_uid: string;
+  assigned_by_uid: string | null;
+  responsible_uid: string | null;
+  deadline: { date: string; lang: string } | null;
+  duration: { amount: number; unit: 'minute' | 'day' } | null;
+  is_collapsed: boolean;
+  checked: boolean;
+  is_deleted: boolean;
+  added_at: string;
+  completed_at: string | null;
+  completed_by_uid: string | null;
+  updated_at: string;
   priority: number;
   labels: string[];
-  due?: {
-    date?: string;
-    datetime?: string;
-    string?: string;
-    timezone?: string;
-  };
-  url: string;
-  comment_count: number;
-  assignee_id?: string;
-  assigner_id?: string;
-  created_at: string;
-  is_completed: boolean;
+  due: {
+    date: string;
+    string: string;
+    lang: string;
+    is_recurring: boolean;
+    timezone?: string | null;
+  } | null;
+  child_order: number;
+  note_count: number;
+  day_order: number;
+  goal_ids: string[];
+  completed_count: number;
+  postponed_count: number;
 }
 
 export interface TodoistProject {
   id: string;
   name: string;
-  comment_count: number;
-  order: number;
+  description?: string;
+  workspace_id?: string | null;
+  parent_id?: string | null;
+  child_order?: number;
   color: string;
-  is_shared: boolean;
+  is_collapsed?: boolean;
+  is_archived?: boolean;
+  is_deleted?: boolean;
   is_favorite: boolean;
-  is_inbox_project: boolean;
-  is_team_inbox: boolean;
-  view_style: string;
-  url: string;
-  parent_id?: string;
+  inbox_project?: boolean;
+}
+
+export interface TodoistPaginatedResponse<T> {
+  results: T[];
+  next_cursor: string | null;
 }
 
 export interface CreateTaskPayload {
@@ -61,7 +79,11 @@ export interface CreateTaskPayload {
   due_string?: string;
   due_date?: string;
   due_datetime?: string;
-  assignee_id?: string;
+  due_lang?: string;
+  assignee_id?: number;
+  duration?: number;
+  duration_unit?: 'minute' | 'day';
+  deadline_date?: string;
 }
 
 export interface UpdateTaskPayload {
@@ -72,12 +94,38 @@ export interface UpdateTaskPayload {
   due_string?: string;
   due_date?: string;
   due_datetime?: string;
-  assignee_id?: string;
+  due_lang?: string;
+  assignee_id?: number | null;
+  duration?: number | null;
+  duration_unit?: 'minute' | 'day' | null;
+  deadline_date?: string | null;
+  child_order?: number;
+  is_collapsed?: boolean;
+  day_order?: number;
+}
+
+export interface GetTasksOptions {
+  project_id?: string;
+  section_id?: string;
+  parent_id?: string;
+  label?: string;
+  ids?: string[];
+  goal_id?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface GetTasksByFilterOptions {
+  query: string;
+  lang?: string;
+  cursor?: string;
+  limit?: number;
 }
 
 export interface CompletedTasksQueryOptions {
   since?: string;
   until?: string;
+  workspace_id?: number;
   project_id?: string;
   section_id?: string;
   parent_id?: string;
@@ -160,7 +208,6 @@ export class TodoistAPIService {
         throw new Error(`Todoist API error (${response.status}): ${errorText}`);
       }
 
-      // Handle empty responses (like DELETE requests)
       if (response.status === 204 || response.headers.get('content-length') === '0') {
         logger.info('todoist.api.request.completed', {
           ...logContext,
@@ -173,7 +220,20 @@ export class TodoistAPIService {
         return null;
       }
 
-      const data = await response.json();
+      const responseText = await response.text();
+      if (!responseText.trim()) {
+        logger.info('todoist.api.request.completed', {
+          ...logContext,
+          url,
+          method,
+          statusCode: response.status,
+          hasData: false,
+          durationMs: Date.now() - startedAt,
+        });
+        return null;
+      }
+
+      const data = JSON.parse(responseText);
 
       logger.info('todoist.api.request.completed', {
         ...logContext,
@@ -254,45 +314,62 @@ export class TodoistAPIService {
    * Get tasks with optional filtering
    *
    * @param options - Filtering options
-   * @returns Promise<TodoistTask[]> - Array of tasks
+   * @returns Paginated active tasks
    */
   async getTasks(
-    options: {
-      project_id?: string;
-      section_id?: string;
-      label?: string;
-      filter?: string;
-      lang?: string;
-      ids?: string[];
-    } = {},
+    options: GetTasksOptions = {},
     logContext: LogContext = {},
-  ): Promise<TodoistTask[]> {
+  ): Promise<TodoistPaginatedResponse<TodoistTask>> {
     logger.info('todoist.tasks.list.started', { ...logContext, ...options });
 
     const params = new URLSearchParams();
 
     if (options.project_id) params.append('project_id', options.project_id);
     if (options.section_id) params.append('section_id', options.section_id);
+    if (options.parent_id) params.append('parent_id', options.parent_id);
     if (options.label) params.append('label', options.label);
-    if (options.filter) params.append('filter', options.filter);
-    if (options.lang) params.append('lang', options.lang);
     if (options.ids && options.ids.length > 0) {
       params.append('ids', options.ids.join(','));
     }
+    if (options.goal_id) params.append('goal_id', options.goal_id);
+    if (options.cursor) params.append('cursor', options.cursor);
+    if (options.limit) params.append('limit', options.limit.toString());
 
     const endpoint = `/tasks${params.toString() ? '?' + params.toString() : ''}`;
-    const tasks = await this.makeRequest(endpoint, 'GET', undefined, {
+    const page = await this.makeRequest(endpoint, 'GET', undefined, {
       ...logContext,
       operation: 'todoist.tasks.list',
     });
 
     logger.info('todoist.tasks.list.completed', {
       ...logContext,
-      count: tasks.length,
-      filter: options.filter,
+      count: page.results.length,
+      hasNextCursor: !!page.next_cursor,
     });
 
-    return tasks;
+    return page;
+  }
+
+  async getTasksByFilter(
+    options: GetTasksByFilterOptions,
+    logContext: LogContext = {},
+  ): Promise<TodoistPaginatedResponse<TodoistTask>> {
+    logger.info('todoist.tasks.filter.started', { ...logContext, ...options });
+    const params = new URLSearchParams({ query: options.query });
+    if (options.lang) params.append('lang', options.lang);
+    if (options.cursor) params.append('cursor', options.cursor);
+    if (options.limit) params.append('limit', options.limit.toString());
+
+    const page = await this.makeRequest(`/tasks/filter?${params.toString()}`, 'GET', undefined, {
+      ...logContext,
+      operation: 'todoist.tasks.filter',
+    });
+    logger.info('todoist.tasks.filter.completed', {
+      ...logContext,
+      count: page.results.length,
+      hasNextCursor: !!page.next_cursor,
+    });
+    return page;
   }
 
   /**
@@ -367,22 +444,25 @@ export class TodoistAPIService {
   /**
    * Get all projects
    *
-   * @returns Promise<TodoistProject[]> - Array of projects
+   * @returns Paginated active projects
    */
-  async getProjects(logContext: LogContext = {}): Promise<TodoistProject[]> {
+  async getProjects(
+    logContext: LogContext = {},
+  ): Promise<TodoistPaginatedResponse<TodoistProject>> {
     logger.info('todoist.projects.list.started', logContext);
 
-    const projects = await this.makeRequest('/projects', 'GET', undefined, {
+    const page = await this.makeRequest('/projects', 'GET', undefined, {
       ...logContext,
       operation: 'todoist.projects.list',
     });
 
     logger.info('todoist.projects.list.completed', {
       ...logContext,
-      count: projects.length,
+      count: page.results.length,
+      hasNextCursor: !!page.next_cursor,
     });
 
-    return projects;
+    return page;
   }
 
   async checkHealth(): Promise<{ ok: boolean; detail: string }> {
@@ -390,7 +470,7 @@ export class TodoistAPIService {
       const projects = await this.getProjects();
       return {
         ok: true,
-        detail: `${projects.length} project(s) visible`,
+        detail: `${projects.results.length} project(s) visible`,
       };
     } catch (error) {
       return {
@@ -402,15 +482,38 @@ export class TodoistAPIService {
 
   private withDefaultCompletionDateRange(options: CompletedTasksQueryOptions): CompletedTasksQueryOptions {
     const until = options.until ?? new Date().toISOString();
+    this.validateRfc3339Timestamp(until, 'until');
     const since =
       options.since ??
       new Date(new Date(until).getTime() - this.defaultCompletedTasksRangeMs).toISOString();
+    this.validateRfc3339Timestamp(since, 'since');
 
+    this.validateCompletionDateRange(since, until);
     return {
       ...options,
       since,
       until,
     };
+  }
+
+  private validateRfc3339Timestamp(value: string, field: 'since' | 'until'): void {
+    const rfc3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+    if (!rfc3339.test(value)) {
+      throw new Error(`Todoist completed-task ${field} must be an RFC3339 timestamp`);
+    }
+  }
+
+  private validateCompletionDateRange(since: string, until: string): void {
+    const sinceDate = new Date(since);
+    const untilDate = new Date(until);
+    if (untilDate <= sinceDate) {
+      throw new Error('Todoist completed-task until must be later than since');
+    }
+    const maximumUntil = new Date(sinceDate);
+    maximumUntil.setUTCMonth(maximumUntil.getUTCMonth() + 3);
+    if (untilDate > maximumUntil) {
+      throw new Error('Todoist completed-task range cannot exceed three months');
+    }
   }
 
   /**
@@ -429,6 +532,7 @@ export class TodoistAPIService {
     const params = new URLSearchParams();
     params.append('since', optionsWithRange.since as string);
     params.append('until', optionsWithRange.until as string);
+    if (optionsWithRange.workspace_id) params.append('workspace_id', optionsWithRange.workspace_id.toString());
     if (optionsWithRange.project_id) params.append('project_id', optionsWithRange.project_id);
     if (optionsWithRange.section_id) params.append('section_id', optionsWithRange.section_id);
     if (optionsWithRange.parent_id) params.append('parent_id', optionsWithRange.parent_id);

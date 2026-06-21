@@ -21,8 +21,8 @@ async function findTaskByContent(
   todoist: TodoistAPIService,
   content: string,
 ): Promise<TodoistTask | undefined> {
-  const tasks = await todoist.getTasks({ label: TEST_LABEL });
-  return tasks.find((task) => task.content.includes(content));
+  const page = await todoist.getTasks({ label: TEST_LABEL });
+  return page.results.find((task) => task.content.includes(content));
 }
 
 async function cleanupTask(todoist: TodoistAPIService, taskId: string | undefined): Promise<void> {
@@ -92,10 +92,10 @@ describeIf(process.env.RUN_LIVE_TODOIST_TESTS === 'true' && !!process.env.TODOIS
 
           const listed = await todoist.getTasks({ label: TEST_LABEL });
           logger.logResponse('todoist_list_tasks', {
-            count: listed.length,
-            ids: listed.map((task) => task.id),
+            count: listed.results.length,
+            ids: listed.results.map((task) => task.id),
           });
-          expect(listed.some((task) => task.id === created.id)).toBe(true);
+          expect(listed.results.some((task) => task.id === created.id)).toBe(true);
 
           await expect(todoist.completeTask(created.id)).resolves.toBeUndefined();
           logger.logStep('todoist_complete_task', { taskId: created.id });

@@ -7,11 +7,50 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.prebuilt import ToolNode
 from langsmith import traceable
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from agents.agent_api.app.constants import ALLOW_MUTATIONS
 from agents.agent_api.app.tools.todoist.client import TodoistApiError
 from agents.agent_api.app.tools.todoist.schemas import ASK_USER_TOOL_NAME, MUTATING_TOOL_NAMES
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
+
+
+class UpdateTodoistTaskInput(BaseModel):
+    """Validated update arguments that retain which nullable fields were supplied."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    content: Optional[str] = None
+    description: Optional[str] = None
+    labels: Optional[List[str]] = None
+    priority: Optional[int] = None
+    due_string: Optional[str] = None
+    due_date: Optional[str] = None
+    due_datetime: Optional[str] = None
+    due_lang: Optional[str] = None
+    assignee_id: Optional[int] = None
+    duration: Optional[int] = None
+    duration_unit: Optional[str] = None
+    deadline_date: Optional[str] = None
+    child_order: Optional[int] = None
+    is_collapsed: Optional[bool] = None
+    day_order: Optional[int] = None
+    tool_call_id: Annotated[str, InjectedToolCallId]
+
+    @model_validator(mode="after")
+    def validate_duration_pair(self) -> "UpdateTodoistTaskInput":
+        if ("duration" in self.model_fields_set) != ("duration_unit" in self.model_fields_set):
+            raise ValueError("duration and duration_unit must be provided together")
+        if self.duration is not None and self.duration_unit is None:
+            raise ValueError("duration_unit is required when duration is set")
+        if self.duration_unit is not None and self.duration is None:
+            raise ValueError("duration is required when duration_unit is set")
+        if self.duration is not None and self.duration <= 0:
+            raise ValueError("duration must be a positive integer")
+        if self.duration_unit is not None and self.duration_unit not in {"minute", "day"}:
+            raise ValueError("duration_unit must be minute or day")
+        return self
 
 
 class TodoistToolDispatcher:
@@ -30,6 +69,7 @@ class TodoistToolDispatcher:
             "add_todoist_task": todoist_client.add_todoist_task,
             "get_todoist_task": todoist_client.get_todoist_task,
             "get_tasks": todoist_client.get_tasks,
+            "get_tasks_by_filter": todoist_client.get_tasks_by_filter,
             "update_todoist_task": todoist_client.update_todoist_task,
             "complete_task": todoist_client.complete_task,
             "delete_todoist_task": todoist_client.delete_todoist_task,
@@ -260,7 +300,11 @@ def build_todoist_langchain_tools(tool_dispatcher: TodoistToolDispatcher) -> Lis
         due_string: Optional[str] = None,
         due_date: Optional[str] = None,
         due_datetime: Optional[str] = None,
-        assignee_id: Optional[str] = None,
+        due_lang: Optional[str] = None,
+        assignee_id: Optional[int] = None,
+        duration: Optional[int] = None,
+        duration_unit: Optional[str] = None,
+        deadline_date: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a Todoist task."""
 
@@ -279,7 +323,11 @@ def build_todoist_langchain_tools(tool_dispatcher: TodoistToolDispatcher) -> Lis
                 "due_string": due_string,
                 "due_date": due_date,
                 "due_datetime": due_datetime,
+                "due_lang": due_lang,
                 "assignee_id": assignee_id,
+                "duration": duration,
+                "duration_unit": duration_unit,
+                "deadline_date": deadline_date,
             },
         )
 
@@ -297,10 +345,12 @@ def build_todoist_langchain_tools(tool_dispatcher: TodoistToolDispatcher) -> Lis
         tool_call_id: Annotated[str, InjectedToolCallId],
         project_id: Optional[str] = None,
         section_id: Optional[str] = None,
+        parent_id: Optional[str] = None,
         label: Optional[str] = None,
-        filter: Optional[str] = None,
-        lang: Optional[str] = None,
         ids: Optional[List[str]] = None,
+        goal_id: Optional[str] = None,
+        cursor: Optional[str] = None,
+        limit: Optional[int] = None,
     ) -> Dict[str, Any]:
         """List active Todoist tasks with optional filters."""
 
@@ -310,42 +360,40 @@ def build_todoist_langchain_tools(tool_dispatcher: TodoistToolDispatcher) -> Lis
             {
                 "project_id": project_id,
                 "section_id": section_id,
+                "parent_id": parent_id,
                 "label": label,
-                "filter": filter,
-                "lang": lang,
                 "ids": ids,
+                "goal_id": goal_id,
+                "cursor": cursor,
+                "limit": limit,
             },
         )
 
     @tool
-    def update_todoist_task(
-        task_id: str,
+    def get_tasks_by_filter(
+        query: str,
         tool_call_id: Annotated[str, InjectedToolCallId],
-        content: Optional[str] = None,
-        description: Optional[str] = None,
-        labels: Optional[List[str]] = None,
-        priority: Optional[int] = None,
-        due_string: Optional[str] = None,
-        due_date: Optional[str] = None,
-        due_datetime: Optional[str] = None,
-        assignee_id: Optional[str] = None,
+        lang: Optional[str] = None,
+        cursor: Optional[str] = None,
+        limit: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Update an existing Todoist task."""
+        """List active Todoist tasks matching a filter expression."""
 
         return dispatch(
             tool_call_id,
+            "get_tasks_by_filter",
+            {"query": query, "lang": lang, "cursor": cursor, "limit": limit},
+        )
+
+    @tool(args_schema=UpdateTodoistTaskInput)
+    def update_todoist_task(**arguments: Any) -> Dict[str, Any]:
+        """Update an existing Todoist task."""
+
+        tool_call_id = arguments.pop("tool_call_id")
+        return dispatch(
+            tool_call_id,
             "update_todoist_task",
-            {
-                "task_id": task_id,
-                "content": content,
-                "description": description,
-                "labels": labels,
-                "priority": priority,
-                "due_string": due_string,
-                "due_date": due_date,
-                "due_datetime": due_datetime,
-                "assignee_id": assignee_id,
-            },
+            arguments,
         )
 
     @tool
@@ -371,6 +419,7 @@ def build_todoist_langchain_tools(tool_dispatcher: TodoistToolDispatcher) -> Lis
         tool_call_id: Annotated[str, InjectedToolCallId],
         since: Optional[str] = None,
         until: Optional[str] = None,
+        workspace_id: Optional[int] = None,
         project_id: Optional[str] = None,
         section_id: Optional[str] = None,
         parent_id: Optional[str] = None,
@@ -387,6 +436,7 @@ def build_todoist_langchain_tools(tool_dispatcher: TodoistToolDispatcher) -> Lis
             {
                 "since": since,
                 "until": until,
+                "workspace_id": workspace_id,
                 "project_id": project_id,
                 "section_id": section_id,
                 "parent_id": parent_id,
@@ -401,6 +451,7 @@ def build_todoist_langchain_tools(tool_dispatcher: TodoistToolDispatcher) -> Lis
         add_todoist_task,
         get_todoist_task,
         get_tasks,
+        get_tasks_by_filter,
         update_todoist_task,
         complete_task,
         delete_todoist_task,

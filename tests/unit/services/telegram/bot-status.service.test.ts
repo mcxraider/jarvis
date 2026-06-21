@@ -9,7 +9,7 @@ describe('BotStatusService', () => {
     const service = new BotStatusService(activity, {
       gptModel: 'deepseek-v4-flash',
       todoistService: {
-        getProjects: jest.fn().mockResolvedValue([{ id: '1' }]),
+        getProjects: jest.fn().mockResolvedValue({ results: [{ id: '1' }], next_cursor: null }),
       } as any,
     });
 
