@@ -40,6 +40,20 @@ describe('MessageProcessorService', () => {
     expect(spy).toHaveBeenCalledWith('https://example.com/audio.ogg', 7, {});
   });
 
+  it('passes audio hooks unchanged to the audio processor', async () => {
+    const hooks = { onTranscribed: jest.fn(), onProgress: jest.fn() };
+    const audioProcessor = (service as any).audioProcessor;
+
+    await service.processAudioMessage('https://example.com/audio.ogg', 7, {}, hooks);
+
+    expect(audioProcessor.processAudioMessage).toHaveBeenCalledWith(
+      'https://example.com/audio.ogg',
+      7,
+      {},
+      hooks,
+    );
+  });
+
   it('routes photo messages through the text processor with image context', async () => {
     const photoSpy = jest.spyOn(service, 'processPhotoMessage').mockResolvedValue('photo response');
 
@@ -93,6 +107,29 @@ describe('MessageProcessorService', () => {
       'audio/mpeg',
       7,
       {},
+    );
+  });
+
+  it('passes audio-document hooks unchanged to the audio processor', async () => {
+    const hooks = { onTranscribed: jest.fn(), onProgress: jest.fn() };
+    const audioProcessor = (service as any).audioProcessor;
+
+    await service.processAudioDocument(
+      'https://example.com/audio.mp3',
+      'memo.mp3',
+      'audio/mpeg',
+      7,
+      {},
+      hooks,
+    );
+
+    expect(audioProcessor.processAudioDocument).toHaveBeenCalledWith(
+      'https://example.com/audio.mp3',
+      'memo.mp3',
+      'audio/mpeg',
+      7,
+      {},
+      hooks,
     );
   });
 

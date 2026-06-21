@@ -1,7 +1,7 @@
 // src/services/telegram/message-processor.service.ts
 import { logger } from '../../utils/logger';
 import { TextProcessorService } from './processors/text-processor.service';
-import { AudioProcessorService } from './processors/audio-processor.service';
+import { AudioProcessingHooks, AudioProcessorService } from './processors/audio-processor.service';
 import { LogContext } from '../../utils/logger';
 import { LangGraphAgentClient, LangGraphProgressCallback } from '../ai/langgraph-agent-client.service';
 import { PendingClarificationStore } from './pending-clarification.store';
@@ -42,7 +42,12 @@ export class MessageProcessorService {
   /**
    * Processes audio messages (voice notes, audio files)
    */
-  async processAudioMessage(fileUrl: string, userId?: number, logContext: LogContext = {}): Promise<string> {
+  async processAudioMessage(
+    fileUrl: string,
+    userId?: number,
+    logContext: LogContext = {},
+    hooks?: AudioProcessingHooks,
+  ): Promise<string> {
     logger.info('processor.route.selected', {
       ...logContext,
       userId,
@@ -51,7 +56,7 @@ export class MessageProcessorService {
       fileUrl: fileUrl.substring(0, 50) + '...', // Log partial URL for privacy
     });
 
-    return this.audioProcessor.processAudioMessage(fileUrl, userId, logContext);
+    return this.audioProcessor.processAudioMessage(fileUrl, userId, logContext, hooks);
   }
 
   /**
@@ -63,6 +68,7 @@ export class MessageProcessorService {
     mimeType: string,
     userId?: number,
     logContext: LogContext = {},
+    hooks?: AudioProcessingHooks,
   ): Promise<string> {
     logger.info('processor.route.selected', {
       ...logContext,
@@ -73,7 +79,14 @@ export class MessageProcessorService {
       processor: 'AudioProcessorService',
     });
 
-    return this.audioProcessor.processAudioDocument(fileUrl, fileName, mimeType, userId, logContext);
+    return this.audioProcessor.processAudioDocument(
+      fileUrl,
+      fileName,
+      mimeType,
+      userId,
+      logContext,
+      hooks,
+    );
   }
 
   /**
