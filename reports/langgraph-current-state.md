@@ -2,7 +2,7 @@
 
 This guide explains the current Jarvis graph at the level needed to safely add or change nodes, state fields, routes, tools, and human-in-the-loop (HITL) behavior. It describes the live modular implementation under `agents/agent_api/app/`, not the older compatibility imports in `agents/jarvis.py` or `agents/agent_api/app/service.py`.
 
-## The graph in one picture
+## The current graph in one picture
 
 ```mermaid
 flowchart TD

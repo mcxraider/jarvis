@@ -1,0 +1,10 @@
+[2026-06-19 18:31:57] INFO logging.smoke_test
+  requestId: req_smoke
+  chatId: [REDACTED_ID]
+  details:
+    {
+      "nested": {
+        "token": "[REDACTED]",
+        "ok": true
+      }
+    }
