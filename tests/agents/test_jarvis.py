@@ -436,6 +436,10 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertIn("You are Jarvis, the user's personal orchestrator agent.", prompt)
         self.assertIn("DISPATCH requires a dispatch_workers tool", prompt)
         self.assertIn("Call ask_user", prompt)
+        self.assertIn(
+            "End ANSWER at the requested deliverable; do not append offers for further help",
+            prompt,
+        )
         self.assertIn("Max 8 loop iterations per user turn", prompt)
         self.assertIn("Current LangGraph runner supports ANSWER and TOOL_CALL", prompt)
 
