@@ -40,6 +40,36 @@ describe('MessageProcessorService', () => {
     expect(spy).toHaveBeenCalledWith('https://example.com/audio.ogg', 7, {});
   });
 
+  it('routes photo messages through the text processor with image context', async () => {
+    const photoSpy = jest.spyOn(service, 'processPhotoMessage').mockResolvedValue('photo response');
+
+    await expect(
+      service.processMessage(
+        {
+          type: 'photo',
+          content: 'file-id-123',
+          caption: 'Look at this note',
+          width: 800,
+          height: 600,
+          fileSize: 12345,
+        },
+        7,
+      ),
+    ).resolves.toBe('photo response');
+
+    expect(photoSpy).toHaveBeenCalledWith(
+      {
+        fileId: 'file-id-123',
+        caption: 'Look at this note',
+        width: 800,
+        height: 600,
+        fileSize: 12345,
+      },
+      7,
+      {},
+    );
+  });
+
   it('routes audio documents with file metadata to the document processor', async () => {
     const spy = jest
       .spyOn(service, 'processAudioDocument')

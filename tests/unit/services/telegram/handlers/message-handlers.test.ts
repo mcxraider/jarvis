@@ -47,6 +47,70 @@ describe('MessageHandlers', () => {
     expect(ctx.reply).toHaveBeenCalledWith('processed document', { parse_mode: 'MarkdownV2' });
   });
 
+  it('routes photos through processPhotoMessage with metadata', async () => {
+    const fileService = {
+      isAudioFile: jest.fn(),
+      getFileUrl: jest.fn(),
+    } as any;
+    const messageProcessor = {
+      processPhotoMessage: jest.fn().mockResolvedValue('processed photo'),
+      processAudioDocument: jest.fn(),
+      processAudioMessage: jest.fn(),
+    } as any;
+    const activityService = {
+      recordActivity: jest.fn(),
+    } as any;
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService);
+    const ctx = createContext({
+      photo: [
+        { file_id: 'small', width: 320, height: 240, file_size: 1000 },
+        { file_id: 'large', width: 1280, height: 720, file_size: 9000 },
+      ],
+      caption: 'Whiteboard photo',
+    });
+
+    await handlers.handlePhoto(ctx);
+
+    expect(messageProcessor.processPhotoMessage).toHaveBeenCalledWith(
+      {
+        fileId: 'large',
+        caption: 'Whiteboard photo',
+        width: 1280,
+        height: 720,
+        fileSize: 9000,
+      },
+      123,
+      expect.objectContaining({ messageType: 'photo' }),
+    );
+    expect(activityService.recordActivity).toHaveBeenCalledWith('message_photo');
+    expect(ctx.reply).toHaveBeenCalledWith('processed photo', { parse_mode: 'MarkdownV2' });
+  });
+
+  it('rejects stickers with a helpful reply', async () => {
+    const fileService = {
+      isAudioFile: jest.fn(),
+      getFileUrl: jest.fn(),
+    } as any;
+    const messageProcessor = {
+      processAudioDocument: jest.fn(),
+      processAudioMessage: jest.fn(),
+    } as any;
+    const activityService = {
+      recordActivity: jest.fn(),
+    } as any;
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService);
+    const ctx = createContext({
+      sticker: { file_id: 'sticker-1' },
+    });
+
+    await handlers.handleSticker(ctx);
+
+    expect(activityService.recordActivity).toHaveBeenCalledWith('message_unknown');
+    expect(ctx.reply).toHaveBeenCalledWith(
+      'Stickers are not supported yet. Please send text, audio, voice, or an image with a caption.',
+    );
+  });
+
   it('rejects non-audio documents with a helpful reply', async () => {
     const fileService = {
       isAudioFile: jest.fn().mockReturnValue(false),
@@ -73,7 +137,7 @@ describe('MessageHandlers', () => {
     expect(messageProcessor.processAudioDocument).not.toHaveBeenCalled();
     expect(activityService.recordActivity).not.toHaveBeenCalled();
     expect(ctx.reply).toHaveBeenCalledWith(
-      'I only process audio files and text messages. Please send one of those.',
+      'I only process audio files, images, voice notes, and text messages. Please send one of those.',
     );
   });
 

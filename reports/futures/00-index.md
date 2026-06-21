@@ -10,7 +10,7 @@ The original `FUTURE_ENHANCEMENTS.md` has been broken into focused files. Each f
 | [04-reliability.md](04-reliability.md) | LLM resilience, error taxonomy, retries, batching | High |
 | [05-ux.md](05-ux.md) | Progress messages, conversation gating, NL features | Medium |
 | [06-observability.md](06-observability.md) | Metrics, eval harness, testing strategy | Medium |
-| [07-future-scope.md](07-future-scope.md) | Scheduled jobs, calendar, voice, parallel fan-out | Later |
+| [07-future-scope.md](07-future-scope.md) | Scheduled jobs, calendar, voice, parallel fan-out, user onboarding | Later |
 | [08-open-decisions.md](08-open-decisions.md) | Unresolved product questions | Ongoing |
 
 ## Suggested Implementation Order
