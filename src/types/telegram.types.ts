@@ -4,4 +4,5 @@ export interface TelegramConfig {
   webhookUrl?: string;
   secretToken?: string;
   maxConnections?: number;
+  richMessages?: boolean;
 }

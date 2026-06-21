@@ -2,12 +2,11 @@
 import crypto from 'crypto';
 import { LogContext, logger } from '../../../utils/logger';
 import { LangGraphAgentClient, LangGraphProgressCallback } from '../../ai/langgraph-agent-client.service';
-
-interface PendingClarification {
-  threadId: string;
-  question: string;
-  createdAt: number;
-}
+import {
+  createPendingClarificationStore,
+  PendingClarificationRecord,
+  PendingClarificationStore,
+} from '../pending-clarification.store';
 
 const PENDING_CLARIFICATION_TTL_MS = 30 * 60 * 1000;
 
@@ -15,9 +14,14 @@ const PENDING_CLARIFICATION_TTL_MS = 30 * 60 * 1000;
  * Service responsible for processing text messages
  */
 export class TextProcessorService {
-  private readonly pendingClarifications = new Map<string, PendingClarification>();
+  private readonly pendingClarificationTtlMs: number;
 
-  constructor(private readonly agentClient: LangGraphAgentClient = new LangGraphAgentClient()) {}
+  constructor(
+    private readonly agentClient: LangGraphAgentClient = new LangGraphAgentClient(),
+    private readonly pendingClarificationStore: PendingClarificationStore = createPendingClarificationStore(),
+  ) {
+    this.pendingClarificationTtlMs = this.resolvePendingClarificationTtlMs();
+  }
 
   /**
    * Processes text messages from users
@@ -39,7 +43,7 @@ export class TextProcessorService {
     try {
       const internalUserId = this.mapTelegramUserId(userId);
       const pendingKey = this.pendingKey(userId, internalUserId, logContext);
-      const pendingClarification = this.getPendingClarification(pendingKey);
+      const pendingClarification = await this.pendingClarificationStore.get(pendingKey);
       const threadId =
         pendingClarification?.threadId || this.buildTelegramThreadId(userId, internalUserId, logContext);
       const requestContext = { ...logContext, threadId };
@@ -60,13 +64,26 @@ export class TextProcessorService {
           : await this.agentClient.invoke(agentRequest, requestContext);
 
       if (agentResponse.status === 'interrupted') {
-        this.pendingClarifications.set(pendingKey, {
-          threadId: agentResponse.threadId,
-          question: agentResponse.response,
-          createdAt: Date.now(),
+        await this.pendingClarificationStore.save(
+          this.buildPendingClarificationRecord(
+            pendingKey,
+            agentResponse.threadId,
+            agentResponse.response,
+            internalUserId,
+            userId,
+            logContext,
+          ),
+        );
+        logger.info('telegram.clarification.pending_saved', {
+          ...requestContext,
+          pendingKey,
+          pendingThreadId: agentResponse.threadId,
         });
-      } else {
-        this.pendingClarifications.delete(pendingKey);
+      } else if (pendingClarification) {
+        await this.pendingClarificationStore.clear(
+          pendingKey,
+          agentResponse.status === 'failed' ? 'failed' : 'completed',
+        );
       }
 
       const response = agentResponse.response;
@@ -79,6 +96,7 @@ export class TextProcessorService {
         agentStatus: agentResponse.status,
         threadId: agentResponse.threadId,
         requestedThreadId: threadId,
+        resumedFromPendingClarification: !!pendingClarification,
         durationMs: Date.now() - startedAt,
       });
 
@@ -111,18 +129,6 @@ export class TextProcessorService {
     return 'Something went wrong processing your request. Please try again.';
   }
 
-  private getPendingClarification(key: string): PendingClarification | undefined {
-    const pending = this.pendingClarifications.get(key);
-    if (!pending) return undefined;
-
-    if (Date.now() - pending.createdAt > PENDING_CLARIFICATION_TTL_MS) {
-      this.pendingClarifications.delete(key);
-      return undefined;
-    }
-
-    return pending;
-  }
-
   private pendingKey(telegramUserId: number | undefined, internalUserId: string, logContext: LogContext = {}): string {
     if (logContext.chatId !== undefined) {
       const userSegment = telegramUserId ?? internalUserId;
@@ -140,6 +146,39 @@ export class TextProcessorService {
     const identity = logContext.chatId ?? telegramUserId ?? internalUserId;
     const messageKey = logContext.messageId ?? logContext.requestId ?? Date.now();
     return `tg_${this.hashIdentifier(identity)}_${this.sanitizeThreadSegment(messageKey)}`;
+  }
+
+  private buildPendingClarificationRecord(
+    pendingKey: string,
+    threadId: string,
+    question: string,
+    internalUserId: string,
+    telegramUserId: number | undefined,
+    logContext: LogContext,
+  ): PendingClarificationRecord {
+    const now = Date.now();
+    return {
+      pendingKey,
+      threadId,
+      question,
+      telegramUserId,
+      chatId: logContext.chatId,
+      userId: internalUserId,
+      requestId: logContext.requestId,
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + this.pendingClarificationTtlMs,
+    };
+  }
+
+  private resolvePendingClarificationTtlMs(): number {
+    const configuredTtl = Number(process.env.TELEGRAM_PENDING_TTL_MS);
+    if (Number.isFinite(configuredTtl) && configuredTtl > 0) {
+      return configuredTtl;
+    }
+
+    return PENDING_CLARIFICATION_TTL_MS;
   }
 
   private hashIdentifier(value: number | string): string {

@@ -8,6 +8,7 @@ const mockTodoistService = {
   addTask: jest.fn(),
   getTask: jest.fn(),
   getTasks: jest.fn(),
+  getTasksByFilter: jest.fn(),
   updateTask: jest.fn(),
   completeTask: jest.fn(),
   deleteTask: jest.fn(),
@@ -65,7 +66,11 @@ describe('DirectToolCallDispatcher', () => {
           due_string: 'tomorrow',
           due_date: '2026-06-17',
           due_datetime: '2026-06-17T02:00:00Z',
-          assignee_id: 'user-1',
+          due_lang: 'en',
+          assignee_id: 123456,
+          duration: 30,
+          duration_unit: 'minute',
+          deadline_date: '2026-06-18',
         }),
       ],
       'user-1',
@@ -84,7 +89,11 @@ describe('DirectToolCallDispatcher', () => {
         due_string: 'tomorrow',
         due_date: '2026-06-17',
         due_datetime: '2026-06-17T02:00:00Z',
-        assignee_id: 'user-1',
+        due_lang: 'en',
+        assignee_id: 123456,
+        duration: 30,
+        duration_unit: 'minute',
+        deadline_date: '2026-06-18',
       },
       {},
     );
@@ -109,7 +118,14 @@ describe('DirectToolCallDispatcher', () => {
           due_string: 'today',
           due_date: '2026-06-16',
           due_datetime: '2026-06-16T10:00:00Z',
-          assignee_id: 'user-1',
+          due_lang: 'en',
+          assignee_id: null,
+          duration: null,
+          duration_unit: null,
+          deadline_date: null,
+          child_order: 4,
+          is_collapsed: true,
+          day_order: 2,
         }),
       ],
       'user-1',
@@ -125,7 +141,14 @@ describe('DirectToolCallDispatcher', () => {
         due_string: 'today',
         due_date: '2026-06-16',
         due_datetime: '2026-06-16T10:00:00Z',
-        assignee_id: 'user-1',
+        due_lang: 'en',
+        assignee_id: null,
+        duration: null,
+        duration_unit: null,
+        deadline_date: null,
+        child_order: 4,
+        is_collapsed: true,
+        day_order: 2,
       },
       {},
     );
@@ -136,7 +159,11 @@ describe('DirectToolCallDispatcher', () => {
 
   it('routes read, complete, delete, and completed-task calls', async () => {
     mockTodoistService.getTask.mockResolvedValue({ id: 'task-1' });
-    mockTodoistService.getTasks.mockResolvedValue([{ id: 'task-2' }]);
+    mockTodoistService.getTasks.mockResolvedValue({ results: [{ id: 'task-2' }], next_cursor: null });
+    mockTodoistService.getTasksByFilter.mockResolvedValue({
+      results: [{ id: 'task-filtered' }],
+      next_cursor: 'next-filter-page',
+    });
     mockTodoistService.completeTask.mockResolvedValue(undefined);
     mockTodoistService.deleteTask.mockResolvedValue(undefined);
     mockTodoistService.getCompletedTasks.mockResolvedValue({
@@ -151,16 +178,25 @@ describe('DirectToolCallDispatcher', () => {
         createToolCall('get-many', 'get_tasks', {
           project_id: 'project-1',
           section_id: 'section-1',
+          parent_id: 'parent-1',
           label: 'home',
-          filter: 'today',
-          lang: 'en',
           ids: ['task-1', 'task-2'],
+          goal_id: '550e8400-e29b-41d4-a716-446655440000',
+          cursor: 'page-2',
+          limit: 25,
+        }),
+        createToolCall('get-filtered', 'get_tasks_by_filter', {
+          query: 'today & @home',
+          lang: 'en',
+          cursor: 'filter-page-2',
+          limit: 10,
         }),
         createToolCall('complete', 'complete_task', { task_id: 'task-3' }),
         createToolCall('delete', 'delete_todoist_task', { task_id: 'task-4' }),
         createToolCall('completed', 'get_completed_todoist_tasks_by_completion_date', {
           since: '2026-06-01T00:00:00Z',
           until: '2026-06-16T23:59:59Z',
+          workspace_id: 123456,
           project_id: 'project-1',
           section_id: 'section-1',
           parent_id: 'parent-1',
@@ -178,11 +214,17 @@ describe('DirectToolCallDispatcher', () => {
       {
         project_id: 'project-1',
         section_id: 'section-1',
+        parent_id: 'parent-1',
         label: 'home',
-        filter: 'today',
-        lang: 'en',
         ids: ['task-1', 'task-2'],
+        goal_id: '550e8400-e29b-41d4-a716-446655440000',
+        cursor: 'page-2',
+        limit: 25,
       },
+      {},
+    );
+    expect(mockTodoistService.getTasksByFilter).toHaveBeenCalledWith(
+      { query: 'today & @home', lang: 'en', cursor: 'filter-page-2', limit: 10 },
       {},
     );
     expect(mockTodoistService.completeTask).toHaveBeenCalledWith('task-3', {});
@@ -191,6 +233,7 @@ describe('DirectToolCallDispatcher', () => {
       {
         since: '2026-06-01T00:00:00Z',
         until: '2026-06-16T23:59:59Z',
+        workspace_id: 123456,
         project_id: 'project-1',
         section_id: 'section-1',
         parent_id: 'parent-1',
@@ -203,7 +246,16 @@ describe('DirectToolCallDispatcher', () => {
     );
     expect(result).toEqual([
       { tool_call_id: 'get-one', toolName: 'get_todoist_task', content: { id: 'task-1' } },
-      { tool_call_id: 'get-many', toolName: 'get_tasks', content: [{ id: 'task-2' }] },
+      {
+        tool_call_id: 'get-many',
+        toolName: 'get_tasks',
+        content: { results: [{ id: 'task-2' }], next_cursor: null },
+      },
+      {
+        tool_call_id: 'get-filtered',
+        toolName: 'get_tasks_by_filter',
+        content: { results: [{ id: 'task-filtered' }], next_cursor: 'next-filter-page' },
+      },
       {
         tool_call_id: 'complete',
         toolName: 'complete_task',

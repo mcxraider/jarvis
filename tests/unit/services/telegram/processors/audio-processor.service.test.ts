@@ -45,10 +45,116 @@ describe('AudioProcessorService', () => {
       'Add a Todoist task to buy milk tomorrow',
       701122767,
       logContext,
+      undefined,
     );
-    expect(response).toContain('**Transcription:** Add a Todoist task to buy milk tomorrow');
-    expect(response).toContain('Task created.');
-    expect(response).toContain('_1s transcription_');
+    expect(response).toBe(
+      '🗣️: Add a Todoist task to buy milk tomorrow\n\n---\n\nTask created.',
+    );
+  });
+
+  it('awaits the transcription hook and forwards progress before processing audio text', async () => {
+    const onTranscribed = jest.fn().mockResolvedValue(undefined);
+    const onProgress = jest.fn();
+    const textProcessor = {
+      processTextMessage: jest.fn().mockResolvedValue('Task created.'),
+    };
+    const service = new AudioProcessorService(textProcessor as any);
+
+    await service.processAudioMessage('https://example.com/voice.ogg', 7, {}, {
+      onTranscribed,
+      onProgress,
+    });
+
+    expect(onTranscribed).toHaveBeenCalledTimes(1);
+    expect(textProcessor.processTextMessage).toHaveBeenCalledWith(
+      'Add a Todoist task to buy milk tomorrow',
+      7,
+      {},
+      onProgress,
+    );
+    expect(onTranscribed.mock.invocationCallOrder[0]).toBeLessThan(
+      textProcessor.processTextMessage.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('forwards hooks for audio documents', async () => {
+    const onTranscribed = jest.fn();
+    const onProgress = jest.fn();
+    const textProcessor = {
+      processTextMessage: jest.fn().mockResolvedValue('Summary ready.'),
+    };
+    const service = new AudioProcessorService(textProcessor as any);
+
+    const response = await service.processAudioDocument(
+      'https://example.com/meeting.mp3',
+      'meeting.mp3',
+      'audio/mpeg',
+      7,
+      {},
+      { onTranscribed, onProgress },
+    );
+
+    expect(onTranscribed).toHaveBeenCalledTimes(1);
+    expect(textProcessor.processTextMessage).toHaveBeenCalledWith(
+      'Add a Todoist task to buy milk tomorrow',
+      7,
+      {},
+      onProgress,
+    );
+    expect(response).toBe(
+      '🗣️: Add a Todoist task to buy milk tomorrow\n\n---\n\nSummary ready.',
+    );
+  });
+
+  it('keeps the divider when text processing fails', async () => {
+    const textProcessor = {
+      processTextMessage: jest.fn().mockRejectedValue(new Error('Agent unavailable')),
+    };
+    const service = new AudioProcessorService(textProcessor as any);
+
+    await expect(
+      service.processAudioMessage('https://example.com/voice.ogg', 7),
+    ).resolves.toBe(
+      '🗣️: Add a Todoist task to buy milk tomorrow\n\n---\n\n' +
+        '_Could not process the request. Please try again._',
+    );
+  });
+
+  it('does not enter the agent phase when no speech is detected', async () => {
+    mockTranscribeAudio.mockResolvedValue({
+      text: ' ',
+      processingTimeMs: 100,
+      fileSizeBytes: 123,
+    });
+    const onTranscribed = jest.fn();
+    const onProgress = jest.fn();
+    const textProcessor = { processTextMessage: jest.fn() };
+    const service = new AudioProcessorService(textProcessor as any);
+
+    await expect(
+      service.processAudioMessage('https://example.com/silent.ogg', 7, {}, {
+        onTranscribed,
+        onProgress,
+      }),
+    ).resolves.toBe('No speech detected in the audio.');
+
+    expect(onTranscribed).not.toHaveBeenCalled();
+    expect(onProgress).not.toHaveBeenCalled();
+    expect(textProcessor.processTextMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not enter the agent phase when transcription fails', async () => {
+    mockTranscribeAudio.mockRejectedValue(new Error('Whisper unavailable'));
+    const onTranscribed = jest.fn();
+    const textProcessor = { processTextMessage: jest.fn() };
+    const service = new AudioProcessorService(textProcessor as any);
+
+    await expect(
+      service.processAudioMessage('https://example.com/broken.ogg', 7, {}, { onTranscribed }),
+    ).resolves.toBe('Transcription failed. Please try again.');
+
+    expect(onTranscribed).not.toHaveBeenCalled();
+    expect(textProcessor.processTextMessage).not.toHaveBeenCalled();
   });
 
   it('configures WhisperService with the default audio pipeline transcription settings', () => {

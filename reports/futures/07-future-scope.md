@@ -77,3 +77,72 @@ Proactive agent workflows that run without waiting for a Telegram message. Uses 
 **Status:** `delete_todoist_task` is permanent with no undo.
 
 **Fix:** Store deleted task payloads briefly (e.g., 5 minutes) to allow a "restore" command. After the window expires, the deletion is confirmed permanent. This is distinct from the approval gate (2.2) — undo is a recovery path after an approved deletion.
+
+---
+
+## 7.6 Multi-User Onboarding and Authentication
+
+**Priority:** Low — nice to have after core features are stable.
+
+**Status:** Currently single-user via environment variables (`ALLOWED_USER_IDS`, `TODOIST_API_KEY`, etc.). Scaling to many users requires per-user credential storage and onboarding flow.
+
+**Goal:** Enable Jarvis to support multiple users through Telegram, each with their own API keys and preferences, without exposing credentials in environment variables.
+
+**Onboarding flow:**
+
+1. **First-time user onboarding:**
+   - User sends `/start` → bot detects new user ID and initiates onboarding.
+   - Bot presents options:
+     - **Option A:** Sign in via Google OAuth (recommended for passwordless auth).
+     - **Option B:** Enter API keys manually (DeepSeek, Todoist, Notion, etc.).
+   - For OAuth path: redirect to browser-based consent flow, return token via deep link or polling.
+   - For manual path: prompt for each required key one-by-one, with validation before storage.
+   - Store credentials securely (encrypted at rest, hashed for comparison).
+   - Confirm all keys are valid before marking onboarding complete.
+
+2. **Credential management:**
+   - `/creds` or `/settings` command → list connected services with expiry/status.
+   - Allow user to rotate individual API keys or revoke service integrations.
+   - Warn if a key is about to expire (e.g., 7 days before OAuth token expiry).
+   - Graceful fallback if a credential becomes invalid during a request.
+
+3. **Multi-user isolation:**
+   - Store per-user credentials in database (encrypted column, keyed by Telegram user ID).
+   - Validate credentials on every graph invocation or cache them with TTL.
+   - Ensure one user's keys never leak into another user's context.
+   - Log all credential access for audit trails.
+
+4. **Supported integrations:**
+   - **Core (required):** Todoist API key.
+   - **Optional (enhanced features):**
+     - DeepSeek API key (or fall back to default env var if provided).
+     - Notion integration key (for future calendar/database sync).
+     - Google Calendar OAuth scope (for 7.2 calendar integration).
+     - Custom LLM endpoint (allow users to override agent URL).
+
+5. **Security considerations:**
+   - Never log full API keys; redact in logs and error messages.
+   - Use short-lived tokens where possible; refresh before expiry.
+   - Implement rate limits on credential validation to prevent brute-force attacks.
+   - Offer option for users to run Jarvis in "air-gapped mode" where keys stay in their Telegram session only (no server storage).
+   - Comply with GDPR / user data deletion: allow `/delete_account` to wipe all stored credentials and conversation history.
+
+6. **Connector architecture (enables scaling):**
+   - Extract Telegram bot lifecycle into a reusable connector module: `TelegramConnector` with pluggable credential provider.
+   - Support multi-instance deployment: each Jarvis instance can read credentials from a shared database or secrets manager.
+   - Define webhook/callback flow for OAuth providers to return tokens without blocking the bot.
+   - Optional: build connectors for other platforms (Slack, Discord, WhatsApp) that share the same credential provider and agent backend.
+
+**Trade-offs:**
+- OAuth flow adds latency and requires browser access (may not work in all Telegram contexts).
+- Manual key entry is friction-heavy but gives users full control.
+- Encrypted credential storage adds operational complexity (key rotation, backup).
+- Multi-user support requires database schema changes and migrations.
+
+**Implementation roadmap:**
+1. Design credential schema and encryption layer.
+2. Build OAuth provider integrations (Google first, others later).
+3. Implement `/settings` and `/creds` commands.
+4. Add per-user credential lookup in agent client.
+5. Test with beta group of users before public rollout.
+6. (Future) Extract connector for reuse across platforms.

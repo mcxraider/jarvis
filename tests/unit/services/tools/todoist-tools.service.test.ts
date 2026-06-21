@@ -42,6 +42,7 @@ describe('GPTToolsService', () => {
       'delete_todoist_task',
       'get_completed_todoist_tasks_by_completion_date',
       'get_tasks',
+      'get_tasks_by_filter',
       'complete_task',
     ]);
   });
@@ -102,5 +103,21 @@ describe('GPTToolsService', () => {
     };
 
     expect(parameters.required).toEqual([]);
+  });
+
+  it('separates structured task listing from filter queries', () => {
+    const service = new GPTToolsService(createDispatcher());
+    const listProperties = getProperties(service, 'get_tasks');
+    const filterParameters = getTool(service, 'get_tasks_by_filter').function.parameters as {
+      required?: string[];
+    };
+
+    expect(listProperties).not.toHaveProperty('filter');
+    expect(listProperties).not.toHaveProperty('lang');
+    expect(listProperties).toHaveProperty('parent_id');
+    expect(listProperties).toHaveProperty('goal_id');
+    expect(listProperties).toHaveProperty('cursor');
+    expect(listProperties).toHaveProperty('limit');
+    expect(filterParameters.required).toEqual(['query']);
   });
 });

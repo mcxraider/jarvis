@@ -41,9 +41,25 @@ def get_todoist_tools() -> List[Dict[str, Any]]:
                 "description": "YYYY-MM-DD due date",
             },
             "due_datetime": {"type": "string", "description": "RFC3339 due datetime"},
-            "assignee_id": {"type": "string", "description": "Assignee user ID"},
+            "due_lang": {"type": "string", "description": "Due date language code"},
+            "assignee_id": {"type": "integer", "description": "Numeric assignee user ID"},
+            "duration": {"type": "integer", "minimum": 1, "description": "Task duration"},
+            "duration_unit": {
+                "type": "string",
+                "enum": ["minute", "day"],
+                "description": "Duration unit; required with duration",
+            },
+            "deadline_date": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "description": "YYYY-MM-DD deadline",
+            },
         },
         "required": ["content"],
+        "dependentRequired": {
+            "duration": ["duration_unit"],
+            "duration_unit": ["duration"],
+        },
         "additionalProperties": False,
     }
 
@@ -65,9 +81,35 @@ def get_todoist_tools() -> List[Dict[str, Any]]:
             "due_string": {"type": "string", "description": "Natural due date"},
             "due_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
             "due_datetime": {"type": "string", "description": "RFC3339 due datetime"},
-            "assignee_id": {"type": "string", "description": "Assignee user ID"},
+            "due_lang": {"type": "string", "description": "Due date language code"},
+            "assignee_id": {
+                "type": ["integer", "null"],
+                "description": "Numeric assignee user ID; null clears assignment",
+            },
+            "duration": {
+                "type": ["integer", "null"],
+                "minimum": 1,
+                "description": "Task duration; null clears duration",
+            },
+            "duration_unit": {
+                "type": ["string", "null"],
+                "enum": ["minute", "day", None],
+                "description": "Duration unit; null clears duration",
+            },
+            "deadline_date": {
+                "type": ["string", "null"],
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "description": "YYYY-MM-DD deadline; null clears deadline",
+            },
+            "child_order": {"type": "integer", "description": "Position in current scope"},
+            "is_collapsed": {"type": "boolean", "description": "Collapsed state"},
+            "day_order": {"type": "integer", "description": "Today/Upcoming position"},
         },
         "required": ["task_id"],
+        "dependentRequired": {
+            "duration": ["duration_unit"],
+            "duration_unit": ["duration"],
+        },
         "additionalProperties": False,
     }
 
@@ -76,23 +118,43 @@ def get_todoist_tools() -> List[Dict[str, Any]]:
         "properties": {
             "project_id": {"type": "string"},
             "section_id": {"type": "string"},
+            "parent_id": {"type": "string"},
             "label": {"type": "string"},
-            "filter": {
-                "type": "string",
-                "description": "Todoist filter expression, e.g. today, overdue, p1",
-            },
-            "lang": {"type": "string", "description": "Language code"},
             "ids": {"type": "array", "items": {"type": "string"}},
+            "goal_id": {"type": "string", "format": "uuid"},
+            "cursor": {"type": "string", "description": "Pagination cursor"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 200},
         },
         "required": [],
+        "additionalProperties": False,
+    }
+
+    get_tasks_by_filter_parameters = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024,
+                "description": (
+                    "Todoist filter expression; comma-separated multi-list filters "
+                    "are unsupported"
+                ),
+            },
+            "lang": {"type": "string", "description": "IETF filter language tag"},
+            "cursor": {"type": "string", "description": "Pagination cursor"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+        },
+        "required": ["query"],
         "additionalProperties": False,
     }
 
     completed_tasks_parameters = {
         "type": "object",
         "properties": {
-            "since": {"type": "string", "description": "ISO 8601 start date"},
-            "until": {"type": "string", "description": "ISO 8601 end date"},
+            "since": {"type": "string", "format": "date-time", "description": "RFC3339 start"},
+            "until": {"type": "string", "format": "date-time", "description": "RFC3339 end"},
+            "workspace_id": {"type": "integer", "minimum": 1},
             "project_id": {"type": "string"},
             "section_id": {"type": "string"},
             "parent_id": {"type": "string"},
@@ -168,8 +230,16 @@ def get_todoist_tools() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "get_tasks",
-                "description": "List active Todoist tasks with optional filters.",
+                "description": "List active Todoist tasks using structured fields and pagination.",
                 "parameters": get_tasks_parameters,
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_tasks_by_filter",
+                "description": "List active Todoist tasks matching a filter expression.",
+                "parameters": get_tasks_by_filter_parameters,
             },
         },
         {

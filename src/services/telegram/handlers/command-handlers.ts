@@ -29,7 +29,9 @@ export class CommandHandlers {
       `**Capabilities**\n` +
       `• Text — send a message and I'll handle it (task management via Todoist)\n` +
       `• Voice — send a voice note and I'll transcribe + act on it\n` +
-      `• Audio files — OGG, MP3, WAV, M4A supported`;
+      `• Audio files — OGG, MP3, WAV, M4A supported\n` +
+      `• Images — send a photo with a caption or description for context\n` +
+      `• Unsupported media — stickers, GIFs, and round videos are rejected`;
 
     await replyWithMarkdown(ctx.reply.bind(ctx), helpMessage, { userId });
   }

@@ -95,21 +95,40 @@ describe('TodoistAPIService', () => {
   });
 
   it('serializes getTasks query parameters', async () => {
-    fetchMock.mockResolvedValue(createResponse({ body: [] }));
+    fetchMock.mockResolvedValue(createResponse({ body: { results: [], next_cursor: null } }));
 
-    await service.getTasks({
+    await expect(service.getTasks({
       project_id: 'project-1',
       section_id: 'section-1',
+      parent_id: 'parent-1',
       label: 'jarvis-test',
-      filter: 'today',
-      lang: 'en',
       ids: ['1', '2'],
-    });
+      goal_id: '550e8400-e29b-41d4-a716-446655440000',
+      cursor: 'page-2',
+      limit: 25,
+    })).resolves.toEqual({ results: [], next_cursor: null });
 
     const [url] = fetchMock.mock.calls[0];
     logger.logRequest('getTasks', { url });
     expect(url).toBe(
-      'https://api.todoist.com/api/v1/tasks?project_id=project-1&section_id=section-1&label=jarvis-test&filter=today&lang=en&ids=1%2C2',
+      'https://api.todoist.com/api/v1/tasks?project_id=project-1&section_id=section-1&parent_id=parent-1&label=jarvis-test&ids=1%2C2&goal_id=550e8400-e29b-41d4-a716-446655440000&cursor=page-2&limit=25',
+    );
+  });
+
+  it('serializes getTasksByFilter through the dedicated filter endpoint', async () => {
+    fetchMock.mockResolvedValue(
+      createResponse({ body: { results: [{ id: 'task-1' }], next_cursor: 'next-page' } }),
+    );
+
+    await expect(service.getTasksByFilter({
+      query: 'Jun 25 & p1',
+      lang: 'en',
+      cursor: 'page-2',
+      limit: 10,
+    })).resolves.toEqual({ results: [{ id: 'task-1' }], next_cursor: 'next-page' });
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://api.todoist.com/api/v1/tasks/filter?query=Jun+25+%26+p1&lang=en&cursor=page-2&limit=10',
     );
   });
 
@@ -155,10 +174,24 @@ describe('TodoistAPIService', () => {
     );
   });
 
-  it('serializes getProjects and health checks', async () => {
-    fetchMock.mockResolvedValue(createResponse({ body: [{ id: 'project-1' }] }));
+  it('accepts successful close and delete responses with empty 200 bodies', async () => {
+    fetchMock
+      .mockResolvedValueOnce(createResponse({ status: 200, text: '' }))
+      .mockResolvedValueOnce(createResponse({ status: 200, text: '' }));
 
-    await expect(service.getProjects()).resolves.toEqual([{ id: 'project-1' }]);
+    await expect(service.completeTask('task-1')).resolves.toBeUndefined();
+    await expect(service.deleteTask('task-2')).resolves.toBeUndefined();
+  });
+
+  it('serializes getProjects and health checks', async () => {
+    fetchMock.mockResolvedValue(
+      createResponse({ body: { results: [{ id: 'project-1' }], next_cursor: null } }),
+    );
+
+    await expect(service.getProjects()).resolves.toEqual({
+      results: [{ id: 'project-1' }],
+      next_cursor: null,
+    });
     await expect(service.checkHealth()).resolves.toEqual({
       ok: true,
       detail: '1 project(s) visible',
@@ -192,6 +225,7 @@ describe('TodoistAPIService', () => {
       service.getCompletedTasks({
         since: '2026-06-01T00:00:00Z',
         until: '2026-06-16T23:59:59Z',
+        workspace_id: 123456,
         project_id: 'project-1',
         section_id: 'section-1',
         parent_id: 'parent-1',
@@ -205,7 +239,7 @@ describe('TodoistAPIService', () => {
     const [url, options] = fetchMock.mock.calls[0];
     logger.logRequest('getCompletedTasks', { url, options });
     expect(url).toBe(
-      'https://api.todoist.com/api/v1/tasks/completed/by_completion_date?since=2026-06-01T00%3A00%3A00Z&until=2026-06-16T23%3A59%3A59Z&project_id=project-1&section_id=section-1&parent_id=parent-1&filter_query=%40work&filter_lang=en&cursor=page-2&limit=25',
+      'https://api.todoist.com/api/v1/tasks/completed/by_completion_date?since=2026-06-01T00%3A00%3A00Z&until=2026-06-16T23%3A59%3A59Z&workspace_id=123456&project_id=project-1&section_id=section-1&parent_id=parent-1&filter_query=%40work&filter_lang=en&cursor=page-2&limit=25',
     );
     expect(options).toMatchObject({
       method: 'GET',
@@ -226,6 +260,22 @@ describe('TodoistAPIService', () => {
     expect(url).toBe(
       'https://api.todoist.com/api/v1/tasks/completed/by_completion_date?since=2026-05-20T12%3A00%3A00.000Z&until=2026-06-19T12%3A00%3A00.000Z',
     );
+  });
+
+  it('rejects invalid completed-task date ranges before making a request', async () => {
+    await expect(service.getCompletedTasks({
+      since: '2026-06-20T00:00:00Z',
+      until: '2026-06-19T00:00:00Z',
+    })).rejects.toThrow('until must be later than since');
+    await expect(service.getCompletedTasks({
+      since: '2026-01-01T00:00:00Z',
+      until: '2026-05-01T00:00:00Z',
+    })).rejects.toThrow('cannot exceed three months');
+    await expect(service.getCompletedTasks({
+      since: '2026-01-01',
+      until: '2026-02-01T00:00:00Z',
+    })).rejects.toThrow('RFC3339');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('throws useful errors for REST and completed-task API failures', async () => {

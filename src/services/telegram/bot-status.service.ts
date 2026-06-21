@@ -99,7 +99,7 @@ export class BotStatusService {
       const projects = await this.todoistService.getProjects();
       return {
         ok: true,
-        detail: `${projects.length} project(s) visible`,
+        detail: `${projects.results.length} project(s) visible`,
       };
     } catch (error) {
       return {

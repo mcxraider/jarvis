@@ -1,9 +1,10 @@
 // src/services/telegram/message-processor.service.ts
 import { logger } from '../../utils/logger';
 import { TextProcessorService } from './processors/text-processor.service';
-import { AudioProcessorService } from './processors/audio-processor.service';
+import { AudioProcessingHooks, AudioProcessorService } from './processors/audio-processor.service';
 import { LogContext } from '../../utils/logger';
 import { LangGraphAgentClient, LangGraphProgressCallback } from '../ai/langgraph-agent-client.service';
+import { PendingClarificationStore } from './pending-clarification.store';
 
 /**
  * Main service responsible for coordinating message processing
@@ -13,8 +14,8 @@ export class MessageProcessorService {
   private readonly textProcessor: TextProcessorService;
   private readonly audioProcessor: AudioProcessorService;
 
-  constructor(agentClient?: LangGraphAgentClient) {
-    this.textProcessor = new TextProcessorService(agentClient);
+  constructor(agentClient?: LangGraphAgentClient, pendingClarificationStore?: PendingClarificationStore) {
+    this.textProcessor = new TextProcessorService(agentClient, pendingClarificationStore);
     this.audioProcessor = new AudioProcessorService(this.textProcessor);
   }
 
@@ -41,7 +42,12 @@ export class MessageProcessorService {
   /**
    * Processes audio messages (voice notes, audio files)
    */
-  async processAudioMessage(fileUrl: string, userId?: number, logContext: LogContext = {}): Promise<string> {
+  async processAudioMessage(
+    fileUrl: string,
+    userId?: number,
+    logContext: LogContext = {},
+    hooks?: AudioProcessingHooks,
+  ): Promise<string> {
     logger.info('processor.route.selected', {
       ...logContext,
       userId,
@@ -50,7 +56,7 @@ export class MessageProcessorService {
       fileUrl: fileUrl.substring(0, 50) + '...', // Log partial URL for privacy
     });
 
-    return this.audioProcessor.processAudioMessage(fileUrl, userId, logContext);
+    return this.audioProcessor.processAudioMessage(fileUrl, userId, logContext, hooks);
   }
 
   /**
@@ -62,6 +68,7 @@ export class MessageProcessorService {
     mimeType: string,
     userId?: number,
     logContext: LogContext = {},
+    hooks?: AudioProcessingHooks,
   ): Promise<string> {
     logger.info('processor.route.selected', {
       ...logContext,
@@ -72,7 +79,53 @@ export class MessageProcessorService {
       processor: 'AudioProcessorService',
     });
 
-    return this.audioProcessor.processAudioDocument(fileUrl, fileName, mimeType, userId, logContext);
+    return this.audioProcessor.processAudioDocument(
+      fileUrl,
+      fileName,
+      mimeType,
+      userId,
+      logContext,
+      hooks,
+    );
+  }
+
+  /**
+   * Processes photo messages by forwarding their available context through the text processor.
+   */
+  async processPhotoMessage(
+    photoContext: {
+      fileId: string;
+      caption?: string;
+      width?: number;
+      height?: number;
+      fileSize?: number;
+    },
+    userId?: number,
+    logContext: LogContext = {},
+  ): Promise<string> {
+    logger.info('processor.route.selected', {
+      ...logContext,
+      userId,
+      messageType: 'photo',
+      processor: 'TextProcessorService',
+      fileId: photoContext.fileId,
+      hasCaption: !!photoContext.caption?.trim(),
+    });
+
+    const caption = photoContext.caption?.trim();
+    const contextualMessage = [
+      'Telegram image attachment received.',
+      'Available context:',
+      `- File id: ${photoContext.fileId}`,
+      photoContext.width && photoContext.height ? `- Dimensions: ${photoContext.width}x${photoContext.height}` : undefined,
+      photoContext.fileSize ? `- File size: ${photoContext.fileSize} bytes` : undefined,
+      caption ? `- Caption: ${caption}` : '- Caption: none',
+      'Please respond using the caption and metadata that were provided.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    return this.textProcessor.processTextMessage(contextualMessage, userId, logContext);
   }
 
   /**
@@ -81,10 +134,14 @@ export class MessageProcessorService {
    */
   async processMessage(
     messageData: {
-      type: 'text' | 'audio' | 'audio_document';
+      type: 'text' | 'audio' | 'audio_document' | 'photo';
       content: string;
       fileName?: string;
       mimeType?: string;
+      caption?: string;
+      width?: number;
+      height?: number;
+      fileSize?: number;
     },
     userId?: number,
     logContext: LogContext = {},
@@ -114,13 +171,26 @@ export class MessageProcessorService {
           logContext,
         );
 
+      case 'photo':
+        return this.processPhotoMessage(
+          {
+            fileId: messageData.content,
+            caption: messageData.caption,
+            width: messageData.width,
+            height: messageData.height,
+            fileSize: messageData.fileSize,
+          },
+          userId,
+          logContext,
+        );
+
       default:
         logger.warn('processor.route.unknown_type', {
           ...logContext,
           userId,
           messageType: messageData.type,
         });
-        return 'Unsupported message type. I can handle text and audio messages.';
+        return 'Unsupported message type. I can handle text, audio, and images.';
     }
   }
 }

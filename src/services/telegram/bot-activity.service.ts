@@ -4,6 +4,7 @@ export type BotActivityType =
   | 'message_text'
   | 'message_voice'
   | 'message_audio'
+  | 'message_photo'
   | 'message_document'
   | 'message_unknown';
 

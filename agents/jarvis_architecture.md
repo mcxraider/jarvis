@@ -15,7 +15,7 @@ flowchart TD
         P["USER_PROMPTS[]"] --> M["main()"]
         M --> SEQ["run_jarvis_sequence()<br/>one invocation per prompt"]
         SEQ --> LOC["run_jarvis_with_local_clarifications()<br/>owns the HITL resume loop"]
-        LOC --> RJ["run_jarvis()<br/>@traceable chain"]
+        LOC --> RJ["run_jarvis()<br/>final-only LangSmith logging"]
     end
 
     RJ --> INIT["build_initial_state()<br/>system prompt + user prompt(+datetime)<br/>→ messages, thread_id, turn_count=0"]
@@ -72,16 +72,17 @@ flowchart LR
 
     subgraph CROSS["Cross-cutting services"]
         CP["InMemorySaver<br/>checkpointer · interrupt/resume"]
-        LS["LangSmith<br/>@traceable + wrap_openai"]
+        LS["LangSmith<br/>one final conversation run"]
         TP["TracePrinter<br/>terminal trace + payloads"]
     end
 
     A --> DSC --> DS
     T --> TN --> DISP --> TC --> TD
     H -.-> CP
-    A -.-> TP & LS
-    DISP -.-> TP & LS
-    TC -.-> TP & LS
+    A -.-> TP
+    RJ -.-> LS
+    DISP -.-> TP
+    TC -.-> TP
 ```
 
 ---
@@ -106,6 +107,7 @@ thinking metadata survives across tool turns.
 |---|---|---|---|
 | `ask_user` | pseudo-tool | — | routes to **hitl** `interrupt()` |
 | `get_tasks` | read | no | `GET /tasks` |
+| `get_tasks_by_filter` | read | no | `GET /tasks/filter` |
 | `get_todoist_task` | read | no | `GET /tasks/{id}` |
 | `get_completed_todoist_tasks_by_completion_date` | read | no | `GET /tasks/completed/by_completion_date` |
 | `add_todoist_task` | write | **yes** | `POST /tasks` |
@@ -146,9 +148,10 @@ turn knows they didn't run.
 
 ## 6. Observability (the "small services" running alongside)
 
-- **LangSmith** — `@traceable` on `run_jarvis` (chain), `create_message` (llm),
-  `execute_tool` / Todoist `_request` (tool); `wrap_openai` traces raw LLM calls.
-  Tagged `["jarvis", "langgraph", "todoist", "local"]`.
+- **LangSmith** — final-only conversation logging after the graph reaches `END`.
+  Nested `@traceable` / `wrap_openai` spans are suppressed during graph execution;
+  the posted run contains the final response, full message list, tool results,
+  status, and metadata. Tagged `["jarvis", "langgraph", "todoist", "local", "final-only"]`.
 - **TracePrinter** — structured terminal output of every stage + truncated payloads
   (`JARVIS_DEBUG`, `JARVIS_DEBUG_PAYLOADS`).
 - **InMemorySaver** — LangGraph checkpointer keyed by `thread_id`; the thing that
