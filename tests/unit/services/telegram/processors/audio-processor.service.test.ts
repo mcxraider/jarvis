@@ -47,9 +47,9 @@ describe('AudioProcessorService', () => {
       logContext,
       undefined,
     );
-    expect(response).toContain('🗣️: Add a Todoist task to buy milk tomorrow');
-    expect(response).toContain('Task created.');
-    expect(response).not.toContain('transcription_');
+    expect(response).toBe(
+      '🗣️: Add a Todoist task to buy milk tomorrow\n\n---\n\nTask created.',
+    );
   });
 
   it('awaits the transcription hook and forwards progress before processing audio text', async () => {
@@ -102,7 +102,21 @@ describe('AudioProcessorService', () => {
       onProgress,
     );
     expect(response).toBe(
-      '🗣️: Add a Todoist task to buy milk tomorrow\n\nSummary ready.',
+      '🗣️: Add a Todoist task to buy milk tomorrow\n\n---\n\nSummary ready.',
+    );
+  });
+
+  it('keeps the divider when text processing fails', async () => {
+    const textProcessor = {
+      processTextMessage: jest.fn().mockRejectedValue(new Error('Agent unavailable')),
+    };
+    const service = new AudioProcessorService(textProcessor as any);
+
+    await expect(
+      service.processAudioMessage('https://example.com/voice.ogg', 7),
+    ).resolves.toBe(
+      '🗣️: Add a Todoist task to buy milk tomorrow\n\n---\n\n' +
+        '_Could not process the request. Please try again._',
     );
   });
 
