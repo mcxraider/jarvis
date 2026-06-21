@@ -71,18 +71,49 @@ npm run dev > /tmp/jarvis-dev.log 2>&1 &
 disown
 
 echo "==> Waiting for webhook registration"
-configured=false
-for _ in $(seq 1 20); do
-  if grep -q "telegram.webhook.configured" /tmp/jarvis-dev.log 2>/dev/null; then
-    configured=true
-    break
-  fi
-  sleep 1
-done
-if [ "$configured" = true ]; then
-  echo "    webhook configured"
+# nodemon often fires a burst of "restarting due to changes" right after the
+# first boot (e.g. ts-node touching files, editor autosave). The log can show
+# "telegram.webhook.configured" from a boot that then immediately gets killed,
+# so a log match alone isn't proof the server will still be up a moment later.
+# Confirm the ts-node process survives, and the port stays reachable, for a
+# short window before calling it done.
+WEBHOOK_WAIT_SECS=20
+STABILITY_WINDOW_SECS=4
+STABILITY_ATTEMPTS=3
+
+wait_for_webhook_log() {
+  for _ in $(seq 1 "$WEBHOOK_WAIT_SECS"); do
+    grep -q "telegram.webhook.configured" /tmp/jarvis-dev.log 2>/dev/null && return 0
+    sleep 1
+  done
+  return 1
+}
+
+stable=false
+if wait_for_webhook_log; then
+  for attempt in $(seq 1 "$STABILITY_ATTEMPTS"); do
+    ts_pid=$(pgrep -f "ts-node ./src/server.ts" | head -1 || true)
+    survived=true
+    for _ in $(seq 1 "$STABILITY_WINDOW_SECS"); do
+      sleep 1
+      if [ -z "$ts_pid" ] || ! kill -0 "$ts_pid" 2>/dev/null; then
+        survived=false
+        break
+      fi
+    done
+    if [ "$survived" = true ] && curl -s -o /dev/null http://localhost:3000/; then
+      stable=true
+      break
+    fi
+    echo "    nodemon restarted during stability check, re-checking (attempt ${attempt}/${STABILITY_ATTEMPTS})"
+    wait_for_webhook_log || break
+  done
+fi
+
+if [ "$stable" = true ]; then
+  echo "    webhook configured and stable for ${STABILITY_WINDOW_SECS}s"
 else
-  echo "    WARNING: webhook configuration not confirmed, check /tmp/jarvis-dev.log"
+  echo "    WARNING: TS server not stable yet, check /tmp/jarvis-dev.log"
 fi
 
 echo "==> Starting Python LangGraph agent"
