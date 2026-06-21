@@ -1,0 +1,49 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-21T18:47:56
+thread_id: tg_fd1ed82cbd_208
+user_id: telegram:701122767
+request_source: telegram
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: False
+------------------------------------------------------------------------------
+2026-06-21 18:47:56.432 | section              | === Jarvis LangGraph Run ===
+2026-06-21 18:47:56.432 | runtime.start        | Starting graph invocation. | model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_208, request_source=telegram, resuming=false
+2026-06-21 18:47:56.432 | runtime.prompt       | [payload] user_prompt: add in as a todo for tmr: cld u make it such that u can mov the todo list items up & down
+so i can rank basee don prioritiy
+2026-06-21 18:47:56.500 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-21 18:47:56.505 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
+2026-06-21 18:47:56.505 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-21 18:47:59.932 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true
+2026-06-21 18:47:59.933 | graph.route          | Agent node completed. | next=tools, turn=1
+2026-06-21 18:47:59.935 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=0
+2026-06-21 18:47:59.939 | tool.start           | Preparing tool call. | id=call_00_HS9303qKChA5Oe4OUL295791, name=add_todoist_task, mutating=true
+2026-06-21 18:47:59.939 | tool.args            | [payload] add_todoist_task: {"assignee_id": null, "content": "Make it so I can move todo list items up & down to rank based on priority", "deadline_date": null, "description": null, "due_date": null, "due_datetime": null, "due_lang": null, "due_string": "tomorrow", "duration": null, "duration_unit": null, "labels": null, "order": null, "parent_id": null, "priority": null, "project_id": null, "section_id": null}
+2026-06-21 18:47:59.940 | todoist.request      | Sending Todoist API request. | method=POST, url=https://api.todoist.com/api/v1/tasks, has_payload=true, attempt=1, max_attempts=3
+2026-06-21 18:47:59.940 | todoist.payload      | [payload] request: {"content": "Make it so I can move todo list items up & down to rank based on priority", "due_string": "tomorrow"}
+2026-06-21 18:48:00.885 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-21 18:48:00.886 | todoist.payload      | [payload] response: {"added_at": "2026-06-21T10:48:00.399065Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3964, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Make it so I can move todo list items up & down to rank based on priority", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-22", "is_recurring": false, "lang": "en", "string": "tomorrow", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gw99QgC879HRVcp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-21T10:48:00.399087Z", "user_id": "41485550"}
+2026-06-21 18:48:00.886 | tool.done            | Tool call completed. | name=add_todoist_task
+2026-06-21 18:48:00.886 | tool.result          | [payload] add_todoist_task: {"added_at": "2026-06-21T10:48:00.399065Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3964, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Make it so I can move todo list items up & down to rank based on priority", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-22", "is_recurring": false, "lang": "en", "string": "tomorrow", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gw99QgC879HRVcp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-21T10:48:00.399087Z", "user_id": "41485550"}
+2026-06-21 18:48:00.887 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-21 18:48:00.888 | graph.agent          | Entering agent node. | turn=2, max_turns=8, messages=4
+2026-06-21 18:48:00.889 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=4, tools=9
+2026-06-21 18:48:03.028 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true
+2026-06-21 18:48:03.029 | agent.final          | [payload] content: Done! I've added the task for **tomorrow (June 22, 2026)**:
+
+> 📝 **Make it so I can move todo list items up & down to rank based on priority**
+
+You'll see it pop up on your Todoist tomorrow. Since you didn't specify a project, it went to your default inbox — feel free to move it wherever you'd like!
+2026-06-21 18:48:03.029 | graph.route          | Agent node completed. | next=end, turn=2
+2026-06-21 18:48:03.031 | runtime.done         | Graph invocation completed. | turns=2, tool_results=1, has_error=false, interrupted=false
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-21T18:48:03
+turns: 2
+tool_results: 1
+has_error: False
+interrupted: False
+==============================================================================

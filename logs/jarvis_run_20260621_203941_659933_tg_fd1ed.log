@@ -1,0 +1,71 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-21T20:39:41
+thread_id: tg_fd1ed82cbd_222
+user_id: telegram:701122767
+request_source: telegram
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: False
+------------------------------------------------------------------------------
+2026-06-21 20:39:41.661 | section              | === Jarvis LangGraph Run ===
+2026-06-21 20:39:41.661 | runtime.start        | Starting graph invocation. | model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_222, request_source=telegram, resuming=false
+2026-06-21 20:39:41.662 | runtime.prompt       | [payload] user_prompt: delete my overdue tasks
+2026-06-21 20:39:41.717 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-21 20:39:41.719 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
+2026-06-21 20:39:41.719 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-21 20:39:43.291 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true
+2026-06-21 20:39:43.292 | graph.route          | Agent node completed. | next=tools, turn=1
+2026-06-21 20:39:43.294 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=0
+2026-06-21 20:39:43.299 | tool.start           | Preparing tool call. | id=call_00_zvB8djPpQqgh7DHaAbLL7027, name=get_tasks_by_filter, mutating=false
+2026-06-21 20:39:43.300 | tool.args            | [payload] get_tasks_by_filter: {"cursor": null, "lang": null, "limit": null, "query": "overdue"}
+2026-06-21 20:39:43.300 | todoist.request      | Sending Todoist API request. | method=GET, url=https://api.todoist.com/api/v1/tasks/filter?query=overdue, has_payload=false, attempt=1, max_attempts=3
+2026-06-21 20:39:43.301 | todoist.payload      | [payload] request: null
+2026-06-21 20:39:43.734 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-21 20:39:43.736 | todoist.payload      | [payload] response: {"next_cursor": null, "results": [{"added_at": "2026-04-13T03:33:49.842724Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3825, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "deadline for applying Semester UPIP", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-20", "is_recurring": false, "lang": "en", "string": "20 Jun", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gMxrMMpcFrCPcFG", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-04-13T03:33:49.842745Z", "user_id": "41485550"}, {"added_at": "2026-06-21T12:38:49.203108Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": ...
+2026-06-21 20:39:43.736 | tool.done            | Tool call completed. | name=get_tasks_by_filter
+2026-06-21 20:39:43.737 | tool.result          | [payload] get_tasks_by_filter: {"next_cursor": null, "results": [{"added_at": "2026-04-13T03:33:49.842724Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3825, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "deadline for applying Semester UPIP", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-20", "is_recurring": false, "lang": "en", "string": "20 Jun", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gMxrMMpcFrCPcFG", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-04-13T03:33:49.842745Z", "user_id": "41485550"}, {"added_at": "2026-06-21T12:38:49.203108Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": ...
+2026-06-21 20:39:43.739 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-21 20:39:43.740 | graph.agent          | Entering agent node. | turn=2, max_turns=8, messages=4
+2026-06-21 20:39:43.741 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=4, tools=9
+2026-06-21 20:39:45.712 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=2, has_content=true, has_reasoning=true
+2026-06-21 20:39:45.713 | graph.route          | Agent node completed. | next=tools, turn=2
+2026-06-21 20:39:45.715 | graph.tools          | Entering tools node. | tool_calls=2, accumulated_results=1
+2026-06-21 20:39:45.717 | tool.start           | Preparing tool call. | id=call_00_A1zmhcX79hxKiYAyGI6H8311, name=delete_todoist_task, mutating=true
+2026-06-21 20:39:45.718 | tool.start           | Preparing tool call. | id=call_01_wE1PZelgrELe3VhZABEH2700, name=delete_todoist_task, mutating=true
+2026-06-21 20:39:45.719 | tool.args            | [payload] delete_todoist_task: {"task_id": "6gw9mw9vgg7f4grG"}
+2026-06-21 20:39:45.719 | tool.args            | [payload] delete_todoist_task: {"task_id": "6gMxrMMpcFrCPcFG"}
+2026-06-21 20:39:45.719 | todoist.request      | Sending Todoist API request. | method=DELETE, url=https://api.todoist.com/api/v1/tasks/6gw9mw9vgg7f4grG, has_payload=false, attempt=1, max_attempts=3
+2026-06-21 20:39:45.720 | todoist.request      | Sending Todoist API request. | method=DELETE, url=https://api.todoist.com/api/v1/tasks/6gMxrMMpcFrCPcFG, has_payload=false, attempt=1, max_attempts=3
+2026-06-21 20:39:45.721 | todoist.payload      | [payload] request: null
+2026-06-21 20:39:45.721 | todoist.payload      | [payload] request: null
+2026-06-21 20:39:46.356 | todoist.response     | Received Todoist API response. | status=204, has_body=false, attempt=1
+2026-06-21 20:39:46.357 | tool.done            | Tool call completed. | name=delete_todoist_task
+2026-06-21 20:39:46.358 | tool.result          | [payload] delete_todoist_task: {"message": "Task 6gw9mw9vgg7f4grG deleted permanently", "success": true}
+2026-06-21 20:39:46.371 | todoist.response     | Received Todoist API response. | status=204, has_body=false, attempt=1
+2026-06-21 20:39:46.371 | tool.done            | Tool call completed. | name=delete_todoist_task
+2026-06-21 20:39:46.371 | tool.result          | [payload] delete_todoist_task: {"message": "Task 6gMxrMMpcFrCPcFG deleted permanently", "success": true}
+2026-06-21 20:39:46.372 | graph.route          | Tools node completed. | next=agent, successes=2, failures=0
+2026-06-21 20:39:46.374 | graph.agent          | Entering agent node. | turn=3, max_turns=8, messages=7
+2026-06-21 20:39:46.375 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=7, tools=9
+2026-06-21 20:39:48.419 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true
+2026-06-21 20:39:48.420 | agent.final          | [payload] content: Done! I've deleted your **2 overdue tasks**:
+
+| Task | Due Date | Priority |
+|------|----------|----------|
+| 🔴 **deadline for applying Semester UPIP** | Jun 20, 2026 | High (p4) |
+| ⚪ **do it** | Jun 20, 2026 | Normal (p1) |
+
+Both have been permanently removed. Your task list is now clear of overdue items. 🎯
+2026-06-21 20:39:48.421 | graph.route          | Agent node completed. | next=end, turn=3
+2026-06-21 20:39:48.424 | runtime.done         | Graph invocation completed. | turns=3, tool_results=3, has_error=false, interrupted=false
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-21T20:39:48
+turns: 3
+tool_results: 3
+has_error: False
+interrupted: False
+==============================================================================

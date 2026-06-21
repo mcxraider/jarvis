@@ -1,0 +1,44 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-21T23:41:14
+thread_id: tg_fd1ed82cbd_253
+user_id: telegram:701122767
+request_source: telegram
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: False
+------------------------------------------------------------------------------
+2026-06-21 23:41:14.969 | section              | === Jarvis LangGraph Run ===
+2026-06-21 23:41:14.970 | runtime.start        | Starting graph invocation. | model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_253, request_source=telegram, resuming=false
+2026-06-21 23:41:14.970 | runtime.prompt       | [payload] user_prompt:  Add in 7th July dinner with Elise and gang.
+2026-06-21 23:41:15.115 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-21 23:41:15.121 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
+2026-06-21 23:41:15.122 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-21 23:41:19.606 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true
+2026-06-21 23:41:19.607 | graph.route          | Agent node completed. | next=tools, turn=1
+2026-06-21 23:41:19.610 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=0
+2026-06-21 23:41:19.613 | tool.start           | Preparing tool call. | id=call_00_493fcOPsOyeoVGA3Yl9g4059, name=add_todoist_task, mutating=true
+2026-06-21 23:41:19.614 | tool.args            | [payload] add_todoist_task: {"assignee_id": null, "content": "Dinner with Elise and gang", "deadline_date": null, "description": "Dinner with Elise and the gang", "due_date": "2026-07-07", "due_datetime": null, "due_lang": null, "due_string": null, "duration": null, "duration_unit": null, "labels": null, "order": null, "parent_id": null, "priority": null, "project_id": null, "section_id": null}
+2026-06-21 23:41:19.614 | todoist.request      | Sending Todoist API request. | method=POST, url=https://api.todoist.com/api/v1/tasks, has_payload=true, attempt=1, max_attempts=3
+2026-06-21 23:41:19.614 | todoist.payload      | [payload] request: {"content": "Dinner with Elise and gang", "description": "Dinner with Elise and the gang", "due_date": "2026-07-07"}
+2026-06-21 23:41:20.520 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-21 23:41:20.520 | todoist.payload      | [payload] response: {"added_at": "2026-06-21T15:41:19.893873Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3966, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Dinner with Elise and gang", "day_order": -1, "deadline": null, "description": "Dinner with Elise and the gang", "due": {"date": "2026-07-07", "is_recurring": false, "lang": "en", "string": "2026-07-07", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gwCjGpqmvVHmf7p", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-21T15:41:19.893890Z", "user_id": "41485550"}
+2026-06-21 23:41:20.520 | tool.done            | Tool call completed. | name=add_todoist_task
+2026-06-21 23:41:20.521 | tool.result          | [payload] add_todoist_task: {"added_at": "2026-06-21T15:41:19.893873Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3966, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Dinner with Elise and gang", "day_order": -1, "deadline": null, "description": "Dinner with Elise and the gang", "due": {"date": "2026-07-07", "is_recurring": false, "lang": "en", "string": "2026-07-07", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gwCjGpqmvVHmf7p", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-21T15:41:19.893890Z", "user_id": "41485550"}
+2026-06-21 23:41:20.521 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-21 23:41:20.523 | graph.agent          | Entering agent node. | turn=2, max_turns=8, messages=4
+2026-06-21 23:41:20.523 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=4, tools=9
+2026-06-21 23:41:21.617 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true
+2026-06-21 23:41:21.618 | agent.final          | [payload] content: Done! ✅ **Dinner with Elise and gang** has been added for **July 7, 2026**.
+2026-06-21 23:41:21.619 | graph.route          | Agent node completed. | next=end, turn=2
+2026-06-21 23:41:21.620 | runtime.done         | Graph invocation completed. | turns=2, tool_results=1, has_error=false, interrupted=false
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-21T23:41:21
+turns: 2
+tool_results: 1
+has_error: False
+interrupted: False
+==============================================================================

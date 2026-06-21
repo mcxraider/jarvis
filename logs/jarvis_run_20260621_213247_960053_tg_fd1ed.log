@@ -1,0 +1,39 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-21T21:32:47
+thread_id: tg_fd1ed82cbd_235
+user_id: telegram:701122767
+request_source: telegram
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: False
+------------------------------------------------------------------------------
+2026-06-21 21:32:47.960 | section              | === Jarvis LangGraph Run ===
+2026-06-21 21:32:47.960 | runtime.start        | Starting graph invocation. | model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_235, request_source=telegram, resuming=false
+2026-06-21 21:32:47.960 | runtime.prompt       | [payload] user_prompt:  Hi, please do this.
+2026-06-21 21:32:47.997 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-21 21:32:47.999 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
+2026-06-21 21:32:47.999 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-21 21:32:50.372 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true
+2026-06-21 21:32:50.372 | agent.final          | [payload] content: Hi Jerry! 👋
+
+It sounds like you'd like me to help with something, but I don't see a specific request mentioned yet. Could you let me know what you need me to do? For example:
+
+- **Add tasks or events** to Todoist
+- **Look up or update** existing tasks
+- **Organize or schedule** something
+- Anything else on your mind!
+
+Just give me the details and I'll get right on it.
+2026-06-21 21:32:50.373 | graph.route          | Agent node completed. | next=end, turn=1
+2026-06-21 21:32:50.375 | runtime.done         | Graph invocation completed. | turns=1, tool_results=0, has_error=false, interrupted=false
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-21T21:32:50
+turns: 1
+tool_results: 0
+has_error: False
+interrupted: False
+==============================================================================

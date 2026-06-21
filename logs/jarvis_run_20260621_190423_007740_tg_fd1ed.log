@@ -1,0 +1,53 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-21T19:04:23
+thread_id: tg_fd1ed82cbd_216
+user_id: telegram:701122767
+request_source: telegram
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: False
+------------------------------------------------------------------------------
+2026-06-21 19:04:23.010 | section              | === Jarvis LangGraph Run ===
+2026-06-21 19:04:23.010 | runtime.start        | Starting graph invocation. | model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_216, request_source=telegram, resuming=false
+2026-06-21 19:04:23.010 | runtime.prompt       | [payload] user_prompt:  Am I free on Thursday?
+2026-06-21 19:04:23.062 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-21 19:04:23.066 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
+2026-06-21 19:04:23.066 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-21 19:04:26.304 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true
+2026-06-21 19:04:26.319 | graph.route          | Agent node completed. | next=tools, turn=1
+2026-06-21 19:04:26.320 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=0
+2026-06-21 19:04:26.326 | tool.start           | Preparing tool call. | id=call_00_PTfOSL7wz89hkrDBmgUm3665, name=get_tasks_by_filter, mutating=false
+2026-06-21 19:04:26.326 | tool.args            | [payload] get_tasks_by_filter: {"cursor": null, "lang": null, "limit": null, "query": "due before: 2026-06-26 & due after: 2026-06-24"}
+2026-06-21 19:04:26.327 | todoist.request      | Sending Todoist API request. | method=GET, url=https://api.todoist.com/api/v1/tasks/filter?query=due+before%3A+2026-06-26+%26+due+after%3A+2026-06-24, has_payload=false, attempt=1, max_attempts=3
+2026-06-21 19:04:26.327 | todoist.payload      | [payload] request: null
+2026-06-21 19:04:26.866 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-21 19:04:26.867 | todoist.payload      | [payload] response: {"next_cursor": null, "results": [{"added_at": "2026-05-22T02:08:26.217662Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3913, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Singpass intern coffee meet", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-25T13:00:00", "is_recurring": false, "lang": "en", "string": "25 Jun 13:00", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gh5gh3FwM7C38GG", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-19T02:40:42.336757Z", "user_id": "41485550"}, {"added_at": "2026-06-21T08:10:02.770364Z", "added_by_uid": "41485550", "assigned_by_uid": null, "che...
+2026-06-21 19:04:26.867 | tool.done            | Tool call completed. | name=get_tasks_by_filter
+2026-06-21 19:04:26.867 | tool.result          | [payload] get_tasks_by_filter: {"next_cursor": null, "results": [{"added_at": "2026-05-22T02:08:26.217662Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3913, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Singpass intern coffee meet", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-25T13:00:00", "is_recurring": false, "lang": "en", "string": "25 Jun 13:00", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gh5gh3FwM7C38GG", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-19T02:40:42.336757Z", "user_id": "41485550"}, {"added_at": "2026-06-21T08:10:02.770364Z", "added_by_uid": "41485550", "assigned_by_uid": null, "che...
+2026-06-21 19:04:26.868 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-21 19:04:26.869 | graph.agent          | Entering agent node. | turn=2, max_turns=8, messages=4
+2026-06-21 19:04:26.870 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=4, tools=9
+2026-06-21 19:04:29.595 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true
+2026-06-21 19:04:29.596 | agent.final          | [payload] content: Here's your schedule for **Thursday, June 25, 2026**:
+
+### 🗓️ You have **2 commitments** that day
+
+| Time | Task | Priority |
+|------|------|----------|
+| 🕐 **1:00 PM** | **Singpass intern coffee meet** | High |
+| 🕐 **7:00 PM** | **Dinner with combanition** | High |
+
+So you're **not entirely free** — your morning and early afternoon are open, but you've got coffee at 1 PM and dinner at 7 PM. The gap between 1 PM and 7 PM could also be tight depending on where each is. Want me to add anything around these?
+2026-06-21 19:04:29.596 | graph.route          | Agent node completed. | next=end, turn=2
+2026-06-21 19:04:29.598 | runtime.done         | Graph invocation completed. | turns=2, tool_results=1, has_error=false, interrupted=false
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-21T19:04:29
+turns: 2
+tool_results: 1
+has_error: False
+interrupted: False
+==============================================================================

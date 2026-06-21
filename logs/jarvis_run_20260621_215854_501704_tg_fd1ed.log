@@ -1,0 +1,60 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-21T21:58:54
+thread_id: tg_fd1ed82cbd_243
+user_id: telegram:701122767
+request_source: telegram
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: False
+------------------------------------------------------------------------------
+2026-06-21 21:58:54.504 | section              | === Jarvis LangGraph Run ===
+2026-06-21 21:58:54.504 | runtime.start        | Starting graph invocation. | model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_243, request_source=telegram, resuming=false
+2026-06-21 21:58:54.504 | runtime.prompt       | [payload] user_prompt:  Show me how my day looks like tomorrow.
+2026-06-21 21:58:54.853 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-21 21:58:54.857 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
+2026-06-21 21:58:54.857 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-21 21:58:56.912 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true
+2026-06-21 21:58:56.912 | graph.route          | Agent node completed. | next=tools, turn=1
+2026-06-21 21:58:56.915 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=0
+2026-06-21 21:58:56.916 | tool.start           | Preparing tool call. | id=call_00_2YBfV5e3iGT0QyeP3You5133, name=get_tasks_by_filter, mutating=false
+2026-06-21 21:58:56.917 | tool.args            | [payload] get_tasks_by_filter: {"cursor": null, "lang": null, "limit": null, "query": "tomorrow"}
+2026-06-21 21:58:56.917 | todoist.request      | Sending Todoist API request. | method=GET, url=https://api.todoist.com/api/v1/tasks/filter?query=tomorrow, has_payload=false, attempt=1, max_attempts=3
+2026-06-21 21:58:56.917 | todoist.payload      | [payload] request: null
+2026-06-21 21:58:57.340 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-21 21:58:57.341 | todoist.payload      | [payload] response: {"next_cursor": null, "results": [{"added_at": "2026-06-20T15:10:02.851496Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3961, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "study w feebee", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-22T08:30:00", "is_recurring": false, "lang": "en", "string": "22 Jun 08:30", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gw35G8xccrhGpqG", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-20T15:10:02.851516Z", "user_id": "41485550"}, {"added_at": "2026-06-21T09:12:49.763836Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false,...
+2026-06-21 21:58:57.341 | tool.done            | Tool call completed. | name=get_tasks_by_filter
+2026-06-21 21:58:57.342 | tool.result          | [payload] get_tasks_by_filter: {"next_cursor": null, "results": [{"added_at": "2026-06-20T15:10:02.851496Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3961, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "study w feebee", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-22T08:30:00", "is_recurring": false, "lang": "en", "string": "22 Jun 08:30", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gw35G8xccrhGpqG", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-20T15:10:02.851516Z", "user_id": "41485550"}, {"added_at": "2026-06-21T09:12:49.763836Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false,...
+2026-06-21 21:58:57.343 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-21 21:58:57.345 | graph.agent          | Entering agent node. | turn=2, max_turns=8, messages=4
+2026-06-21 21:58:57.346 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=4, tools=9
+2026-06-21 21:59:01.945 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true
+2026-06-21 21:59:01.946 | agent.final          | [payload] content: Here's your day for **Monday, June 22, 2026** (tomorrow)! 🗓️
+
+---
+
+## 🌅 Your Tomorrow
+
+| Time | Task | Priority |
+|:---:|---|---|
+| **8:30 AM** | 📚 **Study w/ Feebee** | 🔴 **High** |
+| **10:00 AM** | 🚴 **Cycle with Feebee** | ⚪ Normal |
+| **All day** | 💻 **Feebee's Pomodoro app — add move up/down for task reordering** | ⚪ Normal |
+
+### Quick summary:
+- **Morning duo** — a study session followed by a cycle with Feebee to start the day active 🏆
+- **Dev task** — work on the Pomodoro app's drag-to-reorder feature, no strict deadline so you can slot it in when you have time
+
+Looks like a well-balanced day with learning, exercise, and a coding task. Enjoy tomorrow! ☀️
+2026-06-21 21:59:01.947 | graph.route          | Agent node completed. | next=end, turn=2
+2026-06-21 21:59:01.949 | runtime.done         | Graph invocation completed. | turns=2, tool_results=1, has_error=false, interrupted=false
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-21T21:59:01
+turns: 2
+tool_results: 1
+has_error: False
+interrupted: False
+==============================================================================
