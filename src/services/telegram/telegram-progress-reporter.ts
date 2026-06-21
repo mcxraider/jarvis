@@ -10,6 +10,7 @@ import {
 } from './formatters/telegram-rich';
 
 const PROGRESS_LABELS = ['Thinking...', 'Fetching', 'Writing'] as const;
+const TRANSCRIBING_LABEL = 'Transcribing...';
 const DEFAULT_ROTATION_INTERVAL_MS = 10_000;
 const THINKING_CUSTOM_EMOJI_ID = '5573333417954639880';
 const THINKING_CUSTOM_EMOJI_FALLBACK = '😀';
@@ -22,6 +23,8 @@ export class TelegramProgressReporter {
   private rotationTimer?: ReturnType<typeof setInterval>;
   private rotationTask: Promise<void> = Promise.resolve();
   private rotationInFlight = false;
+  private started = false;
+  private agentPhaseStarted = false;
   private completed = false;
 
   constructor(
@@ -33,30 +36,30 @@ export class TelegramProgressReporter {
   }
 
   async start(): Promise<void> {
-    const label = PROGRESS_LABELS[this.labelIndex];
+    if (this.started || this.completed) return;
 
-    if (this.richActive && this.ctx.chat) {
-      this.draftId = newDraftId();
-      try {
-        await sendRichDraft(this.ctx, this.draftId, this.renderRichLabel(label));
-      } catch (error) {
-        this.disableRichMode('progress.start', error as Error);
-        await this.createPlainStatus(label);
-      }
-    } else {
-      await this.createPlainStatus(label);
-    }
+    this.started = true;
+    this.agentPhaseStarted = true;
+    this.labelIndex = 0;
+    await this.showInitialStatus(PROGRESS_LABELS[this.labelIndex]);
+    this.startRotation();
+  }
 
-    if (!this.completed) {
-      this.rotationTimer = setInterval(
-        () => {
-          if (!this.rotationInFlight) {
-            this.rotationTask = this.rotate();
-          }
-        },
-        Math.max(1, this.rotationIntervalMs),
-      );
-    }
+  async startTranscribing(): Promise<void> {
+    if (this.started || this.completed) return;
+
+    this.started = true;
+    await this.showInitialStatus(TRANSCRIBING_LABEL);
+  }
+
+  async beginAgentPhase(): Promise<void> {
+    if (this.completed || this.agentPhaseStarted) return;
+
+    this.started = true;
+    this.agentPhaseStarted = true;
+    this.labelIndex = 0;
+    await this.paintLabel(PROGRESS_LABELS[this.labelIndex]);
+    this.startRotation();
   }
 
   async record(_event: LangGraphProgressEvent): Promise<void> {
@@ -81,22 +84,44 @@ export class TelegramProgressReporter {
     const label = PROGRESS_LABELS[this.labelIndex];
 
     try {
-      if (this.richActive && this.draftId && this.ctx.chat) {
-        try {
-          await sendRichDraft(this.ctx, this.draftId, this.renderRichLabel(label));
-          return;
-        } catch (error) {
-          this.disableRichMode('progress.rotate', error as Error);
-          if (!this.completed) {
-            await this.createPlainStatus(label);
-          }
-          return;
-        }
-      }
-
-      await this.editPlainStatus(label);
+      await this.paintLabel(label);
     } finally {
       this.rotationInFlight = false;
+    }
+  }
+
+  private async showInitialStatus(label: string): Promise<void> {
+    if (this.richActive && this.ctx.chat) {
+      this.draftId = newDraftId();
+      try {
+        await sendRichDraft(this.ctx, this.draftId, this.renderRichLabel(label));
+        return;
+      } catch (error) {
+        this.disableRichMode('progress.start', error as Error);
+      }
+    }
+
+    await this.createPlainStatus(label);
+  }
+
+  private async paintLabel(label: string): Promise<void> {
+    if (this.richActive && this.draftId && this.ctx.chat) {
+      try {
+        await sendRichDraft(this.ctx, this.draftId, this.renderRichLabel(label));
+        return;
+      } catch (error) {
+        this.disableRichMode('progress.update', error as Error);
+        if (!this.completed) {
+          await this.createPlainStatus(label);
+        }
+        return;
+      }
+    }
+
+    if (this.statusMessage) {
+      await this.editPlainStatus(label);
+    } else if (!this.completed) {
+      await this.createPlainStatus(label);
     }
   }
 
@@ -169,6 +194,19 @@ export class TelegramProgressReporter {
     if (!this.rotationTimer) return;
     clearInterval(this.rotationTimer);
     this.rotationTimer = undefined;
+  }
+
+  private startRotation(): void {
+    if (this.completed || this.rotationTimer) return;
+
+    this.rotationTimer = setInterval(
+      () => {
+        if (!this.rotationInFlight) {
+          this.rotationTask = this.rotate();
+        }
+      },
+      Math.max(1, this.rotationIntervalMs),
+    );
   }
 
   private renderRichLabel(label: string): string {

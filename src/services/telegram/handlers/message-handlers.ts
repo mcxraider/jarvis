@@ -87,10 +87,20 @@ export class MessageHandlers {
       fileSize: voice.file_size,
     });
     this.activityService.recordActivity('message_voice');
+    const progressReporter = new TelegramProgressReporter(ctx, logContext);
+    let lastProgressStage = '';
 
     try {
+      await progressReporter.startTranscribing();
       const fileUrl = await this.fileService.getFileUrl(voice.file_id);
-      const response = await this.messageProcessor.processAudioMessage(fileUrl, userId, logContext);
+      const response = await this.messageProcessor.processAudioMessage(fileUrl, userId, logContext, {
+        onTranscribed: () => progressReporter.beginAgentPhase(),
+        onProgress: async (event: LangGraphProgressEvent) => {
+          lastProgressStage = event.stage;
+          await progressReporter.record(event);
+        },
+      });
+      await progressReporter.complete(this.completionStatus(lastProgressStage));
       await sendFinalReply(ctx, response, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
@@ -104,6 +114,7 @@ export class MessageHandlers {
         userId,
         durationMs: Date.now() - startedAt,
       });
+      await progressReporter.complete('Something went wrong');
       await ctx.reply('Something went wrong processing your voice message. Please try again.');
     }
   }
@@ -218,7 +229,11 @@ export class MessageHandlers {
         fileSize: document.file_size,
       });
 
+      const progressReporter = new TelegramProgressReporter(ctx, logContext);
+      let lastProgressStage = '';
+
       try {
+        await progressReporter.startTranscribing();
         const fileUrl = await this.fileService.getFileUrl(document.file_id);
         const response = await this.messageProcessor.processAudioDocument(
           fileUrl,
@@ -226,7 +241,15 @@ export class MessageHandlers {
           mimeType,
           userId,
           logContext,
+          {
+            onTranscribed: () => progressReporter.beginAgentPhase(),
+            onProgress: async (event: LangGraphProgressEvent) => {
+              lastProgressStage = event.stage;
+              await progressReporter.record(event);
+            },
+          },
         );
+        await progressReporter.complete(this.completionStatus(lastProgressStage));
         await sendFinalReply(ctx, response, logContext);
         logger.info('telegram.reply.sent', {
           ...logContext,
@@ -241,6 +264,7 @@ export class MessageHandlers {
           fileName,
           durationMs: Date.now() - startedAt,
         });
+        await progressReporter.complete('Something went wrong');
         await ctx.reply('Something went wrong processing your audio document. Please try again.');
       }
     } else {
@@ -297,10 +321,20 @@ export class MessageHandlers {
       fileSize: audioFile.file_size,
       duration: audioFile.duration,
     });
+    const progressReporter = new TelegramProgressReporter(ctx, logContext);
+    let lastProgressStage = '';
 
     try {
+      await progressReporter.startTranscribing();
       const fileUrl = await this.fileService.getFileUrl(audioFile.file_id);
-      const response = await this.messageProcessor.processAudioMessage(fileUrl, userId, logContext);
+      const response = await this.messageProcessor.processAudioMessage(fileUrl, userId, logContext, {
+        onTranscribed: () => progressReporter.beginAgentPhase(),
+        onProgress: async (event: LangGraphProgressEvent) => {
+          lastProgressStage = event.stage;
+          await progressReporter.record(event);
+        },
+      });
+      await progressReporter.complete(this.completionStatus(lastProgressStage));
       await sendFinalReply(ctx, response, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
@@ -315,6 +349,7 @@ export class MessageHandlers {
         fileName,
         durationMs: Date.now() - startedAt,
       });
+      await progressReporter.complete('Something went wrong');
       await ctx.reply('Something went wrong processing your audio file. Please try again.');
     }
   }

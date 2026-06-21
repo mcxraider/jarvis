@@ -4,8 +4,13 @@ describe('MessageHandlers', () => {
   function createContext(message: Record<string, unknown>) {
     return {
       from: { id: 123, username: 'tester' },
+      chat: { id: 456 },
       message,
-      reply: jest.fn().mockResolvedValue(undefined),
+      reply: jest.fn().mockResolvedValue({ message_id: 77 }),
+      telegram: {
+        editMessageText: jest.fn().mockResolvedValue(true),
+        deleteMessage: jest.fn().mockResolvedValue(true),
+      },
     } as any;
   }
 
@@ -15,7 +20,12 @@ describe('MessageHandlers', () => {
       getFileUrl: jest.fn().mockResolvedValue('https://example.com/file.mp3'),
     } as any;
     const messageProcessor = {
-      processAudioDocument: jest.fn().mockResolvedValue('processed document'),
+      processAudioDocument: jest.fn().mockImplementation(async (...args: any[]) => {
+        const hooks = args[5];
+        await hooks.onTranscribed();
+        await hooks.onProgress({ stage: 'completed', message: 'Done' });
+        return 'processed document';
+      }),
       processAudioMessage: jest.fn(),
     } as any;
     const activityService = {
@@ -41,10 +51,64 @@ describe('MessageHandlers', () => {
       'audio/mpeg',
       123,
       expect.objectContaining({ messageType: 'document' }),
+      expect.objectContaining({
+        onTranscribed: expect.any(Function),
+        onProgress: expect.any(Function),
+      }),
     );
     expect(messageProcessor.processAudioMessage).not.toHaveBeenCalled();
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_document');
+    expect(ctx.reply).toHaveBeenCalledWith('Transcribing\\.\\.\\.', {
+      parse_mode: 'MarkdownV2',
+    });
+    expect(ctx.telegram.editMessageText).toHaveBeenCalledWith(
+      456,
+      77,
+      undefined,
+      'Thinking\\.\\.\\.',
+      { parse_mode: 'MarkdownV2' },
+    );
+    expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
     expect(ctx.reply).toHaveBeenCalledWith('processed document', { parse_mode: 'MarkdownV2' });
+  });
+
+  it.each([
+    ['voice', { voice: { file_id: 'voice-1', duration: 3 } }, 'message_voice'],
+    ['audio', { audio: { file_id: 'audio-1', duration: 3 } }, 'message_audio'],
+  ])('wires progress hooks for %s messages', async (kind, message, activity) => {
+    const fileService = {
+      getFileUrl: jest.fn().mockResolvedValue('https://example.com/audio.ogg'),
+    } as any;
+    const messageProcessor = {
+      processAudioMessage: jest.fn().mockImplementation(async (...args: any[]) => {
+        const hooks = args[3];
+        await hooks.onTranscribed();
+        await hooks.onProgress({ stage: 'completed', message: 'Done' });
+        return 'processed audio';
+      }),
+    } as any;
+    const activityService = { recordActivity: jest.fn() } as any;
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService);
+    const ctx = createContext(message);
+
+    if (kind === 'voice') {
+      await handlers.handleVoice(ctx);
+    } else {
+      await handlers.handleAudio(ctx);
+    }
+
+    expect(activityService.recordActivity).toHaveBeenCalledWith(activity);
+    expect(messageProcessor.processAudioMessage).toHaveBeenCalledWith(
+      'https://example.com/audio.ogg',
+      123,
+      expect.any(Object),
+      expect.objectContaining({
+        onTranscribed: expect.any(Function),
+        onProgress: expect.any(Function),
+      }),
+    );
+    expect(ctx.telegram.editMessageText).toHaveBeenCalled();
+    expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
   });
 
   it('routes photos through processPhotoMessage with metadata', async () => {

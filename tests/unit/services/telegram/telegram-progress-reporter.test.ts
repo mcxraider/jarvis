@@ -68,6 +68,57 @@ describe('TelegramProgressReporter', () => {
     expect(ctx.telegram.editMessageText).toHaveBeenCalledTimes(editsAtCompletion);
   });
 
+  it('keeps transcribing static until the agent phase begins', async () => {
+    const ctx = createContext();
+    const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
+
+    await reporter.startTranscribing();
+    expect(ctx.reply).toHaveBeenCalledWith('Transcribing\\.\\.\\.', {
+      parse_mode: 'MarkdownV2',
+    });
+
+    await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS * 2);
+    expect(ctx.telegram.editMessageText).not.toHaveBeenCalled();
+
+    await reporter.beginAgentPhase();
+    expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
+      123,
+      77,
+      undefined,
+      'Thinking\\.\\.\\.',
+      { parse_mode: 'MarkdownV2' },
+    );
+
+    await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS);
+    expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
+      123,
+      77,
+      undefined,
+      'Fetching',
+      { parse_mode: 'MarkdownV2' },
+    );
+    expect(ctx.telegram.editMessageText.mock.calls.flat()).not.toContain(
+      'Transcribing\\.\\.\\.',
+    );
+
+    await reporter.complete('Done');
+  });
+
+  it('ignores agent transitions after completion and repeated transitions', async () => {
+    const ctx = createContext();
+    const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
+
+    await reporter.startTranscribing();
+    await reporter.beginAgentPhase();
+    await reporter.beginAgentPhase();
+    expect(ctx.telegram.editMessageText).toHaveBeenCalledTimes(1);
+
+    await reporter.complete('Done');
+    await reporter.beginAgentPhase();
+    await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS);
+    expect(ctx.telegram.editMessageText).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the agent progress callback UI-neutral', async () => {
     const ctx = createContext();
     const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
@@ -137,6 +188,25 @@ describe('TelegramProgressReporter', () => {
       const draftIds = calls.map((call: any[]) => call[1].draft_id);
       expect(draftIds[0]).toBeGreaterThan(0);
       expect(new Set(draftIds).size).toBe(1);
+    });
+
+    it('reuses one rich draft for transcribing and agent rotation', async () => {
+      setRichMessagesEnabled(true);
+      const ctx = createRichContext();
+      const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
+
+      await reporter.startTranscribing();
+      await reporter.beginAgentPhase();
+      await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS);
+      await reporter.complete('Done');
+
+      const calls = ctx.telegram.callApi.mock.calls;
+      expect(calls.map((call: any[]) => call[1].rich_message.markdown)).toEqual([
+        expect.stringContaining('Transcribing...'),
+        expect.stringContaining('Thinking...'),
+        expect.stringContaining('Fetching'),
+      ]);
+      expect(new Set(calls.map((call: any[]) => call[1].draft_id)).size).toBe(1);
     });
 
     it('falls back to a rotating plain status when the first draft fails', async () => {

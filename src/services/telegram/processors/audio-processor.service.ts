@@ -1,10 +1,16 @@
 // src/services/telegram/processors/audio-processor.service.ts
 import { LogContext, logger } from '../../../utils/logger';
 import { WhisperService } from '../../ai/whisper.service';
+import { LangGraphProgressCallback } from '../../ai/langgraph-agent-client.service';
 import { TextProcessorService } from './text-processor.service';
 
 const DEFAULT_AUDIO_TRANSCRIPTION_PROMPT =
   'Telegram voice memo for a personal productivity assistant. Preserve task names, dates, labels, project names, Todoist, Groq, DeepSeek, and technical terms. Use clear punctuation.';
+
+export interface AudioProcessingHooks {
+  onTranscribed?: () => void | Promise<void>;
+  onProgress?: LangGraphProgressCallback;
+}
 
 /**
  * Service responsible for processing audio messages and documents
@@ -27,7 +33,12 @@ export class AudioProcessorService {
   /**
    * Processes audio messages (voice notes, audio files)
    */
-  async processAudioMessage(fileUrl: string, userId?: number, logContext: LogContext = {}): Promise<string> {
+  async processAudioMessage(
+    fileUrl: string,
+    userId?: number,
+    logContext: LogContext = {},
+    hooks?: AudioProcessingHooks,
+  ): Promise<string> {
     logger.info('audio_processor.started', {
       ...logContext,
       userId,
@@ -38,20 +49,22 @@ export class AudioProcessorService {
       // Transcribe the audio using Whisper service
       const transcriptionResult = await this.whisperService.transcribeAudio(fileUrl, userId, logContext);
 
-      const { text, processingTimeMs } = transcriptionResult;
+      const { text } = transcriptionResult;
 
       if (!text || text.trim().length < 2) {
         return 'No speech detected in the audio.';
       }
 
       try {
-        const response = await this.textProcessor.processTextMessage(text, userId, logContext);
-
-        return (
-          `**Transcription:** ${text}\n\n` +
-          `${response}\n\n` +
-          `_${Math.round(processingTimeMs / 1000)}s transcription_`
+        await hooks?.onTranscribed?.();
+        const response = await this.textProcessor.processTextMessage(
+          text,
+          userId,
+          logContext,
+          hooks?.onProgress,
         );
+
+        return `🗣️: ${text}\n\n${response}`;
       } catch (processingError) {
         logger.warn('audio_processor.text_processing_failed', {
           ...logContext,
@@ -61,7 +74,7 @@ export class AudioProcessorService {
         });
 
         return (
-          `**Transcription:** ${text}\n\n` +
+          `🗣️: ${text}\n\n` +
           `_Could not process the request. Please try again._`
         );
       }
@@ -85,6 +98,7 @@ export class AudioProcessorService {
     mimeType: string,
     userId?: number,
     logContext: LogContext = {},
+    hooks?: AudioProcessingHooks,
   ): Promise<string> {
     logger.info('audio_processor.document_started', {
       ...logContext,
@@ -97,20 +111,22 @@ export class AudioProcessorService {
       // Use the same transcription logic as audio messages
       const transcriptionResult = await this.whisperService.transcribeAudio(fileUrl, userId, logContext);
 
-      const { text, processingTimeMs, fileSizeBytes } = transcriptionResult;
+      const { text } = transcriptionResult;
 
       if (!text || text.trim().length < 2) {
         return `No speech detected in \`${fileName}\`.`;
       }
 
       try {
-        const response = await this.textProcessor.processTextMessage(text, userId, logContext);
-
-        return (
-          `**Transcription:** ${text}\n\n` +
-          `${response}\n\n` +
-          `_${Math.round(processingTimeMs / 1000)}s transcription_`
+        await hooks?.onTranscribed?.();
+        const response = await this.textProcessor.processTextMessage(
+          text,
+          userId,
+          logContext,
+          hooks?.onProgress,
         );
+
+        return `🗣️: ${text}\n\n${response}`;
       } catch (processingError) {
         logger.warn('audio_processor.document_text_processing_failed', {
           ...logContext,
@@ -121,7 +137,7 @@ export class AudioProcessorService {
         });
 
         return (
-          `**Transcription:** ${text}\n\n` +
+          `🗣️: ${text}\n\n` +
           `_Could not process the request. Please try again._`
         );
       }
