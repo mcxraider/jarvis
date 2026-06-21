@@ -14,10 +14,11 @@ The app runs as an Express webhook server with Telegraf handling Telegram update
   - `add_todoist_task`
   - `get_todoist_task`
   - `get_tasks`
+  - `get_tasks_by_filter`
   - `update_todoist_task`
   - `complete_task`
   - `delete_todoist_task`
-  - `get_completed_todoist_tasks`
+  - `get_completed_todoist_tasks_by_completion_date`
 - Voice/audio transcription through Groq Whisper before routing into the same text processor.
 - Structured runtime logs with request IDs and redaction.
 - Offline, mocked integration, and gated live tests.

@@ -3,6 +3,7 @@
 import json
 import os
 import random
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -204,7 +205,9 @@ class TodoistApiClient:
         )
 
     def add_todoist_task(self, arguments: Dict[str, Any]) -> Any:
-        return self._request(f"{TODOIST_REST_BASE_URL}/tasks", "POST", _without_none(arguments))
+        payload = _without_none(arguments)
+        _validate_duration_pair(payload)
+        return self._request(f"{TODOIST_REST_BASE_URL}/tasks", "POST", payload)
 
     def get_todoist_task(self, arguments: Dict[str, Any]) -> Any:
         return self._request(f"{TODOIST_REST_BASE_URL}/tasks/{arguments['task_id']}")
@@ -214,9 +217,14 @@ class TodoistApiClient:
         suffix = f"?{params}" if params else ""
         return self._request(f"{TODOIST_REST_BASE_URL}/tasks{suffix}")
 
+    def get_tasks_by_filter(self, arguments: Dict[str, Any]) -> Any:
+        params = _query_params(_without_none(arguments))
+        return self._request(f"{TODOIST_REST_BASE_URL}/tasks/filter?{params}")
+
     def update_todoist_task(self, arguments: Dict[str, Any]) -> Any:
-        arguments = _without_none(arguments)
+        arguments = dict(arguments)
         task_id = arguments.pop("task_id")
+        _validate_duration_pair(arguments)
         return self._request(f"{TODOIST_REST_BASE_URL}/tasks/{task_id}", "POST", arguments)
 
     def complete_task(self, arguments: Dict[str, Any]) -> Any:
@@ -243,24 +251,81 @@ def _without_none(data: Dict[str, Any]) -> Dict[str, Any]:
     return {key: value for key, value in data.items() if value is not None}
 
 
+def _validate_duration_pair(data: Dict[str, Any]) -> None:
+    if ("duration" in data) != ("duration_unit" in data):
+        raise ValueError("duration and duration_unit must be provided together")
+    duration = data.get("duration")
+    duration_unit = data.get("duration_unit")
+    if duration is not None and duration_unit is None:
+        raise ValueError("duration_unit is required when duration is set")
+    if duration_unit is not None and duration is None:
+        raise ValueError("duration is required when duration_unit is set")
+    if duration is not None and (not isinstance(duration, int) or duration <= 0):
+        raise ValueError("duration must be a positive integer")
+    if duration_unit is not None and duration_unit not in {"minute", "day"}:
+        raise ValueError("duration_unit must be minute or day")
+
+
 def _with_default_completion_date_range(data: Dict[str, Any]) -> Dict[str, Any]:
     """Default completed-task queries to the last 30 days in UTC."""
 
     if "until" in data:
-        until = datetime.fromisoformat(data["until"].replace("Z", "+00:00"))
+        until = _parse_rfc3339(data["until"], "until")
     else:
         until = datetime.now(timezone.utc)
 
     if "since" in data:
-        since = datetime.fromisoformat(data["since"].replace("Z", "+00:00"))
+        since = _parse_rfc3339(data["since"], "since")
     else:
         since = until - timedelta(days=30)
+
+    if since >= until:
+        raise ValueError("Todoist completed-task until must be later than since")
+    if until > _add_months(since, 3):
+        raise ValueError("Todoist completed-task range cannot exceed three months")
 
     return {
         **data,
         "since": since.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
         "until": until.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
+
+
+def _parse_rfc3339(value: str, field: str) -> datetime:
+    if not isinstance(value, str) or not re.match(
+        r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$",
+        value,
+    ):
+        raise ValueError(f"Todoist completed-task {field} must be an RFC3339 timestamp")
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ValueError(f"Todoist completed-task {field} must include a timezone")
+    return parsed
+
+
+def _add_months(value: datetime, months: int) -> datetime:
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    days_in_month = [
+        31,
+        29 if _is_leap_year(year) else 28,
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ]
+    return value.replace(year=year, month=month, day=min(value.day, days_in_month[month - 1]))
+
+
+def _is_leap_year(year: int) -> bool:
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
 
 
 def _query_params(

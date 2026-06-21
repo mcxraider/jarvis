@@ -166,7 +166,11 @@ export class DirectToolCallDispatcher implements ToolDispatcher {
           due_string: parameters.due_string,
           due_date: parameters.due_date,
           due_datetime: parameters.due_datetime,
+          due_lang: parameters.due_lang,
           assignee_id: parameters.assignee_id,
+          duration: parameters.duration,
+          duration_unit: parameters.duration_unit,
+          deadline_date: parameters.deadline_date,
         }, logContext);
 
       case 'get_todoist_task':
@@ -176,10 +180,20 @@ export class DirectToolCallDispatcher implements ToolDispatcher {
         return await this.todoistService.getTasks({
           project_id: parameters.project_id,
           section_id: parameters.section_id,
+          parent_id: parameters.parent_id,
           label: parameters.label,
-          filter: parameters.filter,
-          lang: parameters.lang,
           ids: parameters.ids,
+          goal_id: parameters.goal_id,
+          cursor: parameters.cursor,
+          limit: parameters.limit,
+        }, logContext);
+
+      case 'get_tasks_by_filter':
+        return await this.todoistService.getTasksByFilter({
+          query: parameters.query,
+          lang: parameters.lang,
+          cursor: parameters.cursor,
+          limit: parameters.limit,
         }, logContext);
 
       case 'update_todoist_task':
@@ -191,7 +205,14 @@ export class DirectToolCallDispatcher implements ToolDispatcher {
           due_string: parameters.due_string,
           due_date: parameters.due_date,
           due_datetime: parameters.due_datetime,
+          due_lang: parameters.due_lang,
           assignee_id: parameters.assignee_id,
+          duration: parameters.duration,
+          duration_unit: parameters.duration_unit,
+          deadline_date: parameters.deadline_date,
+          child_order: parameters.child_order,
+          is_collapsed: parameters.is_collapsed,
+          day_order: parameters.day_order,
         }, logContext);
 
       case 'complete_task':
@@ -206,6 +227,7 @@ export class DirectToolCallDispatcher implements ToolDispatcher {
         return await this.todoistService.getCompletedTasks({
           since: parameters.since,
           until: parameters.until,
+          workspace_id: parameters.workspace_id,
           project_id: parameters.project_id,
           section_id: parameters.section_id,
           parent_id: parameters.parent_id,

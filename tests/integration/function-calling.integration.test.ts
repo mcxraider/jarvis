@@ -51,7 +51,7 @@ describe('FunctionCallingProcessor integration', () => {
         due_string: 'tomorrow at 9am',
         priority: 4,
       }),
-      createToolCall('call-list', 'get_tasks', { filter: 'today' }),
+      createToolCall('call-list', 'get_tasks_by_filter', { query: 'today' }),
       createToolCall('call-update', 'update_todoist_task', {
         task_id: 'task-1',
         content: 'Review invoices now',
@@ -120,7 +120,7 @@ describe('FunctionCallingProcessor integration', () => {
             message: {
               content: null,
               tool_calls: [
-                createToolCall('call-supported', 'get_tasks', { filter: 'today' }),
+                createToolCall('call-supported', 'get_tasks_by_filter', { query: 'today' }),
                 createToolCall('call-unsupported', 'unsupported_tool', {}),
               ],
             },
@@ -128,7 +128,7 @@ describe('FunctionCallingProcessor integration', () => {
         ],
       });
     const dispatcher = createDispatcher({
-      isFunctionSupported: jest.fn((name: string) => name === 'get_tasks'),
+      isFunctionSupported: jest.fn((name: string) => name === 'get_tasks_by_filter'),
       executeToolCalls: jest.fn().mockResolvedValue([
         { tool_call_id: 'call-supported', content: [{ id: 'task-1' }] },
       ]),
@@ -149,7 +149,7 @@ describe('FunctionCallingProcessor integration', () => {
         {
           id: 'call-supported',
           type: 'function',
-          function: { name: 'get_tasks', arguments: JSON.stringify({ filter: 'today' }) },
+          function: { name: 'get_tasks_by_filter', arguments: JSON.stringify({ query: 'today' }) },
         },
       ],
       'user-1',
