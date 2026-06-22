@@ -35,7 +35,7 @@ flowchart TD
         HITL -->|"append reply msg"| AGENT
     end
 
-    AGENT <-->|"create_message()"| DS["DeepSeek Chat Completions<br/>deepseek-v4-flash · temp 0 · tools=auto"]
+    AGENT <-->|"create_message()"| DS["DeepSeek Chat Completions<br/>deepseek-v4-pro · temp 0 · tools=auto"]
     TOOLS --> DISP["TodoistToolDispatcher<br/>mutation guard"]
     DISP <--> TAPI["Todoist REST API v1"]
     HITL -.->|"interrupt(payload)"| PAUSE["⏸ pause · state persisted<br/>via checkpointer"]

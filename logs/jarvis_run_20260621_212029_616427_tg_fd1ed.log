@@ -5,17 +5,17 @@ started_at: 2026-06-21T21:20:29
 thread_id: tg_fd1ed82cbd_226
 user_id: telegram:701122767
 request_source: telegram
-model: deepseek-v4-flash
+model: deepseek-v4-pro
 allow_mutations: True
 max_agent_turns: 8
 resuming: False
 ------------------------------------------------------------------------------
 2026-06-21 21:20:29.621 | section              | === Jarvis LangGraph Run ===
-2026-06-21 21:20:29.621 | runtime.start        | Starting graph invocation. | model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_226, request_source=telegram, resuming=false
+2026-06-21 21:20:29.621 | runtime.start        | Starting graph invocation. | model=deepseek-v4-pro, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_226, request_source=telegram, resuming=false
 2026-06-21 21:20:29.621 | runtime.prompt       | [payload] user_prompt: exit
 2026-06-21 21:20:29.749 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
 2026-06-21 21:20:29.755 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
-2026-06-21 21:20:29.755 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-21 21:20:29.755 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=2, tools=9
 2026-06-21 21:20:31.327 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true
 2026-06-21 21:20:31.327 | agent.final          | [payload] content: Alright — exiting. Let me know if you need anything else. 👋
 2026-06-21 21:20:31.328 | graph.route          | Agent node completed. | next=end, turn=1

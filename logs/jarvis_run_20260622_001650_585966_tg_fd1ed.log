@@ -5,17 +5,17 @@ started_at: 2026-06-22T00:16:50
 thread_id: tg_fd1ed82cbd_259
 user_id: telegram:701122767
 request_source: telegram
-model: deepseek-v4-flash
+model: deepseek-v4-pro
 allow_mutations: True
 max_agent_turns: 8
 resuming: False
 ------------------------------------------------------------------------------
 2026-06-22 00:16:50.587 | section              | === Jarvis LangGraph Run ===
-2026-06-22 00:16:50.587 | runtime.start        | Starting graph invocation. | model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_259, request_source=telegram, resuming=false
+2026-06-22 00:16:50.587 | runtime.start        | Starting graph invocation. | model=deepseek-v4-pro, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_259, request_source=telegram, resuming=false
 2026-06-22 00:16:50.587 | runtime.prompt       | [payload] user_prompt:  My dinner with Commando, change it to P1 task.
 2026-06-22 00:16:50.626 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
 2026-06-22 00:16:50.627 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
-2026-06-22 00:16:50.627 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-22 00:16:50.627 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=2, tools=9
 2026-06-22 00:16:52.212 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true
 2026-06-22 00:16:52.213 | graph.route          | Agent node completed. | next=tools, turn=1
 2026-06-22 00:16:52.215 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=0
@@ -28,7 +28,7 @@ resuming: False
 2026-06-22 00:16:52.548 | tool.error           | Tool call failed with a classified API error. | name=get_tasks_by_filter, kind=validation, retryable=false, status_code=400, attempts=1
 2026-06-22 00:16:52.549 | graph.route          | Tools node completed. | next=agent, successes=0, failures=1
 2026-06-22 00:16:52.551 | graph.agent          | Entering agent node. | turn=2, max_turns=8, messages=4
-2026-06-22 00:16:52.551 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=4, tools=9
+2026-06-22 00:16:52.551 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=4, tools=9
 2026-06-22 00:16:53.822 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true
 2026-06-22 00:16:53.823 | graph.route          | Agent node completed. | next=tools, turn=2
 2026-06-22 00:16:53.825 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=1
@@ -42,7 +42,7 @@ resuming: False
 2026-06-22 00:16:54.425 | tool.result          | [payload] get_tasks: {"next_cursor": null, "results": [{"added_at": "2023-10-22T17:40:00.547737Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 1368, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Jarod\u2019s bday", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2028-01-17", "is_recurring": true, "lang": "en", "string": "every 17 Jan", "timezone": null}, "duration": null, "goal_ids": [], "id": "69mxjXH3g69rqgwG", "is_collapsed": false, "is_deleted": false, "labels": ["birthdays"], "note_count": 0, "parent_id": null, "postponed_count": 1, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-01-20T07:56:40.006585Z", "user_id": "41485550"}, {"added_at": "2023-10-22T17:40:18.269386Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": fa...
 2026-06-22 00:16:54.427 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
 2026-06-22 00:16:54.429 | graph.agent          | Entering agent node. | turn=3, max_turns=8, messages=6
-2026-06-22 00:16:54.430 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=6, tools=9
+2026-06-22 00:16:54.430 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=6, tools=9
 2026-06-22 00:16:57.457 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true
 2026-06-22 00:16:57.458 | graph.route          | Agent node completed. | next=tools, turn=3
 2026-06-22 00:16:57.461 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=2
@@ -56,7 +56,7 @@ resuming: False
 2026-06-22 00:16:58.073 | tool.result          | [payload] update_todoist_task: {"added_at": "2026-04-18T02:32:51.546529Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3843, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "dinner w commando", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-07-02T19:00:00", "is_recurring": false, "lang": "en", "string": "2 Jul 19:00", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gQ73FqFWxcX5vGp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 2, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-21T16:16:57.708233Z", "user_id": "41485550"}
 2026-06-22 00:16:58.075 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
 2026-06-22 00:16:58.076 | graph.agent          | Entering agent node. | turn=4, max_turns=8, messages=8
-2026-06-22 00:16:58.078 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=8, tools=9
+2026-06-22 00:16:58.078 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=8, tools=9
 2026-06-22 00:16:59.900 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true
 2026-06-22 00:16:59.901 | agent.final          | [payload] content: Done! **"dinner w commando"** has been promoted to **P1** 🎯
 

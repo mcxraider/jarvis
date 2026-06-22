@@ -5,17 +5,17 @@ started_at: 2026-06-22T00:15:38
 thread_id: tg_fd1ed82cbd_257
 user_id: telegram:701122767
 request_source: telegram
-model: deepseek-v4-flash
+model: deepseek-v4-pro
 allow_mutations: True
 max_agent_turns: 8
 resuming: False
 ------------------------------------------------------------------------------
 2026-06-22 00:15:38.930 | section              | === Jarvis LangGraph Run ===
-2026-06-22 00:15:38.930 | runtime.start        | Starting graph invocation. | model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_257, request_source=telegram, resuming=false
+2026-06-22 00:15:38.930 | runtime.start        | Starting graph invocation. | model=deepseek-v4-pro, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_257, request_source=telegram, resuming=false
 2026-06-22 00:15:38.930 | runtime.prompt       | [payload] user_prompt:  Change my worship practice this week to start at 1.15 instead.
 2026-06-22 00:15:39.252 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
 2026-06-22 00:15:39.254 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
-2026-06-22 00:15:39.254 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-22 00:15:39.254 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=2, tools=9
 2026-06-22 00:15:41.596 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true
 2026-06-22 00:15:41.597 | graph.route          | Agent node completed. | next=tools, turn=1
 2026-06-22 00:15:41.599 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=0
@@ -28,7 +28,7 @@ resuming: False
 2026-06-22 00:15:41.976 | tool.error           | Tool call failed with a classified API error. | name=get_tasks_by_filter, kind=validation, retryable=false, status_code=400, attempts=1
 2026-06-22 00:15:41.977 | graph.route          | Tools node completed. | next=agent, successes=0, failures=1
 2026-06-22 00:15:41.979 | graph.agent          | Entering agent node. | turn=2, max_turns=8, messages=4
-2026-06-22 00:15:41.980 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=4, tools=9
+2026-06-22 00:15:41.980 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=4, tools=9
 2026-06-22 00:15:43.422 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true
 2026-06-22 00:15:43.423 | graph.route          | Agent node completed. | next=tools, turn=2
 2026-06-22 00:15:43.425 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=1
@@ -42,7 +42,7 @@ resuming: False
 2026-06-22 00:15:44.139 | tool.result          | [payload] get_tasks: {"next_cursor": null, "results": [{"added_at": "2023-10-22T17:40:00.547737Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 1368, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Jarod\u2019s bday", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2028-01-17", "is_recurring": true, "lang": "en", "string": "every 17 Jan", "timezone": null}, "duration": null, "goal_ids": [], "id": "69mxjXH3g69rqgwG", "is_collapsed": false, "is_deleted": false, "labels": ["birthdays"], "note_count": 0, "parent_id": null, "postponed_count": 1, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-01-20T07:56:40.006585Z", "user_id": "41485550"}, {"added_at": "2023-10-22T17:40:18.269386Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": fa...
 2026-06-22 00:15:44.168 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
 2026-06-22 00:15:44.169 | graph.agent          | Entering agent node. | turn=3, max_turns=8, messages=6
-2026-06-22 00:15:44.171 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=6, tools=9
+2026-06-22 00:15:44.171 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=6, tools=9
 2026-06-22 00:15:48.119 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true
 2026-06-22 00:15:48.120 | graph.route          | Agent node completed. | next=tools, turn=3
 2026-06-22 00:15:48.123 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=2
@@ -56,7 +56,7 @@ resuming: False
 2026-06-22 00:15:48.751 | tool.result          | [payload] update_todoist_task: {"added_at": "2026-06-16T10:09:56.129150Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3939, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "worship practice", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-27T13:15:00", "is_recurring": false, "lang": "en", "string": "27 Jun 13:15", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gv3W5Prcv8Q4MjG", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 1, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-21T16:15:48.344320Z", "user_id": "41485550"}
 2026-06-22 00:15:48.752 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
 2026-06-22 00:15:48.754 | graph.agent          | Entering agent node. | turn=4, max_turns=8, messages=8
-2026-06-22 00:15:48.755 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=8, tools=9
+2026-06-22 00:15:48.755 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=8, tools=9
 2026-06-22 00:15:50.479 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true
 2026-06-22 00:15:50.481 | agent.final          | [payload] content: Done! **Worship practice** has been updated:
 
