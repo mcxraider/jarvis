@@ -23,6 +23,31 @@ TODOIST_COMPLETED_BY_COMPLETION_DATE_URL = (
     f"{TODOIST_REST_BASE_URL}/tasks/completed/by_completion_date"
 )
 
+# Path segments that look like Todoist resource identifiers (task/section/project
+# IDs are numeric or alphanumeric strings). Collapse them to {id} so traces never
+# carry raw identifiers, even if input-hiding is later disabled.
+_ID_SEGMENT_RE = re.compile(r"^[0-9]+$|^[0-9a-zA-Z]{16,}$")
+
+
+def todoist_endpoint_template(url: str) -> str:
+    """Reduce a Todoist URL to a privacy-safe endpoint template.
+
+    Strips the base URL, drops any query string, and replaces identifier-like
+    path segments with ``{id}`` — e.g. ``.../tasks/123/close`` -> ``/tasks/{id}/close``.
+    """
+
+    if not url:
+        return ""
+    path = url.split("?", 1)[0]
+    path = path.replace(TODOIST_REST_BASE_URL, "", 1)
+    if not path.startswith("/"):
+        path = "/" + path
+    segments = [
+        "{id}" if _ID_SEGMENT_RE.match(segment) else segment
+        for segment in path.split("/")
+    ]
+    return "/".join(segments)
+
 TODOIST_HTTP_ERROR_KIND_BY_STATUS = {
     400: "validation",
     401: "auth",
@@ -92,7 +117,7 @@ class TodoistApiClient:
         name="todoist_api_request",
         run_type="tool",
         process_inputs=lambda inputs: {
-            "url": inputs.get("url"),
+            "endpoint": todoist_endpoint_template(inputs.get("url", "")),
             "method": inputs.get("method", "GET"),
             "has_payload": inputs.get("payload") is not None,
         },
@@ -129,7 +154,7 @@ class TodoistApiClient:
                 "todoist.request",
                 "Sending Todoist API request.",
                 method=method,
-                url=url,
+                endpoint=todoist_endpoint_template(url),
                 has_payload=payload is not None,
                 attempt=attempt,
                 max_attempts=max_attempts,
@@ -426,4 +451,5 @@ __all__ = [
     "TODOIST_REST_BASE_URL",
     "TodoistApiError",
     "TodoistApiClient",
+    "todoist_endpoint_template",
 ]

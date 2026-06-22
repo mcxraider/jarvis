@@ -3,6 +3,7 @@
 import copy
 import json
 import os
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from langsmith import traceable
@@ -19,12 +20,80 @@ from agents.agent_api.app.constants import (
     DEEPSEEK_RETRY_MAX_DELAY_SECONDS,
 )
 from agents.agent_api.app.graph.state import JarvisState
-from agents.agent_api.app.tools.todoist.schemas import get_todoist_tools
-from agents.agent_api.app.tools.todoist.tools import is_ask_user_tool_call
+from agents.agent_api.app.tools.base import ToolRegistry
+from agents.agent_api.app.tools.control import is_ask_user_tool_call
+from agents.agent_api.app.tools.selection import DEFAULT_TOOL_SELECTOR, ToolSelector
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 
 LLM_FAILURE_MESSAGE = "Jarvis could not reach DeepSeek reliably. Please try again in a moment."
+
+
+@dataclass
+class UsageSummary:
+    """Token usage aggregated across DeepSeek calls within one Jarvis run.
+
+    ``cached_tokens`` and ``reasoning_tokens`` are optional provider extras
+    (DeepSeek reports prompt cache hits and reasoning tokens); they stay 0 when
+    the provider omits them. Monetary cost is intentionally not computed here —
+    there is no maintained pricing source yet.
+    """
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    cached_tokens: int = 0
+    reasoning_tokens: int = 0
+
+    def add(self, other: "UsageSummary") -> None:
+        self.prompt_tokens += other.prompt_tokens
+        self.completion_tokens += other.completion_tokens
+        self.total_tokens += other.total_tokens
+        self.cached_tokens += other.cached_tokens
+        self.reasoning_tokens += other.reasoning_tokens
+
+    def as_dict(self) -> Dict[str, int]:
+        return {
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "cached_tokens": self.cached_tokens,
+            "reasoning_tokens": self.reasoning_tokens,
+        }
+
+
+def _int_attr(source: Any, name: str) -> int:
+    """Read an optional integer usage field from a dict or SDK object."""
+
+    if source is None:
+        return 0
+    value = source.get(name) if isinstance(source, dict) else getattr(source, name, None)
+    return int(value) if isinstance(value, (int, float)) else 0
+
+
+def usage_from_response(response: Any) -> UsageSummary:
+    """Extract a UsageSummary from an OpenAI-compatible completion response.
+
+    Tolerates missing optional fields so a provider that omits cache/reasoning
+    token counts still yields valid prompt/completion/total numbers.
+    """
+
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return UsageSummary()
+
+    details = (
+        usage.get("completion_tokens_details")
+        if isinstance(usage, dict)
+        else getattr(usage, "completion_tokens_details", None)
+    )
+    return UsageSummary(
+        prompt_tokens=_int_attr(usage, "prompt_tokens"),
+        completion_tokens=_int_attr(usage, "completion_tokens"),
+        total_tokens=_int_attr(usage, "total_tokens"),
+        cached_tokens=_int_attr(usage, "prompt_cache_hit_tokens"),
+        reasoning_tokens=_int_attr(details, "reasoning_tokens"),
+    )
 
 
 def raw_message_from_openai(message: Any) -> Dict[str, Any]:
@@ -69,6 +138,10 @@ class DeepSeekAgentClient:
         self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
         self.model = model
         self.tracer = tracer or NULL_TRACE
+        # Token usage accumulated across every turn/retry of one Jarvis run, read
+        # by run_jarvis for the per-run log footer. LangSmith gets per-call usage
+        # automatically via wrap_openai; this is the on-disk fallback.
+        self.usage = UsageSummary()
         self.max_retry_attempts = max(1, max_retry_attempts)
         self.retry_max_delay_seconds = retry_max_delay_seconds
         self.retry_sleep = retry_sleep
@@ -118,6 +191,9 @@ class DeepSeekAgentClient:
 
         try:
             response = self._retrying()(create_completion)
+            # Read usage before the completion object is discarded.
+            turn_usage = usage_from_response(response)
+            self.usage.add(turn_usage)
             message = raw_message_from_openai(response.choices[0].message)
         except Exception as error:
             payload = self._failure_payload(error, attempts)
@@ -138,6 +214,9 @@ class DeepSeekAgentClient:
             tool_calls=len(message.get("tool_calls") or []),
             has_content=bool(message.get("content")),
             has_reasoning=bool(message.get("reasoning_content")),
+            prompt_tokens=turn_usage.prompt_tokens or None,
+            completion_tokens=turn_usage.completion_tokens or None,
+            total_tokens=turn_usage.total_tokens or None,
         )
         return message
 
@@ -213,12 +292,21 @@ class DeepSeekAgentClient:
 
 def create_agent_node(
     agent_client: Any,
+    registry: ToolRegistry,
     max_agent_turns: int,
     tracer: Optional[TracePrinter] = None,
+    tool_selector: Optional[ToolSelector] = None,
 ):
-    """Create the graph node that asks the model what to do next."""
+    """Create the graph node that asks the model what to do next.
+
+    The available tool catalogue comes from ``registry`` so the agent node is
+    domain-agnostic — adding a tool domain never edits this node. ``tool_selector``
+    decides which of those tools the model actually sees this turn; the default
+    pass-through selector exposes the whole catalogue (see ``tools/selection.py``).
+    """
 
     tracer = tracer or NULL_TRACE
+    tool_selector = tool_selector or DEFAULT_TOOL_SELECTOR
 
     def agent_node(state: JarvisState) -> JarvisState:
         turn_count = state.get("turn_count", 0)
@@ -240,8 +328,19 @@ def create_agent_node(
             }
 
         messages = copy.deepcopy(state.get("messages", []))
+        # Narrow the catalogue to the tools this turn should expose. The default
+        # selector returns everything; a future query-aware selector returns a
+        # relevant subset (see tools/selection.py). Execution still runs against
+        # the full registry, so this only shapes what the model sees.
+        tool_schemas = tool_selector.select_schemas(state.get("user_prompt", ""), registry)
+        tracer.event(
+            "graph.tools.selected",
+            "Selected tools for this turn.",
+            available=len(registry.specs),
+            selected=len(tool_schemas),
+        )
         try:
-            assistant_message = agent_client.create_message(messages, get_todoist_tools())
+            assistant_message = agent_client.create_message(messages, tool_schemas)
         except DeepSeekAgentClientError as error:
             tracer.event(
                 "graph.agent",
@@ -292,6 +391,8 @@ __all__ = [
     "DeepSeekAgentClient",
     "DeepSeekAgentClientError",
     "LLM_FAILURE_MESSAGE",
+    "UsageSummary",
     "create_agent_node",
     "raw_message_from_openai",
+    "usage_from_response",
 ]

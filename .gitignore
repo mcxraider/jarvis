@@ -13,7 +13,6 @@
 
 # testing
 /coverage
-/logs
 venv/
 
 # python
