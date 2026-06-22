@@ -1,6 +1,7 @@
 """LangGraph state schema and interrupt response helpers."""
 
-from typing import Any, Dict, List, TypedDict
+import operator
+from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict
 
 
 class JarvisState(TypedDict, total=False):
@@ -22,6 +23,12 @@ class JarvisState(TypedDict, total=False):
     error: str
     next: str
 
+    # Confirm gate fields — freeze risky actions for human approval.
+    held_call: Optional[Dict[str, Any]]
+    pending_interrupt: Optional[Literal["clarify", "confirm"]]
+    confirm_decision: Optional[Literal["approve", "decline"]]
+    consumed_call_ids: Annotated[List[str], operator.add]
+
 
 def _interrupt_value(interrupt_item: Any) -> Dict[str, Any]:
     value = getattr(interrupt_item, "value", interrupt_item)
@@ -38,8 +45,10 @@ def enrich_interrupt_status(result: JarvisState, thread_id: str) -> JarvisState:
     enriched["interrupted"] = bool(interrupts)
     enriched["interrupt_payload"] = interrupt_payload
     if interrupts:
+        interrupt_type = interrupt_payload.get("type", "clarify")
+        enriched["pending_interrupt"] = interrupt_type
         enriched["pending_clarification"] = interrupt_payload
-        enriched["next"] = "hitl"
+        enriched["next"] = "confirm" if interrupt_type == "confirm" else "hitl"
     return enriched
 
 

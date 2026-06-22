@@ -117,7 +117,7 @@ describe('MessageHandlers', () => {
       getFileUrl: jest.fn(),
     } as any;
     const messageProcessor = {
-      processPhotoMessage: jest.fn().mockResolvedValue('processed photo'),
+      processPhotoMessage: jest.fn().mockResolvedValue({ response: 'processed photo' }),
       processAudioDocument: jest.fn(),
       processAudioMessage: jest.fn(),
     } as any;

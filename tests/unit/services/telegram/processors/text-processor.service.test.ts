@@ -53,7 +53,7 @@ describe('TextProcessorService', () => {
         chatId: 555,
         messageId: 42,
       }),
-    ).resolves.toBe('Done.');
+    ).resolves.toHaveProperty('response', 'Done.');
 
     expect(agentClient.invoke).toHaveBeenCalledWith(
       {
@@ -134,10 +134,10 @@ describe('TextProcessorService', () => {
 
     await expect(
       service.processTextMessage('update my task', 42, { chatId: 100, messageId: 10 }),
-    ).resolves.toBe('Which task should I update?');
+    ).resolves.toHaveProperty('response', 'Which task should I update?');
     await expect(
       service.processTextMessage('the dentist task', 42, { chatId: 100, messageId: 11 }),
-    ).resolves.toBe('Updated the dentist task.');
+    ).resolves.toHaveProperty('response', 'Updated the dentist task.');
 
     expect(agentClient.resume).toHaveBeenCalledWith(
       {
@@ -187,7 +187,7 @@ describe('TextProcessorService', () => {
         chatId: 100,
         messageId: 11,
       }),
-    ).resolves.toBe('Updated the dentist task.');
+    ).resolves.toHaveProperty('response', 'Updated the dentist task.');
 
     expect(secondAgentClient.invoke).not.toHaveBeenCalled();
     expect(secondAgentClient.resume).toHaveBeenCalledWith(
@@ -225,10 +225,10 @@ describe('TextProcessorService', () => {
     await service.processTextMessage('update my task', 42, { chatId: 100, messageId: 10 });
     await expect(
       service.processTextMessage('show today', 42, { chatId: 200, messageId: 10 }),
-    ).resolves.toBe('Started a separate request.');
+    ).resolves.toHaveProperty('response', 'Started a separate request.');
     await expect(
       service.processTextMessage('the dentist task', 42, { chatId: 100, messageId: 11 }),
-    ).resolves.toBe('Updated the dentist task.');
+    ).resolves.toHaveProperty('response', 'Updated the dentist task.');
 
     expect(agentClient.invoke).toHaveBeenCalledTimes(2);
     expect(agentClient.resume).toHaveBeenCalledTimes(1);
@@ -248,7 +248,8 @@ describe('TextProcessorService', () => {
     };
     const service = createService(agentClient);
 
-    await expect(service.processTextMessage('hello', 42)).resolves.toBe(
+    await expect(service.processTextMessage('hello', 42)).resolves.toHaveProperty(
+      'response',
       'Jarvis is temporarily unavailable. Please try again in a moment.',
     );
   });
@@ -282,7 +283,7 @@ describe('TextProcessorService', () => {
 
     await service.processTextMessage('update my task', 42);
     await service.processTextMessage('the dentist task', 42);
-    await expect(service.processTextMessage('show today', 42)).resolves.toBe('Started a new request.');
+    await expect(service.processTextMessage('show today', 42)).resolves.toHaveProperty('response', 'Started a new request.');
 
     expect(agentClient.resume).toHaveBeenCalledTimes(1);
     expect(agentClient.invoke).toHaveBeenCalledTimes(2);
@@ -314,7 +315,7 @@ describe('TextProcessorService', () => {
     await new Promise((resolve) => setTimeout(resolve, 5));
     await expect(
       service.processTextMessage('the dentist task', 42, { chatId: 100, messageId: 11 }),
-    ).resolves.toBe('Started a new request.');
+    ).resolves.toHaveProperty('response', 'Started a new request.');
 
     expect(agentClient.resume).not.toHaveBeenCalled();
     expect(agentClient.invoke).toHaveBeenCalledTimes(2);

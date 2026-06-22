@@ -1,6 +1,6 @@
 // src/services/telegram/message-processor.service.ts
 import { logger } from '../../utils/logger';
-import { TextProcessorService } from './processors/text-processor.service';
+import { TextProcessorResult, TextProcessorService } from './processors/text-processor.service';
 import { AudioProcessingHooks, AudioProcessorService } from './processors/audio-processor.service';
 import { LogContext } from '../../utils/logger';
 import { LangGraphAgentClient, LangGraphProgressCallback } from '../ai/langgraph-agent-client.service';
@@ -27,7 +27,7 @@ export class MessageProcessorService {
     userId?: number,
     logContext: LogContext = {},
     onProgress?: LangGraphProgressCallback,
-  ): Promise<string> {
+  ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
       userId,
@@ -102,7 +102,7 @@ export class MessageProcessorService {
     },
     userId?: number,
     logContext: LogContext = {},
-  ): Promise<string> {
+  ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
       userId,
@@ -145,7 +145,7 @@ export class MessageProcessorService {
     },
     userId?: number,
     logContext: LogContext = {},
-  ): Promise<string> {
+  ): Promise<TextProcessorResult> {
     logger.info('processor.route.started', {
       ...logContext,
       userId,
@@ -157,19 +157,21 @@ export class MessageProcessorService {
         return this.processTextMessage(messageData.content, userId, logContext);
 
       case 'audio':
-        return this.processAudioMessage(messageData.content, userId, logContext);
+        return { response: await this.processAudioMessage(messageData.content, userId, logContext) };
 
       case 'audio_document':
         if (!messageData.fileName || !messageData.mimeType) {
           throw new Error('Audio document processing requires fileName and mimeType');
         }
-        return this.processAudioDocument(
-          messageData.content,
-          messageData.fileName,
-          messageData.mimeType,
-          userId,
-          logContext,
-        );
+        return {
+          response: await this.processAudioDocument(
+            messageData.content,
+            messageData.fileName,
+            messageData.mimeType,
+            userId,
+            logContext,
+          ),
+        };
 
       case 'photo':
         return this.processPhotoMessage(
@@ -190,7 +192,7 @@ export class MessageProcessorService {
           userId,
           messageType: messageData.type,
         });
-        return 'Unsupported message type. I can handle text, audio, and images.';
+        return { response: 'Unsupported message type. I can handle text, audio, and images.' };
     }
   }
 }
