@@ -9,7 +9,7 @@
  */
 export const GPT_CONSTANTS = {
   /** Default GPT model for text generation */
-  DEFAULT_MODEL: 'deepseek-v4-pro',
+  DEFAULT_MODEL: 'deepseek-v4-flash',
   /** Maximum input text length for processing (~800 words, comfortable for voice memos) */
   MAX_INPUT_LENGTH: 4000,
   /** Maximum response tokens (enough for detailed summaries and multi-task responses) */
