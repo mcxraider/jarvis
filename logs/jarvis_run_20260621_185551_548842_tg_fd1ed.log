@@ -5,19 +5,19 @@ started_at: 2026-06-21T18:55:51
 thread_id: tg_fd1ed82cbd_212
 user_id: telegram:701122767
 request_source: telegram
-model: deepseek-v4-pro
+model: deepseek-v4-flash
 allow_mutations: True
 max_agent_turns: 8
 resuming: True
 ------------------------------------------------------------------------------
 2026-06-21 18:55:51.550 | section              | === Jarvis LangGraph Run ===
-2026-06-21 18:55:51.550 | runtime.start        | Starting graph invocation. | model=deepseek-v4-pro, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_212, request_source=telegram, resuming=true
+2026-06-21 18:55:51.550 | runtime.start        | Starting graph invocation. | model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_212, request_source=telegram, resuming=true
 2026-06-21 18:55:51.551 | runtime.prompt       | [payload] user_prompt: delete
 2026-06-21 18:55:51.597 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
 2026-06-21 18:55:51.599 | graph.hitl           | Interrupting for user clarification. | question=By "clear", do you mean mark the task as **complete** (you've already applied), or did you want to **delete** it? Also, are you referring to the "apply for UPIP" task (due Jun 1..., deferred_tools=0, extra_questions=0
 2026-06-21 18:55:51.599 | graph.hitl           | Resumed from user clarification.
 2026-06-21 18:55:51.600 | graph.agent          | Entering agent node. | turn=4, max_turns=8, messages=9
-2026-06-21 18:55:51.600 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=9, tools=9
+2026-06-21 18:55:51.600 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=9, tools=9
 2026-06-21 18:55:55.709 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true
 2026-06-21 18:55:55.711 | graph.route          | Agent node completed. | next=tools, turn=4
 2026-06-21 18:55:55.714 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=2
@@ -30,7 +30,7 @@ resuming: True
 2026-06-21 18:55:56.522 | tool.result          | [payload] delete_todoist_task: {"message": "Task 6gvP29pPcwXqgX3G deleted permanently", "success": true}
 2026-06-21 18:55:56.523 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
 2026-06-21 18:55:56.524 | graph.agent          | Entering agent node. | turn=5, max_turns=8, messages=11
-2026-06-21 18:55:56.525 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=11, tools=9
+2026-06-21 18:55:56.525 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=11, tools=9
 2026-06-21 18:55:58.854 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true
 2026-06-21 18:55:58.856 | agent.final          | [payload] content: Done! The **"apply for UPIP"** task (due Jun 19) has been **deleted** permanently. The other UPIP-related task — **"deadline for applying Semester UPIP"** (due Jun 20) — is still on your list if you'd like to do anything with that too.
 2026-06-21 18:55:58.856 | graph.route          | Agent node completed. | next=end, turn=5

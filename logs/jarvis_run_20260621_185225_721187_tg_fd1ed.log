@@ -5,19 +5,19 @@ started_at: 2026-06-21T18:52:25
 thread_id: tg_fd1ed82cbd_210
 user_id: telegram:701122767
 request_source: telegram
-model: deepseek-v4-pro
+model: deepseek-v4-flash
 allow_mutations: True
 max_agent_turns: 8
 resuming: False
 ------------------------------------------------------------------------------
 2026-06-21 18:52:25.724 | section              | === Jarvis LangGraph Run ===
-2026-06-21 18:52:25.724 | runtime.start        | Starting graph invocation. | model=deepseek-v4-pro, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_210, request_source=telegram, resuming=false
+2026-06-21 18:52:25.724 | runtime.start        | Starting graph invocation. | model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_210, request_source=telegram, resuming=false
 2026-06-21 18:52:25.724 | runtime.prompt       | [payload] user_prompt: edit this todo for tmr: cld u make it such that u can mov the todo list items up & down so i can rank basee don priority
 
 edit it: its for feebees pomodoro app.
 2026-06-21 18:52:25.789 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
 2026-06-21 18:52:25.795 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
-2026-06-21 18:52:25.795 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=2, tools=9
+2026-06-21 18:52:25.795 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
 2026-06-21 18:52:28.314 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=2, has_content=true, has_reasoning=true
 2026-06-21 18:52:28.315 | graph.route          | Agent node completed. | next=tools, turn=1
 2026-06-21 18:52:28.318 | graph.tools          | Entering tools node. | tool_calls=2, accumulated_results=0
@@ -37,7 +37,7 @@ edit it: its for feebees pomodoro app.
 2026-06-21 18:52:28.732 | tool.error           | Todoist tool call failed with a classified API error. | name=get_tasks_by_filter, kind=validation, retryable=false, status_code=400, attempts=1
 2026-06-21 18:52:28.734 | graph.route          | Tools node completed. | next=agent, successes=0, failures=2
 2026-06-21 18:52:28.736 | graph.agent          | Entering agent node. | turn=2, max_turns=8, messages=5
-2026-06-21 18:52:28.737 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=5, tools=9
+2026-06-21 18:52:28.737 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=5, tools=9
 2026-06-21 18:52:30.369 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true
 2026-06-21 18:52:30.371 | graph.route          | Agent node completed. | next=tools, turn=2
 2026-06-21 18:52:30.373 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=2
@@ -51,7 +51,7 @@ edit it: its for feebees pomodoro app.
 2026-06-21 18:52:31.015 | tool.result          | [payload] get_tasks: {"next_cursor": null, "results": [{"added_at": "2023-10-22T17:40:00.547737Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 1368, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Jarod\u2019s bday", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2028-01-17", "is_recurring": true, "lang": "en", "string": "every 17 Jan", "timezone": null}, "duration": null, "goal_ids": [], "id": "69mxjXH3g69rqgwG", "is_collapsed": false, "is_deleted": false, "labels": ["birthdays"], "note_count": 0, "parent_id": null, "postponed_count": 1, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-01-20T07:56:40.006585Z", "user_id": "41485550"}, {"added_at": "2023-10-22T17:40:18.269386Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": fa...
 2026-06-21 18:52:31.017 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
 2026-06-21 18:52:31.018 | graph.agent          | Entering agent node. | turn=3, max_turns=8, messages=7
-2026-06-21 18:52:31.020 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=7, tools=9
+2026-06-21 18:52:31.020 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=7, tools=9
 2026-06-21 18:52:34.463 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true
 2026-06-21 18:52:34.465 | graph.route          | Agent node completed. | next=tools, turn=3
 2026-06-21 18:52:34.468 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=3
@@ -65,7 +65,7 @@ edit it: its for feebees pomodoro app.
 2026-06-21 18:52:35.234 | tool.result          | [payload] update_todoist_task: {"added_at": "2026-06-21T10:48:00.399065Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3964, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Feebee's Pomodoro app: make it so I can move todo list items up & down to rank based on priority", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-22", "is_recurring": false, "lang": "en", "string": "tomorrow", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gw99QgC879HRVcp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-21T10:52:34.799798Z", "user_id": "41485550"}
 2026-06-21 18:52:35.235 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
 2026-06-21 18:52:35.237 | graph.agent          | Entering agent node. | turn=4, max_turns=8, messages=9
-2026-06-21 18:52:35.238 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=9, tools=9
+2026-06-21 18:52:35.238 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=9, tools=9
 2026-06-21 18:52:37.277 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true
 2026-06-21 18:52:37.279 | agent.final          | [payload] content: Done! Here's what was updated:
 

@@ -5,17 +5,17 @@ started_at: 2026-06-22T00:17:57
 thread_id: tg_fd1ed82cbd_261
 user_id: telegram:701122767
 request_source: telegram
-model: deepseek-v4-pro
+model: deepseek-v4-flash
 allow_mutations: True
 max_agent_turns: 8
 resuming: False
 ------------------------------------------------------------------------------
 2026-06-22 00:17:57.988 | section              | === Jarvis LangGraph Run ===
-2026-06-22 00:17:57.988 | runtime.start        | Starting graph invocation. | model=deepseek-v4-pro, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_261, request_source=telegram, resuming=false
+2026-06-22 00:17:57.988 | runtime.start        | Starting graph invocation. | model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_261, request_source=telegram, resuming=false
 2026-06-22 00:17:57.989 | runtime.prompt       | [payload] user_prompt:  Go through my task, check everything that does not have a time, that is also not a birthday. Tell me and I will ask you to make edits.
 2026-06-22 00:17:58.050 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
 2026-06-22 00:17:58.051 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
-2026-06-22 00:17:58.052 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=2, tools=9
+2026-06-22 00:17:58.052 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
 2026-06-22 00:17:59.928 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true
 2026-06-22 00:17:59.929 | graph.route          | Agent node completed. | next=tools, turn=1
 2026-06-22 00:17:59.932 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=0
@@ -29,7 +29,7 @@ resuming: False
 2026-06-22 00:18:00.552 | tool.result          | [payload] get_tasks: {"next_cursor": null, "results": [{"added_at": "2023-10-22T17:40:00.547737Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 1368, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Jarod\u2019s bday", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2028-01-17", "is_recurring": true, "lang": "en", "string": "every 17 Jan", "timezone": null}, "duration": null, "goal_ids": [], "id": "69mxjXH3g69rqgwG", "is_collapsed": false, "is_deleted": false, "labels": ["birthdays"], "note_count": 0, "parent_id": null, "postponed_count": 1, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-01-20T07:56:40.006585Z", "user_id": "41485550"}, {"added_at": "2023-10-22T17:40:18.269386Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": fa...
 2026-06-22 00:18:00.554 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
 2026-06-22 00:18:00.555 | graph.agent          | Entering agent node. | turn=2, max_turns=8, messages=4
-2026-06-22 00:18:00.556 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=4, tools=9
+2026-06-22 00:18:00.556 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=4, tools=9
 2026-06-22 00:18:08.502 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true
 2026-06-22 00:18:08.503 | agent.final          | [payload] content: Here are all your non-birthday tasks that **don't have a time** set on them:
 

@@ -5,17 +5,17 @@ started_at: 2026-06-21T18:41:27
 thread_id: tg_fd1ed82cbd_206
 user_id: telegram:701122767
 request_source: telegram
-model: deepseek-v4-pro
+model: deepseek-v4-flash
 allow_mutations: True
 max_agent_turns: 8
 resuming: False
 ------------------------------------------------------------------------------
 2026-06-21 18:41:27.799 | section              | === Jarvis LangGraph Run ===
-2026-06-21 18:41:27.799 | runtime.start        | Starting graph invocation. | model=deepseek-v4-pro, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_206, request_source=telegram, resuming=false
+2026-06-21 18:41:27.799 | runtime.start        | Starting graph invocation. | model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_206, request_source=telegram, resuming=false
 2026-06-21 18:41:27.799 | runtime.prompt       | [payload] user_prompt: am i free tmr and what times?
 2026-06-21 18:41:28.207 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
 2026-06-21 18:41:28.211 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
-2026-06-21 18:41:28.212 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=2, tools=9
+2026-06-21 18:41:28.212 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
 2026-06-21 18:41:30.859 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true
 2026-06-21 18:41:30.860 | graph.route          | Agent node completed. | next=tools, turn=1
 2026-06-21 18:41:30.864 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=0
@@ -29,7 +29,7 @@ resuming: False
 2026-06-21 18:41:31.262 | tool.result          | [payload] get_tasks_by_filter: {"next_cursor": null, "results": [{"added_at": "2026-06-20T15:10:02.851496Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3961, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "study w feebee", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-22T08:30:00", "is_recurring": false, "lang": "en", "string": "22 Jun 08:30", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gw35G8xccrhGpqG", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-20T15:10:02.851516Z", "user_id": "41485550"}, {"added_at": "2026-06-21T09:12:49.763836Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false,...
 2026-06-21 18:41:31.263 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
 2026-06-21 18:41:31.264 | graph.agent          | Entering agent node. | turn=2, max_turns=8, messages=4
-2026-06-21 18:41:31.265 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=4, tools=9
+2026-06-21 18:41:31.265 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=4, tools=9
 2026-06-21 18:41:39.805 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true
 2026-06-21 18:41:39.809 | graph.route          | Agent node completed. | next=tools, turn=2
 2026-06-21 18:41:39.813 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=1
@@ -43,7 +43,7 @@ resuming: False
 2026-06-21 18:41:40.219 | tool.result          | [payload] get_tasks_by_filter: {"next_cursor": null, "results": [{"added_at": "2026-06-20T15:10:02.851496Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3961, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "study w feebee", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-22T08:30:00", "is_recurring": false, "lang": "en", "string": "22 Jun 08:30", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gw35G8xccrhGpqG", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-20T15:10:02.851516Z", "user_id": "41485550"}, {"added_at": "2026-06-21T09:12:49.763836Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false,...
 2026-06-21 18:41:40.222 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
 2026-06-21 18:41:40.224 | graph.agent          | Entering agent node. | turn=3, max_turns=8, messages=6
-2026-06-21 18:41:40.225 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=6, tools=9
+2026-06-21 18:41:40.225 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=6, tools=9
 2026-06-21 18:41:45.552 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true
 2026-06-21 18:41:45.553 | agent.final          | [payload] content: ## Your Availability for Tomorrow — **Monday, June 22, 2026**
 

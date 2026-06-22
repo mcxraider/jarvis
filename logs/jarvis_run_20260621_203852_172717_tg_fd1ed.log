@@ -5,17 +5,17 @@ started_at: 2026-06-21T20:38:52
 thread_id: tg_fd1ed82cbd_218
 user_id: telegram:701122767
 request_source: telegram
-model: deepseek-v4-pro
+model: deepseek-v4-flash
 allow_mutations: True
 max_agent_turns: 8
 resuming: False
 ------------------------------------------------------------------------------
 2026-06-21 20:38:52.175 | section              | === Jarvis LangGraph Run ===
-2026-06-21 20:38:52.175 | runtime.start        | Starting graph invocation. | model=deepseek-v4-pro, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_218, request_source=telegram, resuming=false
+2026-06-21 20:38:52.175 | runtime.start        | Starting graph invocation. | model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_218, request_source=telegram, resuming=false
 2026-06-21 20:38:52.176 | runtime.prompt       | [payload] user_prompt: clear my overdue tasks
 2026-06-21 20:38:52.244 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
 2026-06-21 20:38:52.250 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
-2026-06-21 20:38:52.250 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=2, tools=9
+2026-06-21 20:38:52.250 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
 2026-06-21 20:38:53.878 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true
 2026-06-21 20:38:53.880 | graph.route          | Agent node completed. | next=tools, turn=1
 2026-06-21 20:38:53.887 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=0
@@ -29,7 +29,7 @@ resuming: False
 2026-06-21 20:38:54.442 | tool.result          | [payload] get_tasks_by_filter: {"next_cursor": null, "results": [{"added_at": "2026-04-13T03:33:49.842724Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3825, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "deadline for applying Semester UPIP", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-20", "is_recurring": false, "lang": "en", "string": "20 Jun", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gMxrMMpcFrCPcFG", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-04-13T03:33:49.842745Z", "user_id": "41485550"}, {"added_at": "2026-06-21T12:38:49.203108Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": ...
 2026-06-21 20:38:54.444 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
 2026-06-21 20:38:54.445 | graph.agent          | Entering agent node. | turn=2, max_turns=8, messages=4
-2026-06-21 20:38:54.447 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-pro, messages=4, tools=9
+2026-06-21 20:38:54.447 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=4, tools=9
 2026-06-21 20:38:58.609 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true
 2026-06-21 20:38:58.610 | agent.final          | [payload] content: I found **2 overdue tasks** (both due yesterday, June 20, 2026):
 

@@ -68,7 +68,7 @@ def load_settings() -> Settings:
     return Settings(
         api_title=os.getenv("JARVIS_AGENT_API_TITLE", "Jarvis LangGraph Agent API"),
         api_key=os.getenv("LANGGRAPH_AGENT_API_KEY"),
-        deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro"),
+        deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
         deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         deepseek_request_timeout_seconds=_float_env("DEEPSEEK_REQUEST_TIMEOUT_SECONDS", 30.0),
         deepseek_max_retry_attempts=_int_env("DEEPSEEK_MAX_RETRY_ATTEMPTS", 3),

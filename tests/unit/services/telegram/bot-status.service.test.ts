@@ -7,7 +7,7 @@ describe('BotStatusService', () => {
     activity.recordActivity('message_text');
 
     const service = new BotStatusService(activity, {
-      gptModel: 'deepseek-v4-pro',
+      gptModel: 'deepseek-v4-flash',
       todoistService: {
         getProjects: jest.fn().mockResolvedValue({ results: [{ id: '1' }], next_cursor: null }),
       } as any,
@@ -16,7 +16,7 @@ describe('BotStatusService', () => {
     const status = await service.getFormattedStatus();
 
     expect(status).toContain('healthy');
-    expect(status).toContain('deepseek-v4-pro');
+    expect(status).toContain('deepseek-v4-flash');
     expect(status).toContain('Todoist: reachable');
     expect(status).toContain('Interactions: 1');
   });
