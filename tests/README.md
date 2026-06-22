@@ -71,6 +71,14 @@ TEST_CHAT_ID=...
 These tests call the real Telegram Bot API to get bot info and send a test
 message to `TEST_CHAT_ID`.
 
+To manually send the rich-message formatting fixtures as 11 separate messages:
+
+```bash
+npm run test:telegram-rich
+```
+
+This script reads `BOT_TOKEN` and `TEST_CHAT_ID` from the environment or `.env`.
+
 ### Live Todoist CRUD Tests
 
 Command:
