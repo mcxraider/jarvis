@@ -3,6 +3,8 @@ import { logger } from '../../utils/logger';
 
 export type PendingClarificationStatus = 'pending' | 'completed' | 'failed' | 'expired';
 
+export type PendingInterruptType = 'clarify' | 'confirm';
+
 export interface PendingClarificationRecord {
   pendingKey: string;
   threadId: string;
@@ -11,6 +13,7 @@ export interface PendingClarificationRecord {
   chatId?: number | string;
   userId: string;
   requestId?: string;
+  interruptType?: PendingInterruptType;
   status: PendingClarificationStatus;
   createdAt: number;
   updatedAt: number;

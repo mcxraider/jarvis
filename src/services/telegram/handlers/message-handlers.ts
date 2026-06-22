@@ -40,7 +40,7 @@ export class MessageHandlers {
 
     try {
       await progressReporter.start();
-      const response = await this.messageProcessor.processTextMessage(
+      const result = await this.messageProcessor.processTextMessage(
         messageText,
         userId,
         logContext,
@@ -52,12 +52,19 @@ export class MessageHandlers {
       await progressReporter.complete(this.completionStatus(lastProgressStage));
       logger.info('telegram.reply.sending', {
         ...logContext,
-        responseLength: response.length,
+        responseLength: result.response.length,
+        interruptType: result.interruptType,
       });
-      await sendFinalReply(ctx, response, logContext);
+
+      if (result.interruptType === 'confirm' && result.threadId) {
+        await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
+      } else {
+        await sendFinalReply(ctx, result.response, logContext);
+      }
+
       logger.info('telegram.reply.sent', {
         ...logContext,
-        responseLength: response.length,
+        responseLength: result.response.length,
         totalDurationMs: Date.now() - startedAt,
       });
     } catch (error) {
@@ -150,7 +157,7 @@ export class MessageHandlers {
     this.activityService.recordActivity('message_photo');
 
     try {
-      const response = await this.messageProcessor.processPhotoMessage(
+      const result = await this.messageProcessor.processPhotoMessage(
         {
           fileId: bestPhoto.file_id,
           caption: ctx.message.caption,
@@ -161,10 +168,16 @@ export class MessageHandlers {
         userId,
         logContext,
       );
-      await sendFinalReply(ctx, response, logContext);
+
+      if (result.interruptType === 'confirm' && result.threadId) {
+        await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
+      } else {
+        await sendFinalReply(ctx, result.response, logContext);
+      }
+
       logger.info('telegram.reply.sent', {
         ...logContext,
-        responseLength: response.length,
+        responseLength: result.response.length,
         totalDurationMs: Date.now() - startedAt,
       });
     } catch (error) {
@@ -379,6 +392,24 @@ export class MessageHandlers {
       messageId: message?.message_id,
       messageType,
     };
+  }
+
+  private async sendConfirmReply(
+    ctx: Context,
+    text: string,
+    threadId: string,
+    _logContext: LogContext,
+  ): Promise<void> {
+    await ctx.reply(text, {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '✓ Approve', callback_data: `confirm:approve:${threadId}` },
+            { text: '✗ Decline', callback_data: `confirm:decline:${threadId}` },
+          ],
+        ],
+      },
+    });
   }
 
   private completionStatus(lastProgressStage: string): 'Done' | 'Paused for clarification' {

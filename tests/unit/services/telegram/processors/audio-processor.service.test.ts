@@ -25,7 +25,7 @@ describe('AudioProcessorService', () => {
 
   it('passes successful transcriptions into the text processor', async () => {
     const textProcessor = {
-      processTextMessage: jest.fn().mockResolvedValue('Task created.'),
+      processTextMessage: jest.fn().mockResolvedValue({ response: 'Task created.' }),
     };
     const service = new AudioProcessorService(textProcessor as any);
     const logContext = { requestId: 'tg_test', messageType: 'voice' };
@@ -56,7 +56,7 @@ describe('AudioProcessorService', () => {
     const onTranscribed = jest.fn().mockResolvedValue(undefined);
     const onProgress = jest.fn();
     const textProcessor = {
-      processTextMessage: jest.fn().mockResolvedValue('Task created.'),
+      processTextMessage: jest.fn().mockResolvedValue({ response: 'Task created.' }),
     };
     const service = new AudioProcessorService(textProcessor as any);
 
@@ -81,7 +81,7 @@ describe('AudioProcessorService', () => {
     const onTranscribed = jest.fn();
     const onProgress = jest.fn();
     const textProcessor = {
-      processTextMessage: jest.fn().mockResolvedValue('Summary ready.'),
+      processTextMessage: jest.fn().mockResolvedValue({ response: 'Summary ready.' }),
     };
     const service = new AudioProcessorService(textProcessor as any);
 

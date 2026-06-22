@@ -321,7 +321,6 @@ def create_agent_node(
             error = f"Max agent turns exceeded ({max_agent_turns})."
             tracer.event("graph.guard", "Stopping graph because max turns was reached.", error=error)
             return {
-                **state,
                 "error": error,
                 "final_response": error,
                 "next": "end",
@@ -349,7 +348,6 @@ def create_agent_node(
                 attempts=error.payload.get("attempts"),
             )
             return {
-                **state,
                 "error": json.dumps(error.payload, sort_keys=True),
                 "final_response": LLM_FAILURE_MESSAGE,
                 "next": "end",
@@ -377,7 +375,6 @@ def create_agent_node(
         )
 
         return {
-            **state,
             "messages": messages,
             "turn_count": turn_count + 1,
             "final_response": final_response,

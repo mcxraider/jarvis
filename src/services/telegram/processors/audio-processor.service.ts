@@ -58,14 +58,14 @@ export class AudioProcessorService {
 
       try {
         await hooks?.onTranscribed?.();
-        const response = await this.textProcessor.processTextMessage(
+        const result = await this.textProcessor.processTextMessage(
           text,
           userId,
           logContext,
           hooks?.onProgress,
         );
 
-        return `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}${response}`;
+        return `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}${result.response}`;
       } catch (processingError) {
         logger.warn('audio_processor.text_processing_failed', {
           ...logContext,
@@ -120,14 +120,14 @@ export class AudioProcessorService {
 
       try {
         await hooks?.onTranscribed?.();
-        const response = await this.textProcessor.processTextMessage(
+        const result = await this.textProcessor.processTextMessage(
           text,
           userId,
           logContext,
           hooks?.onProgress,
         );
 
-        return `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}${response}`;
+        return `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}${result.response}`;
       } catch (processingError) {
         logger.warn('audio_processor.document_text_processing_failed', {
           ...logContext,

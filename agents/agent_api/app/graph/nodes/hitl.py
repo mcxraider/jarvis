@@ -24,7 +24,7 @@ def build_ask_user_payload(
     arguments = parse_tool_call_arguments(ask_user_call)
     question = arguments.get("question") or "What detail should I use before continuing?"
     return {
-        "type": "clarification",
+        "type": "clarify",
         "question": question,
         "reason": arguments.get("reason", ""),
         "missing_fields": arguments.get("missing_fields", []),
@@ -100,7 +100,6 @@ def create_hitl_node(tracer: Optional[TracePrinter] = None):
             error = "HITL node reached without an ask_user tool call."
             tracer.event("graph.hitl", "Missing ask_user tool call.", error=error)
             return {
-                **state,
                 "error": error,
                 "final_response": error,
                 "next": "end",
@@ -168,7 +167,6 @@ def create_hitl_node(tracer: Optional[TracePrinter] = None):
         }
 
         return {
-            **state,
             "messages": messages,
             "pending_clarification": {},
             "clarification_history": state.get("clarification_history", []) + [clarification_record],
