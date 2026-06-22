@@ -139,6 +139,7 @@ def invoke(
             allow_mutations=allow_mutations(request.allow_mutations),
             tracer=NULL_TRACE,
             thread_id=request.thread_id,
+            request_id=request.request_id,
         )
         return to_response(result)
     except Exception as error:
@@ -165,6 +166,7 @@ def invoke_stream(
             allow_mutations=allow_mutations(request.allow_mutations),
             tracer=tracer,
             thread_id=request.thread_id,
+            request_id=request.request_id,
         )
 
     return stream_agent_run(run_with_tracer)
@@ -190,6 +192,7 @@ def invoke_bulk(
                 allow_mutations=allow_bulk_mutations(request.allow_mutations),
                 max_agent_turns=request.max_agent_turns or MAX_AGENT_TURNS,
                 tracer=NULL_TRACE,
+                request_id=request.request_id,
             )
             results.append(to_response(result))
         except Exception as error:

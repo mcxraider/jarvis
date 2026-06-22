@@ -15,7 +15,7 @@ flowchart TD
         P["USER_PROMPTS[]"] --> M["main()"]
         M --> SEQ["run_jarvis_sequence()<br/>one invocation per prompt"]
         SEQ --> LOC["run_jarvis_with_local_clarifications()<br/>owns the HITL resume loop"]
-        LOC --> RJ["run_jarvis()<br/>final-only LangSmith logging"]
+        LOC --> RJ["run_jarvis()<br/>per-invocation LangSmith trace"]
     end
 
     RJ --> INIT["build_initial_state()<br/>system prompt + user prompt(+datetime)<br/>→ messages, thread_id, turn_count=0"]
@@ -72,7 +72,7 @@ flowchart LR
 
     subgraph CROSS["Cross-cutting services"]
         CP["InMemorySaver<br/>checkpointer · interrupt/resume"]
-        LS["LangSmith<br/>one final conversation run"]
+        LS["LangSmith<br/>per-invocation hierarchical trace"]
         TP["TracePrinter<br/>terminal trace + payloads"]
     end
 
@@ -148,12 +148,33 @@ turn knows they didn't run.
 
 ## 6. Observability (the "small services" running alongside)
 
-- **LangSmith** — final-only conversation logging after the graph reaches `END`.
-  Nested `@traceable` / `wrap_openai` spans are suppressed during graph execution;
-  the posted run contains the final response, full message list, tool results,
-  status, and metadata. Tagged `["jarvis", "langgraph", "todoist", "local", "final-only"]`.
+- **LangSmith** — one correlated, hierarchical trace per `/invoke` or `/resume`.
+  `run_jarvis` names the root run `jarvis.invoke` / `jarvis.resume` and attaches
+  metadata (`request_id`, `thread_id`, `invocation_type`, `user_id`,
+  `request_source`, `model`, `allow_mutations`, `max_agent_turns`). Native
+  LangGraph tracing emits the node spans (`agent` / `tools` / `hitl`), and the
+  existing `@traceable` / `wrap_openai` decorators emit child spans for each
+  DeepSeek call (with retries + token usage), each tool execution, and each
+  Todoist HTTP request. Governed solely by `LANGSMITH_TRACING`; tracing is
+  best-effort and never fails the Jarvis request.
+  - **Correlation** — group a conversation by `thread_id`; tie a trace back to a
+    Telegram update by `request_id` (generated in TypeScript at the webhook,
+    propagated through FastAPI, and generated at the API boundary if a caller
+    omits it). Each invoke/resume is its own trace; a resume is linked to its
+    invoke by shared `thread_id` + `request_id`.
+  - **Privacy** — raw inputs (prompts, tool args) and outputs (completions,
+    reasoning content) are hidden by default via `LANGSMITH_HIDE_INPUTS` /
+    `LANGSMITH_HIDE_OUTPUTS` (set automatically from `langsmith_hide_payloads`);
+    safe metadata/tags are retained. Todoist URLs are reduced to endpoint
+    templates (`/tasks/{id}`) so identifiers never reach traces or logs. Set
+    `JARVIS_TRACE_PAYLOADS=1` to temporarily capture full payloads for debugging.
 - **TracePrinter** — structured terminal output of every stage + truncated payloads
   (`JARVIS_DEBUG`, `JARVIS_DEBUG_PAYLOADS`).
+- **Per-run file logs** (`logs/jarvis_run_*.log`) — the on-disk fallback when
+  LangSmith is unavailable. Header carries `request_id`/`thread_id`; the footer
+  records duration and aggregated DeepSeek token totals (prompt/completion/total
+  plus cached/reasoning when the provider returns them). Auto-disabled under
+  pytest; payload bodies are opt-in via `JARVIS_DEBUG_PAYLOADS`.
 - **InMemorySaver** — LangGraph checkpointer keyed by `thread_id`; the thing that
   makes `interrupt()` / `Command(resume=…)` work across runs.
 

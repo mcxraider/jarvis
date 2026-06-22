@@ -147,7 +147,7 @@ class RunJarvisFileLoggingTests(TestCase):
                 todoist_client=_FakeTodoistClient(),
                 tracer=NULL_TRACE,
                 thread_id="feedface-0000",
-                final_logger=lambda *a, **k: None,
+                request_id="tg_log",
             )
         files = sorted(run_logging.Path(tmp).glob("jarvis_run_*.log"))
         return files
@@ -165,6 +165,10 @@ class RunJarvisFileLoggingTests(TestCase):
         self.assertIn("runtime.start", content)
         self.assertIn("agent.request", content)  # emitted via the redirected client tracer
         self.assertIn("Run finished", content)
+        # Correlation id in the header and token/duration totals in the footer.
+        self.assertIn("request_id: tg_log", content)
+        self.assertIn("duration_seconds:", content)
+        self.assertIn("total_tokens:", content)
 
     def test_no_file_written_when_disabled(self) -> None:
         import tempfile
