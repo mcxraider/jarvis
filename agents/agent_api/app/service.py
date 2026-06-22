@@ -98,6 +98,11 @@ from agents.agent_api.app.tools.control import (
 )
 from agents.agent_api.app.tools.dispatcher import ToolDispatcher, build_tool_result
 from agents.agent_api.app.tools.registry_factory import build_default_registry
+from agents.agent_api.app.tools.selection import (
+    DEFAULT_TOOL_SELECTOR,
+    StaticToolSelector,
+    ToolSelector,
+)
 from agents.agent_api.app.runner import (
     ask_user_for_clarification,
     build_arg_parser,
@@ -175,6 +180,10 @@ __all__ = [
     "build_default_registry",
     "build_tool_result",
     "openai_schema_from_tool",
+    # tool selection layer
+    "ToolSelector",
+    "StaticToolSelector",
+    "DEFAULT_TOOL_SELECTOR",
     # control pseudo-tools
     "ASK_USER_TOOL_NAME",
     "get_ask_user_schema",

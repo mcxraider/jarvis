@@ -10,18 +10,14 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agents import jarvis
-from agents.agent_api.app.langsmith_final_logger import (
-    LangSmithFinalConversationLogger,
-    build_final_run_payload,
-)
-from agents.agent_api.app import langsmith_final_logger as final_logger_module
+from agents.agent_api.app.graph import builder as builder_module
 from agents.agent_api.app.tools.todoist import client as todoist_client_module
 from agents.agent_api.app.graph.nodes import orchestrator as orchestrator_module
 
@@ -32,14 +28,17 @@ class FakeDeepSeekAgentClient:
     def __init__(self, responses: List[Dict[str, Any]]):
         self.responses = [copy.deepcopy(response) for response in responses]
         self.calls: List[List[Dict[str, Any]]] = []
+        # Records the tool schema list passed on each turn so tests can assert
+        # which tools the selection layer exposed to the model.
+        self.tool_calls: List[List[Dict[str, Any]]] = []
 
     def create_message(
         self,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        del tools
         self.calls.append(copy.deepcopy(messages))
+        self.tool_calls.append(copy.deepcopy(tools))
         if not self.responses:
             return {"role": "assistant", "content": "No fake response configured."}
         return copy.deepcopy(self.responses.pop(0))
@@ -429,6 +428,132 @@ class FakeOpenAIClient:
         self.chat = SimpleNamespace(completions=self.completions)
 
 
+class ToolSelectionTests(unittest.TestCase):
+    def _registry(self):
+        from agents.agent_api.app.tools.registry_factory import build_default_registry
+
+        return build_default_registry(FakeTodoistClient())
+
+    def test_static_selector_returns_full_catalogue(self) -> None:
+        from agents.agent_api.app.tools.selection import StaticToolSelector
+
+        registry = self._registry()
+        selector = StaticToolSelector()
+
+        for query in ("", "add a task tomorrow"):
+            schemas = selector.select_schemas(query, registry)
+            self.assertEqual(schemas, registry.openai_schemas())
+            self.assertEqual(len(schemas), len(registry.specs))
+
+    def test_default_selector_is_a_static_selector(self) -> None:
+        from agents.agent_api.app.tools.selection import (
+            DEFAULT_TOOL_SELECTOR,
+            StaticToolSelector,
+        )
+
+        self.assertIsInstance(DEFAULT_TOOL_SELECTOR, StaticToolSelector)
+
+    def test_run_jarvis_uses_default_selector_to_expose_all_tools(self) -> None:
+        agent_client = FakeDeepSeekAgentClient([{"role": "assistant", "content": "Hi."}])
+        registry = self._registry()
+
+        jarvis.run_jarvis(
+            user_prompt="fake prompt",
+            agent_client=agent_client,
+            todoist_client=FakeTodoistClient(),
+            tracer=jarvis.NULL_TRACE,
+        )
+
+        # The default (pass-through) selector exposes the entire catalogue.
+        self.assertEqual(len(agent_client.tool_calls), 1)
+        self.assertEqual(len(agent_client.tool_calls[0]), len(registry.specs))
+
+    def test_agent_node_honours_injected_selector(self) -> None:
+        recorded: List[str] = []
+
+        class FirstToolOnlySelector:
+            """Test selector: records the query and exposes only the first tool."""
+
+            def select_schemas(self, query, registry):
+                recorded.append(query)
+                return registry.openai_schemas()[:1]
+
+        agent_client = FakeDeepSeekAgentClient([{"role": "assistant", "content": "Hi."}])
+
+        jarvis.run_jarvis(
+            user_prompt="narrow me",
+            agent_client=agent_client,
+            todoist_client=FakeTodoistClient(),
+            tracer=jarvis.NULL_TRACE,
+            tool_selector=FirstToolOnlySelector(),
+        )
+
+        # The selector saw the user query and its narrowed list reached the model.
+        self.assertEqual(recorded, ["narrow me"])
+        self.assertEqual(len(agent_client.tool_calls[0]), 1)
+
+
+class UsageAndRedactionTests(unittest.TestCase):
+    def test_usage_from_response_reads_all_fields(self) -> None:
+        response = SimpleNamespace(
+            usage=SimpleNamespace(
+                prompt_tokens=120,
+                completion_tokens=40,
+                total_tokens=160,
+                prompt_cache_hit_tokens=30,
+                completion_tokens_details=SimpleNamespace(reasoning_tokens=12),
+            )
+        )
+
+        usage = orchestrator_module.usage_from_response(response)
+
+        self.assertEqual(usage.prompt_tokens, 120)
+        self.assertEqual(usage.completion_tokens, 40)
+        self.assertEqual(usage.total_tokens, 160)
+        self.assertEqual(usage.cached_tokens, 30)
+        self.assertEqual(usage.reasoning_tokens, 12)
+
+    def test_usage_from_response_tolerates_missing_optional_fields(self) -> None:
+        response = SimpleNamespace(
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+        )
+
+        usage = orchestrator_module.usage_from_response(response)
+
+        self.assertEqual(usage.total_tokens, 15)
+        self.assertEqual(usage.cached_tokens, 0)
+        self.assertEqual(usage.reasoning_tokens, 0)
+
+    def test_usage_from_response_handles_missing_usage(self) -> None:
+        usage = orchestrator_module.usage_from_response(SimpleNamespace())
+
+        self.assertEqual(usage.total_tokens, 0)
+
+    def test_usage_summary_aggregates_across_turns(self) -> None:
+        total = orchestrator_module.UsageSummary()
+        total.add(orchestrator_module.UsageSummary(prompt_tokens=10, total_tokens=12))
+        total.add(orchestrator_module.UsageSummary(prompt_tokens=5, total_tokens=6, reasoning_tokens=2))
+
+        self.assertEqual(total.prompt_tokens, 15)
+        self.assertEqual(total.total_tokens, 18)
+        self.assertEqual(total.reasoning_tokens, 2)
+
+    def test_todoist_endpoint_template_strips_identifiers(self) -> None:
+        base = todoist_client_module.TODOIST_REST_BASE_URL
+        self.assertEqual(
+            todoist_client_module.todoist_endpoint_template(f"{base}/tasks/9876543210/close"),
+            "/tasks/{id}/close",
+        )
+        self.assertEqual(
+            todoist_client_module.todoist_endpoint_template(f"{base}/tasks?filter=today"),
+            "/tasks",
+        )
+        self.assertEqual(
+            todoist_client_module.todoist_endpoint_template(f"{base}/tasks"),
+            "/tasks",
+        )
+
+
 class JarvisGraphTests(unittest.TestCase):
     def test_system_prompt_uses_orchestrator_contract(self) -> None:
         prompt = jarvis.get_system_prompt()
@@ -478,111 +603,68 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(result["final_response"], "Hello.")
         self.assertEqual(result["tool_results"], [])
 
-    def test_final_logger_receives_completed_end_state(self) -> None:
-        calls: List[Dict[str, Any]] = []
+    def test_run_jarvis_generates_request_id_when_omitted(self) -> None:
+        captured: List[Dict[str, Any]] = []
 
-        result = jarvis.run_jarvis(
-            user_prompt="fake prompt",
-            user_id="jerry",
-            request_source="telegram",
-            allow_mutations=False,
-            agent_client=FakeDeepSeekAgentClient([{"role": "assistant", "content": "Hello."}]),
-            todoist_client=FakeTodoistClient(),
-            max_agent_turns=3,
-            tracer=jarvis.NULL_TRACE,
-            final_logger=lambda result, **kwargs: calls.append(
-                {"result": copy.deepcopy(result), "kwargs": copy.deepcopy(kwargs)}
-            ),
-        )
+        # Capture the config passed into app.invoke by wrapping create_jarvis_graph.
+        real_create = builder_module.create_jarvis_graph
 
-        self.assertEqual(result["final_response"], "Hello.")
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0]["result"]["messages"][-1]["content"], "Hello.")
-        self.assertEqual(calls[0]["kwargs"]["user_prompt"], "fake prompt")
-        self.assertEqual(calls[0]["kwargs"]["user_id"], "jerry")
-        self.assertEqual(calls[0]["kwargs"]["request_source"], "telegram")
-        self.assertFalse(calls[0]["kwargs"]["allow_mutations"])
-        self.assertEqual(calls[0]["kwargs"]["max_agent_turns"], 3)
+        def capturing_create(*args: Any, **kwargs: Any):
+            app = real_create(*args, **kwargs)
+            real_app_invoke = app.invoke
 
-    def test_final_logger_skips_interrupted_runs(self) -> None:
-        calls: List[Dict[str, Any]] = []
+            def invoke_spy(state: Any, config: Dict[str, Any]):
+                captured.append(config)
+                return real_app_invoke(state, config)
 
-        result = jarvis.run_jarvis(
-            user_prompt="fake prompt",
-            agent_client=FakeDeepSeekAgentClient(
-                [
-                    {
-                        "role": "assistant",
-                        "content": "",
-                        "tool_calls": [
-                            fake_tool_call(
-                                "call_ask",
-                                jarvis.ASK_USER_TOOL_NAME,
-                                {"question": "Which task should I update?"},
-                            )
-                        ],
-                    }
-                ]
-            ),
-            todoist_client=FakeTodoistClient(),
-            tracer=jarvis.NULL_TRACE,
-            final_logger=lambda result, **kwargs: calls.append({"result": result, "kwargs": kwargs}),
-        )
+            app.invoke = invoke_spy  # type: ignore[assignment]
+            return app
 
-        self.assertTrue(result["interrupted"])
-        self.assertEqual(calls, [])
-
-    def test_final_run_payload_contains_full_conversation(self) -> None:
-        result = self.run_graph_with_fakes(
-            [
-                {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": [fake_tool_call("call_1", "get_tasks_by_filter", {"query": "today"})],
-                },
-                {"role": "assistant", "content": "You have one task today."},
-            ]
-        )
-
-        payload = build_final_run_payload(
-            result,
-            user_prompt="fake prompt",
-            user_id="jerry",
-            request_source="telegram",
-            allow_mutations=False,
-            max_agent_turns=8,
-        )
-
-        self.assertEqual(payload["outputs"]["status"], "completed")
-        self.assertEqual(payload["outputs"]["final_response"], "You have one task today.")
-        self.assertEqual(payload["outputs"]["messages"], result["messages"])
-        self.assertEqual(payload["outputs"]["tool_results"], result["tool_results"])
-        self.assertEqual(payload["metadata"]["request_source"], "telegram")
-        self.assertFalse(payload["metadata"]["interrupted"])
-
-    def test_final_logger_posts_single_runtree_with_metadata(self) -> None:
-        result = self.run_graph_with_fakes([{"role": "assistant", "content": "Hello."}])
-        run = SimpleNamespace(post=Mock(), patch=Mock())
-
-        with patch.object(final_logger_module, "RunTree", return_value=run) as run_tree:
-            LangSmithFinalConversationLogger(client=object()).log_final_run(
-                result,
+        with patch.object(builder_module, "create_jarvis_graph", side_effect=capturing_create):
+            result = jarvis.run_jarvis(
                 user_prompt="fake prompt",
-                user_id="jerry",
-                request_source="telegram",
-                allow_mutations=False,
-                max_agent_turns=8,
+                agent_client=FakeDeepSeekAgentClient([{"role": "assistant", "content": "Hi."}]),
+                todoist_client=FakeTodoistClient(),
+                tracer=jarvis.NULL_TRACE,
             )
 
-        run_tree.assert_called_once()
-        kwargs = run_tree.call_args.kwargs
-        self.assertEqual(kwargs["name"], "jarvis_final_conversation")
-        self.assertEqual(kwargs["run_type"], "chain")
-        self.assertEqual(kwargs["outputs"]["messages"], result["messages"])
-        self.assertEqual(kwargs["extra"]["metadata"]["request_source"], "telegram")
-        self.assertIn("final-only", kwargs["tags"])
-        run.post.assert_called_once()
-        run.patch.assert_called_once()
+        self.assertEqual(result["final_response"], "Hi.")
+        self.assertEqual(len(captured), 1)
+        config = captured[0]
+        self.assertEqual(config["run_name"], "jarvis.invoke")
+        self.assertEqual(config["metadata"]["invocation_type"], "invoke")
+        self.assertTrue(config["metadata"]["request_id"])
+        self.assertEqual(config["metadata"]["thread_id"], result["thread_id"])
+        self.assertIn("invoke", config["tags"])
+
+    def test_run_jarvis_preserves_supplied_request_id_and_thread(self) -> None:
+        captured: List[Dict[str, Any]] = []
+        real_create = builder_module.create_jarvis_graph
+
+        def capturing_create(*args: Any, **kwargs: Any):
+            app = real_create(*args, **kwargs)
+            real_app_invoke = app.invoke
+
+            def invoke_spy(state: Any, config: Dict[str, Any]):
+                captured.append(config)
+                return real_app_invoke(state, config)
+
+            app.invoke = invoke_spy  # type: ignore[assignment]
+            return app
+
+        with patch.object(builder_module, "create_jarvis_graph", side_effect=capturing_create):
+            jarvis.run_jarvis(
+                user_prompt="fake prompt",
+                thread_id="thread-xyz",
+                request_id="tg_corr",
+                agent_client=FakeDeepSeekAgentClient([{"role": "assistant", "content": "Hi."}]),
+                todoist_client=FakeTodoistClient(),
+                tracer=jarvis.NULL_TRACE,
+            )
+
+        metadata = captured[0]["metadata"]
+        self.assertEqual(metadata["request_id"], "tg_corr")
+        self.assertEqual(metadata["thread_id"], "thread-xyz")
 
     def test_request_source_is_kept_in_state_and_interrupt_payload(self) -> None:
         result = jarvis.run_jarvis(

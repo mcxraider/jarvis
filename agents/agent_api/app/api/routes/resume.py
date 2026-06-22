@@ -29,6 +29,7 @@ def resume(
             tracer=NULL_TRACE,
             thread_id=request.thread_id,
             clarification_reply=request.message,
+            request_id=request.request_id,
         )
         return to_response(result)
     except Exception as error:
@@ -56,6 +57,7 @@ def resume_stream(
             tracer=tracer,
             thread_id=request.thread_id,
             clarification_reply=request.message,
+            request_id=request.request_id,
         )
 
     return stream_agent_run(run_with_tracer)

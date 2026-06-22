@@ -52,6 +52,7 @@ class Settings:
     todoist_retry_max_delay_seconds: float
     debug_trace: bool
     debug_payloads: bool
+    langsmith_hide_payloads: bool
     postgres_dsn: Optional[str]
     redis_url: Optional[str]
 
@@ -87,9 +88,29 @@ def load_settings() -> Settings:
         todoist_retry_max_delay_seconds=_float_env("TODOIST_RETRY_MAX_DELAY_SECONDS", 4.0),
         debug_trace=_bool_env("JARVIS_DEBUG", True),
         debug_payloads=_bool_env("JARVIS_DEBUG_PAYLOADS", True),
+        # Raw prompts/outputs are hidden from LangSmith by default. Set
+        # JARVIS_TRACE_PAYLOADS=1 to temporarily capture full payloads for debugging.
+        langsmith_hide_payloads=not _bool_env("JARVIS_TRACE_PAYLOADS", False),
         postgres_dsn=os.getenv("JARVIS_POSTGRES_DSN") or os.getenv("DATABASE_URL"),
         redis_url=os.getenv("JARVIS_REDIS_URL") or os.getenv("REDIS_URL"),
     )
 
 
+def apply_langsmith_env_defaults(active_settings: Settings) -> None:
+    """Set LangSmith payload-privacy env vars before any tracer initializes.
+
+    By default raw inputs (prompts, tool args) and outputs (completions, reasoning
+    content) are hidden from LangSmith while safe metadata/tags are retained.
+    When JARVIS_TRACE_PAYLOADS opts in, payload capture is enabled explicitly.
+    """
+
+    if active_settings.langsmith_hide_payloads:
+        os.environ.setdefault("LANGSMITH_HIDE_INPUTS", "true")
+        os.environ.setdefault("LANGSMITH_HIDE_OUTPUTS", "true")
+    else:
+        os.environ["LANGSMITH_HIDE_INPUTS"] = "false"
+        os.environ["LANGSMITH_HIDE_OUTPUTS"] = "false"
+
+
 settings = load_settings()
+apply_langsmith_env_defaults(settings)

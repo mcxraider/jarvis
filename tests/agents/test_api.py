@@ -57,6 +57,7 @@ class JarvisApiTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["user_prompt"], "add milk")
         self.assertEqual(run.call_args.kwargs["user_id"], "jerry")
         self.assertEqual(run.call_args.kwargs["request_source"], "telegram")
+        self.assertEqual(run.call_args.kwargs["request_id"], "tg_test")
 
     def test_invoke_interrupted(self) -> None:
         interrupt = {
