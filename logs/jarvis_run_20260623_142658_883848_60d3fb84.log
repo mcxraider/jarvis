@@ -1,0 +1,40 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-23T14:26:58
+request_id: 6db27905-6125-4a31-9db6-685ad85306bf
+thread_id: 60d3fb84-198a-43cc-8a5c-93c87d9485f4
+user_id: local-user
+request_source: cli
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: False
+------------------------------------------------------------------------------
+2026-06-23 14:26:58.884 | section              | === Jarvis LangGraph Run ===
+2026-06-23 14:26:58.884 | runtime.start        | Starting graph invocation. | request_id=6db27905-6125-4a31-9db6-685ad85306bf, model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=60d3fb84-198a-43cc-8a5c-93c87d9485f4, request_source=cli, resuming=false
+2026-06-23 14:26:58.884 | runtime.prompt       | [payload] user_prompt: put in my cal
+2026-06-23 14:26:58.923 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-23 14:26:58.925 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
+2026-06-23 14:26:58.926 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 14:26:58.926 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-23 14:27:01.012 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true, prompt_tokens=2861, completion_tokens=195, total_tokens=3056
+2026-06-23 14:27:01.013 | graph.route          | Agent node completed. | next=hitl, turn=1
+2026-06-23 14:27:01.017 | graph.hitl           | Interrupting for user clarification. | question=What would you like to add to your calendar? Please provide the details — for example, a task title, date/time, or any other relevant information., deferred_tools=0, extra_questions=0
+2026-06-23 14:27:01.025 | runtime.done         | Graph invocation completed. | request_id=6db27905-6125-4a31-9db6-685ad85306bf, turns=1, tool_results=0, has_error=false, interrupted=true, total_tokens=18326
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-23T14:27:01
+duration_seconds: 2.141
+request_id: 6db27905-6125-4a31-9db6-685ad85306bf
+turns: 1
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 16621
+completion_tokens: 1705
+total_tokens: 18326
+cached_tokens: 8576
+reasoning_tokens: 1064
+==============================================================================

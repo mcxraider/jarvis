@@ -1,0 +1,49 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-23T16:29:01
+request_id: 25bb4955-6450-495b-90ab-711664f8aace
+thread_id: 97a88121-49b4-43e0-beb6-fe05d36b8443
+user_id: local-user
+request_source: cli
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: True
+------------------------------------------------------------------------------
+2026-06-23 16:29:01.310 | section              | === Jarvis LangGraph Run ===
+2026-06-23 16:29:01.310 | runtime.start        | Starting graph invocation. | request_id=25bb4955-6450-495b-90ab-711664f8aace, model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=97a88121-49b4-43e0-beb6-fe05d36b8443, request_source=cli, resuming=true
+2026-06-23 16:29:01.310 | runtime.prompt       | [payload] user_prompt: Delete all tasks on Tuesday.
+2026-06-23 16:29:01.347 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-23 16:29:01.348 | graph.confirm        | Interrupting for user confirmation. | tool_name=delete_todoist_task, held_call_id=238ab1ce-6a96-40e5-a36d-7666eca52df8, summary=Delete task (id=6gwfJ7FQxqfFGX5p) — this is irreversible.
+2026-06-23 16:29:01.348 | graph.confirm        | Resumed from user confirmation. | decision=decline, held_call_id=238ab1ce-6a96-40e5-a36d-7666eca52df8
+2026-06-23 16:29:01.349 | graph.executor       | Evaluating guards. | held_call_id=238ab1ce-6a96-40e5-a36d-7666eca52df8, decision=decline, tool_name=delete_todoist_task
+2026-06-23 16:29:01.349 | graph.executor       | Declined by user. | held_call_id=238ab1ce-6a96-40e5-a36d-7666eca52df8
+2026-06-23 16:29:01.350 | graph.agent          | Entering agent node. | turn=4, max_turns=8, messages=14
+2026-06-23 16:29:01.351 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 16:29:01.351 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=14, tools=9
+2026-06-23 16:29:03.731 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true, prompt_tokens=6661, completion_tokens=145, total_tokens=6806
+2026-06-23 16:29:03.732 | graph.hitl_upgrade   | Converted text question to ask_user tool call. | question_preview=It looks like the system flagged this as a risky action and needs your explicit confirmation. Here's
+2026-06-23 16:29:03.732 | graph.route          | Agent node completed. | next=hitl, turn=4
+2026-06-23 16:29:03.736 | graph.hitl           | Interrupting for user clarification. | question=It looks like the system flagged this as a risky action and needs your explicit confirmation. Here's what I found due today (Tuesday, June 23):
+
+| # | Task | 
+|---|------|
+| 1 |..., deferred_tools=0, extra_questions=0
+2026-06-23 16:29:03.737 | runtime.done         | Graph invocation completed. | request_id=25bb4955-6450-495b-90ab-711664f8aace, turns=4, tool_results=1, has_error=false, interrupted=true, total_tokens=20654
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-23T16:29:03
+duration_seconds: 2.429
+request_id: 25bb4955-6450-495b-90ab-711664f8aace
+turns: 4
+tool_results: 1
+has_error: False
+interrupted: True
+prompt_tokens: 19020
+completion_tokens: 1634
+total_tokens: 20654
+cached_tokens: 16512
+reasoning_tokens: 962
+==============================================================================

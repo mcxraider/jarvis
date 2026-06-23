@@ -1,0 +1,40 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-23T16:27:35
+request_id: dbb3aa13-6247-444a-a7c9-3ef76f6c871e
+thread_id: 97a88121-49b4-43e0-beb6-fe05d36b8443
+user_id: local-user
+request_source: cli
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: False
+------------------------------------------------------------------------------
+2026-06-23 16:27:35.582 | section              | === Jarvis LangGraph Run ===
+2026-06-23 16:27:35.582 | runtime.start        | Starting graph invocation. | request_id=dbb3aa13-6247-444a-a7c9-3ef76f6c871e, model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=97a88121-49b4-43e0-beb6-fe05d36b8443, request_source=cli, resuming=false
+2026-06-23 16:27:35.582 | runtime.prompt       | [payload] user_prompt: Delete all tasks on Tuesday.
+2026-06-23 16:27:35.600 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-23 16:27:35.658 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
+2026-06-23 16:27:35.658 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 16:27:35.659 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-23 16:27:42.887 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true, prompt_tokens=2863, completion_tokens=876, total_tokens=3739
+2026-06-23 16:27:42.887 | graph.route          | Agent node completed. | next=hitl, turn=1
+2026-06-23 16:27:42.890 | graph.hitl           | Interrupting for user clarification. | question=Which Tuesday do you mean? Options:, deferred_tools=0, extra_questions=0
+2026-06-23 16:27:42.895 | runtime.done         | Graph invocation completed. | request_id=dbb3aa13-6247-444a-a7c9-3ef76f6c871e, turns=1, tool_results=0, has_error=false, interrupted=true, total_tokens=3739
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-23T16:27:42
+duration_seconds: 7.313
+request_id: dbb3aa13-6247-444a-a7c9-3ef76f6c871e
+turns: 1
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 2863
+completion_tokens: 876
+total_tokens: 3739
+cached_tokens: 2816
+reasoning_tokens: 686
+==============================================================================

@@ -5,6 +5,7 @@ import { FileService } from '../file.service';
 import { MessageProcessorService } from '../message-processor.service';
 import { BotActivityService } from '../bot-activity.service';
 import { sendFinalReply } from '../formatters/telegram-rich';
+import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
 import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service';
 
@@ -40,7 +41,7 @@ export class MessageHandlers {
 
     try {
       await progressReporter.start();
-      const response = await this.messageProcessor.processTextMessage(
+      const result = await this.messageProcessor.processTextMessage(
         messageText,
         userId,
         logContext,
@@ -52,12 +53,19 @@ export class MessageHandlers {
       await progressReporter.complete(this.completionStatus(lastProgressStage));
       logger.info('telegram.reply.sending', {
         ...logContext,
-        responseLength: response.length,
+        responseLength: result.response.length,
+        interruptType: result.interruptType,
       });
-      await sendFinalReply(ctx, response, logContext);
+
+      if (result.interruptType === 'confirm' && result.threadId) {
+        await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
+      } else {
+        await sendFinalReply(ctx, result.response, logContext);
+      }
+
       logger.info('telegram.reply.sent', {
         ...logContext,
-        responseLength: response.length,
+        responseLength: result.response.length,
         totalDurationMs: Date.now() - startedAt,
       });
     } catch (error) {
@@ -93,7 +101,7 @@ export class MessageHandlers {
     try {
       await progressReporter.startTranscribing();
       const fileUrl = await this.fileService.getFileUrl(voice.file_id);
-      const response = await this.messageProcessor.processAudioMessage(fileUrl, userId, logContext, {
+      const result = await this.messageProcessor.processAudioMessage(fileUrl, userId, logContext, {
         onTranscribed: () => progressReporter.beginAgentPhase(),
         onProgress: async (event: LangGraphProgressEvent) => {
           lastProgressStage = event.stage;
@@ -101,10 +109,14 @@ export class MessageHandlers {
         },
       });
       await progressReporter.complete(this.completionStatus(lastProgressStage));
-      await sendFinalReply(ctx, response, logContext);
+      if (result.interruptType === 'confirm' && result.threadId) {
+        await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
+      } else {
+        await sendFinalReply(ctx, result.response, logContext);
+      }
       logger.info('telegram.reply.sent', {
         ...logContext,
-        responseLength: response.length,
+        responseLength: result.response.length,
         totalDurationMs: Date.now() - startedAt,
       });
     } catch (error) {
@@ -150,7 +162,7 @@ export class MessageHandlers {
     this.activityService.recordActivity('message_photo');
 
     try {
-      const response = await this.messageProcessor.processPhotoMessage(
+      const result = await this.messageProcessor.processPhotoMessage(
         {
           fileId: bestPhoto.file_id,
           caption: ctx.message.caption,
@@ -161,10 +173,16 @@ export class MessageHandlers {
         userId,
         logContext,
       );
-      await sendFinalReply(ctx, response, logContext);
+
+      if (result.interruptType === 'confirm' && result.threadId) {
+        await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
+      } else {
+        await sendFinalReply(ctx, result.response, logContext);
+      }
+
       logger.info('telegram.reply.sent', {
         ...logContext,
-        responseLength: response.length,
+        responseLength: result.response.length,
         totalDurationMs: Date.now() - startedAt,
       });
     } catch (error) {
@@ -235,7 +253,7 @@ export class MessageHandlers {
       try {
         await progressReporter.startTranscribing();
         const fileUrl = await this.fileService.getFileUrl(document.file_id);
-        const response = await this.messageProcessor.processAudioDocument(
+        const result = await this.messageProcessor.processAudioDocument(
           fileUrl,
           fileName,
           mimeType,
@@ -250,10 +268,14 @@ export class MessageHandlers {
           },
         );
         await progressReporter.complete(this.completionStatus(lastProgressStage));
-        await sendFinalReply(ctx, response, logContext);
+        if (result.interruptType === 'confirm' && result.threadId) {
+          await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
+        } else {
+          await sendFinalReply(ctx, result.response, logContext);
+        }
         logger.info('telegram.reply.sent', {
           ...logContext,
-          responseLength: response.length,
+          responseLength: result.response.length,
           totalDurationMs: Date.now() - startedAt,
         });
       } catch (error) {
@@ -327,7 +349,7 @@ export class MessageHandlers {
     try {
       await progressReporter.startTranscribing();
       const fileUrl = await this.fileService.getFileUrl(audioFile.file_id);
-      const response = await this.messageProcessor.processAudioMessage(fileUrl, userId, logContext, {
+      const result = await this.messageProcessor.processAudioMessage(fileUrl, userId, logContext, {
         onTranscribed: () => progressReporter.beginAgentPhase(),
         onProgress: async (event: LangGraphProgressEvent) => {
           lastProgressStage = event.stage;
@@ -335,10 +357,14 @@ export class MessageHandlers {
         },
       });
       await progressReporter.complete(this.completionStatus(lastProgressStage));
-      await sendFinalReply(ctx, response, logContext);
+      if (result.interruptType === 'confirm' && result.threadId) {
+        await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
+      } else {
+        await sendFinalReply(ctx, result.response, logContext);
+      }
       logger.info('telegram.reply.sent', {
         ...logContext,
-        responseLength: response.length,
+        responseLength: result.response.length,
         totalDurationMs: Date.now() - startedAt,
       });
     } catch (error) {
@@ -379,6 +405,31 @@ export class MessageHandlers {
       messageId: message?.message_id,
       messageType,
     };
+  }
+
+  private async sendConfirmReply(
+    ctx: Context,
+    text: string,
+    threadId: string,
+    logContext: LogContext,
+  ): Promise<void> {
+    const replyMarkup = {
+      inline_keyboard: [
+        [
+          { text: '✓ Approve', callback_data: `confirm:approve:${threadId}` },
+          { text: '✗ Decline', callback_data: `confirm:decline:${threadId}` },
+        ],
+      ],
+    };
+    try {
+      await ctx.reply(toTelegramMarkdownV2(text), { parse_mode: 'MarkdownV2', reply_markup: replyMarkup });
+    } catch (error) {
+      logger.warn('telegram.confirm_reply.markdown_parse_failed', {
+        ...logContext,
+        error: (error as Error).message,
+      });
+      await ctx.reply(text, { reply_markup: replyMarkup });
+    }
   }
 
   private completionStatus(lastProgressStage: string): 'Done' | 'Paused for clarification' {

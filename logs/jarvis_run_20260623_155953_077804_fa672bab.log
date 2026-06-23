@@ -1,0 +1,55 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-23T15:59:53
+request_id: 6c712127-107c-4e2d-abe4-51a814e9e8b3
+thread_id: fa672bab-e917-4705-b52c-ed7355577391
+user_id: local-user
+request_source: cli
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: False
+max_agent_turns: 8
+resuming: False
+------------------------------------------------------------------------------
+2026-06-23 15:59:53.078 | section              | === Jarvis LangGraph Run ===
+2026-06-23 15:59:53.078 | runtime.start        | Starting graph invocation. | request_id=6c712127-107c-4e2d-abe4-51a814e9e8b3, model=deepseek-v4-flash, allow_mutations=false, max_turns=8, thread_id=fa672bab-e917-4705-b52c-ed7355577391, request_source=cli, resuming=false
+2026-06-23 15:59:53.078 | runtime.prompt       | [payload] user_prompt: what do I have today
+2026-06-23 15:59:53.096 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-23 15:59:53.174 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
+2026-06-23 15:59:53.175 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 15:59:53.176 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-23 15:59:54.516 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true, prompt_tokens=2862, completion_tokens=89, total_tokens=2951
+2026-06-23 15:59:54.516 | graph.route          | Agent node completed. | next=tools, turn=1
+2026-06-23 15:59:54.517 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=0
+2026-06-23 15:59:54.518 | tool.start           | Preparing tool call. | id=call_00_uuDoOIUoS7X4hQ8MZnTG8379, name=get_tasks_by_filter, mutating=false
+2026-06-23 15:59:54.519 | tool.args            | [payload] get_tasks_by_filter: {"cursor": null, "lang": null, "limit": null, "query": "today"}
+2026-06-23 15:59:54.519 | todoist.request      | Sending Todoist API request. | method=GET, endpoint=/tasks/filter, has_payload=false, attempt=1, max_attempts=3
+2026-06-23 15:59:54.519 | todoist.payload      | [payload] request: null
+2026-06-23 15:59:55.045 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-23 15:59:55.046 | todoist.payload      | [payload] response: {"next_cursor": null, "results": []}
+2026-06-23 15:59:55.047 | tool.done            | Tool call completed. | name=get_tasks_by_filter
+2026-06-23 15:59:55.047 | tool.result          | [payload] get_tasks_by_filter: {"next_cursor": null, "results": []}
+2026-06-23 15:59:55.048 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-23 15:59:55.050 | graph.agent          | Entering agent node. | turn=2, max_turns=8, messages=4
+2026-06-23 15:59:55.050 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 15:59:55.051 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=4, tools=9
+2026-06-23 15:59:57.450 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true, prompt_tokens=3038, completion_tokens=146, total_tokens=3184
+2026-06-23 15:59:57.451 | agent.final          | [payload] content: You've got a clean slate today, Jerry — **no tasks due on June 23, 2026**. Nothing on the agenda! 🎉
+2026-06-23 15:59:57.451 | graph.route          | Agent node completed. | next=end, turn=2
+2026-06-23 15:59:57.455 | runtime.done         | Graph invocation completed. | request_id=6c712127-107c-4e2d-abe4-51a814e9e8b3, turns=2, tool_results=1, has_error=false, interrupted=false, total_tokens=6135
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-23T15:59:57
+duration_seconds: 4.378
+request_id: 6c712127-107c-4e2d-abe4-51a814e9e8b3
+turns: 2
+tool_results: 1
+has_error: False
+interrupted: False
+prompt_tokens: 5900
+completion_tokens: 235
+total_tokens: 6135
+cached_tokens: 5760
+reasoning_tokens: 156
+==============================================================================

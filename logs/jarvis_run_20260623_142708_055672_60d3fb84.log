@@ -1,0 +1,42 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-23T14:27:08
+request_id: 848e85bd-cf62-40c4-9f3a-5cbaf471bf7f
+thread_id: 60d3fb84-198a-43cc-8a5c-93c87d9485f4
+user_id: local-user
+request_source: cli
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: True
+------------------------------------------------------------------------------
+2026-06-23 14:27:08.057 | section              | === Jarvis LangGraph Run ===
+2026-06-23 14:27:08.057 | runtime.start        | Starting graph invocation. | request_id=848e85bd-cf62-40c4-9f3a-5cbaf471bf7f, model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=60d3fb84-198a-43cc-8a5c-93c87d9485f4, request_source=cli, resuming=true
+2026-06-23 14:27:08.057 | runtime.prompt       | [payload] user_prompt: put in my cal
+2026-06-23 14:27:08.098 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-23 14:27:08.101 | graph.hitl           | Interrupting for user clarification. | question=What would you like to add to your calendar? Please provide the details — for example, a task title, date/time, or any other relevant information., deferred_tools=0, extra_questions=0
+2026-06-23 14:27:08.101 | graph.hitl           | Resumed from user clarification.
+2026-06-23 14:27:08.102 | graph.agent          | Entering agent node. | turn=2, max_turns=8, messages=5
+2026-06-23 14:27:08.103 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 14:27:08.103 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=5, tools=9
+2026-06-23 14:27:11.279 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true, prompt_tokens=3150, completion_tokens=271, total_tokens=3421
+2026-06-23 14:27:11.280 | graph.route          | Agent node completed. | next=hitl, turn=2
+2026-06-23 14:27:11.283 | graph.hitl           | Interrupting for user clarification. | question=When is "later"? Could you give me a specific date and time (or day) for meeting Zac?, deferred_tools=0, extra_questions=0
+2026-06-23 14:27:11.285 | runtime.done         | Graph invocation completed. | request_id=848e85bd-cf62-40c4-9f3a-5cbaf471bf7f, turns=2, tool_results=0, has_error=false, interrupted=true, total_tokens=21747
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-23T14:27:11
+duration_seconds: 3.23
+request_id: 848e85bd-cf62-40c4-9f3a-5cbaf471bf7f
+turns: 2
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 19771
+completion_tokens: 1976
+total_tokens: 21747
+cached_tokens: 11520
+reasoning_tokens: 1213
+==============================================================================

@@ -1,0 +1,57 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-23T14:27:16
+request_id: f112ebdd-7d53-4f3b-8814-79e056b56a81
+thread_id: 60d3fb84-198a-43cc-8a5c-93c87d9485f4
+user_id: local-user
+request_source: cli
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: True
+------------------------------------------------------------------------------
+2026-06-23 14:27:16.963 | section              | === Jarvis LangGraph Run ===
+2026-06-23 14:27:16.963 | runtime.start        | Starting graph invocation. | request_id=f112ebdd-7d53-4f3b-8814-79e056b56a81, model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=60d3fb84-198a-43cc-8a5c-93c87d9485f4, request_source=cli, resuming=true
+2026-06-23 14:27:16.963 | runtime.prompt       | [payload] user_prompt: put in my cal
+2026-06-23 14:27:17.006 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-23 14:27:17.009 | graph.hitl           | Interrupting for user clarification. | question=When is "later"? Could you give me a specific date and time (or day) for meeting Zac?, deferred_tools=0, extra_questions=0
+2026-06-23 14:27:17.009 | graph.hitl           | Resumed from user clarification.
+2026-06-23 14:27:17.010 | graph.agent          | Entering agent node. | turn=3, max_turns=8, messages=8
+2026-06-23 14:27:17.010 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 14:27:17.011 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=8, tools=9
+2026-06-23 14:27:20.179 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true, prompt_tokens=3502, completion_tokens=199, total_tokens=3701
+2026-06-23 14:27:20.180 | graph.route          | Agent node completed. | next=tools, turn=3
+2026-06-23 14:27:20.184 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=0
+2026-06-23 14:27:20.187 | tool.start           | Preparing tool call. | id=call_00_mVSfgRnIjwJNKyLiR4RZ3361, name=add_todoist_task, mutating=true
+2026-06-23 14:27:20.188 | tool.args            | [payload] add_todoist_task: {"assignee_id": null, "content": "Meet Zac", "deadline_date": null, "description": null, "due_date": null, "due_datetime": "2026-06-23T18:00:00+08:00", "due_lang": null, "due_string": null, "duration": null, "duration_unit": null, "labels": null, "order": null, "parent_id": null, "priority": null, "project_id": null, "section_id": null}
+2026-06-23 14:27:20.189 | todoist.request      | Sending Todoist API request. | method=POST, endpoint=/tasks, has_payload=true, attempt=1, max_attempts=3
+2026-06-23 14:27:20.189 | todoist.payload      | [payload] request: {"content": "Meet Zac", "due_datetime": "2026-06-23T18:00:00+08:00"}
+2026-06-23 14:27:21.428 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-23 14:27:21.429 | todoist.payload      | [payload] response: {"added_at": "2026-06-23T06:27:20.729157Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3970, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Meet Zac", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-23T10:00:00Z", "is_recurring": false, "lang": "en", "string": "2026-06-23 18:00", "timezone": "Asia/Singapore"}, "duration": null, "goal_ids": [], "id": "6gwcqgCMjrFRPQCp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-23T06:27:20.729175Z", "user_id": "41485550"}
+2026-06-23 14:27:21.430 | tool.done            | Tool call completed. | name=add_todoist_task
+2026-06-23 14:27:21.430 | tool.result          | [payload] add_todoist_task: {"added_at": "2026-06-23T06:27:20.729157Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3970, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Meet Zac", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-23T10:00:00Z", "is_recurring": false, "lang": "en", "string": "2026-06-23 18:00", "timezone": "Asia/Singapore"}, "duration": null, "goal_ids": [], "id": "6gwcqgCMjrFRPQCp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-23T06:27:20.729175Z", "user_id": "41485550"}
+2026-06-23 14:27:21.432 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-23 14:27:21.436 | graph.agent          | Entering agent node. | turn=4, max_turns=8, messages=10
+2026-06-23 14:27:21.436 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 14:27:21.438 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=10, tools=9
+2026-06-23 14:27:22.586 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true, prompt_tokens=4073, completion_tokens=49, total_tokens=4122
+2026-06-23 14:27:22.587 | agent.final          | [payload] content: Done! I've added **Meet Zac** to your calendar for **today (June 23, 2026) at 6:00 PM**. 🎉
+2026-06-23 14:27:22.587 | graph.route          | Agent node completed. | next=end, turn=4
+2026-06-23 14:27:22.590 | runtime.done         | Graph invocation completed. | request_id=f112ebdd-7d53-4f3b-8814-79e056b56a81, turns=4, tool_results=1, has_error=false, interrupted=false, total_tokens=29570
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-23T14:27:22
+duration_seconds: 5.629
+request_id: f112ebdd-7d53-4f3b-8814-79e056b56a81
+turns: 4
+tool_results: 1
+has_error: False
+interrupted: False
+prompt_tokens: 27346
+completion_tokens: 2224
+total_tokens: 29570
+cached_tokens: 18432
+reasoning_tokens: 1345
+==============================================================================

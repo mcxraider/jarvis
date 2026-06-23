@@ -1,0 +1,42 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-23T14:34:29
+request_id: aabd7af0-3053-4240-85d2-d12c9ade74df
+thread_id: a1c040fc-1ccf-4361-9975-b95ee223bb6d
+user_id: local-user
+request_source: cli
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: False
+max_agent_turns: 8
+resuming: True
+------------------------------------------------------------------------------
+2026-06-23 14:34:29.862 | section              | === Jarvis LangGraph Run ===
+2026-06-23 14:34:29.862 | runtime.start        | Starting graph invocation. | request_id=aabd7af0-3053-4240-85d2-d12c9ade74df, model=deepseek-v4-flash, allow_mutations=false, max_turns=8, thread_id=a1c040fc-1ccf-4361-9975-b95ee223bb6d, request_source=cli, resuming=true
+2026-06-23 14:34:29.862 | runtime.prompt       | [payload] user_prompt: Add three tasks for my morning routine.
+2026-06-23 14:34:29.915 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-23 14:34:29.918 | graph.hitl           | Interrupting for user clarification. | question=It looks like you replied with "add a meeting with my manager tomorrow at 2pm" — did you mean to change your mind about the morning routine tasks? Just to confirm, would you lik..., deferred_tools=0, extra_questions=0
+2026-06-23 14:34:29.918 | graph.hitl           | Resumed from user clarification.
+2026-06-23 14:34:29.920 | graph.agent          | Entering agent node. | turn=3, max_turns=8, messages=8
+2026-06-23 14:34:29.920 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 14:34:29.921 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=8, tools=9
+2026-06-23 14:34:33.883 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true, prompt_tokens=3728, completion_tokens=307, total_tokens=4035
+2026-06-23 14:34:33.884 | graph.route          | Agent node completed. | next=hitl, turn=3
+2026-06-23 14:34:33.886 | graph.hitl           | Interrupting for user clarification. | question=Should these morning routine tasks be set to repeat daily, or just added as one-off tasks? If daily, what time should they be scheduled for in the morning?, deferred_tools=0, extra_questions=0
+2026-06-23 14:34:33.888 | runtime.done         | Graph invocation completed. | request_id=aabd7af0-3053-4240-85d2-d12c9ade74df, turns=3, tool_results=0, has_error=false, interrupted=true, total_tokens=25784
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-23T14:34:33
+duration_seconds: 4.026
+request_id: aabd7af0-3053-4240-85d2-d12c9ade74df
+turns: 3
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 23846
+completion_tokens: 1938
+total_tokens: 25784
+cached_tokens: 14592
+reasoning_tokens: 1405
+==============================================================================

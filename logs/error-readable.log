@@ -1,0 +1,278 @@
+[2026-06-23 18:00:53] ERROR tool.call.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "functionName": "add_todoist_task",
+      "toolCallId": "bad-json",
+      "error": "Invalid JSON arguments for add_todoist_task: Expected property name or '}' in JSON at position 1 (line 1 column 2)",
+      "durationMs": 0
+    }
+[2026-06-23 18:00:53] ERROR tool.call.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "functionName": "unknown_function",
+      "toolCallId": "unknown",
+      "error": "Unknown function: unknown_function",
+      "durationMs": 0
+    }
+[2026-06-23 18:00:53] ERROR tool.call.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "functionName": "add_todoist_task",
+      "toolCallId": "invalid-priority",
+      "error": "Invalid arguments for add_todoist_task: priority: Invalid input",
+      "durationMs": 0
+    }
+[2026-06-23 18:00:53] ERROR tool.call.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "functionName": "delete_todoist_task",
+      "toolCallId": "failed-call",
+      "error": "Todoist API error (404): missing",
+      "durationMs": 1
+    }
+[2026-06-23 18:00:53] ERROR todoist.api.request.failed
+  details:
+    {
+      "operation": "todoist.projects.list",
+      "url": "https://api.todoist.com/api/v1/projects",
+      "method": "GET",
+      "statusCode": 401,
+      "durationMs": 0
+    }
+[2026-06-23 18:00:53] ERROR todoist.api.request.failed
+  details:
+    {
+      "operation": "todoist.projects.list",
+      "url": "https://api.todoist.com/api/v1/projects",
+      "method": "GET",
+      "error": "Todoist API error (401): invalid token",
+      "durationMs": 0
+    }
+[2026-06-23 18:00:53] ERROR todoist.api.request.failed
+  details:
+    {
+      "operation": "todoist.task.get",
+      "url": "https://api.todoist.com/api/v1/tasks/task-1",
+      "method": "GET",
+      "statusCode": 500,
+      "durationMs": 0
+    }
+[2026-06-23 18:00:53] ERROR todoist.api.request.failed
+  details:
+    {
+      "operation": "todoist.task.get",
+      "url": "https://api.todoist.com/api/v1/tasks/task-1",
+      "method": "GET",
+      "error": "Todoist API error (500): rest exploded",
+      "durationMs": 0
+    }
+[2026-06-23 18:00:53] ERROR todoist.api.request.failed
+  details:
+    {
+      "operation": "todoist.completed_tasks.list",
+      "url": "https://api.todoist.com/api/v1/tasks/completed/by_completion_date?since=2026-05-24T10%3A00%3A53.493Z&until=2026-06-23T10%3A00%3A53.493Z",
+      "method": "GET",
+      "statusCode": 403,
+      "durationMs": 0
+    }
+[2026-06-23 18:00:53] ERROR todoist.api.request.failed
+  details:
+    {
+      "operation": "todoist.completed_tasks.list",
+      "url": "https://api.todoist.com/api/v1/tasks/completed/by_completion_date?since=2026-05-24T10%3A00%3A53.493Z&until=2026-06-23T10%3A00%3A53.493Z",
+      "method": "GET",
+      "error": "Todoist API error (403): completed denied",
+      "durationMs": 1
+    }
+[2026-06-23 18:00:53] ERROR whisper.api.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "model": "whisper-large-v3",
+      "error": "Invalid file format",
+      "durationMs": 0
+    }
+[2026-06-23 18:00:53] WARN audio.transcription.direct_failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "originalFormat": "ogg",
+      "normalizedFormat": "ogg",
+      "error": "Unsupported audio format. Please use a supported audio file format."
+    }
+[2026-06-23 18:00:53] ERROR whisper.api.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "model": "whisper-large-v3",
+      "error": "Rate limit exceeded",
+      "durationMs": 0
+    }
+[2026-06-23 18:00:53] WARN audio.transcription.direct_failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "originalFormat": "ogg",
+      "normalizedFormat": "ogg",
+      "error": "OpenAI API error: Rate limit exceeded"
+    }
+[2026-06-23 18:00:53] ERROR whisper.transcription.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]",
+      "error": "OpenAI API error: Rate limit exceeded",
+      "processingTimeMs": 1
+    }
+[2026-06-23 18:01:03] WARN telegram.edit_message.markdown_parse_failed
+  requestId: tg_test
+  chatId: [REDACTED_ID]
+  messageId: 77
+  details:
+    {
+      "error": "edit failed",
+      "textLength": 8
+    }
+[2026-06-23 18:01:03] WARN telegram.progress.edit_failed
+  requestId: tg_test
+  details:
+    {
+      "error": "edit failed"
+    }
+[2026-06-23 18:01:03] WARN telegram.progress.delete_failed
+  requestId: tg_test
+  details:
+    {
+      "error": "delete failed"
+    }
+[2026-06-23 18:00:53] WARN telegram.rich.fallback
+  requestId: tg_test
+  details:
+    {
+      "stage": "progress.start",
+      "error": "404 method not found"
+    }
+[2026-06-23 18:01:03] WARN telegram.rich.fallback
+  requestId: tg_test
+  details:
+    {
+      "stage": "progress.update",
+      "error": "draft update failed"
+    }
+[2026-06-23 18:00:53] ERROR telegram.message.failed
+  requestId: tg_mqqh4wrk_tof9b2
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageType: document
+  details:
+    {
+      "error": "download failed",
+      "fileName": "meeting.mp3",
+      "durationMs": 0
+    }
+[2026-06-23 18:00:54] ERROR langgraph.request.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "path": "/invoke",
+      "error": "connection refused",
+      "durationMs": 0
+    }
+[2026-06-23 18:00:54] WARN langgraph.stream.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "path": "/invoke/stream",
+      "streamStarted": false,
+      "error": "stream unavailable",
+      "durationMs": 1
+    }
+[2026-06-23 18:00:54] WARN audio_processor.text_processing_failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "transcribedText": "Add a Todoist task to buy milk tomorrow",
+      "error": "Agent unavailable",
+      "durationMs": 1
+    }
+[2026-06-23 18:00:54] ERROR audio_processor.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "error": "Whisper unavailable",
+      "durationMs": 0
+    }
+[2026-06-23 18:00:54] WARN telegram.update.denied
+  requestId: tg_mqqh4x5x_pshdpg
+  updateId: 1002
+  userId: [REDACTED_ID]
+[2026-06-23 18:00:54] WARN telegram.update.denied
+  requestId: tg_mqqh4x61_pkhlxp
+  updateId: 1003
+  userId: [REDACTED_ID]
+[2026-06-23 18:00:54] WARN telegram.update.denied
+  requestId: tg_mqqh4x66_9fuz8e
+  updateId: 1004
+  userId: [REDACTED_ID]
+[2026-06-23 18:00:54] WARN processor.route.unknown_type
+  userId: [REDACTED_ID]
+  messageType: unsupported
+[2026-06-23 18:00:54] WARN telegram.webhook.rejected
+  requestId: tg_mqqh4xg0_f1rd2w
+  details:
+    {
+      "ip": "127.0.0.1",
+      "hasSecret": "[REDACTED]",
+      "secretMatches": "[REDACTED]"
+    }
+[2026-06-23 18:00:54] ERROR telegram.webhook.failed
+  requestId: tg_mqqh4xg1_81mddh
+  updateId: 99
+  details:
+    {
+      "error": "boom",
+      "durationMs": 2
+    }
+  stack:
+    Error: boom
+        at Object.<anonymous> (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/.claude/worktrees/transcription-logging/tests/unit/controllers/webhook.controller.test.ts:74:64)
+        at Promise.then.completed (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:298:28)
+        at new Promise (<anonymous>)
+        at callAsyncCircusFn (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:231:10)
+        at _callCircusTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:316:40)
+        at _runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:252:3)
+        at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:126:9)
+        at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:121:9)
+        at run (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:71:3)
+        at runAndTransformResultsToJestFormat (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)
+        at jestAdapter (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)
+        at runTestInternal (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:367:16)
+        at runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:444:34)
+[2026-06-23 18:00:54] ERROR Error getting file URL
+  details:
+    {
+      "error": "File path not available",
+      "fileId": "file-id"
+    }
+[2026-06-23 18:00:54] ERROR Error downloading file
+  details:
+    {
+      "error": "HTTP 502: Bad Gateway",
+      "fileId": "file-id"
+    }
+[2026-06-23 18:00:55] WARN telegram.rich.fallback
+  details:
+    {
+      "method": "sendRichMessage",
+      "error": "400 Bad Request"
+    }
+[2026-06-23 18:00:55] WARN telegram.reply.markdown_parse_failed
+  details:
+    {
+      "error": "Bad Request: can't parse entities",
+      "responseLength": 9
+    }

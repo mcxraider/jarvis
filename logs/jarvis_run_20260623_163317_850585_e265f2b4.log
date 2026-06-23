@@ -1,0 +1,55 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-23T16:33:17
+request_id: 661c366a-be33-47e0-8254-3e939c7260df
+thread_id: e265f2b4-4e14-4d4b-8657-d655aacaaf9c
+user_id: local-user
+request_source: cli
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: True
+------------------------------------------------------------------------------
+2026-06-23 16:33:17.851 | section              | === Jarvis LangGraph Run ===
+2026-06-23 16:33:17.852 | runtime.start        | Starting graph invocation. | request_id=661c366a-be33-47e0-8254-3e939c7260df, model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=e265f2b4-4e14-4d4b-8657-d655aacaaf9c, request_source=cli, resuming=true
+2026-06-23 16:33:17.852 | runtime.prompt       | [payload] user_prompt: Delete all tasks on Tuesday.
+2026-06-23 16:33:17.890 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-23 16:33:17.892 | graph.confirm        | Interrupting for user confirmation. | tool_name=delete_todoist_task, held_call_id=5466e53a-6a55-4bbb-997f-b032472a384b, summary=Delete task "ewfewf" — this is irreversible.
+2026-06-23 16:33:17.892 | graph.confirm        | Resumed from user confirmation. | decision=approve, held_call_id=5466e53a-6a55-4bbb-997f-b032472a384b
+2026-06-23 16:33:17.893 | graph.executor       | Evaluating guards. | held_call_id=5466e53a-6a55-4bbb-997f-b032472a384b, decision=approve, tool_name=delete_todoist_task
+2026-06-23 16:33:17.893 | graph.executor       | Executing confirmed action. | held_call_id=5466e53a-6a55-4bbb-997f-b032472a384b, tool_name=delete_todoist_task
+2026-06-23 16:33:17.894 | tool.start           | Preparing tool call. | id=call_00_dzw8nqzfSRhjzlFixyLI1679, name=delete_todoist_task, mutating=true
+2026-06-23 16:33:17.894 | tool.args            | [payload] delete_todoist_task: {"task_id": "6gwfJ7FQxqfFGX5p"}
+2026-06-23 16:33:17.894 | todoist.request      | Sending Todoist API request. | method=DELETE, endpoint=/tasks/{id}, has_payload=false, attempt=1, max_attempts=3
+2026-06-23 16:33:17.894 | todoist.payload      | [payload] request: null
+2026-06-23 16:33:18.991 | todoist.response     | Received Todoist API response. | status=204, has_body=false, attempt=1
+2026-06-23 16:33:18.992 | tool.done            | Tool call completed. | name=delete_todoist_task
+2026-06-23 16:33:18.992 | tool.result          | [payload] delete_todoist_task: {"message": "Task 6gwfJ7FQxqfFGX5p deleted permanently", "success": true}
+2026-06-23 16:33:18.992 | graph.executor       | Execution completed. | held_call_id=5466e53a-6a55-4bbb-997f-b032472a384b, success=true
+2026-06-23 16:33:18.994 | graph.agent          | Entering agent node. | turn=4, max_turns=8, messages=13
+2026-06-23 16:33:18.994 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 16:33:18.995 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=13, tools=9
+2026-06-23 16:33:21.881 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true, prompt_tokens=8111, completion_tokens=235, total_tokens=8346
+2026-06-23 16:33:21.882 | graph.hitl_upgrade   | Converted text question to ask_user tool call. | question_preview=One task has been deleted so far, but the remaining **5 tasks** are awaiting your confirmation — del
+2026-06-23 16:33:21.882 | graph.route          | Agent node completed. | next=hitl, turn=4
+2026-06-23 16:33:21.885 | graph.hitl           | Interrupting for user clarification. | question=One task has been deleted so far, but the remaining **5 tasks** are awaiting your confirmation — deleting tasks is a permanent/destructive action. Here's what I found:
+
+**Today ..., deferred_tools=0, extra_questions=0
+2026-06-23 16:33:21.886 | runtime.done         | Graph invocation completed. | request_id=661c366a-be33-47e0-8254-3e939c7260df, turns=4, tool_results=3, has_error=false, interrupted=true, total_tokens=24724
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-23T16:33:21
+duration_seconds: 4.036
+request_id: 661c366a-be33-47e0-8254-3e939c7260df
+turns: 4
+tool_results: 3
+has_error: False
+interrupted: True
+prompt_tokens: 23260
+completion_tokens: 1464
+total_tokens: 24724
+cached_tokens: 18944
+reasoning_tokens: 836
+==============================================================================

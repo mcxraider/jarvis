@@ -1,0 +1,41 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-23T14:28:04
+request_id: 929bb964-5a7c-48a8-83bb-7e785e74c0d9
+thread_id: ba00417f-9fab-45af-8e40-df8e57cd01d6
+user_id: local-user
+request_source: cli
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: True
+------------------------------------------------------------------------------
+2026-06-23 14:28:04.301 | section              | === Jarvis LangGraph Run ===
+2026-06-23 14:28:04.302 | runtime.start        | Starting graph invocation. | request_id=929bb964-5a7c-48a8-83bb-7e785e74c0d9, model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=ba00417f-9fab-45af-8e40-df8e57cd01d6, request_source=cli, resuming=true
+2026-06-23 14:28:04.302 | runtime.prompt       | [payload] user_prompt: Delete all tasks on Tuesday.
+2026-06-23 14:28:04.340 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-23 14:28:04.342 | graph.confirm        | Interrupting for user confirmation. | tool_name=delete_todoist_task, held_call_id=2e92c081-9c39-4fda-a853-482819b5d0a9, summary=Delete task (id=6gwPmwprQCjH66Wp) — this is irreversible.
+2026-06-23 14:28:04.342 | graph.confirm        | Resumed from user confirmation. | decision=decline, held_call_id=2e92c081-9c39-4fda-a853-482819b5d0a9
+2026-06-23 14:28:04.344 | graph.agent          | Entering agent node. | turn=3, max_turns=8, messages=6
+2026-06-23 14:28:04.344 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 14:28:04.345 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=6, tools=9
+2026-06-23 14:28:04.680 | agent.error          | DeepSeek chat completion failed. | error_type=client_error, retryable=false, attempts=1, status_code=400
+2026-06-23 14:28:04.684 | graph.agent          | Stopping graph because DeepSeek failed. | error_type=client_error, attempts=1
+2026-06-23 14:28:04.686 | runtime.done         | Graph invocation completed. | request_id=929bb964-5a7c-48a8-83bb-7e785e74c0d9, turns=2, tool_results=1, has_error=true, interrupted=false, total_tokens=50503
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-23T14:28:04
+duration_seconds: 0.385
+request_id: 929bb964-5a7c-48a8-83bb-7e785e74c0d9
+turns: 2
+tool_results: 1
+has_error: True
+interrupted: False
+prompt_tokens: 46758
+completion_tokens: 3745
+total_tokens: 50503
+cached_tokens: 36224
+reasoning_tokens: 2043
+==============================================================================

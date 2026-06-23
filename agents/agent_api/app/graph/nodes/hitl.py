@@ -24,7 +24,7 @@ def build_ask_user_payload(
     arguments = parse_tool_call_arguments(ask_user_call)
     question = arguments.get("question") or "What detail should I use before continuing?"
     return {
-        "type": "clarification",
+        "type": "clarify",
         "question": question,
         "reason": arguments.get("reason", ""),
         "missing_fields": arguments.get("missing_fields", []),
@@ -100,7 +100,6 @@ def create_hitl_node(tracer: Optional[TracePrinter] = None):
             error = "HITL node reached without an ask_user tool call."
             tracer.event("graph.hitl", "Missing ask_user tool call.", error=error)
             return {
-                **state,
                 "error": error,
                 "final_response": error,
                 "next": "end",
@@ -157,7 +156,14 @@ def create_hitl_node(tracer: Optional[TracePrinter] = None):
                     "Tool call was not executed because Jarvis requested user clarification first.",
                 )
             )
-        messages.append({"role": "user", "content": reply_text})
+        original_prompt = state.get("user_prompt", "")
+        messages.append({
+            "role": "user",
+            "content": (
+                f"[Clarification received — see the ask_user tool response above. "
+                f"Continue working on the original request: \"{original_prompt}\"]"
+            ),
+        })
 
         clarification_record = {
             "question": payload.get("question"),
@@ -168,7 +174,6 @@ def create_hitl_node(tracer: Optional[TracePrinter] = None):
         }
 
         return {
-            **state,
             "messages": messages,
             "pending_clarification": {},
             "clarification_history": state.get("clarification_history", []) + [clarification_record],

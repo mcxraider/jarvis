@@ -6,9 +6,16 @@ import {
   createPendingClarificationStore,
   PendingClarificationRecord,
   PendingClarificationStore,
+  PendingInterruptType,
 } from '../pending-clarification.store';
 
 const PENDING_CLARIFICATION_TTL_MS = 30 * 60 * 1000;
+
+export interface TextProcessorResult {
+  response: string;
+  interruptType?: PendingInterruptType;
+  threadId?: string;
+}
 
 /**
  * Service responsible for processing text messages
@@ -31,7 +38,7 @@ export class TextProcessorService {
     userId?: number,
     logContext: LogContext = {},
     onProgress?: LangGraphProgressCallback,
-  ): Promise<string> {
+  ): Promise<TextProcessorResult> {
     const startedAt = Date.now();
 
     logger.info('text_processor.started', {
@@ -44,6 +51,20 @@ export class TextProcessorService {
       const internalUserId = this.mapTelegramUserId(userId);
       const pendingKey = this.pendingKey(userId, internalUserId, logContext);
       const pendingClarification = await this.pendingClarificationStore.get(pendingKey);
+
+      if (pendingClarification?.interruptType === 'confirm' && !this.isConfirmDecision(text)) {
+        logger.info('text_processor.confirm_pending_blocked', {
+          ...logContext,
+          userId,
+          pendingKey,
+          pendingThreadId: pendingClarification.threadId,
+        });
+        return {
+          response:
+            'You have a pending approval. Please tap ✓ Approve or ✗ Decline in the previous message, or reply *yes* or *no* to decide.',
+        };
+      }
+
       const threadId =
         pendingClarification?.threadId || this.buildTelegramThreadId(userId, internalUserId, logContext);
       const requestContext = { ...logContext, threadId };
@@ -64,6 +85,7 @@ export class TextProcessorService {
           : await this.agentClient.invoke(agentRequest, requestContext);
 
       if (agentResponse.status === 'interrupted') {
+        const interruptType: PendingInterruptType = agentResponse.interrupt?.type === 'confirm' ? 'confirm' : 'clarify';
         await this.pendingClarificationStore.save(
           this.buildPendingClarificationRecord(
             pendingKey,
@@ -72,6 +94,7 @@ export class TextProcessorService {
             internalUserId,
             userId,
             logContext,
+            interruptType,
           ),
         );
         logger.info('telegram.clarification.pending_saved', {
@@ -87,6 +110,10 @@ export class TextProcessorService {
       }
 
       const response = agentResponse.response;
+      const resultInterruptType: PendingInterruptType | undefined =
+        agentResponse.status === 'interrupted'
+          ? agentResponse.interrupt?.type === 'confirm' ? 'confirm' : 'clarify'
+          : undefined;
 
       logger.info('text_processor.completed', {
         ...logContext,
@@ -97,10 +124,11 @@ export class TextProcessorService {
         threadId: agentResponse.threadId,
         requestedThreadId: threadId,
         resumedFromPendingClarification: !!pendingClarification,
+        interruptType: resultInterruptType,
         durationMs: Date.now() - startedAt,
       });
 
-      return response;
+      return { response, interruptType: resultInterruptType, threadId: agentResponse.threadId };
     } catch (error) {
       logger.error('text_processor.failed', {
         ...logContext,
@@ -110,7 +138,7 @@ export class TextProcessorService {
         durationMs: Date.now() - startedAt,
       });
 
-      return this.handleTextProcessingError(error as Error, text);
+      return { response: this.handleTextProcessingError(error as Error, text) };
     }
   }
 
@@ -155,6 +183,7 @@ export class TextProcessorService {
     internalUserId: string,
     telegramUserId: number | undefined,
     logContext: LogContext,
+    interruptType: PendingInterruptType = 'clarify',
   ): PendingClarificationRecord {
     const now = Date.now();
     return {
@@ -165,6 +194,7 @@ export class TextProcessorService {
       chatId: logContext.chatId,
       userId: internalUserId,
       requestId: logContext.requestId,
+      interruptType,
       status: 'pending',
       createdAt: now,
       updatedAt: now,
@@ -190,6 +220,13 @@ export class TextProcessorService {
       .trim()
       .replace(/[^a-zA-Z0-9_-]/g, '_')
       .slice(0, 64);
+  }
+
+  private isConfirmDecision(text: string): boolean {
+    const normalized = text.trim().toLowerCase();
+    const approveTokens = new Set(['yes', 'approve', 'confirm', 'ok', 'y']);
+    const declineTokens = new Set(['no', 'n', 'decline', 'cancel']);
+    return approveTokens.has(normalized) || declineTokens.has(normalized);
   }
 
   private mapTelegramUserId(telegramUserId: number | undefined): string {

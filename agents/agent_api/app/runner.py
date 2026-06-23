@@ -39,7 +39,10 @@ def send_clarification_message_to_user(payload: Dict[str, Any]) -> None:
 
     print("\nClarification needed")
     print("--------------------")
-    print(payload.get("question") or "Jarvis needs more information before continuing.")
+    if payload.get("type") == "confirm":
+        print(f"⚠️ Confirm: {payload.get('summary', 'Action requires approval.')}")
+    else:
+        print(payload.get("question") or "Jarvis needs more information before continuing.")
     if payload.get("reason"):
         print(f"Reason: {payload['reason']}")
     if payload.get("missing_fields"):
@@ -52,7 +55,10 @@ def ask_user_for_clarification(payload: Dict[str, Any]) -> str:
     """Ask the local user for clarification and return their reply."""
 
     send_clarification_message_to_user(payload)
-    return input("Your reply: ").strip()
+    try:
+        return input("Your reply: ").strip()
+    except EOFError:
+        return ""
 
 
 def run_jarvis_with_local_clarifications(
@@ -86,6 +92,8 @@ def run_jarvis_with_local_clarifications(
     )
     while result.get("interrupted"):
         clarification_reply = ask_user_for_clarification(result.get("interrupt_payload", {}))
+        if not clarification_reply:
+            break
         result = run_jarvis(
             user_prompt=user_prompt,
             request_source=request_source,

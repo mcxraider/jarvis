@@ -24,7 +24,7 @@ describe('MessageHandlers', () => {
         const hooks = args[5];
         await hooks.onTranscribed();
         await hooks.onProgress({ stage: 'completed', message: 'Done' });
-        return 'processed document';
+        return { response: 'processed document' };
       }),
       processAudioMessage: jest.fn(),
     } as any;
@@ -84,7 +84,7 @@ describe('MessageHandlers', () => {
         const hooks = args[3];
         await hooks.onTranscribed();
         await hooks.onProgress({ stage: 'completed', message: 'Done' });
-        return 'processed audio';
+        return { response: 'processed audio' };
       }),
     } as any;
     const activityService = { recordActivity: jest.fn() } as any;
@@ -117,7 +117,7 @@ describe('MessageHandlers', () => {
       getFileUrl: jest.fn(),
     } as any;
     const messageProcessor = {
-      processPhotoMessage: jest.fn().mockResolvedValue('processed photo'),
+      processPhotoMessage: jest.fn().mockResolvedValue({ response: 'processed photo' }),
       processAudioDocument: jest.fn(),
       processAudioMessage: jest.fn(),
     } as any;

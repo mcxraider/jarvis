@@ -2,8 +2,10 @@ import { LogContext, logger } from '../../utils/logger';
 
 export type LangGraphAgentStatus = 'completed' | 'interrupted' | 'failed';
 
+export type LangGraphInterruptType = 'clarify' | 'confirm';
+
 export interface LangGraphInterrupt {
-  type?: string;
+  type?: LangGraphInterruptType;
   question?: string;
   reason?: string;
   missing_fields?: string[];
@@ -12,6 +14,11 @@ export interface LangGraphInterrupt {
   thread_id?: string;
   user_id?: string;
   request_source?: string;
+  // Confirm-gate fields (present when type === 'confirm')
+  held_call_id?: string;
+  summary?: string;
+  tool_name?: string;
+  args?: Record<string, unknown>;
 }
 
 export interface LangGraphAgentResponse {

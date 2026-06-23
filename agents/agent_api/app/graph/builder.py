@@ -15,13 +15,16 @@ from agents.agent_api.app.constants import (
     USER_ID,
 )
 from agents.agent_api.app.graph.assembly import NodeSpec, build_graph
-from agents.agent_api.app.graph.edges import route_after_agent
+from agents.agent_api.app.graph.edges import route_after_agent, route_after_confirm
+from agents.agent_api.app.graph.nodes.confirm import create_confirm_node
+from agents.agent_api.app.graph.nodes.executor import create_executor_node
 from agents.agent_api.app.graph.nodes.hitl import create_hitl_node
 from agents.agent_api.app.graph.nodes.orchestrator import (
     DeepSeekAgentClient,
     UsageSummary,
     create_agent_node,
 )
+from agents.agent_api.app.graph.nodes.prepare_confirm import create_prepare_confirm_node
 from agents.agent_api.app.graph.nodes.tools import create_tools_node
 from agents.agent_api.app.graph.prompts import USER_PROMPT, build_initial_messages
 from agents.agent_api.app.graph.state import JarvisState, enrich_interrupt_status
@@ -64,13 +67,32 @@ def create_jarvis_graph(
                 tracer,
                 tool_selector=tool_selector,
             ),
-            # After the model speaks: ask, execute tools, or stop.
             router=route_after_agent,
-            route_map={"hitl": "hitl", "tools": "tools", "end": "end"},
+            route_map={
+                "hitl": "hitl",
+                "tools": "tools",
+                "confirm": "prepare_confirm",
+                "end": "end",
+            },
         ),
-        # Tool/clarification observations always return to the model.
         NodeSpec(name="tools", node=create_tools_node(tool_dispatcher, tracer), static_route="agent"),
         NodeSpec(name="hitl", node=create_hitl_node(tracer), static_route="agent"),
+        NodeSpec(
+            name="prepare_confirm",
+            node=create_prepare_confirm_node(tracer),
+            static_route="confirm",
+        ),
+        NodeSpec(
+            name="confirm",
+            node=create_confirm_node(tracer),
+            router=route_after_confirm,
+            route_map={"approve": "executor", "decline": "end"},
+        ),
+        NodeSpec(
+            name="executor",
+            node=create_executor_node(tool_dispatcher, tracer),
+            static_route="agent",
+        ),
     ]
 
     return build_graph(JarvisState, node_specs, entry="agent", checkpointer=checkpointer)
@@ -100,6 +122,10 @@ def build_initial_state(
         "final_response": "",
         "error": "",
         "next": "agent",
+        "held_calls": None,
+        "pending_interrupt": None,
+        "confirm_decision": None,
+        "consumed_call_ids": [],
     }
 
 
