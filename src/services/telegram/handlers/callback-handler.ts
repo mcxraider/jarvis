@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { Context } from 'telegraf';
 import { createRequestId, logger } from '../../../utils/logger';
 import { LangGraphAgentClient } from '../../ai/langgraph-agent-client.service';
+import { sendFinalReply } from '../formatters/telegram-rich';
 import {
   PendingClarificationStore,
   createPendingClarificationStore,
@@ -85,7 +86,7 @@ export class CallbackHandler {
 
       // Send the agent's response as a follow-up
       if (agentResponse.response) {
-        await ctx.reply(agentResponse.response);
+        await sendFinalReply(ctx, agentResponse.response, { requestId });
       }
 
       // Clear the pending record

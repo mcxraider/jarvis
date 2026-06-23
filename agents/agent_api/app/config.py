@@ -51,6 +51,7 @@ class Settings:
     todoist_retry_base_delay_seconds: float
     todoist_retry_max_delay_seconds: float
     confirm_bulk_threshold: int
+    user_timezone: str
     debug_trace: bool
     debug_payloads: bool
     langsmith_hide_payloads: bool
@@ -88,6 +89,7 @@ def load_settings() -> Settings:
         todoist_retry_base_delay_seconds=_float_env("TODOIST_RETRY_BASE_DELAY_SECONDS", 0.5),
         todoist_retry_max_delay_seconds=_float_env("TODOIST_RETRY_MAX_DELAY_SECONDS", 4.0),
         confirm_bulk_threshold=_int_env("JARVIS_CONFIRM_BULK_THRESHOLD", 5),
+        user_timezone=os.getenv("JARVIS_USER_TIMEZONE", "Asia/Taipei"),
         debug_trace=_bool_env("JARVIS_DEBUG", True),
         debug_payloads=_bool_env("JARVIS_DEBUG_PAYLOADS", True),
         # Raw prompts/outputs are hidden from LangSmith by default. Set

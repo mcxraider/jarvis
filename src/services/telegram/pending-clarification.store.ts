@@ -69,7 +69,7 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
     const result = await this.pool.query(
       `
         SELECT pending_key, thread_id, question, telegram_user_id, chat_id, user_id,
-               request_id, status, created_at, updated_at, expires_at
+               request_id, interrupt_type, status, created_at, updated_at, expires_at
         FROM telegram_pending_clarifications
         WHERE pending_key = $1
           AND status = 'pending'
@@ -90,6 +90,7 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
       chatId: row.chat_id === null ? undefined : row.chat_id,
       userId: row.user_id,
       requestId: row.request_id ?? undefined,
+      interruptType: row.interrupt_type ?? undefined,
       status: row.status,
       createdAt: new Date(row.created_at).getTime(),
       updatedAt: new Date(row.updated_at).getTime(),
@@ -103,9 +104,9 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
       `
         INSERT INTO telegram_pending_clarifications (
           pending_key, thread_id, question, telegram_user_id, chat_id, user_id,
-          request_id, status, created_at, updated_at, expires_at
+          request_id, interrupt_type, status, created_at, updated_at, expires_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, NOW(), $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, NOW(), $10)
         ON CONFLICT (pending_key)
         DO UPDATE SET
           thread_id = EXCLUDED.thread_id,
@@ -114,6 +115,7 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
           chat_id = EXCLUDED.chat_id,
           user_id = EXCLUDED.user_id,
           request_id = EXCLUDED.request_id,
+          interrupt_type = EXCLUDED.interrupt_type,
           status = 'pending',
           updated_at = NOW(),
           expires_at = EXCLUDED.expires_at
@@ -126,6 +128,7 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
         record.chatId === undefined ? null : String(record.chatId),
         record.userId,
         record.requestId ?? null,
+        record.interruptType ?? null,
         new Date(record.createdAt),
         new Date(record.expiresAt),
       ],
@@ -157,12 +160,18 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
           chat_id TEXT,
           user_id TEXT NOT NULL,
           request_id TEXT,
+          interrupt_type TEXT,
           status TEXT NOT NULL DEFAULT 'pending',
           created_at TIMESTAMPTZ NOT NULL,
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           expires_at TIMESTAMPTZ NOT NULL
         )
-      `).then(() => undefined);
+      `).then(() =>
+        this.pool.query(`
+          ALTER TABLE telegram_pending_clarifications
+            ADD COLUMN IF NOT EXISTS interrupt_type TEXT
+        `)
+      ).then(() => undefined);
     }
 
     return this.setupPromise;

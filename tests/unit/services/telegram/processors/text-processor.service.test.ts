@@ -289,6 +289,132 @@ describe('TextProcessorService', () => {
     expect(agentClient.invoke).toHaveBeenCalledTimes(2);
   });
 
+  it('blocks unrelated text when a confirm interrupt is pending and returns a warning', async () => {
+    const store = new MemoryPendingClarificationStore();
+    const agentClient = {
+      invoke: jest.fn().mockResolvedValue({
+        status: 'interrupted',
+        threadId: 'thread-confirm',
+        response: '⚠️ Confirm: Delete 5 tasks — this is irreversible.',
+        interrupt: { type: 'confirm', summary: 'Delete 5 tasks' },
+        toolResults: [],
+      }),
+      resume: jest.fn(),
+    };
+    const service = createService(agentClient, store);
+
+    const firstResult = await service.processTextMessage('remove all tasks on tuesday', 42, {
+      chatId: 100,
+      messageId: 10,
+    });
+    expect(firstResult.interruptType).toBe('confirm');
+
+    const secondResult = await service.processTextMessage('add buy milk', 42, {
+      chatId: 100,
+      messageId: 11,
+    });
+    expect(secondResult.response).toMatch(/pending approval/i);
+    expect(agentClient.resume).not.toHaveBeenCalled();
+    expect(agentClient.invoke).toHaveBeenCalledTimes(1);
+
+    // Confirm a third message with a decision token still resumes the original thread
+    agentClient.resume.mockResolvedValue({
+      status: 'completed',
+      threadId: 'thread-confirm',
+      response: 'Action declined — no changes were made.',
+      toolResults: [],
+    });
+    const thirdResult = await createService(agentClient, store).processTextMessage('no', 42, {
+      chatId: 100,
+      messageId: 12,
+    });
+    expect(thirdResult.response).toBe('Action declined — no changes were made.');
+    expect(agentClient.resume).toHaveBeenCalledTimes(1);
+  });
+
+  it('resumes a confirm interrupt when user types an approve token', async () => {
+    const store = new MemoryPendingClarificationStore();
+    const agentClient = {
+      invoke: jest.fn().mockResolvedValue({
+        status: 'interrupted',
+        threadId: 'thread-confirm',
+        response: '⚠️ Confirm: Delete 5 tasks',
+        interrupt: { type: 'confirm', summary: 'Delete 5 tasks' },
+        toolResults: [],
+      }),
+      resume: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'thread-confirm',
+        response: 'Done. Deleted 5 tasks.',
+        toolResults: [],
+      }),
+    };
+    const service = createService(agentClient, store);
+
+    await service.processTextMessage('remove all tasks on tuesday', 42, { chatId: 100, messageId: 10 });
+    const result = await service.processTextMessage('yes', 42, { chatId: 100, messageId: 11 });
+
+    expect(result.response).toBe('Done. Deleted 5 tasks.');
+    expect(agentClient.resume).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'yes', threadId: 'thread-confirm' }),
+      expect.objectContaining({ threadId: 'thread-confirm' }),
+    );
+  });
+
+  it('resumes a confirm interrupt when user types a decline token', async () => {
+    const store = new MemoryPendingClarificationStore();
+    const agentClient = {
+      invoke: jest.fn().mockResolvedValue({
+        status: 'interrupted',
+        threadId: 'thread-confirm',
+        response: '⚠️ Confirm: Delete 5 tasks',
+        interrupt: { type: 'confirm', summary: 'Delete 5 tasks' },
+        toolResults: [],
+      }),
+      resume: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'thread-confirm',
+        response: 'Action declined — no changes were made.',
+        toolResults: [],
+      }),
+    };
+    const service = createService(agentClient, store);
+
+    await service.processTextMessage('remove all tasks on tuesday', 42, { chatId: 100, messageId: 10 });
+    const result = await service.processTextMessage('no', 42, { chatId: 100, messageId: 11 });
+
+    expect(result.response).toBe('Action declined — no changes were made.');
+    expect(agentClient.resume).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'no', threadId: 'thread-confirm' }),
+      expect.any(Object),
+    );
+  });
+
+  it('allows any text to resume a clarify interrupt (unchanged behaviour)', async () => {
+    const agentClient = {
+      invoke: jest.fn().mockResolvedValue({
+        status: 'interrupted',
+        threadId: 'thread-clarify',
+        response: 'Which day did you mean?',
+        interrupt: { type: 'clarify', question: 'Which day did you mean?' },
+        toolResults: [],
+      }),
+      resume: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'thread-clarify',
+        response: 'Got it, using Tuesday.',
+        toolResults: [],
+      }),
+    };
+    const service = createService(agentClient);
+
+    await service.processTextMessage('remove tasks', 42, { chatId: 100, messageId: 10 });
+    const result = await service.processTextMessage('add buy milk', 42, { chatId: 100, messageId: 11 });
+
+    expect(result.response).toBe('Got it, using Tuesday.');
+    expect(agentClient.resume).toHaveBeenCalledTimes(1);
+  });
+
   it('starts a new invoke when a pending clarification has expired', async () => {
     process.env.TELEGRAM_PENDING_TTL_MS = '1';
     const agentClient = {
