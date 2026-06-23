@@ -25,7 +25,7 @@ describe('AudioProcessorService', () => {
 
   it('passes successful transcriptions into the text processor', async () => {
     const textProcessor = {
-      processTextMessage: jest.fn().mockResolvedValue('Task created.'),
+      processTextMessage: jest.fn().mockResolvedValue({ response: 'Task created.' }),
     };
     const service = new AudioProcessorService(textProcessor as any);
     const logContext = { requestId: 'tg_test', messageType: 'voice' };
@@ -47,8 +47,8 @@ describe('AudioProcessorService', () => {
       logContext,
       undefined,
     );
-    expect(response).toBe(
-      '🗣️: Add a Todoist task to buy milk tomorrow\n\n---\n\nTask created.',
+    expect(response).toEqual(
+      expect.objectContaining({ response: '🗣️: Add a Todoist task to buy milk tomorrow\n\n---\n\nTask created.' }),
     );
   });
 
@@ -56,7 +56,7 @@ describe('AudioProcessorService', () => {
     const onTranscribed = jest.fn().mockResolvedValue(undefined);
     const onProgress = jest.fn();
     const textProcessor = {
-      processTextMessage: jest.fn().mockResolvedValue('Task created.'),
+      processTextMessage: jest.fn().mockResolvedValue({ response: 'Task created.' }),
     };
     const service = new AudioProcessorService(textProcessor as any);
 
@@ -81,7 +81,7 @@ describe('AudioProcessorService', () => {
     const onTranscribed = jest.fn();
     const onProgress = jest.fn();
     const textProcessor = {
-      processTextMessage: jest.fn().mockResolvedValue('Summary ready.'),
+      processTextMessage: jest.fn().mockResolvedValue({ response: 'Summary ready.' }),
     };
     const service = new AudioProcessorService(textProcessor as any);
 
@@ -101,8 +101,8 @@ describe('AudioProcessorService', () => {
       {},
       onProgress,
     );
-    expect(response).toBe(
-      '🗣️: Add a Todoist task to buy milk tomorrow\n\n---\n\nSummary ready.',
+    expect(response).toEqual(
+      expect.objectContaining({ response: '🗣️: Add a Todoist task to buy milk tomorrow\n\n---\n\nSummary ready.' }),
     );
   });
 
@@ -114,7 +114,8 @@ describe('AudioProcessorService', () => {
 
     await expect(
       service.processAudioMessage('https://example.com/voice.ogg', 7),
-    ).resolves.toBe(
+    ).resolves.toHaveProperty(
+      'response',
       '🗣️: Add a Todoist task to buy milk tomorrow\n\n---\n\n' +
         '_Could not process the request. Please try again._',
     );
@@ -136,7 +137,7 @@ describe('AudioProcessorService', () => {
         onTranscribed,
         onProgress,
       }),
-    ).resolves.toBe('No speech detected in the audio.');
+    ).resolves.toHaveProperty('response', 'No speech detected in the audio.');
 
     expect(onTranscribed).not.toHaveBeenCalled();
     expect(onProgress).not.toHaveBeenCalled();
@@ -151,7 +152,7 @@ describe('AudioProcessorService', () => {
 
     await expect(
       service.processAudioMessage('https://example.com/broken.ogg', 7, {}, { onTranscribed }),
-    ).resolves.toBe('Transcription failed. Please try again.');
+    ).resolves.toHaveProperty('response', 'Transcription failed. Please try again.');
 
     expect(onTranscribed).not.toHaveBeenCalled();
     expect(textProcessor.processTextMessage).not.toHaveBeenCalled();

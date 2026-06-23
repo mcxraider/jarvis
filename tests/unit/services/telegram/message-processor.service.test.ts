@@ -1,13 +1,13 @@
 jest.mock('../../../../src/services/telegram/processors/text-processor.service', () => ({
   TextProcessorService: jest.fn().mockImplementation(() => ({
-    processTextMessage: jest.fn().mockResolvedValue('text response'),
+    processTextMessage: jest.fn().mockResolvedValue({ response: 'text response' }),
   })),
 }));
 
 jest.mock('../../../../src/services/telegram/processors/audio-processor.service', () => ({
   AudioProcessorService: jest.fn().mockImplementation(() => ({
-    processAudioMessage: jest.fn().mockResolvedValue('audio response'),
-    processAudioDocument: jest.fn().mockResolvedValue('document response'),
+    processAudioMessage: jest.fn().mockResolvedValue({ response: 'audio response' }),
+    processAudioDocument: jest.fn().mockResolvedValue({ response: 'document response' }),
   })),
 }));
 
@@ -21,9 +21,10 @@ describe('MessageProcessorService', () => {
   });
 
   it('routes text messages to the text processor', async () => {
-    const spy = jest.spyOn(service, 'processTextMessage').mockResolvedValue('text response');
+    const spy = jest.spyOn(service, 'processTextMessage').mockResolvedValue({ response: 'text response' } as any);
 
-    await expect(service.processMessage({ type: 'text', content: 'hello world' }, 7)).resolves.toBe(
+    await expect(service.processMessage({ type: 'text', content: 'hello world' }, 7)).resolves.toHaveProperty(
+      'response',
       'text response',
     );
 
@@ -31,11 +32,11 @@ describe('MessageProcessorService', () => {
   });
 
   it('routes audio messages to the audio processor', async () => {
-    const spy = jest.spyOn(service, 'processAudioMessage').mockResolvedValue('audio response');
+    const spy = jest.spyOn(service, 'processAudioMessage').mockResolvedValue({ response: 'audio response' });
 
     await expect(
       service.processMessage({ type: 'audio', content: 'https://example.com/audio.ogg' }, 7),
-    ).resolves.toBe('audio response');
+    ).resolves.toHaveProperty('response', 'audio response');
 
     expect(spy).toHaveBeenCalledWith('https://example.com/audio.ogg', 7, {});
   });
@@ -55,7 +56,7 @@ describe('MessageProcessorService', () => {
   });
 
   it('routes photo messages through the text processor with image context', async () => {
-    const photoSpy = jest.spyOn(service, 'processPhotoMessage').mockResolvedValue('photo response');
+    const photoSpy = jest.spyOn(service, 'processPhotoMessage').mockResolvedValue({ response: 'photo response' } as any);
 
     await expect(
       service.processMessage(
@@ -69,7 +70,7 @@ describe('MessageProcessorService', () => {
         },
         7,
       ),
-    ).resolves.toBe('photo response');
+    ).resolves.toHaveProperty('response', 'photo response');
 
     expect(photoSpy).toHaveBeenCalledWith(
       {
@@ -87,7 +88,7 @@ describe('MessageProcessorService', () => {
   it('routes audio documents with file metadata to the document processor', async () => {
     const spy = jest
       .spyOn(service, 'processAudioDocument')
-      .mockResolvedValue('document response');
+      .mockResolvedValue({ response: 'document response' });
 
     await expect(
       service.processMessage(
@@ -99,7 +100,7 @@ describe('MessageProcessorService', () => {
         },
         7,
       ),
-    ).resolves.toBe('document response');
+    ).resolves.toHaveProperty('response', 'document response');
 
     expect(spy).toHaveBeenCalledWith(
       'https://example.com/audio.mp3',
@@ -146,8 +147,7 @@ describe('MessageProcessorService', () => {
   });
 
   it('returns a fallback response for unknown message types', async () => {
-    await expect(
-      service.processMessage({ type: 'unsupported' as any, content: 'mystery' }, 7),
-    ).resolves.toContain('Unsupported message type');
+    const result = await service.processMessage({ type: 'unsupported' as any, content: 'mystery' }, 7);
+    expect(result.response).toContain('Unsupported message type');
   });
 });
