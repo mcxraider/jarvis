@@ -1,0 +1,40 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-23T11:25:24
+request_id: 94bc4be4-89db-4b77-94e5-b569a6c6485d
+thread_id: f63223c5-dbeb-4c31-86f4-2adbfb14a01d
+user_id: local-user
+request_source: cli
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: False
+max_agent_turns: 8
+resuming: False
+------------------------------------------------------------------------------
+2026-06-23 11:25:24.382 | section              | === Jarvis LangGraph Run ===
+2026-06-23 11:25:24.382 | runtime.start        | Starting graph invocation. | request_id=94bc4be4-89db-4b77-94e5-b569a6c6485d, model=deepseek-v4-flash, allow_mutations=false, max_turns=8, thread_id=f63223c5-dbeb-4c31-86f4-2adbfb14a01d, request_source=cli, resuming=false
+2026-06-23 11:25:24.382 | runtime.prompt       | [payload] user_prompt: remind me about the report
+2026-06-23 11:25:24.417 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-23 11:25:24.522 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
+2026-06-23 11:25:24.522 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 11:25:24.524 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-23 11:25:26.660 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true, prompt_tokens=2863, completion_tokens=159, total_tokens=3022
+2026-06-23 11:25:26.661 | graph.route          | Agent node completed. | next=hitl, turn=1
+2026-06-23 11:25:26.663 | graph.hitl           | Interrupting for user clarification. | question=Could you clarify which report you're referring to? Also, when would you like to be reminded — on a specific date/time, or is there a due date for it?, deferred_tools=0, extra_questions=0
+2026-06-23 11:25:26.668 | runtime.done         | Graph invocation completed. | request_id=94bc4be4-89db-4b77-94e5-b569a6c6485d, turns=1, tool_results=0, has_error=false, interrupted=true, total_tokens=3022
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-23T11:25:26
+duration_seconds: 2.287
+request_id: 94bc4be4-89db-4b77-94e5-b569a6c6485d
+turns: 1
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 2863
+completion_tokens: 159
+total_tokens: 3022
+cached_tokens: 2816
+reasoning_tokens: 43
+==============================================================================

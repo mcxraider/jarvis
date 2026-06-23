@@ -1,0 +1,42 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-23T14:27:35
+request_id: 6e7adf75-ac9e-4f7a-9ac7-2a30ca5da6d4
+thread_id: 2829aa02-8922-4e98-ae98-4a725486906c
+user_id: local-user
+request_source: cli
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: False
+------------------------------------------------------------------------------
+2026-06-23 14:27:35.759 | section              | === Jarvis LangGraph Run ===
+2026-06-23 14:27:35.759 | runtime.start        | Starting graph invocation. | request_id=6e7adf75-ac9e-4f7a-9ac7-2a30ca5da6d4, model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=2829aa02-8922-4e98-ae98-4a725486906c, request_source=cli, resuming=false
+2026-06-23 14:27:35.759 | runtime.prompt       | [payload] user_prompt: Clean up my list.
+2026-06-23 14:27:35.798 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-23 14:27:35.800 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
+2026-06-23 14:27:35.800 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 14:27:35.801 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-23 14:27:39.279 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true, prompt_tokens=2862, completion_tokens=312, total_tokens=3174
+2026-06-23 14:27:39.280 | graph.route          | Agent node completed. | next=hitl, turn=1
+2026-06-23 14:27:39.284 | graph.hitl           | Interrupting for user clarification. | question=What would you like me to do? Some possibilities:
+1. **Clear completed tasks** – remove or mark finished tasks
+2. **Delete old/overdue tasks** – remove tasks past their due date..., deferred_tools=0, extra_questions=0
+2026-06-23 14:27:39.285 | runtime.done         | Graph invocation completed. | request_id=6e7adf75-ac9e-4f7a-9ac7-2a30ca5da6d4, turns=1, tool_results=0, has_error=false, interrupted=true, total_tokens=39251
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-23T14:27:39
+duration_seconds: 3.527
+request_id: 6e7adf75-ac9e-4f7a-9ac7-2a30ca5da6d4
+turns: 1
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 36334
+completion_tokens: 2917
+total_tokens: 39251
+cached_tokens: 27136
+reasoning_tokens: 1515
+==============================================================================

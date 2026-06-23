@@ -1,0 +1,45 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-23T16:33:47
+request_id: e924f010-af59-4e54-bf1d-ce988f048ec6
+thread_id: e265f2b4-4e14-4d4b-8657-d655aacaaf9c
+user_id: local-user
+request_source: cli
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: True
+------------------------------------------------------------------------------
+2026-06-23 16:33:47.421 | section              | === Jarvis LangGraph Run ===
+2026-06-23 16:33:47.421 | runtime.start        | Starting graph invocation. | request_id=e924f010-af59-4e54-bf1d-ce988f048ec6, model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=e265f2b4-4e14-4d4b-8657-d655aacaaf9c, request_source=cli, resuming=true
+2026-06-23 16:33:47.421 | runtime.prompt       | [payload] user_prompt: Delete all tasks on Tuesday.
+2026-06-23 16:33:47.458 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-23 16:33:47.459 | graph.hitl           | Interrupting for user clarification. | question=One task has been deleted so far, but the remaining **5 tasks** are awaiting your confirmation — deleting tasks is a permanent/destructive action. Here's what I found:
+
+**Today ..., deferred_tools=0, extra_questions=0
+2026-06-23 16:33:47.459 | graph.hitl           | Resumed from user clarification.
+2026-06-23 16:33:47.460 | graph.agent          | Entering agent node. | turn=5, max_turns=8, messages=16
+2026-06-23 16:33:47.460 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 16:33:47.461 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=16, tools=9
+2026-06-23 16:33:49.819 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=5, has_content=true, has_reasoning=true, prompt_tokens=8701, completion_tokens=271, total_tokens=8972
+2026-06-23 16:33:49.821 | graph.route          | Agent node completed. | next=tools, turn=5
+2026-06-23 16:33:49.824 | graph.prepare_confirm | Froze risky action into held_call. | held_call_id=821ea9fe-31a1-4f98-bc68-47545cd3440a, tool_name=delete_todoist_task, deferred_count=4
+2026-06-23 16:33:49.825 | graph.confirm        | Interrupting for user confirmation. | tool_name=delete_todoist_task, held_call_id=821ea9fe-31a1-4f98-bc68-47545cd3440a, summary=Delete task "ewfwefe" — this is irreversible.
+2026-06-23 16:33:49.827 | runtime.done         | Graph invocation completed. | request_id=e924f010-af59-4e54-bf1d-ce988f048ec6, turns=5, tool_results=3, has_error=false, interrupted=true, total_tokens=33696
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-23T16:33:49
+duration_seconds: 2.408
+request_id: e924f010-af59-4e54-bf1d-ce988f048ec6
+turns: 5
+tool_results: 3
+has_error: False
+interrupted: True
+prompt_tokens: 31961
+completion_tokens: 1735
+total_tokens: 33696
+cached_tokens: 27008
+reasoning_tokens: 857
+==============================================================================

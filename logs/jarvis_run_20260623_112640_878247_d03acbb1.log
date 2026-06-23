@@ -1,0 +1,64 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-23T11:26:40
+request_id: 1de8d3cf-fd47-4ba3-9a91-1d2d537121ef
+thread_id: d03acbb1-b6a0-43f8-8444-03f6069d098a
+user_id: local-user
+request_source: cli
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: False
+max_agent_turns: 8
+resuming: True
+------------------------------------------------------------------------------
+2026-06-23 11:26:40.878 | section              | === Jarvis LangGraph Run ===
+2026-06-23 11:26:40.879 | runtime.start        | Starting graph invocation. | request_id=1de8d3cf-fd47-4ba3-9a91-1d2d537121ef, model=deepseek-v4-flash, allow_mutations=false, max_turns=8, thread_id=d03acbb1-b6a0-43f8-8444-03f6069d098a, request_source=cli, resuming=true
+2026-06-23 11:26:40.879 | runtime.prompt       | [payload] user_prompt: Clean up my list
+2026-06-23 11:26:40.919 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-23 11:26:40.922 | graph.hitl           | Interrupting for user clarification. | question=I can see you have **28 active tasks** on your list. Here's a quick overview:
+
+**📅 Recurring birthdays** (10 tasks) — All future-dated, no action needed.
+**📋 Upcoming events** (..., deferred_tools=0, extra_questions=0
+2026-06-23 11:26:40.922 | graph.hitl           | Resumed from user clarification.
+2026-06-23 11:26:40.923 | graph.agent          | Entering agent node. | turn=3, max_turns=8, messages=7
+2026-06-23 11:26:40.923 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 11:26:40.924 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=7, tools=9
+2026-06-23 11:26:45.664 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true, prompt_tokens=12635, completion_tokens=338, total_tokens=12973
+2026-06-23 11:26:45.665 | graph.route          | Agent node completed. | next=tools, turn=3
+2026-06-23 11:26:45.669 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=1
+2026-06-23 11:26:45.672 | tool.start           | Preparing tool call. | id=call_00_jutioRzPCg6nJ5MFkgNW4447, name=get_completed_todoist_tasks_by_completion_date, mutating=false
+2026-06-23 11:26:45.672 | tool.args            | [payload] get_completed_todoist_tasks_by_completion_date: {"cursor": null, "filter_lang": null, "filter_query": null, "limit": 200, "parent_id": null, "project_id": null, "section_id": null, "since": "2026-06-01T00:00:00Z", "until": null, "workspace_id": null}
+2026-06-23 11:26:45.673 | todoist.request      | Sending Todoist API request. | method=GET, endpoint=/tasks/completed/by_completion_date, has_payload=false, attempt=1, max_attempts=3
+2026-06-23 11:26:45.673 | todoist.payload      | [payload] request: null
+2026-06-23 11:26:46.768 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-23 11:26:46.773 | todoist.payload      | [payload] response: {"items": [{"added_at": "2026-06-22T05:49:11.747423Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": true, "child_order": 0, "completed_at": "2026-06-22T05:50:14.175000Z", "completed_by_uid": "41485550", "completed_count": 1, "content": "Better onboarding flow", "day_order": -1, "deadline": null, "description": "", "due": null, "duration": null, "goal_ids": [], "id": "6gwM7V58H5cjQq9w", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6gwM7V63RVF834JP", "responsible_uid": null, "section_id": "6gwM7V4WH322Hxpw", "updated_at": "2026-06-22T05:50:16.126151Z", "user_id": "41485550"}, {"added_at": "2026-06-22T05:49:11.747484Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": true, "child_order": 1, "completed_at": "2026-06-22T05:50:13.944000Z", "completed_by_uid...
+2026-06-23 11:26:46.774 | tool.done            | Tool call completed. | name=get_completed_todoist_tasks_by_completion_date
+2026-06-23 11:26:46.777 | tool.result          | [payload] get_completed_todoist_tasks_by_completion_date: {"items": [{"added_at": "2026-06-22T05:49:11.747423Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": true, "child_order": 0, "completed_at": "2026-06-22T05:50:14.175000Z", "completed_by_uid": "41485550", "completed_count": 1, "content": "Better onboarding flow", "day_order": -1, "deadline": null, "description": "", "due": null, "duration": null, "goal_ids": [], "id": "6gwM7V58H5cjQq9w", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6gwM7V63RVF834JP", "responsible_uid": null, "section_id": "6gwM7V4WH322Hxpw", "updated_at": "2026-06-22T05:50:16.126151Z", "user_id": "41485550"}, {"added_at": "2026-06-22T05:49:11.747484Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": true, "child_order": 1, "completed_at": "2026-06-22T05:50:13.944000Z", "completed_by_uid...
+2026-06-23 11:26:46.783 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-23 11:26:46.787 | graph.agent          | Entering agent node. | turn=4, max_turns=8, messages=9
+2026-06-23 11:26:46.787 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 11:26:46.788 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=9, tools=9
+2026-06-23 11:26:54.846 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true, prompt_tokens=49576, completion_tokens=509, total_tokens=50085
+2026-06-23 11:26:54.847 | graph.hitl_upgrade   | Converted text question to ask_user tool call. | question_preview=I found **a lot** of completed tasks dating back to early June — about 90+ items including things li
+2026-06-23 11:26:54.848 | graph.route          | Agent node completed. | next=hitl, turn=4
+2026-06-23 11:26:54.853 | graph.hitl           | Interrupting for user clarification. | question=I found **a lot** of completed tasks dating back to early June — about 90+ items including things like:
+
+- Work tasks (Better onboarding flow, Better file management, etc.)
+- Da..., deferred_tools=0, extra_questions=0
+2026-06-23 11:26:54.856 | runtime.done         | Graph invocation completed. | request_id=1de8d3cf-fd47-4ba3-9a91-1d2d537121ef, turns=4, tool_results=2, has_error=false, interrupted=true, total_tokens=78276
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-23T11:26:54
+duration_seconds: 13.979
+request_id: 1de8d3cf-fd47-4ba3-9a91-1d2d537121ef
+turns: 4
+tool_results: 2
+has_error: False
+interrupted: True
+prompt_tokens: 76308
+completion_tokens: 1968
+total_tokens: 78276
+cached_tokens: 29824
+reasoning_tokens: 1350
+==============================================================================

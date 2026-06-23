@@ -1,0 +1,43 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-23T14:34:26
+request_id: 003ae938-93dd-488d-9e3c-f327c5207252
+thread_id: a1c040fc-1ccf-4361-9975-b95ee223bb6d
+user_id: local-user
+request_source: cli
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: False
+max_agent_turns: 8
+resuming: True
+------------------------------------------------------------------------------
+2026-06-23 14:34:26.429 | section              | === Jarvis LangGraph Run ===
+2026-06-23 14:34:26.429 | runtime.start        | Starting graph invocation. | request_id=003ae938-93dd-488d-9e3c-f327c5207252, model=deepseek-v4-flash, allow_mutations=false, max_turns=8, thread_id=a1c040fc-1ccf-4361-9975-b95ee223bb6d, request_source=cli, resuming=true
+2026-06-23 14:34:26.429 | runtime.prompt       | [payload] user_prompt: Add three tasks for my morning routine.
+2026-06-23 14:34:26.462 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-23 14:34:26.464 | graph.hitl           | Interrupting for user clarification. | question=What three specific tasks should I add for your morning routine? (e.g., "Wake up", "Brush teeth", "Meditate", etc.), deferred_tools=0, extra_questions=0
+2026-06-23 14:34:26.464 | graph.hitl           | Resumed from user clarification.
+2026-06-23 14:34:26.465 | graph.agent          | Entering agent node. | turn=2, max_turns=8, messages=5
+2026-06-23 14:34:26.466 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 14:34:26.466 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=5, tools=9
+2026-06-23 14:34:29.856 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true, prompt_tokens=3171, completion_tokens=302, total_tokens=3473
+2026-06-23 14:34:29.857 | graph.hitl_upgrade   | Converted text question to ask_user tool call. | question_preview=It looks like you replied with "add a meeting with my manager tomorrow at 2pm" — did you mean to cha
+2026-06-23 14:34:29.857 | graph.route          | Agent node completed. | next=hitl, turn=2
+2026-06-23 14:34:29.859 | graph.hitl           | Interrupting for user clarification. | question=It looks like you replied with "add a meeting with my manager tomorrow at 2pm" — did you mean to change your mind about the morning routine tasks? Just to confirm, would you lik..., deferred_tools=0, extra_questions=0
+2026-06-23 14:34:29.861 | runtime.done         | Graph invocation completed. | request_id=003ae938-93dd-488d-9e3c-f327c5207252, turns=2, tool_results=0, has_error=false, interrupted=true, total_tokens=21749
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-23T14:34:29
+duration_seconds: 3.433
+request_id: 003ae938-93dd-488d-9e3c-f327c5207252
+turns: 2
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 20118
+completion_tokens: 1631
+total_tokens: 21749
+cached_tokens: 11520
+reasoning_tokens: 1217
+==============================================================================

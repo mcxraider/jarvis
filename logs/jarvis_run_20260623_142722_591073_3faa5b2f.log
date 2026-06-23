@@ -1,0 +1,40 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-23T14:27:22
+request_id: ac2f8a1d-9d0d-45e0-a382-4a141da0b021
+thread_id: 3faa5b2f-7cb4-4f2a-81c6-92e90c39a90b
+user_id: local-user
+request_source: cli
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: False
+------------------------------------------------------------------------------
+2026-06-23 14:27:22.591 | section              | === Jarvis LangGraph Run ===
+2026-06-23 14:27:22.591 | runtime.start        | Starting graph invocation. | request_id=ac2f8a1d-9d0d-45e0-a382-4a141da0b021, model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=3faa5b2f-7cb4-4f2a-81c6-92e90c39a90b, request_source=cli, resuming=false
+2026-06-23 14:27:22.591 | runtime.prompt       | [payload] user_prompt: Add three tasks for my morning routine.
+2026-06-23 14:27:22.629 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-23 14:27:22.631 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
+2026-06-23 14:27:22.631 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 14:27:22.632 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-23 14:27:26.129 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true, prompt_tokens=2865, completion_tokens=311, total_tokens=3176
+2026-06-23 14:27:26.130 | graph.route          | Agent node completed. | next=hitl, turn=1
+2026-06-23 14:27:26.133 | graph.hitl           | Interrupting for user clarification. | question=What are the three tasks you'd like for your morning routine? Also, should they repeat daily, and at what times?, deferred_tools=0, extra_questions=0
+2026-06-23 14:27:26.134 | runtime.done         | Graph invocation completed. | request_id=ac2f8a1d-9d0d-45e0-a382-4a141da0b021, turns=1, tool_results=0, has_error=false, interrupted=true, total_tokens=32746
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-23T14:27:26
+duration_seconds: 3.544
+request_id: ac2f8a1d-9d0d-45e0-a382-4a141da0b021
+turns: 1
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 30211
+completion_tokens: 2535
+total_tokens: 32746
+cached_tokens: 21248
+reasoning_tokens: 1422
+==============================================================================
