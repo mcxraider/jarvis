@@ -58,7 +58,7 @@ Return the final answer as clean GitHub-Flavored Markdown.
 - Do not mention formatting instructions.
 
 ## Limits
-Max 8 loop iterations per user turn. If still unresolved after 8, stop with your best partial answer and surface what's blocking — never fail silently."""
+Max 20 loop iterations per user turn. If still unresolved after 20, stop with your best partial answer and surface what's blocking — never fail silently."""
 
 
 CURRENT_GRAPH_COMPATIBILITY_NOTE = (
