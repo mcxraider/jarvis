@@ -55,9 +55,9 @@ class TestRenderActionSummary:
 
 
 class TestConfirmNode:
-    def test_missing_held_call(self):
+    def test_missing_held_calls(self):
         node = create_confirm_node()
-        state = {"held_call": None, "messages": []}
+        state = {"held_calls": None, "messages": []}
         result = node(state)
         assert result.get("error")
         assert result.get("next") == "end"
@@ -67,11 +67,13 @@ class TestConfirmNode:
         mock_interrupt.return_value = "yes"
         node = create_confirm_node()
         state = {
-            "held_call": {
-                "id": "hc_1",
-                "tool_name": "delete_todoist_task",
-                "args": {"task_id": "42"},
-            },
+            "held_calls": [
+                {
+                    "id": "hc_1",
+                    "tool_name": "delete_todoist_task",
+                    "args": {"task_id": "42"},
+                },
+            ],
             "messages": [],
             "pending_interrupt": "confirm",
         }
@@ -81,22 +83,63 @@ class TestConfirmNode:
         mock_interrupt.assert_called_once()
         payload = mock_interrupt.call_args[0][0]
         assert payload["type"] == "confirm"
-        assert payload["held_call_id"] == "hc_1"
-        assert payload["tool_name"] == "delete_todoist_task"
+        assert "hc_1" in payload["held_call_ids"]
+        assert "delete_todoist_task" in payload["tool_names"]
 
     @patch("agents.agent_api.app.graph.nodes.confirm.interrupt")
     def test_decline_flow(self, mock_interrupt):
         mock_interrupt.return_value = "no thanks"
         node = create_confirm_node()
         state = {
-            "held_call": {
-                "id": "hc_2",
-                "tool_name": "delete_todoist_task",
-                "args": {"task_id": "7"},
-            },
+            "held_calls": [
+                {
+                    "id": "hc_2",
+                    "tool_name": "delete_todoist_task",
+                    "args": {"task_id": "7"},
+                },
+            ],
             "messages": [],
             "pending_interrupt": "confirm",
         }
         result = node(state)
         assert result["confirm_decision"] == "decline"
         assert result["pending_interrupt"] is None
+        assert result.get("final_response")
+
+    @patch("agents.agent_api.app.graph.nodes.confirm.interrupt")
+    def test_batch_summary(self, mock_interrupt):
+        mock_interrupt.return_value = "yes"
+        node = create_confirm_node()
+        state = {
+            "held_calls": [
+                {"id": "hc_1", "tool_name": "delete_todoist_task", "args": {"task_id": "1"}},
+                {"id": "hc_2", "tool_name": "delete_todoist_task", "args": {"task_id": "2"}},
+                {"id": "hc_3", "tool_name": "delete_todoist_task", "args": {"task_id": "3"}},
+            ],
+            "messages": [],
+            "pending_interrupt": "confirm",
+        }
+        result = node(state)
+        assert result["confirm_decision"] == "approve"
+        payload = mock_interrupt.call_args[0][0]
+        assert payload["count"] == 3
+        assert len(payload["held_call_ids"]) == 3
+        assert "Batch of 3 actions" in payload["summary"]
+
+    def test_migration_shim_singular_held_call(self):
+        """Old-format state with singular held_call still works."""
+        from unittest.mock import patch as _patch
+        with _patch("agents.agent_api.app.graph.nodes.confirm.interrupt", return_value="yes"):
+            node = create_confirm_node()
+            state = {
+                "held_calls": None,
+                "held_call": {
+                    "id": "hc_old",
+                    "tool_name": "delete_todoist_task",
+                    "args": {"task_id": "99"},
+                },
+                "messages": [],
+                "pending_interrupt": "confirm",
+            }
+            result = node(state)
+            assert result["confirm_decision"] == "approve"

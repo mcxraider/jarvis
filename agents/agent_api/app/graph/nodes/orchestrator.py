@@ -3,6 +3,7 @@
 import copy
 import json
 import os
+import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -158,10 +159,6 @@ class DeepSeekAgentClient:
     @traceable(
         name="deepseek_create_message",
         run_type="llm",
-        process_inputs=lambda inputs: {
-            "message_count": len(inputs.get("messages", [])),
-            "tool_count": len(inputs.get("tools", [])),
-        },
     )
     def create_message(
         self,
@@ -290,6 +287,38 @@ class DeepSeekAgentClient:
         return status_code if isinstance(status_code, int) else None
 
 
+_CLARIFICATION_PATTERNS = [
+    "could you clarify",
+    "could you specify",
+    "could you tell me",
+    "can you tell me",
+    "what would you like",
+    "which one do you",
+    "do you want me to",
+    "would you like me to",
+    "please provide",
+    "i need more information",
+    "can you provide",
+]
+
+
+def _looks_like_question(content: str) -> bool:
+    """Detect text-only responses that are actually clarification questions.
+
+    The system prompt forbids asking questions in ANSWER (text-only responses).
+    Any "?" in such a response is a prompt-compliance failure we catch structurally.
+    """
+    if not content:
+        return False
+    stripped = content.strip()
+    if not stripped:
+        return False
+    if "?" in stripped:
+        return True
+    lower = stripped.lower()
+    return any(p in lower for p in _CLARIFICATION_PATTERNS)
+
+
 def create_agent_node(
     agent_client: Any,
     registry: ToolRegistry,
@@ -354,18 +383,42 @@ def create_agent_node(
             }
         messages.append(assistant_message)
 
-        # No tool calls means the model has chosen ANSWER and the graph can end.
         final_response = ""
-        if not assistant_message.get("tool_calls"):
-            final_response = assistant_message.get("content") or ""
-            tracer.payload("agent.final", "content", final_response)
-
-        tool_calls = assistant_message.get("tool_calls") or []
         next_node = "end"
-        if any(is_ask_user_tool_call(tool_call) for tool_call in tool_calls):
-            next_node = "hitl"
-        elif tool_calls:
-            next_node = "tools"
+
+        if not assistant_message.get("tool_calls"):
+            content = assistant_message.get("content") or ""
+            if _looks_like_question(content):
+                synthetic_id = f"synthetic_ask_user_{uuid.uuid4().hex[:8]}"
+                synthetic_tool_call = {
+                    "id": synthetic_id,
+                    "type": "function",
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": json.dumps({
+                            "question": content,
+                            "reason": "Auto-converted from text response containing a question.",
+                        }),
+                    },
+                }
+                assistant_message["tool_calls"] = [synthetic_tool_call]
+                assistant_message["content"] = None
+                messages[-1] = assistant_message
+                next_node = "hitl"
+                tracer.event(
+                    "graph.hitl_upgrade",
+                    "Converted text question to ask_user tool call.",
+                    question_preview=content[:100],
+                )
+            else:
+                final_response = content
+                tracer.payload("agent.final", "content", final_response)
+        else:
+            tool_calls = assistant_message.get("tool_calls") or []
+            if any(is_ask_user_tool_call(tc) for tc in tool_calls):
+                next_node = "hitl"
+            elif tool_calls:
+                next_node = "tools"
 
         tracer.event(
             "graph.route",

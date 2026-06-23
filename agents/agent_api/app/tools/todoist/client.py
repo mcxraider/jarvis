@@ -116,11 +116,6 @@ class TodoistApiClient:
     @traceable(
         name="todoist_api_request",
         run_type="tool",
-        process_inputs=lambda inputs: {
-            "endpoint": todoist_endpoint_template(inputs.get("url", "")),
-            "method": inputs.get("method", "GET"),
-            "has_payload": inputs.get("payload") is not None,
-        },
     )
     def _request(
         self,

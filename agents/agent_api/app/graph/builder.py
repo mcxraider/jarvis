@@ -86,7 +86,7 @@ def create_jarvis_graph(
             name="confirm",
             node=create_confirm_node(tracer),
             router=route_after_confirm,
-            route_map={"approve": "executor", "decline": "agent"},
+            route_map={"approve": "executor", "decline": "end"},
         ),
         NodeSpec(
             name="executor",
@@ -122,7 +122,7 @@ def build_initial_state(
         "final_response": "",
         "error": "",
         "next": "agent",
-        "held_call": None,
+        "held_calls": None,
         "pending_interrupt": None,
         "confirm_decision": None,
         "consumed_call_ids": [],

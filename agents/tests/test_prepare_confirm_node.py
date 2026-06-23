@@ -29,11 +29,11 @@ class TestPrepareConfirmNode:
         state = _make_state(calls)
         node = create_prepare_confirm_node()
         result = node(state)
-        held = result["held_call"]
-        assert held is not None
-        assert held["tool_name"] == "delete_todoist_task"
-        assert held["args"] == {"task_id": "99"}
-        assert held["origin_tool_call_id"] == "c1"
+        held_calls = result["held_calls"]
+        assert len(held_calls) == 1
+        assert held_calls[0]["tool_name"] == "delete_todoist_task"
+        assert held_calls[0]["args"] == {"task_id": "99"}
+        assert held_calls[0]["origin_tool_call_id"] == "c1"
         assert result["pending_interrupt"] == "confirm"
 
     def test_defers_safe_sibling_calls(self):
@@ -45,7 +45,8 @@ class TestPrepareConfirmNode:
         state = _make_state(calls)
         node = create_prepare_confirm_node()
         result = node(state)
-        # Original message + 2 deferred messages
+        # All risky calls held, safe calls deferred
+        assert len(result["held_calls"]) == 1
         messages = result["messages"]
         deferred = [m for m in messages if m.get("role") == "tool"]
         assert len(deferred) == 2
@@ -54,7 +55,7 @@ class TestPrepareConfirmNode:
             assert content["success"] is False
             assert "Deferred" in content["error"]
 
-    def test_defers_extra_risky_calls(self):
+    def test_freezes_all_risky_calls_as_batch(self):
         calls = [
             _make_tool_call("delete_todoist_task", "c1", {"task_id": "1"}),
             _make_tool_call("delete_todoist_task", "c2", {"task_id": "2"}),
@@ -62,11 +63,13 @@ class TestPrepareConfirmNode:
         state = _make_state(calls)
         node = create_prepare_confirm_node()
         result = node(state)
-        held = result["held_call"]
-        assert held["origin_tool_call_id"] == "c1"
+        held_calls = result["held_calls"]
+        assert len(held_calls) == 2
+        assert held_calls[0]["origin_tool_call_id"] == "c1"
+        assert held_calls[1]["origin_tool_call_id"] == "c2"
+        # No deferred messages — all risky calls are held, no safe calls
         deferred = [m for m in result["messages"] if m.get("role") == "tool"]
-        assert len(deferred) == 1
-        assert deferred[0]["tool_call_id"] == "c2"
+        assert len(deferred) == 0
 
     def test_no_risky_calls_errors(self):
         calls = [_make_tool_call("get_todoist_tasks", "c1")]

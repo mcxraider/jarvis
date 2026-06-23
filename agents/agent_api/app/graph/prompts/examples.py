@@ -11,15 +11,15 @@ so it stays discoverable without cluttering the shipped prompt definitions.
 SAMPLE_PROMPTS = [
     "show me everything due next week",
     "put in my cal",
-    "show me my tasks",
-    "add submit tax form, today at 5pm",
-    "remind me to sign claims form every day starting tomorrow at 9am till wed",
-    "block friday 2pm to 4pm for deep work",
-    "what tasks do i have today",
-    "what did i complete this week",
-    "set my submit tax form task due this friday at 5pm to high priority",
-    "reschedule lunch with feebee from next wednesday at 12:30pm to next friday at 1pm",
-    "delete the task called buy airpods due tomorrow at 7pm",
+    # "show me my tasks",
+    # "add submit tax form, today at 5pm",
+    # "remind me to sign claims form every day starting tomorrow at 9am till wed",
+    # "block friday 2pm to 4pm for deep work",
+    # "what tasks do i have today",
+    # "what did i complete this week",
+    # "set my submit tax form task due this friday at 5pm to high priority",
+    # "reschedule lunch with feebee from next wednesday at 12:30pm to next friday at 1pm",
+    # "delete the task called buy airpods due tomorrow at 7pm",
 ]
 
 # The orchestrator prompt for the target architecture: it keeps the DISPATCH

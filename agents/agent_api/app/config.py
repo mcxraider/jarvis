@@ -92,7 +92,7 @@ def load_settings() -> Settings:
         debug_payloads=_bool_env("JARVIS_DEBUG_PAYLOADS", True),
         # Raw prompts/outputs are hidden from LangSmith by default. Set
         # JARVIS_TRACE_PAYLOADS=1 to temporarily capture full payloads for debugging.
-        langsmith_hide_payloads=not _bool_env("JARVIS_TRACE_PAYLOADS", False),
+        langsmith_hide_payloads=not _bool_env("JARVIS_TRACE_PAYLOADS", True),
         postgres_dsn=os.getenv("JARVIS_POSTGRES_DSN") or os.getenv("DATABASE_URL"),
         redis_url=os.getenv("JARVIS_REDIS_URL") or os.getenv("REDIS_URL"),
     )

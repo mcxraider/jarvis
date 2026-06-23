@@ -156,7 +156,14 @@ def create_hitl_node(tracer: Optional[TracePrinter] = None):
                     "Tool call was not executed because Jarvis requested user clarification first.",
                 )
             )
-        messages.append({"role": "user", "content": reply_text})
+        original_prompt = state.get("user_prompt", "")
+        messages.append({
+            "role": "user",
+            "content": (
+                f"[Clarification received — see the ask_user tool response above. "
+                f"Continue working on the original request: \"{original_prompt}\"]"
+            ),
+        })
 
         clarification_record = {
             "question": payload.get("question"),
