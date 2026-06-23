@@ -11,6 +11,8 @@ import { BotStatusService } from './bot-status.service';
 import { TodoistAPIService } from '../external/todoist-api.service';
 import { GPT_CONSTANTS } from '../ai/constants/gpt.constants';
 import { sendMessageWithMarkdown } from './formatters/telegram-markdown';
+import { LangGraphAgentClient } from '../ai/langgraph-agent-client.service';
+import { PendingClarificationStore } from './pending-clarification.store';
 
 /**
  * Service class responsible for managing Telegram bot operations
@@ -27,7 +29,9 @@ export class TelegramBotService {
 
   constructor(
     config: TelegramConfig,
-    messageProcessor: MessageProcessorService
+    messageProcessor: MessageProcessorService,
+    agentClient?: LangGraphAgentClient,
+    pendingClarificationStore?: PendingClarificationStore,
   ) {
     this.botToken = config.token;
     this.allowedUserIds = new Set(config.allowedUserIds);
@@ -46,6 +50,8 @@ export class TelegramBotService {
       this.messageProcessor,
       this.activityService,
       this.statusService,
+      agentClient,
+      pendingClarificationStore,
     );
 
     this.setupBotHandlers();
