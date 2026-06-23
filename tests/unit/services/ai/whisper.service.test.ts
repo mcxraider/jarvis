@@ -117,7 +117,7 @@ describe('WhisperService', () => {
       fileSizeBytes: 3,
     });
 
-    expect(convertToMp3Spy).toHaveBeenCalledWith(Buffer.from([1, 2, 3]), 'aac', undefined);
+    expect(convertToMp3Spy).toHaveBeenCalledWith(Buffer.from([1, 2, 3]), 'aac', undefined, {});
     expect(mockTranscriptionsCreate).toHaveBeenCalledTimes(1);
 
     const request = mockTranscriptionsCreate.mock.calls[0][0];
@@ -143,7 +143,7 @@ describe('WhisperService', () => {
     });
 
     expect(convertToMp3Spy).toHaveBeenCalledTimes(1);
-    expect(convertToMp3Spy).toHaveBeenCalledWith(Buffer.from([1, 2, 3]), 'ogg', undefined);
+    expect(convertToMp3Spy).toHaveBeenCalledWith(Buffer.from([1, 2, 3]), 'ogg', undefined, {});
     expect(mockTranscriptionsCreate).toHaveBeenCalledTimes(2);
 
     const directRequest = mockTranscriptionsCreate.mock.calls[0][0];
