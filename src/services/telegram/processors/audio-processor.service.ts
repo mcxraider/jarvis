@@ -2,7 +2,7 @@
 import { LogContext, logger } from '../../../utils/logger';
 import { WhisperService } from '../../ai/whisper.service';
 import { LangGraphProgressCallback } from '../../ai/langgraph-agent-client.service';
-import { TextProcessorService } from './text-processor.service';
+import { TextProcessorResult, TextProcessorService } from './text-processor.service';
 
 const DEFAULT_AUDIO_TRANSCRIPTION_PROMPT =
   'Telegram voice memo for a personal productivity assistant. Preserve task names, dates, labels, project names, Todoist, Groq, DeepSeek, and technical terms. Use clear punctuation.';
@@ -39,7 +39,7 @@ export class AudioProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
-  ): Promise<string> {
+  ): Promise<TextProcessorResult> {
     const startTime = Date.now();
 
     logger.info('audio_processor.started', {
@@ -49,13 +49,12 @@ export class AudioProcessorService {
     });
 
     try {
-      // Transcribe the audio using Whisper service
       const transcriptionResult = await this.whisperService.transcribeAudio(fileUrl, userId, logContext);
 
       const { text } = transcriptionResult;
 
       if (!text || text.trim().length < 2) {
-        return 'No speech detected in the audio.';
+        return { response: 'No speech detected in the audio.' };
       }
 
       try {
@@ -75,7 +74,11 @@ export class AudioProcessorService {
           hasTranscription: true,
         });
 
-        return `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}${result.response}`;
+        return {
+          response: `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}${result.response}`,
+          interruptType: result.interruptType,
+          threadId: result.threadId,
+        };
       } catch (processingError) {
         logger.warn('audio_processor.text_processing_failed', {
           ...logContext,
@@ -85,10 +88,11 @@ export class AudioProcessorService {
           durationMs: Date.now() - startTime,
         });
 
-        return (
-          `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}` +
-          `_Could not process the request. Please try again._`
-        );
+        return {
+          response:
+            `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}` +
+            `_Could not process the request. Please try again._`,
+        };
       }
     } catch (error) {
       logger.error('audio_processor.failed', {
@@ -98,7 +102,7 @@ export class AudioProcessorService {
         durationMs: Date.now() - startTime,
       });
 
-      return this.handleAudioProcessingError(error as Error);
+      return { response: this.handleAudioProcessingError(error as Error) };
     }
   }
 
@@ -112,7 +116,7 @@ export class AudioProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
-  ): Promise<string> {
+  ): Promise<TextProcessorResult> {
     const startTime = Date.now();
 
     logger.info('audio_processor.document_started', {
@@ -123,13 +127,12 @@ export class AudioProcessorService {
     });
 
     try {
-      // Use the same transcription logic as audio messages
       const transcriptionResult = await this.whisperService.transcribeAudio(fileUrl, userId, logContext);
 
       const { text } = transcriptionResult;
 
       if (!text || text.trim().length < 2) {
-        return `No speech detected in \`${fileName}\`.`;
+        return { response: `No speech detected in \`${fileName}\`.` };
       }
 
       try {
@@ -150,7 +153,11 @@ export class AudioProcessorService {
           hasTranscription: true,
         });
 
-        return `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}${result.response}`;
+        return {
+          response: `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}${result.response}`,
+          interruptType: result.interruptType,
+          threadId: result.threadId,
+        };
       } catch (processingError) {
         logger.warn('audio_processor.document_text_processing_failed', {
           ...logContext,
@@ -161,10 +168,11 @@ export class AudioProcessorService {
           durationMs: Date.now() - startTime,
         });
 
-        return (
-          `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}` +
-          `_Could not process the request. Please try again._`
-        );
+        return {
+          response:
+            `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}` +
+            `_Could not process the request. Please try again._`,
+        };
       }
     } catch (error) {
       logger.error('audio_processor.document.failed', {
@@ -176,7 +184,7 @@ export class AudioProcessorService {
         durationMs: Date.now() - startTime,
       });
 
-      return this.handleAudioDocumentError(error as Error, fileName, mimeType);
+      return { response: this.handleAudioDocumentError(error as Error, fileName, mimeType) };
     }
   }
 

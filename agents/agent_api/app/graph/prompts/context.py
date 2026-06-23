@@ -22,8 +22,8 @@ USER_PROMPTS: List[str] = [
     # "Clean up my list.",
     # "Delete all tasks on Tuesday."
 ]
-USER_PROMPT = USER_PROMPTS[0] if USER_PROMPTS else ""
 
+USER_PROMPT = USER_PROMPTS[0] if USER_PROMPTS else ""
 
 def available_tools_line(registry: Any) -> str:
     """Render an 'Available tools' line from a registry (for future prompt use)."""
