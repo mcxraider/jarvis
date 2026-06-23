@@ -3,6 +3,7 @@
 import copy
 import json
 import os
+import re
 import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -306,14 +307,19 @@ def _looks_like_question(content: str) -> bool:
     """Detect text-only responses that are actually clarification questions.
 
     The system prompt forbids asking questions in ANSWER (text-only responses).
-    Any "?" in such a response is a prompt-compliance failure we catch structurally.
+    A bare "?" in a completion summary (e.g. a task named "meet jon maybe?") is
+    not a question — we only treat "?" as meaningful when it ends a sentence:
+    at end-of-text, before a newline, or before whitespace+uppercase (new sentence).
+    Markdown bold/italic markers are stripped first to avoid false positives from
+    task names like **"meeting tomorrow?"** embedded in a success summary.
     """
     if not content:
         return False
     stripped = content.strip()
     if not stripped:
         return False
-    if "?" in stripped:
+    plain = re.sub(r'\*+', '', stripped)
+    if re.search(r'\?(?:\s*$|\s*\n|\s+[A-Z])', plain):
         return True
     lower = stripped.lower()
     return any(p in lower for p in _CLARIFICATION_PATTERNS)
