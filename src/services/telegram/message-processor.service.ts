@@ -47,7 +47,7 @@ export class MessageProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
-  ): Promise<string> {
+  ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
       userId,
@@ -69,7 +69,7 @@ export class MessageProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
-  ): Promise<string> {
+  ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
       userId,
@@ -157,21 +157,19 @@ export class MessageProcessorService {
         return this.processTextMessage(messageData.content, userId, logContext);
 
       case 'audio':
-        return { response: await this.processAudioMessage(messageData.content, userId, logContext) };
+        return this.processAudioMessage(messageData.content, userId, logContext);
 
       case 'audio_document':
         if (!messageData.fileName || !messageData.mimeType) {
           throw new Error('Audio document processing requires fileName and mimeType');
         }
-        return {
-          response: await this.processAudioDocument(
-            messageData.content,
-            messageData.fileName,
-            messageData.mimeType,
-            userId,
-            logContext,
-          ),
-        };
+        return this.processAudioDocument(
+          messageData.content,
+          messageData.fileName,
+          messageData.mimeType,
+          userId,
+          logContext,
+        );
 
       case 'photo':
         return this.processPhotoMessage(

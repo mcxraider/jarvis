@@ -6,8 +6,8 @@ jest.mock('../../../../src/services/telegram/processors/text-processor.service',
 
 jest.mock('../../../../src/services/telegram/processors/audio-processor.service', () => ({
   AudioProcessorService: jest.fn().mockImplementation(() => ({
-    processAudioMessage: jest.fn().mockResolvedValue('audio response'),
-    processAudioDocument: jest.fn().mockResolvedValue('document response'),
+    processAudioMessage: jest.fn().mockResolvedValue({ response: 'audio response' }),
+    processAudioDocument: jest.fn().mockResolvedValue({ response: 'document response' }),
   })),
 }));
 
@@ -32,7 +32,7 @@ describe('MessageProcessorService', () => {
   });
 
   it('routes audio messages to the audio processor', async () => {
-    const spy = jest.spyOn(service, 'processAudioMessage').mockResolvedValue('audio response');
+    const spy = jest.spyOn(service, 'processAudioMessage').mockResolvedValue({ response: 'audio response' });
 
     await expect(
       service.processMessage({ type: 'audio', content: 'https://example.com/audio.ogg' }, 7),
@@ -88,7 +88,7 @@ describe('MessageProcessorService', () => {
   it('routes audio documents with file metadata to the document processor', async () => {
     const spy = jest
       .spyOn(service, 'processAudioDocument')
-      .mockResolvedValue('document response');
+      .mockResolvedValue({ response: 'document response' });
 
     await expect(
       service.processMessage(
