@@ -1,0 +1,53 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-24T00:04:35
+request_id: tg_mqqu4lto_q9d68j
+thread_id: tg_fd1ed82cbd_318
+user_id: telegram:701122767
+request_source: telegram
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: True
+------------------------------------------------------------------------------
+2026-06-24 00:04:35.198 | section              | === Jarvis LangGraph Run ===
+2026-06-24 00:04:35.198 | runtime.start        | Starting graph invocation. | request_id=tg_mqqu4lto_q9d68j, model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_318, request_source=telegram, resuming=true
+2026-06-24 00:04:35.198 | runtime.prompt       | [payload] user_prompt: no need others thanks
+2026-06-24 00:04:35.259 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-24 00:04:35.260 | graph.hitl           | Interrupting for user clarification. | question=Done! Here's what I added:
+
+**📝 meet jon maybe?** — due **tomorrow (Jun 25, 2026)**
+
+It's in your Todoist inbox with normal priority. If you want to add details, set a reminder,..., deferred_tools=0, extra_questions=0
+2026-06-24 00:04:35.261 | graph.hitl           | Resumed from user clarification.
+2026-06-24 00:04:35.262 | graph.agent          | Entering agent node. | turn=3, max_turns=8, messages=7
+2026-06-24 00:04:35.262 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-24 00:04:35.262 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=7, tools=9
+2026-06-24 00:04:36.971 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true, prompt_tokens=3762, completion_tokens=67, total_tokens=3829
+2026-06-24 00:04:36.972 | graph.hitl_upgrade   | Converted text question to ask_user tool call. | question_preview=Got it! Here's a quick summary of what's been set up:
+
+**📝 meet jon maybe?** — due **tomorrow (Jun 2
+2026-06-24 00:04:36.974 | graph.route          | Agent node completed. | next=hitl, turn=3
+2026-06-24 00:04:36.979 | graph.hitl           | Interrupting for user clarification. | question=Got it! Here's a quick summary of what's been set up:
+
+**📝 meet jon maybe?** — due **tomorrow (Jun 25, 2026)**
+
+All set. You're good to go!, deferred_tools=0, extra_questions=0
+2026-06-24 00:04:36.983 | runtime.done         | Graph invocation completed. | request_id=tg_mqqu4lto_q9d68j, turns=3, tool_results=1, has_error=false, interrupted=true, total_tokens=3829
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-24T00:04:36
+duration_seconds: 1.787
+request_id: tg_mqqu4lto_q9d68j
+turns: 3
+tool_results: 1
+has_error: False
+interrupted: True
+prompt_tokens: 3762
+completion_tokens: 67
+total_tokens: 3829
+cached_tokens: 3456
+reasoning_tokens: 20
+==============================================================================

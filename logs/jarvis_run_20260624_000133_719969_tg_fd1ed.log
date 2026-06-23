@@ -1,0 +1,38 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-24T00:01:33
+request_id: tg_mqqu0prg_q8ibmk
+thread_id: tg_fd1ed82cbd_311
+user_id: telegram:701122767
+request_source: telegram
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: True
+------------------------------------------------------------------------------
+2026-06-24 00:01:33.724 | section              | === Jarvis LangGraph Run ===
+2026-06-24 00:01:33.724 | runtime.start        | Starting graph invocation. | request_id=tg_mqqu0prg_q8ibmk, model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_311, request_source=telegram, resuming=true
+2026-06-24 00:01:33.724 | runtime.prompt       | [payload] user_prompt: exit
+2026-06-24 00:01:33.822 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-24 00:01:33.830 | graph.hitl           | Interrupting for user clarification. | question=I've searched through all your tasks. Let me clarify what you mean by "tuesday" — today is **Tuesday, June 23** and there are no tasks due today. However, I found **one task** t..., deferred_tools=0, extra_questions=0
+2026-06-24 00:01:33.830 | graph.hitl           | Resumed from user clarification.
+2026-06-24 00:01:33.832 | graph.agent          | Entering agent node. | turn=9, max_turns=8, messages=19
+2026-06-24 00:01:33.832 | graph.guard          | Stopping graph because max turns was reached. | error=Max agent turns exceeded (8).
+2026-06-24 00:01:33.833 | runtime.done         | Graph invocation completed. | request_id=tg_mqqu0prg_q8ibmk, turns=8, tool_results=7, has_error=true, interrupted=false
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-24T00:01:33
+duration_seconds: 0.114
+request_id: tg_mqqu0prg_q8ibmk
+turns: 8
+tool_results: 7
+has_error: True
+interrupted: False
+prompt_tokens: 0
+completion_tokens: 0
+total_tokens: 0
+cached_tokens: 0
+reasoning_tokens: 0
+==============================================================================

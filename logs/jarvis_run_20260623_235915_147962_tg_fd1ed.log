@@ -1,0 +1,145 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-23T23:59:15
+request_id: tg_mqqtxqov_xmx5xj
+thread_id: tg_fd1ed82cbd_311
+user_id: telegram:701122767
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: False
+------------------------------------------------------------------------------
+2026-06-23 23:59:15.150 | section              | === Jarvis LangGraph Run ===
+2026-06-23 23:59:15.150 | runtime.start        | Starting graph invocation. | request_id=tg_mqqtxqov_xmx5xj, model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_311, request_source=telegram, resuming=false
+2026-06-23 23:59:15.150 | runtime.prompt       | [payload] user_prompt: Remove all tasks on tuesday
+2026-06-23 23:59:15.522 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-23 23:59:15.644 | graph.agent          | Entering agent node. | turn=1, max_turns=8, messages=2
+2026-06-23 23:59:15.645 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 23:59:15.647 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-23 23:59:20.801 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true, prompt_tokens=2943, completion_tokens=466, total_tokens=3409
+2026-06-23 23:59:20.802 | graph.route          | Agent node completed. | next=tools, turn=1
+2026-06-23 23:59:20.810 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=0
+2026-06-23 23:59:20.812 | tool.start           | Preparing tool call. | id=call_00_R97TKPSsrJXSU0Fvgazk1569, name=get_tasks_by_filter, mutating=false
+2026-06-23 23:59:20.812 | tool.args            | [payload] get_tasks_by_filter: {"cursor": null, "lang": null, "limit": null, "query": "due: Tue"}
+2026-06-23 23:59:20.813 | todoist.request      | Sending Todoist API request. | method=GET, endpoint=/tasks/filter, has_payload=false, attempt=1, max_attempts=3
+2026-06-23 23:59:20.813 | todoist.payload      | [payload] request: null
+2026-06-23 23:59:21.527 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-23 23:59:21.528 | todoist.payload      | [payload] response: {"next_cursor": null, "results": []}
+2026-06-23 23:59:21.529 | tool.done            | Tool call completed. | name=get_tasks_by_filter
+2026-06-23 23:59:21.530 | tool.result          | [payload] get_tasks_by_filter: {"next_cursor": null, "results": []}
+2026-06-23 23:59:21.535 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-23 23:59:21.538 | graph.agent          | Entering agent node. | turn=2, max_turns=8, messages=4
+2026-06-23 23:59:21.540 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 23:59:21.542 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=4, tools=9
+2026-06-23 23:59:22.945 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true, prompt_tokens=3494, completion_tokens=99, total_tokens=3593
+2026-06-23 23:59:22.947 | graph.route          | Agent node completed. | next=tools, turn=2
+2026-06-23 23:59:22.955 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=1
+2026-06-23 23:59:22.963 | tool.start           | Preparing tool call. | id=call_00_IJk5DXj56T8AAVtBrnPB2788, name=get_tasks_by_filter, mutating=false
+2026-06-23 23:59:22.964 | tool.args            | [payload] get_tasks_by_filter: {"cursor": null, "lang": null, "limit": null, "query": "today"}
+2026-06-23 23:59:22.966 | todoist.request      | Sending Todoist API request. | method=GET, endpoint=/tasks/filter, has_payload=false, attempt=1, max_attempts=3
+2026-06-23 23:59:22.966 | todoist.payload      | [payload] request: null
+2026-06-23 23:59:23.497 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-23 23:59:23.498 | todoist.payload      | [payload] response: {"next_cursor": null, "results": []}
+2026-06-23 23:59:23.499 | tool.done            | Tool call completed. | name=get_tasks_by_filter
+2026-06-23 23:59:23.500 | tool.result          | [payload] get_tasks_by_filter: {"next_cursor": null, "results": []}
+2026-06-23 23:59:23.502 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-23 23:59:23.506 | graph.agent          | Entering agent node. | turn=3, max_turns=8, messages=6
+2026-06-23 23:59:23.506 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 23:59:23.509 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=6, tools=9
+2026-06-23 23:59:24.840 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true, prompt_tokens=3680, completion_tokens=96, total_tokens=3776
+2026-06-23 23:59:24.845 | graph.route          | Agent node completed. | next=tools, turn=3
+2026-06-23 23:59:24.850 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=2
+2026-06-23 23:59:24.856 | tool.start           | Preparing tool call. | id=call_00_HkgD9SZ6PhlmxGoq2ud86707, name=get_tasks, mutating=false
+2026-06-23 23:59:24.857 | tool.args            | [payload] get_tasks: {"cursor": null, "goal_id": null, "ids": null, "label": null, "limit": 50, "parent_id": null, "project_id": null, "section_id": null}
+2026-06-23 23:59:24.861 | todoist.request      | Sending Todoist API request. | method=GET, endpoint=/tasks, has_payload=false, attempt=1, max_attempts=3
+2026-06-23 23:59:24.862 | todoist.payload      | [payload] request: null
+2026-06-23 23:59:25.570 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-23 23:59:25.571 | todoist.payload      | [payload] response: {"next_cursor": null, "results": [{"added_at": "2023-10-22T17:40:00.547737Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 1368, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Jarod\u2019s bday", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2028-01-17", "is_recurring": true, "lang": "en", "string": "every 17 Jan", "timezone": null}, "duration": null, "goal_ids": [], "id": "69mxjXH3g69rqgwG", "is_collapsed": false, "is_deleted": false, "labels": ["birthdays"], "note_count": 0, "parent_id": null, "postponed_count": 1, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-01-20T07:56:40.006585Z", "user_id": "41485550"}, {"added_at": "2023-10-22T17:40:18.269386Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": fa...
+2026-06-23 23:59:25.573 | tool.done            | Tool call completed. | name=get_tasks
+2026-06-23 23:59:25.574 | tool.result          | [payload] get_tasks: {"next_cursor": null, "results": [{"added_at": "2023-10-22T17:40:00.547737Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 1368, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Jarod\u2019s bday", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2028-01-17", "is_recurring": true, "lang": "en", "string": "every 17 Jan", "timezone": null}, "duration": null, "goal_ids": [], "id": "69mxjXH3g69rqgwG", "is_collapsed": false, "is_deleted": false, "labels": ["birthdays"], "note_count": 0, "parent_id": null, "postponed_count": 1, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-01-20T07:56:40.006585Z", "user_id": "41485550"}, {"added_at": "2023-10-22T17:40:18.269386Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": fa...
+2026-06-23 23:59:25.580 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-23 23:59:25.596 | graph.agent          | Entering agent node. | turn=4, max_turns=8, messages=8
+2026-06-23 23:59:25.597 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 23:59:25.599 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=8, tools=9
+2026-06-23 23:59:36.415 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true, prompt_tokens=11686, completion_tokens=1482, total_tokens=13168
+2026-06-23 23:59:36.422 | graph.route          | Agent node completed. | next=tools, turn=4
+2026-06-23 23:59:36.434 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=3
+2026-06-23 23:59:36.441 | tool.start           | Preparing tool call. | id=call_00_PLISJ474HfHbRs66OBhU1162, name=get_tasks_by_filter, mutating=false
+2026-06-23 23:59:36.441 | tool.args            | [payload] get_tasks_by_filter: {"cursor": null, "lang": null, "limit": null, "query": "due on: tuesday"}
+2026-06-23 23:59:36.442 | todoist.request      | Sending Todoist API request. | method=GET, endpoint=/tasks/filter, has_payload=false, attempt=1, max_attempts=3
+2026-06-23 23:59:36.442 | todoist.payload      | [payload] request: null
+2026-06-23 23:59:37.072 | todoist.error        | Todoist API returned an HTTP error. | status=400, kind=validation, retryable=false, attempt=1
+2026-06-23 23:59:37.073 | todoist.payload      | [payload] error: {"body": "{\"error\":\"The search query is incorrect\",\"error_code\":55,\"error_extra\":{\"event_id\":\"37cec472f6d943ea9e3fed4094761e68\",\"retry_after\":3},\"error_tag\":\"INVALID_SEARCH_QUERY\",\"http_code\":400}", "status": 400}
+2026-06-23 23:59:37.082 | tool.error           | Tool call failed with a classified API error. | name=get_tasks_by_filter, kind=validation, retryable=false, status_code=400, attempts=1
+2026-06-23 23:59:37.093 | graph.route          | Tools node completed. | next=agent, successes=0, failures=1
+2026-06-23 23:59:37.097 | graph.agent          | Entering agent node. | turn=5, max_turns=8, messages=10
+2026-06-23 23:59:37.098 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 23:59:37.101 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=10, tools=9
+2026-06-23 23:59:38.328 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true, prompt_tokens=13310, completion_tokens=64, total_tokens=13374
+2026-06-23 23:59:38.329 | graph.route          | Agent node completed. | next=tools, turn=5
+2026-06-23 23:59:38.335 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=4
+2026-06-23 23:59:38.340 | tool.start           | Preparing tool call. | id=call_00_82QwZHiMhqRFxbX4y73n7838, name=get_tasks_by_filter, mutating=false
+2026-06-23 23:59:38.340 | tool.args            | [payload] get_tasks_by_filter: {"cursor": null, "lang": null, "limit": null, "query": "due before: wednesday & due after: monday"}
+2026-06-23 23:59:38.343 | todoist.request      | Sending Todoist API request. | method=GET, endpoint=/tasks/filter, has_payload=false, attempt=1, max_attempts=3
+2026-06-23 23:59:38.343 | todoist.payload      | [payload] request: null
+2026-06-23 23:59:38.769 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-23 23:59:38.771 | todoist.payload      | [payload] response: {"next_cursor": null, "results": []}
+2026-06-23 23:59:38.772 | tool.done            | Tool call completed. | name=get_tasks_by_filter
+2026-06-23 23:59:38.773 | tool.result          | [payload] get_tasks_by_filter: {"next_cursor": null, "results": []}
+2026-06-23 23:59:38.776 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-23 23:59:38.781 | graph.agent          | Entering agent node. | turn=6, max_turns=8, messages=12
+2026-06-23 23:59:38.782 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 23:59:38.784 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=12, tools=9
+2026-06-23 23:59:48.578 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true, prompt_tokens=13462, completion_tokens=1195, total_tokens=14657
+2026-06-23 23:59:48.582 | graph.route          | Agent node completed. | next=tools, turn=6
+2026-06-23 23:59:48.592 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=5
+2026-06-23 23:59:48.597 | tool.start           | Preparing tool call. | id=call_00_RFkJccrQ0heaLUv2fybV9031, name=get_tasks_by_filter, mutating=false
+2026-06-23 23:59:48.597 | tool.args            | [payload] get_tasks_by_filter: {"cursor": null, "lang": null, "limit": null, "query": "due: tuesday"}
+2026-06-23 23:59:48.598 | todoist.request      | Sending Todoist API request. | method=GET, endpoint=/tasks/filter, has_payload=false, attempt=1, max_attempts=3
+2026-06-23 23:59:48.599 | todoist.payload      | [payload] request: null
+2026-06-23 23:59:49.534 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-23 23:59:49.536 | todoist.payload      | [payload] response: {"next_cursor": null, "results": []}
+2026-06-23 23:59:49.538 | tool.done            | Tool call completed. | name=get_tasks_by_filter
+2026-06-23 23:59:49.539 | tool.result          | [payload] get_tasks_by_filter: {"next_cursor": null, "results": []}
+2026-06-23 23:59:49.541 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-23 23:59:49.545 | graph.agent          | Entering agent node. | turn=7, max_turns=8, messages=14
+2026-06-23 23:59:49.546 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 23:59:49.549 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=14, tools=9
+2026-06-23 23:59:52.612 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true, prompt_tokens=14744, completion_tokens=254, total_tokens=14998
+2026-06-23 23:59:52.614 | graph.route          | Agent node completed. | next=tools, turn=7
+2026-06-23 23:59:52.618 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=6
+2026-06-23 23:59:52.626 | tool.start           | Preparing tool call. | id=call_00_ICqziEP8dcssRFsoz5do8426, name=get_tasks_by_filter, mutating=false
+2026-06-23 23:59:52.627 | tool.args            | [payload] get_tasks_by_filter: {"cursor": null, "lang": null, "limit": null, "query": "due: Tue"}
+2026-06-23 23:59:52.629 | todoist.request      | Sending Todoist API request. | method=GET, endpoint=/tasks/filter, has_payload=false, attempt=1, max_attempts=3
+2026-06-23 23:59:52.631 | todoist.payload      | [payload] request: null
+2026-06-23 23:59:53.116 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-23 23:59:53.118 | todoist.payload      | [payload] response: {"next_cursor": null, "results": []}
+2026-06-23 23:59:53.119 | tool.done            | Tool call completed. | name=get_tasks_by_filter
+2026-06-23 23:59:53.120 | tool.result          | [payload] get_tasks_by_filter: {"next_cursor": null, "results": []}
+2026-06-23 23:59:53.122 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-23 23:59:53.128 | graph.agent          | Entering agent node. | turn=8, max_turns=8, messages=16
+2026-06-23 23:59:53.129 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-23 23:59:53.132 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=16, tools=9
+2026-06-24 00:00:10.813 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true, prompt_tokens=15083, completion_tokens=2516, total_tokens=17599
+2026-06-24 00:00:10.817 | graph.hitl_upgrade   | Converted text question to ask_user tool call. | question_preview=I've searched through all your tasks. Let me clarify what you mean by "tuesday" — today is **Tuesday
+2026-06-24 00:00:10.817 | graph.route          | Agent node completed. | next=hitl, turn=8
+2026-06-24 00:00:10.835 | graph.hitl           | Interrupting for user clarification. | question=I've searched through all your tasks. Let me clarify what you mean by "tuesday" — today is **Tuesday, June 23** and there are no tasks due today. However, I found **one task** t..., deferred_tools=0, extra_questions=0
+2026-06-24 00:00:10.840 | runtime.done         | Graph invocation completed. | request_id=tg_mqqtxqov_xmx5xj, turns=8, tool_results=7, has_error=false, interrupted=true, total_tokens=84574
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-24T00:00:10
+duration_seconds: 55.692
+request_id: tg_mqqtxqov_xmx5xj
+turns: 8
+tool_results: 7
+has_error: False
+interrupted: True
+prompt_tokens: 78402
+completion_tokens: 6172
+total_tokens: 84574
+cached_tokens: 69376
+reasoning_tokens: 5654
+==============================================================================

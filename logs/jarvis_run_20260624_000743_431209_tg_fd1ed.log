@@ -1,0 +1,40 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-24T00:07:43
+request_id: cb_mqqu8n0v_kbw63h
+thread_id: tg_fd1ed82cbd_318
+user_id: telegram:701122767
+request_source: telegram
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 8
+resuming: True
+------------------------------------------------------------------------------
+2026-06-24 00:07:43.431 | section              | === Jarvis LangGraph Run ===
+2026-06-24 00:07:43.432 | runtime.start        | Starting graph invocation. | request_id=cb_mqqu8n0v_kbw63h, model=deepseek-v4-flash, allow_mutations=true, max_turns=8, thread_id=tg_fd1ed82cbd_318, request_source=telegram, resuming=true
+2026-06-24 00:07:43.432 | runtime.prompt       | [payload] user_prompt: decline
+2026-06-24 00:07:43.473 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-24 00:07:43.474 | graph.confirm        | Interrupting for user confirmation. | count=5, tool_names=["delete_todoist_task"], summary=Batch of 5 actions:
+  1. Delete task "hehehehe" — this is irreversible.
+  2. Delete task "hehehehe" — this is irreversible.
+  3. Delete task "hehehehe" — this is irreversible.
+ ...
+2026-06-24 00:07:43.475 | graph.confirm        | Resumed from user confirmation. | decision=decline, count=5
+2026-06-24 00:07:43.476 | runtime.done         | Graph invocation completed. | request_id=cb_mqqu8n0v_kbw63h, turns=5, tool_results=2, has_error=false, interrupted=false
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-24T00:07:43
+duration_seconds: 0.045
+request_id: cb_mqqu8n0v_kbw63h
+turns: 5
+tool_results: 2
+has_error: False
+interrupted: False
+prompt_tokens: 0
+completion_tokens: 0
+total_tokens: 0
+cached_tokens: 0
+reasoning_tokens: 0
+==============================================================================
