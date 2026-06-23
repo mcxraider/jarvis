@@ -236,7 +236,7 @@ export class WhisperService {
 
     try {
       // Download the audio file
-      const audioBuffer = await this.downloadAudioFile(fileUrl);
+      const audioBuffer = await this.downloadAudioFile(fileUrl, userId, logContext);
 
       // Validate file size
       validateFileSize(audioBuffer.length, this.config.maxFileSizeBytes);
@@ -271,7 +271,7 @@ export class WhisperService {
 
         try {
           const audioFile = this.createAudioFile(processedBuffer, fileExtension);
-          const transcription = await this.performTranscription(audioFile);
+          const transcription = await this.performTranscription(audioFile, processedBuffer.length, fileExtension, userId, logContext);
           return this.buildTranscriptionResult({
             transcription,
             fileUrl,
@@ -323,6 +323,7 @@ export class WhisperService {
             audioBuffer,
             normalizedExtension,
             userId,
+            logContext,
           );
 
           processedBuffer = conversionResult.convertedBuffer;
@@ -378,7 +379,7 @@ export class WhisperService {
       const audioFile = this.createAudioFile(processedBuffer, fileExtension);
 
       // Perform transcription
-      const transcription = await this.performTranscription(audioFile);
+      const transcription = await this.performTranscription(audioFile, processedBuffer.length, fileExtension, userId, logContext);
 
       return this.buildTranscriptionResult({
         transcription,
@@ -410,6 +411,7 @@ export class WhisperService {
     audioBuffer: Buffer,
     normalizedExtension: string,
     userId?: number,
+    logContext: LogContext = {},
   ): Promise<{
     convertedBuffer: Buffer;
     targetFormat: string;
@@ -419,6 +421,7 @@ export class WhisperService {
       audioBuffer,
       normalizedExtension,
       userId,
+      logContext,
     );
 
     // Validate converted file size
@@ -487,10 +490,24 @@ export class WhisperService {
    * Downloads audio file from the provided URL
    *
    * @param fileUrl - URL of the audio file
+   * @param userId - Optional user ID for logging
+   * @param logContext - Log context for request correlation
    * @returns Promise resolving to audio file buffer
    * @private
    */
-  private async downloadAudioFile(fileUrl: string): Promise<Buffer> {
+  private async downloadAudioFile(
+    fileUrl: string,
+    userId?: number,
+    logContext: LogContext = {},
+  ): Promise<Buffer> {
+    const downloadStart = Date.now();
+
+    logger.debug('whisper.download.started', {
+      ...logContext,
+      userId,
+      fileUrl: this.sanitizeUrlForLogging(fileUrl),
+    });
+
     try {
       const response = await fetch(fileUrl);
 
@@ -501,12 +518,33 @@ export class WhisperService {
       // Validate content type if available
       const contentType = response.headers.get('content-type');
       if (contentType && !this.isValidAudioMimeType(contentType)) {
-        logger.warn('Unexpected content type for audio file', { contentType });
+        logger.warn('whisper.download.unexpected_content_type', {
+          ...logContext,
+          userId,
+          contentType,
+        });
       }
 
       const arrayBuffer = await response.arrayBuffer();
-      return Buffer.from(arrayBuffer);
+      const buffer = Buffer.from(arrayBuffer);
+
+      logger.debug('whisper.download.completed', {
+        ...logContext,
+        userId,
+        sizeBytes: buffer.length,
+        durationMs: Date.now() - downloadStart,
+        contentType: contentType ?? 'unknown',
+      });
+
+      return buffer;
     } catch (error) {
+      logger.error('whisper.download.failed', {
+        ...logContext,
+        userId,
+        fileUrl: this.sanitizeUrlForLogging(fileUrl),
+        error: (error as Error).message,
+        durationMs: Date.now() - downloadStart,
+      });
       throw new Error(`Failed to download audio file: ${(error as Error).message}`);
     }
   }
@@ -515,10 +553,34 @@ export class WhisperService {
    * Performs the actual transcription using OpenAI Whisper API
    *
    * @param audioFile - Audio file to transcribe
+   * @param fileSizeBytes - Size of the file being transcribed
+   * @param fileExtension - Extension of the file being transcribed
+   * @param userId - Optional user ID for logging
+   * @param logContext - Log context for request correlation
    * @returns Promise resolving to transcribed text
    * @private
    */
-  private async performTranscription(audioFile: File): Promise<ParsedTranscription> {
+  private async performTranscription(
+    audioFile: File,
+    fileSizeBytes: number,
+    fileExtension: string,
+    userId?: number,
+    logContext: LogContext = {},
+  ): Promise<ParsedTranscription> {
+    const apiStart = Date.now();
+
+    logger.info('whisper.api.request', {
+      ...logContext,
+      userId,
+      model: this.config.model,
+      language: this.language,
+      responseFormat: this.config.responseFormat,
+      promptLength: this.config.prompt.length,
+      fileSizeBytes,
+      fileExtension,
+      temperature: 0,
+    });
+
     try {
       const transcription = await this.openai.audio.transcriptions.create({
         file: audioFile,
@@ -532,13 +594,30 @@ export class WhisperService {
 
       const parsedTranscription = this.parseTranscriptionResponse(transcription);
 
+      logger.info('whisper.api.response', {
+        ...logContext,
+        userId,
+        detectedLanguage: parsedTranscription.detectedLanguage,
+        segmentCount: parsedTranscription.segments.length,
+        textLength: parsedTranscription.text.length,
+        durationMs: Date.now() - apiStart,
+      });
+
       // Validate English content if enforcement is enabled
       if (this.config.enforceEnglishOnly && parsedTranscription.text) {
-        this.validateEnglishContent(parsedTranscription.text);
+        this.validateEnglishContent(parsedTranscription.text, logContext);
       }
 
       return parsedTranscription;
     } catch (error) {
+      logger.error('whisper.api.failed', {
+        ...logContext,
+        userId,
+        model: this.config.model,
+        error: (error as Error).message,
+        durationMs: Date.now() - apiStart,
+      });
+
       if (error instanceof Error) {
         // Handle specific OpenAI API errors
         if (error.message.includes('Invalid file format')) {
@@ -703,7 +782,7 @@ export class WhisperService {
    * @param text - The transcribed text to validate
    * @private
    */
-  private validateEnglishContent(text: string): void {
+  private validateEnglishContent(text: string, logContext: LogContext = {}): void {
     // Basic heuristic to detect potential non-English content
     const nonLatinChars = /[^\x00-\x7F\s\p{P}]/u.test(text);
     const commonNonEnglishPatterns =
@@ -712,7 +791,8 @@ export class WhisperService {
       );
 
     if (nonLatinChars || commonNonEnglishPatterns) {
-      logger.warn('Potential non-English content detected in transcription', {
+      logger.warn('whisper.transcription.non_english_detected', {
+        ...logContext,
         textSample: text.substring(0, 50),
         hasNonLatinChars: nonLatinChars,
         hasNonEnglishPatterns: commonNonEnglishPatterns,

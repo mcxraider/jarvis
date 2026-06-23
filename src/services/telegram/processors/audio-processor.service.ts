@@ -40,6 +40,8 @@ export class AudioProcessorService {
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
   ): Promise<string> {
+    const startTime = Date.now();
+
     logger.info('audio_processor.started', {
       ...logContext,
       userId,
@@ -65,6 +67,14 @@ export class AudioProcessorService {
           hooks?.onProgress,
         );
 
+        logger.info('audio_processor.completed', {
+          ...logContext,
+          userId,
+          durationMs: Date.now() - startTime,
+          transcriptionTextLength: text.length,
+          hasTranscription: true,
+        });
+
         return `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}${response}`;
       } catch (processingError) {
         logger.warn('audio_processor.text_processing_failed', {
@@ -72,6 +82,7 @@ export class AudioProcessorService {
           userId,
           transcribedText: text.substring(0, 100),
           error: (processingError as Error).message,
+          durationMs: Date.now() - startTime,
         });
 
         return (
@@ -84,6 +95,7 @@ export class AudioProcessorService {
         ...logContext,
         userId,
         error: (error as Error).message,
+        durationMs: Date.now() - startTime,
       });
 
       return this.handleAudioProcessingError(error as Error);
@@ -101,6 +113,8 @@ export class AudioProcessorService {
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
   ): Promise<string> {
+    const startTime = Date.now();
+
     logger.info('audio_processor.document_started', {
       ...logContext,
       userId,
@@ -127,6 +141,15 @@ export class AudioProcessorService {
           hooks?.onProgress,
         );
 
+        logger.info('audio_processor.document_completed', {
+          ...logContext,
+          userId,
+          fileName,
+          durationMs: Date.now() - startTime,
+          transcriptionTextLength: text.length,
+          hasTranscription: true,
+        });
+
         return `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}${response}`;
       } catch (processingError) {
         logger.warn('audio_processor.document_text_processing_failed', {
@@ -135,6 +158,7 @@ export class AudioProcessorService {
           fileName,
           transcribedText: text.substring(0, 100),
           error: (processingError as Error).message,
+          durationMs: Date.now() - startTime,
         });
 
         return (
@@ -143,12 +167,13 @@ export class AudioProcessorService {
         );
       }
     } catch (error) {
-      logger.error('Failed to process audio document', {
+      logger.error('audio_processor.document.failed', {
         ...logContext,
         userId,
         fileName,
         mimeType,
         error: (error as Error).message,
+        durationMs: Date.now() - startTime,
       });
 
       return this.handleAudioDocumentError(error as Error, fileName, mimeType);
