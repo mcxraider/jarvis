@@ -88,11 +88,6 @@ class ToolDispatcher:
     @traceable(
         name="tool_execute",
         run_type="tool",
-        process_inputs=lambda inputs: {
-            "tool_call_id": inputs.get("tool_call_id"),
-            "tool_name": inputs.get("tool_name"),
-            "argument_keys": sorted((inputs.get("arguments") or {}).keys()),
-        },
     )
     def execute_tool(
         self,

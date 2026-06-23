@@ -13,7 +13,13 @@ from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 
 # Sample prompts for manual/CLI runs live in ``examples.py``. The runtime default
 # stays empty so ``USER_PROMPT`` is "" unless a prompt is supplied explicitly.
-USER_PROMPTS: List[str] = []
+USER_PROMPTS: List[str] = [
+    "Go through my tasks, check everything that does not have a time, that is also not a birthday. Tell me first and then I will ask you to make edits",
+    # "put in my cal",
+    # "Add three tasks for my morning routine.",
+    # "Clean up my list.",
+    # "Delete all tasks on Tuesday."
+]
 USER_PROMPT = USER_PROMPTS[0] if USER_PROMPTS else ""
 
 

@@ -24,7 +24,7 @@ class JarvisState(TypedDict, total=False):
     next: str
 
     # Confirm gate fields — freeze risky actions for human approval.
-    held_call: Optional[Dict[str, Any]]
+    held_calls: Optional[List[Dict[str, Any]]]
     pending_interrupt: Optional[Literal["clarify", "confirm"]]
     confirm_decision: Optional[Literal["approve", "decline"]]
     consumed_call_ids: Annotated[List[str], operator.add]
