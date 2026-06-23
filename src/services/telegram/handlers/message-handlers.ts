@@ -60,7 +60,7 @@ export class MessageHandlers {
       if (result.interruptType === 'confirm' && result.threadId) {
         await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
       } else {
-        await sendFinalReply(ctx, result.response, logContext);
+        await sendFinalReply(ctx, this.formatResponse(result.response, result.interruptType), logContext);
       }
 
       logger.info('telegram.reply.sent', {
@@ -112,7 +112,7 @@ export class MessageHandlers {
       if (result.interruptType === 'confirm' && result.threadId) {
         await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
       } else {
-        await sendFinalReply(ctx, result.response, logContext);
+        await sendFinalReply(ctx, this.formatResponse(result.response, result.interruptType), logContext);
       }
       logger.info('telegram.reply.sent', {
         ...logContext,
@@ -177,7 +177,7 @@ export class MessageHandlers {
       if (result.interruptType === 'confirm' && result.threadId) {
         await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
       } else {
-        await sendFinalReply(ctx, result.response, logContext);
+        await sendFinalReply(ctx, this.formatResponse(result.response, result.interruptType), logContext);
       }
 
       logger.info('telegram.reply.sent', {
@@ -360,7 +360,7 @@ export class MessageHandlers {
       if (result.interruptType === 'confirm' && result.threadId) {
         await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
       } else {
-        await sendFinalReply(ctx, result.response, logContext);
+        await sendFinalReply(ctx, this.formatResponse(result.response, result.interruptType), logContext);
       }
       logger.info('telegram.reply.sent', {
         ...logContext,
@@ -438,5 +438,12 @@ export class MessageHandlers {
     }
 
     return 'Done';
+  }
+
+  private formatResponse(text: string, interruptType?: string): string {
+    if (interruptType === 'clarify') {
+      return `⚠️ Clarification required:\n\n${text}`;
+    }
+    return text;
   }
 }
