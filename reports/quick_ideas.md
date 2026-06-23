@@ -7,6 +7,9 @@
 - replace "hitl_upgrade" with need a FINAL node so that "?" in model final answer doesnt just get routed to the hitl_upgrade.
 
 
+### LLM
+- Tool output summarization — get_tasks can return 200 tasks as raw JSON, bloating context. Summarize node before next agent turn if result above certain context length.
+
 ### Formatting (UI)
 - Rich message formatting to user:
   - use TODOs in the planner stage, then stream it to the user and show it to him in "Task list item not completed" and when completed show in "Task list item completed" rich message style.
@@ -20,7 +23,6 @@
 
 
 ### Speech
-- show user transcription, ask user to confirm/ reject transcription message.
 
 
 ### Integrations

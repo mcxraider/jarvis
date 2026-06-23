@@ -51,6 +51,20 @@ export class TextProcessorService {
       const internalUserId = this.mapTelegramUserId(userId);
       const pendingKey = this.pendingKey(userId, internalUserId, logContext);
       const pendingClarification = await this.pendingClarificationStore.get(pendingKey);
+
+      if (pendingClarification?.interruptType === 'confirm' && !this.isConfirmDecision(text)) {
+        logger.info('text_processor.confirm_pending_blocked', {
+          ...logContext,
+          userId,
+          pendingKey,
+          pendingThreadId: pendingClarification.threadId,
+        });
+        return {
+          response:
+            'You have a pending approval. Please tap ✓ Approve or ✗ Decline in the previous message, or reply *yes* or *no* to decide.',
+        };
+      }
+
       const threadId =
         pendingClarification?.threadId || this.buildTelegramThreadId(userId, internalUserId, logContext);
       const requestContext = { ...logContext, threadId };
@@ -206,6 +220,13 @@ export class TextProcessorService {
       .trim()
       .replace(/[^a-zA-Z0-9_-]/g, '_')
       .slice(0, 64);
+  }
+
+  private isConfirmDecision(text: string): boolean {
+    const normalized = text.trim().toLowerCase();
+    const approveTokens = new Set(['yes', 'approve', 'confirm', 'ok', 'y']);
+    const declineTokens = new Set(['no', 'n', 'decline', 'cancel']);
+    return approveTokens.has(normalized) || declineTokens.has(normalized);
   }
 
   private mapTelegramUserId(telegramUserId: number | undefined): string {
