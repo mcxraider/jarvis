@@ -15,6 +15,8 @@ MAX_AGENT_TURNS = settings.max_agent_turns
 DEBUG_TRACE = settings.debug_trace
 DEBUG_PAYLOADS = settings.debug_payloads
 
+CONFIRM_BULK_THRESHOLD = settings.confirm_bulk_threshold
+
 DEEPSEEK_MODEL = settings.deepseek_model
 DEEPSEEK_BASE_URL = settings.deepseek_base_url
 DEEPSEEK_REQUEST_TIMEOUT_SECONDS = settings.deepseek_request_timeout_seconds
@@ -30,6 +32,7 @@ LANGSMITH_TAGS: List[str] = ["jarvis", "langgraph", *LANGSMITH_DOMAIN_TAGS, "loc
 __all__ = [
     "USER_ID",
     "ALLOW_MUTATIONS",
+    "CONFIRM_BULK_THRESHOLD",
     "MAX_AGENT_TURNS",
     "DEBUG_TRACE",
     "DEBUG_PAYLOADS",

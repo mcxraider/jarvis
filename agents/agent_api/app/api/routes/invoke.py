@@ -40,10 +40,13 @@ def to_response(result: JarvisState) -> AgentResponse:
 
     if result.get("interrupted"):
         interrupt = result.get("interrupt_payload", {})
-        question = str(
-            interrupt.get("question")
-            or "Jarvis needs more information before continuing."
-        )
+        if interrupt.get("type") == "confirm":
+            question = f"⚠️ Confirm: {interrupt.get('summary', 'Action requires approval.')}"
+        else:
+            question = str(
+                interrupt.get("question")
+                or "Jarvis needs more information before continuing."
+            )
         return AgentResponse(
             status="interrupted",
             thread_id=thread_id,

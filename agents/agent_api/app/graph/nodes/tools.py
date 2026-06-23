@@ -50,7 +50,6 @@ def create_tools_node(
         )
 
         return {
-            **state,
             "messages": messages,
             "tool_results": state.get("tool_results", []) + results,
             "next": "agent",

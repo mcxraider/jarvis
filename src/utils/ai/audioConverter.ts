@@ -5,7 +5,7 @@ import { spawn } from 'child_process';
 import { writeFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { logger } from '../logger';
+import { LogContext, logger } from '../logger';
 
 /**
  * Supported input audio formats that can be converted
@@ -86,6 +86,7 @@ export class AudioConverter {
    * @param audioBuffer - Input audio buffer
    * @param originalExtension - Original file extension
    * @param userId - Optional user ID for logging
+   * @param logContext - Optional log context for request correlation
    * @returns Promise resolving to conversion result
    * @throws {Error} If conversion fails or ffmpeg is not available
    */
@@ -93,10 +94,12 @@ export class AudioConverter {
     audioBuffer: Buffer,
     originalExtension: string,
     userId?: number,
+    logContext: LogContext = {},
   ): Promise<ConversionResult> {
     const startTime = Date.now();
 
-    logger.info('Starting audio conversion', {
+    logger.info('audio.conversion.started', {
+      ...logContext,
       userId,
       originalFormat: originalExtension,
       targetFormat: TARGET_FORMAT,
@@ -113,7 +116,7 @@ export class AudioConverter {
       await writeFile(inputPath, audioBuffer);
 
       // Perform conversion
-      const convertedBuffer = await this.performConversion(inputPath, outputPath, userId);
+      const convertedBuffer = await this.performConversion(inputPath, outputPath, userId, logContext);
 
       const conversionTimeMs = Date.now() - startTime;
 
@@ -126,7 +129,8 @@ export class AudioConverter {
         convertedSizeBytes: convertedBuffer.length,
       };
 
-      logger.info('Audio conversion completed successfully', {
+      logger.info('audio.conversion.completed', {
+        ...logContext,
         userId,
         originalFormat: originalExtension,
         targetFormat: TARGET_FORMAT,
@@ -140,7 +144,8 @@ export class AudioConverter {
     } catch (error) {
       const conversionTimeMs = Date.now() - startTime;
 
-      logger.error('Audio conversion failed', {
+      logger.error('audio.conversion.failed', {
+        ...logContext,
         userId,
         originalFormat: originalExtension,
         targetFormat: TARGET_FORMAT,
@@ -158,7 +163,7 @@ export class AudioConverter {
       throw new Error(`Audio conversion failed: ${(error as Error).message}`);
     } finally {
       // Clean up temporary files
-      await this.cleanupTempFiles([inputPath, outputPath]);
+      await this.cleanupTempFiles([inputPath, outputPath], logContext);
     }
   }
 
@@ -168,6 +173,7 @@ export class AudioConverter {
    * @param inputPath - Path to input file
    * @param outputPath - Path to output file
    * @param userId - Optional user ID for logging
+   * @param logContext - Optional log context for request correlation
    * @returns Promise resolving to converted audio buffer
    * @private
    */
@@ -175,6 +181,7 @@ export class AudioConverter {
     inputPath: string,
     outputPath: string,
     userId?: number,
+    logContext: LogContext = {},
   ): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       // FFmpeg command for converting to MP3 with good quality
@@ -229,6 +236,11 @@ export class AudioConverter {
 
       // Set conversion timeout
       const timeoutId = setTimeout(() => {
+        logger.warn('audio.conversion.ffmpeg_timeout', {
+          ...logContext,
+          userId,
+          timeoutMs: CONVERSION_TIMEOUT_MS,
+        });
         ffmpeg.kill('SIGKILL');
         reject(new Error('Audio conversion timed out after 30 seconds'));
       }, CONVERSION_TIMEOUT_MS);
@@ -272,15 +284,16 @@ export class AudioConverter {
    * Cleans up temporary files
    *
    * @param filePaths - Array of file paths to clean up
+   * @param logContext - Optional log context for request correlation
    * @private
    */
-  private static async cleanupTempFiles(filePaths: string[]): Promise<void> {
+  private static async cleanupTempFiles(filePaths: string[], logContext: LogContext = {}): Promise<void> {
     const cleanupPromises = filePaths.map(async (filePath) => {
       try {
         await unlink(filePath);
       } catch (error) {
-        // Ignore cleanup errors, just log them
-        logger.warn('Failed to cleanup temporary file', {
+        logger.warn('audio.conversion.cleanup_failed', {
+          ...logContext,
           filePath,
           error: (error as Error).message,
         });
