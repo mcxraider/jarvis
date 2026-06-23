@@ -80,7 +80,7 @@ def load_settings() -> Settings:
             "https://api.todoist.com/api/v1",
         ),
         allow_mutations=_bool_env("JARVIS_ALLOW_MUTATIONS", True),
-        max_agent_turns=_int_env("JARVIS_MAX_AGENT_TURNS", 8),
+        max_agent_turns=_int_env("JARVIS_MAX_AGENT_TURNS", 20),
         todoist_max_retry_attempts=_int_env("TODOIST_MAX_RETRY_ATTEMPTS", 3),
         todoist_retry_total_timeout_seconds=_float_env(
             "TODOIST_RETRY_TOTAL_TIMEOUT_SECONDS",

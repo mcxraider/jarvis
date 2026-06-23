@@ -27,7 +27,7 @@ flowchart TD
         TOOLS{{"tools node"}}
         HITL{{"hitl node"}}
 
-        AGENT -->|"turn_count >= 8<br/>(turn guard)"| ENDERR["error → END"]
+        AGENT -->|"turn_count >= 20<br/>(turn guard)"| ENDERR["error → END"]
         AGENT -->|"no tool_calls<br/>= ANSWER"| ENDOK["final_response → END"]
         AGENT -->|"ask_user call"| HITL
         AGENT -->|"other tool_calls"| TOOLS
@@ -53,7 +53,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph CORE["Graph nodes"]
-        A["agent_node<br/>• turn guard (MAX=8)<br/>• calls LLM<br/>• routes next"]
+        A["agent_node<br/>• turn guard (MAX=20)<br/>• calls LLM<br/>• routes next"]
         T["tools_node<br/>• OpenAI→ToolNode shape<br/>• executes batch"]
         H["hitl_node<br/>• builds interrupt payload<br/>• records clarification_history"]
     end
@@ -91,7 +91,7 @@ flowchart LR
 
 | Branch (evaluated in order) | Trigger | Next node |
 |---|---|---|
-| **Turn guard** | `turn_count >= MAX_AGENT_TURNS (8)` | `END` with error |
+| **Turn guard** | `turn_count >= MAX_AGENT_TURNS (20)` | `END` with error |
 | **ANSWER** | assistant message has **no** `tool_calls` | `END`, content → `final_response` |
 | **ASK_USER** | any tool call named `ask_user` | `hitl` |
 | **TOOL_CALL** | any other tool call(s) | `tools` |
