@@ -66,7 +66,7 @@ The only node that calls the LLM.
   - `wrap_openai` + `@traceable` sends span to LangSmith
   - Accumulates `UsageSummary` (prompt / completion / cached / reasoning tokens)
 - Appends the raw assistant message to `messages`
-- Increments `turn_count`; exits to END if `>= max_agent_turns` (default 8)
+- Increments `turn_count`; exits to END if `>= max_agent_turns` (default 20)
 - Sets `state["next"]`; routing is determined by `route_after_agent` (edges.py):
   1. error → END
   2. `ask_user` call → `hitl`
@@ -316,7 +316,7 @@ Loop priority:
   3. ANSWER — task complete; never ask questions inside ANSWER
 Clarification: ask before acting when parameter unknown and no sensible default
 Reasoning: default Think High; Think Max only for 4+ dependent steps
-Max turns: 8 per user turn
+Max turns: 20 per user turn
 Output: GitHub-Flavored Markdown
 Appended at runtime: current date, available tools, graph compatibility note
 ```

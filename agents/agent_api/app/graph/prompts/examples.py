@@ -42,7 +42,7 @@ Loop (think → act → observe) until you choose ANSWER.
 Each dispatched subtask gets only: one unambiguous sentence, the minimal tool subset it needs, and only the facts it needs — not the full conversation. When uncertain whether a fact is needed, include it: a worker with one extra fact is cheap, a worker missing a needed fact produces a wrong result you can't diagnose later, since workers return a short result summary only and never their reasoning trace.
 
 ## Limits
-Max 8 loop iterations per user turn. One dispatch_workers call counts as one iteration regardless of how many subtasks it contains."""
+Max 20 loop iterations per user turn. One dispatch_workers call counts as one iteration regardless of how many subtasks it contains."""
 
 
 __all__ = ["ORCHESTRATOR_PROMPT_WITH_DISPATCH", "SAMPLE_PROMPTS"]
