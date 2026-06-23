@@ -66,7 +66,7 @@ const telegramConfig: TelegramConfig = {
   richMessages: RICH_MESSAGES_ENABLED,
 };
 
-export const botService = new TelegramBotService(telegramConfig, messageProcessor);
+export const botService = new TelegramBotService(telegramConfig, messageProcessor, agentClient, pendingClarificationStore);
 
 logger.info('app.services.initialized', {
   telegramConfigured: true,
