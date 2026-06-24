@@ -2,6 +2,7 @@
 
 import json
 import os
+from collections import Counter
 from typing import Any, Dict, List, Optional, Set
 
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI, RateLimitError
@@ -67,8 +68,8 @@ def _is_homogeneous(items: List[Any], threshold: float = 0.8) -> bool:
     contents = [item.get("content", "") for item in items if isinstance(item, dict)]
     if not contents:
         return False
-    most_common = max(set(contents), key=contents.count)
-    return contents.count(most_common) / len(contents) >= threshold
+    most_common_count = Counter(contents).most_common(1)[0][1]
+    return most_common_count / len(contents) >= threshold
 
 
 def _compute_min_coverage(item_count: int) -> float:

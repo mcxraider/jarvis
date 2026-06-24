@@ -257,6 +257,7 @@ def create_executor_node(
         result_messages: List[dict] = []
         tool_results: List[dict] = []
         consumed_ids: List[str] = []
+        guard_failure_map = dict(guard_failures)
 
         for idx in range(len(held_calls)):
             if idx in execution_results:
@@ -264,10 +265,12 @@ def create_executor_node(
                 result_messages.append(tool_result_to_message(result))
                 tool_results.append(result)
                 consumed_ids.append(held_calls[idx]["id"])
+            elif idx in guard_failure_map:
+                result_messages.append(guard_failure_map[idx])
             else:
-                # Must be a guard failure
-                failure_msg = next(msg for i, msg in guard_failures if i == idx)
-                result_messages.append(failure_msg)
+                held = held_calls[idx]
+                tracer.event("graph.executor", "BUG: idx in neither partition.", idx=idx)
+                result_messages.append(_abort_message(held, "internal error — no result produced"))
 
         return {
             "consumed_call_ids": consumed_ids,

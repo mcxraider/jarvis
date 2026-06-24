@@ -144,3 +144,26 @@ Resilience around the correct agent loop. The goal is that transient failures ar
 - For mutations: verify the task IDs mentioned in the response actually appeared in tool results.
 
 **Trade-off:** Adds one LLM call (or deterministic check) to every completed run. Could use a cheaper/faster model for this validation pass since it's a structured comparison, not creative generation.
+
+---
+
+## 4.7 Latency Enhancements ❌
+
+**Status (2026-06-24):** Not started. Several opportunities identified but deferred — they would change architecture or behavior beyond simplification scope.
+
+### Async Conversion for Blocking Paths
+
+**Problem:** Some threads are currently blocked by slow synchronous processes (Todoist API calls, LLM inference waits). These synchronous bottlenecks prevent the event loop from servicing other requests while waiting on I/O.
+
+**Fix:** Convert blocking call sites to proper async functions using `asyncio` / `aiohttp` so the event loop remains responsive during I/O waits. Priority targets: Todoist API calls in the executor, DeepSeek client interactions, and any sequential tool-execution paths that hold a thread while waiting on network responses.
+
+### Findings to Skip (Architecture/Behavior Changes Beyond Simplification Scope)
+
+The following opportunities were identified during review but deferred because they require significant refactoring, change runtime behavior, or touch architectural boundaries:
+
+- **Extracting a shared `resilient_batch_execute` utility** — real duplication between `executor.py` and `client.py`, but the extraction is a significant refactor.
+- **Extracting a shared DeepSeek client factory from `summarize.py`** — restructures node creation patterns.
+- **Parallelizing sequential LLM calls in `summarize.py`** — architectural change to the hot path.
+- **Reusing `ThreadPoolExecutor` across invocations** — lifecycle and thread-safety implications.
+- **Unifying `MUTATING_TOOL_NAMES` with `metadata.py`** — larger registry consolidation effort.
+- **Per-tool post-exec routing in `edges.py`** — future design direction, not a simplification.

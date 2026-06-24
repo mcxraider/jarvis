@@ -1,5 +1,6 @@
 """Todoist REST API client using only the Python standard library."""
 
+import contextvars
 import json
 import os
 import random
@@ -8,6 +9,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -16,6 +19,12 @@ from typing import Any, Dict, Optional
 from langsmith import traceable
 
 from agents.agent_api.app.config import settings
+from agents.agent_api.app.constants import (
+    EXECUTOR_BATCH_TIMEOUT_SECONDS,
+    EXECUTOR_CIRCUIT_BREAKER_THRESHOLD,
+    EXECUTOR_MAX_WORKERS,
+)
+from agents.agent_api.app.graph.resilience import BatchCircuitBreaker, BatchThrottle
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 TODOIST_REST_BASE_URL = settings.todoist_rest_base_url
@@ -231,16 +240,6 @@ class TodoistApiClient:
 
     def bulk_add_todoist_tasks(self, arguments: Dict[str, Any]) -> Any:
         """Add multiple identical tasks concurrently with batch resilience."""
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        from concurrent.futures import TimeoutError as FuturesTimeoutError
-
-        from agents.agent_api.app.constants import (
-            EXECUTOR_BATCH_TIMEOUT_SECONDS,
-            EXECUTOR_CIRCUIT_BREAKER_THRESHOLD,
-            EXECUTOR_MAX_WORKERS,
-        )
-        from agents.agent_api.app.graph.resilience import BatchCircuitBreaker, BatchThrottle
-
         arguments = dict(arguments)
         count = arguments.pop("count")
         single_args = _without_none(arguments)
@@ -282,7 +281,6 @@ class TodoistApiClient:
             except Exception as exc:
                 errors.append({"index": idx, "error": str(exc)})
 
-        import contextvars
         pool = ThreadPoolExecutor(max_workers=max_workers)
         ctx = contextvars.copy_context()
         futures = {pool.submit(ctx.run, _execute_one, i): i for i in range(count)}
