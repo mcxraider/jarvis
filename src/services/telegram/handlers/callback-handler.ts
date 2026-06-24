@@ -6,9 +6,10 @@
 import crypto from 'crypto';
 import { Context } from 'telegraf';
 import { createRequestId, logger } from '../../../utils/logger';
-import { LangGraphAgentClient } from '../../ai/langgraph-agent-client.service';
+import { LangGraphAgentClient, LangGraphAgentResponse } from '../../ai/langgraph-agent-client.service';
+import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { sendFinalReply } from '../formatters/telegram-rich';
-import { PendingClarificationStore } from '../pending-clarification.store';
+import { PendingClarificationRecord, PendingClarificationStore } from '../pending-clarification.store';
 
 // All confirm callbacks are prefixed with "confirm:" followed by "approve" or "decline"
 // and the threadId, e.g. "confirm:approve:tg_abc123_msg456"
@@ -87,15 +88,18 @@ export class CallbackHandler {
         { requestId, threadId },
       );
 
-      // Send the agent's response as a follow-up
-      if (agentResponse.response) {
-        await sendFinalReply(ctx, agentResponse.response, { requestId });
-      }
-
-      // Clear the pending record
       const chatId = ctx.chat?.id;
-      const pendingKey = this.buildPendingKey(userId, chatId);
-      await this.pendingStore.clear(pendingKey, agentResponse.status === 'failed' ? 'failed' : 'completed');
+      const pendingKey = this.buildPendingKey(userId, internalUserId, chatId);
+
+      if (agentResponse.status === 'interrupted' && agentResponse.interrupt?.type === 'confirm' && agentResponse.threadId) {
+        await this.sendConfirmReply(ctx, agentResponse.response, agentResponse.threadId, requestId);
+        await this.savePendingRecord(pendingKey, agentResponse, internalUserId, userId, chatId, requestId);
+      } else {
+        if (agentResponse.response) {
+          await sendFinalReply(ctx, agentResponse.response, { requestId });
+        }
+        await this.pendingStore.clear(pendingKey, agentResponse.status === 'failed' ? 'failed' : 'completed');
+      }
 
       logger.info('telegram.callback.confirm.completed', {
         requestId,
@@ -130,14 +134,54 @@ export class CallbackHandler {
     return mappedUser?.[1] || `telegram:${telegramUserId}`;
   }
 
-  // Builds a deterministic key for the pending-clarification store. Uses a SHA-256 hash
-  // of chat+user identifiers so sensitive IDs aren't stored in cleartext.
-  private buildPendingKey(telegramUserId: number | undefined, chatId: number | undefined): string {
+  private async sendConfirmReply(ctx: Context, text: string, threadId: string, requestId: string): Promise<void> {
+    const replyMarkup = {
+      inline_keyboard: [
+        [
+          { text: '✓ Approve', callback_data: `confirm:approve:${threadId}` },
+          { text: '✗ Decline', callback_data: `confirm:decline:${threadId}` },
+        ],
+      ],
+    };
+    try {
+      await ctx.reply(toTelegramMarkdownV2(text), { parse_mode: 'MarkdownV2', reply_markup: replyMarkup });
+    } catch {
+      await ctx.reply(text, { reply_markup: replyMarkup });
+    }
+  }
+
+  private async savePendingRecord(
+    pendingKey: string,
+    agentResponse: LangGraphAgentResponse,
+    internalUserId: string,
+    telegramUserId: number | undefined,
+    chatId: number | undefined,
+    requestId: string,
+  ): Promise<void> {
+    const now = Date.now();
+    const record: PendingClarificationRecord = {
+      pendingKey,
+      threadId: agentResponse.threadId,
+      question: agentResponse.response,
+      telegramUserId,
+      chatId,
+      userId: internalUserId,
+      requestId,
+      interruptType: 'confirm',
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + 30 * 60 * 1000,
+    };
+    await this.pendingStore.save(record);
+  }
+
+  private buildPendingKey(telegramUserId: number | undefined, internalUserId: string, chatId: number | undefined): string {
     if (chatId !== undefined) {
-      const userSegment = telegramUserId ?? 'anonymous';
+      const userSegment = telegramUserId ?? internalUserId;
       return `telegram-chat:${this.hashIdentifier(`${chatId}:${userSegment}`)}`;
     }
-    return telegramUserId ? `telegram:${this.hashIdentifier(telegramUserId)}` : 'internal:anonymous';
+    return telegramUserId ? `telegram:${this.hashIdentifier(telegramUserId)}` : `internal:${internalUserId}`;
   }
 
   private hashIdentifier(value: number | string): string {
