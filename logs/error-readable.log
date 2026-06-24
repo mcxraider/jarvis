@@ -65,3 +65,159 @@
     {
       "error": "Bot is not running!"
     }
+[2026-06-25 01:13:41] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:14:17] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:14:18] WARN whisper.transcription.quality_flagged
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "flaggedSegments": 1,
+      "totalSegments": 1,
+      "flags": [
+        {
+          "segmentId": 0,
+          "start": 0,
+          "end": 1.78,
+          "reason": "low_compression_ratio",
+          "value": 0.7777778,
+          "threshold": 0.8,
+          "textPreview": " Yes, that's the one."
+        }
+      ],
+      "worstValues": {
+        "minAvgLogprob": -0.28515664,
+        "maxNoSpeechProb": 0.015701294,
+        "minCompressionRatio": 0.7777778,
+        "maxCompressionRatio": 0.7777778
+      },
+      "thresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-25 01:21:15] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:23:08] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:24:20] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:25:44] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:29:28] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:30:15] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:31:43] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:38:22] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:38:55] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }

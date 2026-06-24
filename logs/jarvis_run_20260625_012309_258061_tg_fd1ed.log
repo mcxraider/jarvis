@@ -1,0 +1,90 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-25T01:23:09
+request_id: tg_mqscdg0l_n5ahh4
+thread_id: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_377
+user_id: telegram:701122767
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-06-25 01:23:09.259 | section              | === Jarvis LangGraph Run ===
+2026-06-25 01:23:09.259 | runtime.start        | Starting graph invocation. | request_id=tg_mqscdg0l_n5ahh4, model=deepseek-v4-flash, allow_mutations=true, max_turns=20, thread_id=tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_377, request_source=telegram, resuming=false
+2026-06-25 01:23:09.259 | runtime.prompt       | [payload] user_prompt:  Sorry, please edit the Jackson task tomorrow. Change it to just like ask Jackson for inquiry mode.
+2026-06-25 01:23:09.320 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-25 01:23:09.322 | graph.agent          | Entering agent node. | turn=1, max_turns=20, messages=2
+2026-06-25 01:23:09.322 | graph.tools.selected | Selected tools for this turn. | available=10, selected=10
+2026-06-25 01:23:09.322 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=10
+2026-06-25 01:23:10.585 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true, prompt_tokens=3499, completion_tokens=81, total_tokens=3580
+2026-06-25 01:23:10.588 | graph.route          | Agent node completed. | next=tools, turn=1
+2026-06-25 01:23:10.592 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=0
+2026-06-25 01:23:10.597 | tool.start           | Preparing tool call. | id=call_00_H9YjDBRjTp8Re0bR2ccV5904, name=get_tasks_by_filter, mutating=false
+2026-06-25 01:23:10.598 | tool.args            | [payload] get_tasks_by_filter: {"cursor": null, "lang": null, "limit": null, "query": "Jackson"}
+2026-06-25 01:23:10.600 | todoist.request      | Sending Todoist API request. | method=GET, endpoint=/tasks/filter, has_payload=false, attempt=1, max_attempts=3
+2026-06-25 01:23:10.600 | todoist.payload      | [payload] request: null
+2026-06-25 01:23:10.948 | todoist.error        | Todoist API returned an HTTP error. | status=400, kind=validation, retryable=false, attempt=1
+2026-06-25 01:23:10.949 | todoist.payload      | [payload] error: {"body": "{\"error\":\"The search query is incorrect\",\"error_code\":55,\"error_extra\":{\"event_id\":\"a7035df98c314ef9a7b58d0d5c824b41\",\"retry_after\":4},\"error_tag\":\"INVALID_SEARCH_QUERY\",\"http_code\":400}", "status": 400}
+2026-06-25 01:23:10.951 | tool.error           | Tool call failed with a classified API error. | name=get_tasks_by_filter, kind=validation, retryable=false, status_code=400, attempts=1
+2026-06-25 01:23:10.953 | graph.route          | Tools node completed. | next=agent, successes=0, failures=1
+2026-06-25 01:23:10.957 | graph.agent          | Entering agent node. | turn=2, max_turns=20, messages=4
+2026-06-25 01:23:10.958 | graph.tools.selected | Selected tools for this turn. | available=10, selected=10
+2026-06-25 01:23:10.959 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=4, tools=10
+2026-06-25 01:23:12.346 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true, prompt_tokens=3726, completion_tokens=65, total_tokens=3791
+2026-06-25 01:23:12.348 | graph.route          | Agent node completed. | next=tools, turn=2
+2026-06-25 01:23:12.353 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=1
+2026-06-25 01:23:12.357 | tool.start           | Preparing tool call. | id=call_00_1FUsnj3BHH13kHzP4Hvi5737, name=get_tasks, mutating=false
+2026-06-25 01:23:12.357 | tool.args            | [payload] get_tasks: {"cursor": null, "goal_id": null, "ids": null, "label": null, "limit": 200, "parent_id": null, "project_id": null, "section_id": null}
+2026-06-25 01:23:12.359 | todoist.request      | Sending Todoist API request. | method=GET, endpoint=/tasks, has_payload=false, attempt=1, max_attempts=3
+2026-06-25 01:23:12.359 | todoist.payload      | [payload] request: null
+2026-06-25 01:23:12.780 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-25 01:23:12.782 | todoist.payload      | [payload] response: {"next_cursor": null, "results": [{"added_at": "2023-10-22T17:40:00.547737Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 1368, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Jarod\u2019s bday", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2028-01-17", "is_recurring": true, "lang": "en", "string": "every 17 Jan", "timezone": null}, "duration": null, "goal_ids": [], "id": "69mxjXH3g69rqgwG", "is_collapsed": false, "is_deleted": false, "labels": ["birthdays"], "note_count": 0, "parent_id": null, "postponed_count": 1, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-01-20T07:56:40.006585Z", "user_id": "41485550"}, {"added_at": "2023-10-22T17:40:18.269386Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": fa...
+2026-06-25 01:23:12.783 | tool.done            | Tool call completed. | name=get_tasks
+2026-06-25 01:23:12.784 | tool.result          | [payload] get_tasks: {"next_cursor": null, "results": [{"added_at": "2023-10-22T17:40:00.547737Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 1368, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Jarod\u2019s bday", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2028-01-17", "is_recurring": true, "lang": "en", "string": "every 17 Jan", "timezone": null}, "duration": null, "goal_ids": [], "id": "69mxjXH3g69rqgwG", "is_collapsed": false, "is_deleted": false, "labels": ["birthdays"], "note_count": 0, "parent_id": null, "postponed_count": 1, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-01-20T07:56:40.006585Z", "user_id": "41485550"}, {"added_at": "2023-10-22T17:40:18.269386Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": fa...
+2026-06-25 01:23:12.787 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-25 01:23:12.792 | graph.agent          | Entering agent node. | turn=3, max_turns=20, messages=6
+2026-06-25 01:23:12.792 | graph.tools.selected | Selected tools for this turn. | available=10, selected=10
+2026-06-25 01:23:12.794 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=6, tools=10
+2026-06-25 01:23:20.106 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true, prompt_tokens=10793, completion_tokens=778, total_tokens=11571
+2026-06-25 01:23:20.107 | graph.route          | Agent node completed. | next=tools, turn=3
+2026-06-25 01:23:20.111 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=2
+2026-06-25 01:23:20.113 | tool.start           | Preparing tool call. | id=call_00_T7VlizRxbNGKj3ragtGf3056, name=update_todoist_task, mutating=true
+2026-06-25 01:23:20.113 | tool.args            | [payload] update_todoist_task: {"content": "Ask Jackson for inquiry mode", "task_id": "6gwxjMJ4Q9PC25Hp"}
+2026-06-25 01:23:20.114 | todoist.request      | Sending Todoist API request. | method=POST, endpoint=/tasks/{id}, has_payload=true, attempt=1, max_attempts=3
+2026-06-25 01:23:20.114 | todoist.payload      | [payload] request: {"content": "Ask Jackson for inquiry mode"}
+2026-06-25 01:23:21.114 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-25 01:23:21.115 | todoist.payload      | [payload] response: {"added_at": "2026-06-24T17:21:20.811862Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3986, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Ask Jackson for inquiry mode", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-25", "is_recurring": false, "lang": "en", "string": "today", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gwxjMJ4Q9PC25Hp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-24T17:23:20.798238Z", "user_id": "41485550"}
+2026-06-25 01:23:21.116 | tool.done            | Tool call completed. | name=update_todoist_task
+2026-06-25 01:23:21.117 | tool.result          | [payload] update_todoist_task: {"added_at": "2026-06-24T17:21:20.811862Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3986, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "Ask Jackson for inquiry mode", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-25", "is_recurring": false, "lang": "en", "string": "today", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gwxjMJ4Q9PC25Hp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-24T17:23:20.798238Z", "user_id": "41485550"}
+2026-06-25 01:23:21.118 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-25 01:23:21.123 | graph.agent          | Entering agent node. | turn=4, max_turns=20, messages=8
+2026-06-25 01:23:21.124 | graph.tools.selected | Selected tools for this turn. | available=10, selected=10
+2026-06-25 01:23:21.126 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=8, tools=10
+2026-06-25 01:23:22.773 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true, prompt_tokens=11927, completion_tokens=80, total_tokens=12007
+2026-06-25 01:23:22.775 | agent.final          | [payload] content: Done! I updated the Jackson task. Here's a summary:
+
+| Before | After |
+|--------|-------|
+| Tell Jackson to ask Jackson for Anki remote | **Ask Jackson for inquiry mode** |
+
+It's still set for **today (June 25)** with normal priority. The title now reads exactly as you wanted.
+2026-06-25 01:23:22.775 | graph.route          | Agent node completed. | next=end, turn=4
+2026-06-25 01:23:22.779 | runtime.done         | Graph invocation completed. | request_id=tg_mqscdg0l_n5ahh4, turns=4, tool_results=3, has_error=false, interrupted=false, total_tokens=30949
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-25T01:23:22
+duration_seconds: 13.521
+request_id: tg_mqscdg0l_n5ahh4
+turns: 4
+tool_results: 3
+has_error: False
+interrupted: False
+prompt_tokens: 29945
+completion_tokens: 1004
+total_tokens: 30949
+cached_tokens: 22144
+reasoning_tokens: 731
+==============================================================================

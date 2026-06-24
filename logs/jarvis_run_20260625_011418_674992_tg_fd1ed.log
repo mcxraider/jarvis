@@ -1,0 +1,59 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-25T01:14:18
+request_id: tg_mqsc232p_q4fzrs
+thread_id: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370
+user_id: telegram:701122767
+request_source: telegram
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: True
+------------------------------------------------------------------------------
+2026-06-25 01:14:18.675 | section              | === Jarvis LangGraph Run ===
+2026-06-25 01:14:18.676 | runtime.start        | Starting graph invocation. | request_id=tg_mqsc232p_q4fzrs, model=deepseek-v4-flash, allow_mutations=true, max_turns=20, thread_id=tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370, request_source=telegram, resuming=true
+2026-06-25 01:14:18.676 | runtime.prompt       | [payload] user_prompt:  Yes, that's the one.
+2026-06-25 01:14:18.731 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-25 01:14:18.733 | graph.hitl           | Interrupting for user clarification. | question=I've searched thoroughly through your Todoist tasks, and I couldn't find a task named "dinner with Konbani Shen" scheduled for tomorrow (26 June 2026). Here's what I do see for ..., deferred_tools=0, extra_questions=0
+2026-06-25 01:14:18.733 | graph.hitl           | Resumed from user clarification.
+2026-06-25 01:14:18.734 | graph.agent          | Entering agent node. | turn=7, max_turns=20, messages=16
+2026-06-25 01:14:18.735 | graph.tools.selected | Selected tools for this turn. | available=10, selected=10
+2026-06-25 01:14:18.735 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=16, tools=10
+2026-06-25 01:14:27.170 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true, prompt_tokens=13737, completion_tokens=797, total_tokens=14534
+2026-06-25 01:14:27.171 | graph.route          | Agent node completed. | next=tools, turn=7
+2026-06-25 01:14:27.177 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=6
+2026-06-25 01:14:27.181 | tool.start           | Preparing tool call. | id=call_00_KwFVhvOUugAds7FulofP4264, name=get_todoist_task, mutating=false
+2026-06-25 01:14:27.181 | tool.args            | [payload] get_todoist_task: {"task_id": "6gw8M7qr2XMJx7cp"}
+2026-06-25 01:14:27.182 | todoist.request      | Sending Todoist API request. | method=GET, endpoint=/tasks/{id}, has_payload=false, attempt=1, max_attempts=3
+2026-06-25 01:14:27.182 | todoist.payload      | [payload] request: null
+2026-06-25 01:14:27.736 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-25 01:14:27.737 | todoist.payload      | [payload] response: {"added_at": "2026-06-21T08:10:02.770364Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3962, "completed_at": null, "completed_by_uid": null, "completed_count": 1, "content": "dinner with combanition", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-25T19:00:00", "is_recurring": false, "lang": "en", "string": "25 Jun 19:00", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gw8M7qr2XMJx7cp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-24T16:33:22.931272Z", "user_id": "41485550"}
+2026-06-25 01:14:27.738 | tool.done            | Tool call completed. | name=get_todoist_task
+2026-06-25 01:14:27.738 | tool.result          | [payload] get_todoist_task: {"added_at": "2026-06-21T08:10:02.770364Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3962, "completed_at": null, "completed_by_uid": null, "completed_count": 1, "content": "dinner with combanition", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-25T19:00:00", "is_recurring": false, "lang": "en", "string": "25 Jun 19:00", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gw8M7qr2XMJx7cp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-24T16:33:22.931272Z", "user_id": "41485550"}
+2026-06-25 01:14:27.740 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-25 01:14:27.746 | graph.agent          | Entering agent node. | turn=8, max_turns=20, messages=18
+2026-06-25 01:14:27.747 | graph.tools.selected | Selected tools for this turn. | available=10, selected=10
+2026-06-25 01:14:27.748 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=18, tools=10
+2026-06-25 01:14:30.196 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true, prompt_tokens=14900, completion_tokens=172, total_tokens=15072
+2026-06-25 01:14:30.198 | graph.route          | Agent node completed. | next=tools, turn=8
+2026-06-25 01:14:30.204 | graph.prepare_confirm | Froze risky actions into held_calls. | held_call_count=1, tool_names=["delete_todoist_task"], deferred_count=0
+2026-06-25 01:14:30.207 | graph.confirm        | Interrupting for user confirmation. | count=1, tool_names=["delete_todoist_task"], summary=Delete task "dinner with combanition".
+This action is irreversible.
+2026-06-25 01:14:30.210 | runtime.done         | Graph invocation completed. | request_id=tg_mqsc232p_q4fzrs, turns=8, tool_results=7, has_error=false, interrupted=true, interrupt_type=confirm, total_tokens=29606
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-25T01:14:30
+duration_seconds: 11.535
+request_id: tg_mqsc232p_q4fzrs
+turns: 8
+tool_results: 7
+has_error: False
+interrupted: True
+prompt_tokens: 28637
+completion_tokens: 969
+total_tokens: 29606
+cached_tokens: 27520
+reasoning_tokens: 803
+==============================================================================

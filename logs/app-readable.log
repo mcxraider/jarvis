@@ -1528,3 +1528,3425 @@
     {
       "durationMs": 10452
     }
+[2026-06-25 01:13:39] INFO telegram.webhook.received
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  messageType: voice
+[2026-06-25 01:13:39] INFO telegram.update.handling_started
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+[2026-06-25 01:13:39] INFO telegram.message.received
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  details:
+    {
+      "fileSize": 13489,
+      "duration": 3
+    }
+[2026-06-25 01:13:41] INFO processor.route.selected
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  details:
+    {
+      "processor": "AudioProcessorService",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:13:41] INFO audio_processor.started
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:13:41] INFO whisper.transcription.started
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:13:41] DEBUG whisper.download.started
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:13:41] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:13:41] DEBUG whisper.download.completed
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  details:
+    {
+      "sizeBytes": 13489,
+      "durationMs": 539,
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:13:41] INFO audio.transcription.direct_selected
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg"
+    }
+[2026-06-25 01:13:41] INFO audio.conversion.skipped
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg",
+      "reason": "groq_direct_format"
+    }
+[2026-06-25 01:13:41] INFO whisper.api.request
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  details:
+    {
+      "model": "whisper-large-v3",
+      "language": "en",
+      "responseFormat": "verbose_json",
+      "promptLength": 178,
+      "fileSizeBytes": 13489,
+      "fileExtension": "ogg",
+      "temperature": 0
+    }
+[2026-06-25 01:13:42] INFO whisper.api.response
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  details:
+    {
+      "detectedLanguage": "English",
+      "segmentCount": 1,
+      "textLength": 45,
+      "durationMs": 680
+    }
+[2026-06-25 01:13:42] INFO whisper.transcription.completed
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  details:
+    {
+      "textPreview": " Cancel my dinner with Konbani Shen tomorrow.",
+      "textLength": 45,
+      "processingTimeMs": 1236,
+      "fileSizeBytes": 13489,
+      "qualityFlaggedSegments": 0,
+      "qualityTotalSegments": 1
+    }
+[2026-06-25 01:13:42] INFO text_processor.started
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  details:
+    {
+      "messageLength": 45
+    }
+[2026-06-25 01:13:42] INFO langgraph.stream.started
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370
+  details:
+    {
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:13:59] INFO langgraph.stream.completed
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370
+  details:
+    {
+      "path": "/invoke/stream",
+      "status": "interrupted",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370",
+      "durationMs": 16836
+    }
+[2026-06-25 01:13:59] INFO telegram.clarification.pending_saved
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370
+  details:
+    {
+      "pendingKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "pendingThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370"
+    }
+[2026-06-25 01:13:59] INFO text_processor.completed
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370
+  details:
+    {
+      "messageLength": 45,
+      "responseLength": 579,
+      "agentStatus": "interrupted",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370",
+      "resumedFromPendingClarification": false,
+      "interruptType": "clarify",
+      "durationMs": 16839
+    }
+[2026-06-25 01:13:59] INFO audio_processor.completed
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  details:
+    {
+      "durationMs": 18423,
+      "transcriptionTextLength": 45,
+      "hasTranscription": true
+    }
+[2026-06-25 01:13:59] INFO telegram.reply.sent
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 370
+  messageType: voice
+  details:
+    {
+      "responseLength": 636,
+      "totalDurationMs": 20201
+    }
+[2026-06-25 01:13:59] INFO telegram.update.handling_completed
+  requestId: tg_mqsc1an6_s0s6s3
+  updateId: 564452107
+  details:
+    {
+      "durationMs": 20205
+    }
+[2026-06-25 01:14:16] INFO telegram.webhook.received
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  messageType: voice
+[2026-06-25 01:14:16] INFO telegram.update.handling_started
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+[2026-06-25 01:14:16] INFO telegram.message.received
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "fileSize": 9657,
+      "duration": 2
+    }
+[2026-06-25 01:14:17] INFO processor.route.selected
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "processor": "AudioProcessorService",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:14:17] INFO audio_processor.started
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:14:17] INFO whisper.transcription.started
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:14:17] DEBUG whisper.download.started
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:14:17] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:14:17] DEBUG whisper.download.completed
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "sizeBytes": 9657,
+      "durationMs": 552,
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:14:17] INFO audio.transcription.direct_selected
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg"
+    }
+[2026-06-25 01:14:17] INFO audio.conversion.skipped
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg",
+      "reason": "groq_direct_format"
+    }
+[2026-06-25 01:14:17] INFO whisper.api.request
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "model": "whisper-large-v3",
+      "language": "en",
+      "responseFormat": "verbose_json",
+      "promptLength": 178,
+      "fileSizeBytes": 9657,
+      "fileExtension": "ogg",
+      "temperature": 0
+    }
+[2026-06-25 01:14:18] INFO whisper.api.response
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "detectedLanguage": "English",
+      "segmentCount": 1,
+      "textLength": 21,
+      "durationMs": 372
+    }
+[2026-06-25 01:14:18] WARN whisper.transcription.quality_flagged
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "flaggedSegments": 1,
+      "totalSegments": 1,
+      "flags": [
+        {
+          "segmentId": 0,
+          "start": 0,
+          "end": 1.78,
+          "reason": "low_compression_ratio",
+          "value": 0.7777778,
+          "threshold": 0.8,
+          "textPreview": " Yes, that's the one."
+        }
+      ],
+      "worstValues": {
+        "minAvgLogprob": -0.28515664,
+        "maxNoSpeechProb": 0.015701294,
+        "minCompressionRatio": 0.7777778,
+        "maxCompressionRatio": 0.7777778
+      },
+      "thresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-25 01:14:18] INFO whisper.transcription.completed
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "textPreview": " Yes, that's the one.",
+      "textLength": 21,
+      "processingTimeMs": 926,
+      "fileSizeBytes": 9657,
+      "qualityFlaggedSegments": 1,
+      "qualityTotalSegments": 1
+    }
+[2026-06-25 01:14:18] INFO text_processor.started
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "messageLength": 21
+    }
+[2026-06-25 01:14:18] INFO langgraph.stream.started
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370
+  details:
+    {
+      "path": "/resume/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:14:30] INFO langgraph.stream.completed
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370
+  details:
+    {
+      "path": "/resume/stream",
+      "status": "interrupted",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370",
+      "durationMs": 11546
+    }
+[2026-06-25 01:14:30] INFO telegram.clarification.pending_saved
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370
+  details:
+    {
+      "pendingKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "pendingThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370"
+    }
+[2026-06-25 01:14:30] INFO text_processor.completed
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370
+  details:
+    {
+      "messageLength": 21,
+      "responseLength": 86,
+      "agentStatus": "interrupted",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370",
+      "resumedFromPendingClarification": true,
+      "interruptType": "confirm",
+      "durationMs": 11548
+    }
+[2026-06-25 01:14:30] INFO audio_processor.completed
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "durationMs": 12832,
+      "transcriptionTextLength": 21,
+      "hasTranscription": true
+    }
+[2026-06-25 01:14:30] INFO telegram.reply.sent
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 372
+  messageType: voice
+  details:
+    {
+      "responseLength": 119,
+      "totalDurationMs": 14118
+    }
+[2026-06-25 01:14:30] INFO telegram.update.handling_completed
+  requestId: tg_mqsc232p_q4fzrs
+  updateId: 564452108
+  details:
+    {
+      "durationMs": 14120
+    }
+[2026-06-25 01:14:38] INFO telegram.webhook.received
+  requestId: tg_mqsc2k53_vr78vv
+  updateId: 564452109
+  messageType: unknown
+[2026-06-25 01:14:38] INFO telegram.update.handling_started
+  requestId: tg_mqsc2k53_vr78vv
+  updateId: 564452109
+[2026-06-25 01:14:38] INFO telegram.callback.confirm
+  requestId: cb_mqsc2k56_d08dpe
+  userId: [REDACTED_ID]
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370
+  details:
+    {
+      "decision": "approve"
+    }
+[2026-06-25 01:14:39] INFO langgraph.request.started
+  requestId: cb_mqsc2k56_d08dpe
+  userId: [REDACTED_ID]
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370
+  details:
+    {
+      "path": "/resume",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:14:41] INFO langgraph.request.completed
+  requestId: cb_mqsc2k56_d08dpe
+  userId: [REDACTED_ID]
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370
+  details:
+    {
+      "path": "/resume",
+      "status": "completed",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370",
+      "durationMs": 2276
+    }
+[2026-06-25 01:14:41] INFO telegram.callback.confirm.completed
+  requestId: cb_mqsc2k56_d08dpe
+  userId: [REDACTED_ID]
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370
+  details:
+    {
+      "decision": "approve",
+      "agentStatus": "completed"
+    }
+[2026-06-25 01:14:41] INFO telegram.update.handling_completed
+  requestId: tg_mqsc2k53_vr78vv
+  updateId: 564452109
+  details:
+    {
+      "durationMs": 3324
+    }
+[2026-06-25 01:21:13] INFO telegram.webhook.received
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  messageType: voice
+[2026-06-25 01:21:13] INFO telegram.update.handling_started
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+[2026-06-25 01:21:13] INFO telegram.message.received
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  details:
+    {
+      "fileSize": 44770,
+      "duration": 11
+    }
+[2026-06-25 01:21:14] INFO processor.route.selected
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  details:
+    {
+      "processor": "AudioProcessorService",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:21:14] INFO audio_processor.started
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:21:14] INFO whisper.transcription.started
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:21:14] DEBUG whisper.download.started
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:21:15] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:21:15] DEBUG whisper.download.completed
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  details:
+    {
+      "sizeBytes": 44770,
+      "durationMs": 882,
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:21:15] INFO audio.transcription.direct_selected
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg"
+    }
+[2026-06-25 01:21:15] INFO audio.conversion.skipped
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg",
+      "reason": "groq_direct_format"
+    }
+[2026-06-25 01:21:15] INFO whisper.api.request
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  details:
+    {
+      "model": "whisper-large-v3",
+      "language": "en",
+      "responseFormat": "verbose_json",
+      "promptLength": 178,
+      "fileSizeBytes": 44770,
+      "fileExtension": "ogg",
+      "temperature": 0
+    }
+[2026-06-25 01:21:16] INFO whisper.api.response
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  details:
+    {
+      "detectedLanguage": "English",
+      "segmentCount": 1,
+      "textLength": 63,
+      "durationMs": 446
+    }
+[2026-06-25 01:21:16] INFO whisper.transcription.completed
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  details:
+    {
+      "textPreview": " Add in for today, tell Jackson to ask Jackson for Anki remote.",
+      "textLength": 63,
+      "processingTimeMs": 1333,
+      "fileSizeBytes": 44770,
+      "qualityFlaggedSegments": 0,
+      "qualityTotalSegments": 1
+    }
+[2026-06-25 01:21:16] INFO text_processor.started
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  details:
+    {
+      "messageLength": 63
+    }
+[2026-06-25 01:21:16] INFO langgraph.stream.started
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_375
+  details:
+    {
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:21:23] INFO langgraph.stream.completed
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_375
+  details:
+    {
+      "path": "/invoke/stream",
+      "status": "completed",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_375",
+      "durationMs": 6527
+    }
+[2026-06-25 01:21:23] INFO text_processor.completed
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_375
+  details:
+    {
+      "messageLength": 63,
+      "responseLength": 267,
+      "agentStatus": "completed",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_375",
+      "resumedFromPendingClarification": false,
+      "durationMs": 6530
+    }
+[2026-06-25 01:21:23] INFO audio_processor.completed
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  details:
+    {
+      "durationMs": 8226,
+      "transcriptionTextLength": 63,
+      "hasTranscription": true
+    }
+[2026-06-25 01:21:23] INFO telegram.reply.sent
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 375
+  messageType: voice
+  details:
+    {
+      "responseLength": 342,
+      "totalDurationMs": 10045
+    }
+[2026-06-25 01:21:23] INFO telegram.update.handling_completed
+  requestId: tg_mqscb0t6_4z3yqf
+  updateId: 564452110
+  details:
+    {
+      "durationMs": 10046
+    }
+[2026-06-25 01:23:06] INFO telegram.webhook.received
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  messageType: voice
+[2026-06-25 01:23:06] INFO telegram.update.handling_started
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+[2026-06-25 01:23:06] INFO telegram.message.received
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  details:
+    {
+      "fileSize": 44835,
+      "duration": 11
+    }
+[2026-06-25 01:23:07] INFO processor.route.selected
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  details:
+    {
+      "processor": "AudioProcessorService",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:23:07] INFO audio_processor.started
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:23:07] INFO whisper.transcription.started
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:23:07] DEBUG whisper.download.started
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:23:08] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:23:08] DEBUG whisper.download.completed
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  details:
+    {
+      "sizeBytes": 44835,
+      "durationMs": 707,
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:23:08] INFO audio.transcription.direct_selected
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg"
+    }
+[2026-06-25 01:23:08] INFO audio.conversion.skipped
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg",
+      "reason": "groq_direct_format"
+    }
+[2026-06-25 01:23:08] INFO whisper.api.request
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  details:
+    {
+      "model": "whisper-large-v3",
+      "language": "en",
+      "responseFormat": "verbose_json",
+      "promptLength": 178,
+      "fileSizeBytes": 44835,
+      "fileExtension": "ogg",
+      "temperature": 0
+    }
+[2026-06-25 01:23:08] INFO whisper.api.response
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  details:
+    {
+      "detectedLanguage": "English",
+      "segmentCount": 1,
+      "textLength": 99,
+      "durationMs": 417
+    }
+[2026-06-25 01:23:08] INFO whisper.transcription.completed
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  details:
+    {
+      "textPreview": " Sorry, please edit the Jackson task tomorrow. Change it to just like ask Jackson for inquiry mode.",
+      "textLength": 99,
+      "processingTimeMs": 1128,
+      "fileSizeBytes": 44835,
+      "qualityFlaggedSegments": 0,
+      "qualityTotalSegments": 1
+    }
+[2026-06-25 01:23:09] INFO text_processor.started
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  details:
+    {
+      "messageLength": 99
+    }
+[2026-06-25 01:23:09] INFO langgraph.stream.started
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_377
+  details:
+    {
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:23:22] INFO langgraph.stream.completed
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_377
+  details:
+    {
+      "path": "/invoke/stream",
+      "status": "completed",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_377",
+      "durationMs": 13531
+    }
+[2026-06-25 01:23:22] INFO text_processor.completed
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_377
+  details:
+    {
+      "messageLength": 99,
+      "responseLength": 278,
+      "agentStatus": "completed",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_377",
+      "resumedFromPendingClarification": false,
+      "durationMs": 13534
+    }
+[2026-06-25 01:23:22] INFO audio_processor.completed
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  details:
+    {
+      "durationMs": 15063,
+      "transcriptionTextLength": 99,
+      "hasTranscription": true
+    }
+[2026-06-25 01:23:23] INFO telegram.reply.sent
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 377
+  messageType: voice
+  details:
+    {
+      "responseLength": 389,
+      "totalDurationMs": 16694
+    }
+[2026-06-25 01:23:23] INFO telegram.update.handling_completed
+  requestId: tg_mqscdg0l_n5ahh4
+  updateId: 564452111
+  details:
+    {
+      "durationMs": 16696
+    }
+[2026-06-25 01:24:19] INFO telegram.webhook.received
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  messageType: voice
+[2026-06-25 01:24:19] INFO telegram.update.handling_started
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+[2026-06-25 01:24:19] INFO telegram.message.received
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  details:
+    {
+      "fileSize": 63836,
+      "duration": 16
+    }
+[2026-06-25 01:24:20] INFO processor.route.selected
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  details:
+    {
+      "processor": "AudioProcessorService",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:24:20] INFO audio_processor.started
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:24:20] INFO whisper.transcription.started
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:24:20] DEBUG whisper.download.started
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:24:20] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:24:21] DEBUG whisper.download.completed
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  details:
+    {
+      "sizeBytes": 63836,
+      "durationMs": 879,
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:24:21] INFO audio.transcription.direct_selected
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg"
+    }
+[2026-06-25 01:24:21] INFO audio.conversion.skipped
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg",
+      "reason": "groq_direct_format"
+    }
+[2026-06-25 01:24:21] INFO whisper.api.request
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  details:
+    {
+      "model": "whisper-large-v3",
+      "language": "en",
+      "responseFormat": "verbose_json",
+      "promptLength": 178,
+      "fileSizeBytes": 63836,
+      "fileExtension": "ogg",
+      "temperature": 0
+    }
+[2026-06-25 01:24:21] INFO whisper.api.response
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  details:
+    {
+      "detectedLanguage": "English",
+      "segmentCount": 2,
+      "textLength": 128,
+      "durationMs": 451
+    }
+[2026-06-25 01:24:21] INFO whisper.transcription.completed
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  details:
+    {
+      "textPreview": " Add in a future feature for the Jarvis project. Append the previous message sent by Telegram to the...",
+      "textLength": 128,
+      "processingTimeMs": 1334,
+      "fileSizeBytes": 63836,
+      "qualityFlaggedSegments": 0,
+      "qualityTotalSegments": 2
+    }
+[2026-06-25 01:24:21] INFO text_processor.started
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  details:
+    {
+      "messageLength": 128
+    }
+[2026-06-25 01:24:21] INFO langgraph.stream.started
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379
+  details:
+    {
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:24:36] INFO langgraph.stream.completed
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379
+  details:
+    {
+      "path": "/invoke/stream",
+      "status": "interrupted",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379",
+      "durationMs": 14962
+    }
+[2026-06-25 01:24:36] INFO telegram.clarification.pending_saved
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379
+  details:
+    {
+      "pendingKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "pendingThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379"
+    }
+[2026-06-25 01:24:36] INFO text_processor.completed
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379
+  details:
+    {
+      "messageLength": 128,
+      "responseLength": 277,
+      "agentStatus": "interrupted",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379",
+      "resumedFromPendingClarification": false,
+      "interruptType": "clarify",
+      "durationMs": 14964
+    }
+[2026-06-25 01:24:36] INFO audio_processor.completed
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  details:
+    {
+      "durationMs": 16651,
+      "transcriptionTextLength": 128,
+      "hasTranscription": true
+    }
+[2026-06-25 01:24:37] INFO telegram.reply.sent
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 379
+  messageType: voice
+  details:
+    {
+      "responseLength": 417,
+      "totalDurationMs": 17897
+    }
+[2026-06-25 01:24:37] INFO telegram.update.handling_completed
+  requestId: tg_mqscf08w_fv2wk1
+  updateId: 564452112
+  details:
+    {
+      "durationMs": 17899
+    }
+[2026-06-25 01:24:56] INFO telegram.webhook.received
+  requestId: tg_mqscft4g_d2utq0
+  updateId: 564452113
+  messageType: text
+[2026-06-25 01:24:56] INFO telegram.update.handling_started
+  requestId: tg_mqscft4g_d2utq0
+  updateId: 564452113
+[2026-06-25 01:24:56] INFO telegram.message.received
+  requestId: tg_mqscft4g_d2utq0
+  updateId: 564452113
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 381
+  messageType: text
+  details:
+    {
+      "username": "jer_jerryyy",
+      "messageLength": 65,
+      "messagePreview": "change the jackson task to “ask jackson for anki remote delivery”"
+    }
+[2026-06-25 01:24:57] INFO processor.route.selected
+  requestId: tg_mqscft4g_d2utq0
+  updateId: 564452113
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 381
+  messageType: text
+  details:
+    {
+      "messageLength": 65,
+      "processor": "TextProcessorService"
+    }
+[2026-06-25 01:24:57] INFO text_processor.started
+  requestId: tg_mqscft4g_d2utq0
+  updateId: 564452113
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 381
+  messageType: text
+  details:
+    {
+      "messageLength": 65
+    }
+[2026-06-25 01:24:57] INFO langgraph.stream.started
+  requestId: tg_mqscft4g_d2utq0
+  updateId: 564452113
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 381
+  messageType: text
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379
+  details:
+    {
+      "path": "/resume/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:25:04] INFO langgraph.stream.completed
+  requestId: tg_mqscft4g_d2utq0
+  updateId: 564452113
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 381
+  messageType: text
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379
+  details:
+    {
+      "path": "/resume/stream",
+      "status": "interrupted",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379",
+      "durationMs": 7388
+    }
+[2026-06-25 01:25:04] INFO telegram.clarification.pending_saved
+  requestId: tg_mqscft4g_d2utq0
+  updateId: 564452113
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 381
+  messageType: text
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379
+  details:
+    {
+      "pendingKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "pendingThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379"
+    }
+[2026-06-25 01:25:04] INFO text_processor.completed
+  requestId: tg_mqscft4g_d2utq0
+  updateId: 564452113
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 381
+  messageType: text
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379
+  details:
+    {
+      "messageLength": 65,
+      "responseLength": 465,
+      "agentStatus": "interrupted",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379",
+      "resumedFromPendingClarification": true,
+      "interruptType": "clarify",
+      "durationMs": 7389
+    }
+[2026-06-25 01:25:04] INFO telegram.reply.sent
+  requestId: tg_mqscft4g_d2utq0
+  updateId: 564452113
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 381
+  messageType: text
+  details:
+    {
+      "responseLength": 465,
+      "totalDurationMs": 8229
+    }
+[2026-06-25 01:25:04] INFO telegram.update.handling_completed
+  requestId: tg_mqscft4g_d2utq0
+  updateId: 564452113
+  details:
+    {
+      "durationMs": 8231
+    }
+[2026-06-25 01:25:42] INFO telegram.webhook.received
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  messageType: voice
+[2026-06-25 01:25:42] INFO telegram.update.handling_started
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+[2026-06-25 01:25:42] INFO telegram.message.received
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  details:
+    {
+      "fileSize": 18708,
+      "duration": 4
+    }
+[2026-06-25 01:25:43] INFO processor.route.selected
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  details:
+    {
+      "processor": "AudioProcessorService",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:25:43] INFO audio_processor.started
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:25:43] INFO whisper.transcription.started
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:25:43] DEBUG whisper.download.started
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:25:44] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:25:44] DEBUG whisper.download.completed
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  details:
+    {
+      "sizeBytes": 18708,
+      "durationMs": 727,
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:25:44] INFO audio.transcription.direct_selected
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg"
+    }
+[2026-06-25 01:25:44] INFO audio.conversion.skipped
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg",
+      "reason": "groq_direct_format"
+    }
+[2026-06-25 01:25:44] INFO whisper.api.request
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  details:
+    {
+      "model": "whisper-large-v3",
+      "language": "en",
+      "responseFormat": "verbose_json",
+      "promptLength": 178,
+      "fileSizeBytes": 18708,
+      "fileExtension": "ogg",
+      "temperature": 0
+    }
+[2026-06-25 01:25:45] INFO whisper.api.response
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  details:
+    {
+      "detectedLanguage": "English",
+      "segmentCount": 1,
+      "textLength": 59,
+      "durationMs": 431
+    }
+[2026-06-25 01:25:45] INFO whisper.transcription.completed
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  details:
+    {
+      "textPreview": " I think I only have one project so just edit inside the...",
+      "textLength": 59,
+      "processingTimeMs": 1162,
+      "fileSizeBytes": 18708,
+      "qualityFlaggedSegments": 0,
+      "qualityTotalSegments": 1
+    }
+[2026-06-25 01:25:45] INFO text_processor.started
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  details:
+    {
+      "messageLength": 59
+    }
+[2026-06-25 01:25:45] INFO langgraph.stream.started
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379
+  details:
+    {
+      "path": "/resume/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:25:51] INFO langgraph.stream.completed
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379
+  details:
+    {
+      "path": "/resume/stream",
+      "status": "completed",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379",
+      "durationMs": 5942
+    }
+[2026-06-25 01:25:51] INFO text_processor.completed
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379
+  details:
+    {
+      "messageLength": 59,
+      "responseLength": 441,
+      "agentStatus": "completed",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_379",
+      "resumedFromPendingClarification": true,
+      "durationMs": 5945
+    }
+[2026-06-25 01:25:51] INFO audio_processor.completed
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  details:
+    {
+      "durationMs": 7450,
+      "transcriptionTextLength": 59,
+      "hasTranscription": true
+    }
+[2026-06-25 01:25:51] INFO telegram.reply.sent
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 383
+  messageType: voice
+  details:
+    {
+      "responseLength": 512,
+      "totalDurationMs": 9008
+    }
+[2026-06-25 01:25:51] INFO telegram.update.handling_completed
+  requestId: tg_mqscgsjh_lkamct
+  updateId: 564452114
+  details:
+    {
+      "durationMs": 9011
+    }
+[2026-06-25 01:27:53] INFO telegram.webhook.received
+  requestId: tg_mqscjlaw_fykd3f
+  updateId: 564452115
+  messageType: text
+[2026-06-25 01:27:53] INFO telegram.update.handling_started
+  requestId: tg_mqscjlaw_fykd3f
+  updateId: 564452115
+[2026-06-25 01:27:53] INFO telegram.message.received
+  requestId: tg_mqscjlaw_fykd3f
+  updateId: 564452115
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 385
+  messageType: text
+  details:
+    {
+      "username": "jer_jerryyy",
+      "messageLength": 67,
+      "messagePreview": "add in to #jarvis-mcp project that i want to add in “project_tools”"
+    }
+[2026-06-25 01:27:53] INFO processor.route.selected
+  requestId: tg_mqscjlaw_fykd3f
+  updateId: 564452115
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 385
+  messageType: text
+  details:
+    {
+      "messageLength": 67,
+      "processor": "TextProcessorService"
+    }
+[2026-06-25 01:27:53] INFO text_processor.started
+  requestId: tg_mqscjlaw_fykd3f
+  updateId: 564452115
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 385
+  messageType: text
+  details:
+    {
+      "messageLength": 67
+    }
+[2026-06-25 01:27:53] INFO langgraph.stream.started
+  requestId: tg_mqscjlaw_fykd3f
+  updateId: 564452115
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 385
+  messageType: text
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_385
+  details:
+    {
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:27:57] INFO langgraph.stream.completed
+  requestId: tg_mqscjlaw_fykd3f
+  updateId: 564452115
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 385
+  messageType: text
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_385
+  details:
+    {
+      "path": "/invoke/stream",
+      "status": "interrupted",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_385",
+      "durationMs": 4056
+    }
+[2026-06-25 01:27:57] INFO telegram.clarification.pending_saved
+  requestId: tg_mqscjlaw_fykd3f
+  updateId: 564452115
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 385
+  messageType: text
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_385
+  details:
+    {
+      "pendingKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "pendingThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_385"
+    }
+[2026-06-25 01:27:57] INFO text_processor.completed
+  requestId: tg_mqscjlaw_fykd3f
+  updateId: 564452115
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 385
+  messageType: text
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_385
+  details:
+    {
+      "messageLength": 67,
+      "responseLength": 212,
+      "agentStatus": "interrupted",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_385",
+      "resumedFromPendingClarification": false,
+      "interruptType": "clarify",
+      "durationMs": 4059
+    }
+[2026-06-25 01:27:58] INFO telegram.reply.sent
+  requestId: tg_mqscjlaw_fykd3f
+  updateId: 564452115
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 385
+  messageType: text
+  details:
+    {
+      "responseLength": 212,
+      "totalDurationMs": 4774
+    }
+[2026-06-25 01:27:58] INFO telegram.update.handling_completed
+  requestId: tg_mqscjlaw_fykd3f
+  updateId: 564452115
+  details:
+    {
+      "durationMs": 4776
+    }
+[2026-06-25 01:28:25] INFO telegram.webhook.received
+  requestId: tg_mqsck9xl_j5b6va
+  updateId: 564452116
+  messageType: text
+[2026-06-25 01:28:25] INFO telegram.update.handling_started
+  requestId: tg_mqsck9xl_j5b6va
+  updateId: 564452116
+[2026-06-25 01:28:25] INFO telegram.message.received
+  requestId: tg_mqsck9xl_j5b6va
+  updateId: 564452116
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 387
+  messageType: text
+  details:
+    {
+      "username": "jer_jerryyy",
+      "messageLength": 65,
+      "messagePreview": "just do a #jarvis-mcp in the add task for Natural language adding"
+    }
+[2026-06-25 01:28:25] INFO processor.route.selected
+  requestId: tg_mqsck9xl_j5b6va
+  updateId: 564452116
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 387
+  messageType: text
+  details:
+    {
+      "messageLength": 65,
+      "processor": "TextProcessorService"
+    }
+[2026-06-25 01:28:25] INFO text_processor.started
+  requestId: tg_mqsck9xl_j5b6va
+  updateId: 564452116
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 387
+  messageType: text
+  details:
+    {
+      "messageLength": 65
+    }
+[2026-06-25 01:28:25] INFO langgraph.stream.started
+  requestId: tg_mqsck9xl_j5b6va
+  updateId: 564452116
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 387
+  messageType: text
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_385
+  details:
+    {
+      "path": "/resume/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:28:33] INFO langgraph.stream.completed
+  requestId: tg_mqsck9xl_j5b6va
+  updateId: 564452116
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 387
+  messageType: text
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_385
+  details:
+    {
+      "path": "/resume/stream",
+      "status": "completed",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_385",
+      "durationMs": 8380
+    }
+[2026-06-25 01:28:33] INFO text_processor.completed
+  requestId: tg_mqsck9xl_j5b6va
+  updateId: 564452116
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 387
+  messageType: text
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_385
+  details:
+    {
+      "messageLength": 65,
+      "responseLength": 258,
+      "agentStatus": "completed",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_385",
+      "resumedFromPendingClarification": true,
+      "durationMs": 8381
+    }
+[2026-06-25 01:28:34] INFO telegram.reply.sent
+  requestId: tg_mqsck9xl_j5b6va
+  updateId: 564452116
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 387
+  messageType: text
+  details:
+    {
+      "responseLength": 258,
+      "totalDurationMs": 9111
+    }
+[2026-06-25 01:28:34] INFO telegram.update.handling_completed
+  requestId: tg_mqsck9xl_j5b6va
+  updateId: 564452116
+  details:
+    {
+      "durationMs": 9113
+    }
+[2026-06-25 01:29:27] INFO telegram.webhook.received
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  messageType: voice
+[2026-06-25 01:29:27] INFO telegram.update.handling_started
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+[2026-06-25 01:29:27] INFO telegram.message.received
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  details:
+    {
+      "fileSize": 39598,
+      "duration": 10
+    }
+[2026-06-25 01:29:28] INFO processor.route.selected
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  details:
+    {
+      "processor": "AudioProcessorService",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:29:28] INFO audio_processor.started
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:29:28] INFO whisper.transcription.started
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:29:28] DEBUG whisper.download.started
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:29:28] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:29:28] DEBUG whisper.download.completed
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  details:
+    {
+      "sizeBytes": 39598,
+      "durationMs": 700,
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:29:28] INFO audio.transcription.direct_selected
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg"
+    }
+[2026-06-25 01:29:28] INFO audio.conversion.skipped
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg",
+      "reason": "groq_direct_format"
+    }
+[2026-06-25 01:29:28] INFO whisper.api.request
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  details:
+    {
+      "model": "whisper-large-v3",
+      "language": "en",
+      "responseFormat": "verbose_json",
+      "promptLength": 178,
+      "fileSizeBytes": 39598,
+      "fileExtension": "ogg",
+      "temperature": 0
+    }
+[2026-06-25 01:29:29] INFO whisper.api.response
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  details:
+    {
+      "detectedLanguage": "English",
+      "segmentCount": 1,
+      "textLength": 57,
+      "durationMs": 360
+    }
+[2026-06-25 01:29:29] INFO whisper.transcription.completed
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  details:
+    {
+      "textPreview": " Add in meet uni friends tomorrow, sorry, today at 7 p.m.",
+      "textLength": 57,
+      "processingTimeMs": 1063,
+      "fileSizeBytes": 39598,
+      "qualityFlaggedSegments": 0,
+      "qualityTotalSegments": 1
+    }
+[2026-06-25 01:29:29] INFO text_processor.started
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  details:
+    {
+      "messageLength": 57
+    }
+[2026-06-25 01:29:29] INFO langgraph.stream.started
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_389
+  details:
+    {
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:29:34] INFO langgraph.stream.completed
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_389
+  details:
+    {
+      "path": "/invoke/stream",
+      "status": "completed",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_389",
+      "durationMs": 4830
+    }
+[2026-06-25 01:29:34] INFO text_processor.completed
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_389
+  details:
+    {
+      "messageLength": 57,
+      "responseLength": 92,
+      "agentStatus": "completed",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_389",
+      "resumedFromPendingClarification": false,
+      "durationMs": 4833
+    }
+[2026-06-25 01:29:34] INFO audio_processor.completed
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  details:
+    {
+      "durationMs": 6240,
+      "transcriptionTextLength": 57,
+      "hasTranscription": true
+    }
+[2026-06-25 01:29:34] INFO telegram.reply.sent
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 389
+  messageType: voice
+  details:
+    {
+      "responseLength": 161,
+      "totalDurationMs": 7356
+    }
+[2026-06-25 01:29:34] INFO telegram.update.handling_completed
+  requestId: tg_mqscllz2_vrv68n
+  updateId: 564452117
+  details:
+    {
+      "durationMs": 7357
+    }
+[2026-06-25 01:30:13] INFO telegram.webhook.received
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  messageType: voice
+[2026-06-25 01:30:13] INFO telegram.update.handling_started
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+[2026-06-25 01:30:13] INFO telegram.message.received
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  details:
+    {
+      "fileSize": 59580,
+      "duration": 14
+    }
+[2026-06-25 01:30:14] INFO processor.route.selected
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  details:
+    {
+      "processor": "AudioProcessorService",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:30:14] INFO audio_processor.started
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:30:14] INFO whisper.transcription.started
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:30:14] DEBUG whisper.download.started
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:30:15] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:30:15] DEBUG whisper.download.completed
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  details:
+    {
+      "sizeBytes": 59580,
+      "durationMs": 865,
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:30:15] INFO audio.transcription.direct_selected
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg"
+    }
+[2026-06-25 01:30:15] INFO audio.conversion.skipped
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg",
+      "reason": "groq_direct_format"
+    }
+[2026-06-25 01:30:15] INFO whisper.api.request
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  details:
+    {
+      "model": "whisper-large-v3",
+      "language": "en",
+      "responseFormat": "verbose_json",
+      "promptLength": 178,
+      "fileSizeBytes": 59580,
+      "fileExtension": "ogg",
+      "temperature": 0
+    }
+[2026-06-25 01:30:15] INFO whisper.api.response
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  details:
+    {
+      "detectedLanguage": "English",
+      "segmentCount": 2,
+      "textLength": 172,
+      "durationMs": 476
+    }
+[2026-06-25 01:30:15] INFO whisper.transcription.completed
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  details:
+    {
+      "textPreview": " I want to reschedule my meet uni friends that has been in my calendar today. So tell me what's on f...",
+      "textLength": 172,
+      "processingTimeMs": 1346,
+      "fileSizeBytes": 59580,
+      "qualityFlaggedSegments": 0,
+      "qualityTotalSegments": 2
+    }
+[2026-06-25 01:30:16] INFO text_processor.started
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  details:
+    {
+      "messageLength": 172
+    }
+[2026-06-25 01:30:16] INFO langgraph.stream.started
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_391
+  details:
+    {
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:30:40] INFO langgraph.stream.completed
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_391
+  details:
+    {
+      "path": "/invoke/stream",
+      "status": "interrupted",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_391",
+      "durationMs": 24216
+    }
+[2026-06-25 01:30:40] INFO telegram.clarification.pending_saved
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_391
+  details:
+    {
+      "pendingKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "pendingThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_391"
+    }
+[2026-06-25 01:30:40] INFO text_processor.completed
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_391
+  details:
+    {
+      "messageLength": 172,
+      "responseLength": 1427,
+      "agentStatus": "interrupted",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_391",
+      "resumedFromPendingClarification": false,
+      "interruptType": "clarify",
+      "durationMs": 24221
+    }
+[2026-06-25 01:30:40] INFO audio_processor.completed
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  details:
+    {
+      "durationMs": 25949,
+      "transcriptionTextLength": 172,
+      "hasTranscription": true
+    }
+[2026-06-25 01:30:41] INFO telegram.reply.sent
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 391
+  messageType: voice
+  details:
+    {
+      "responseLength": 1611,
+      "totalDurationMs": 27736
+    }
+[2026-06-25 01:30:41] INFO telegram.update.handling_completed
+  requestId: tg_mqscmlmi_ja13oq
+  updateId: 564452118
+  details:
+    {
+      "durationMs": 27738
+    }
+[2026-06-25 01:31:41] INFO telegram.webhook.received
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  messageType: voice
+[2026-06-25 01:31:41] INFO telegram.update.handling_started
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+[2026-06-25 01:31:41] INFO telegram.message.received
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  details:
+    {
+      "fileSize": 54344,
+      "duration": 13
+    }
+[2026-06-25 01:31:42] INFO processor.route.selected
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  details:
+    {
+      "processor": "AudioProcessorService",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:31:42] INFO audio_processor.started
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:31:42] INFO whisper.transcription.started
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:31:42] DEBUG whisper.download.started
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:31:43] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:31:43] DEBUG whisper.download.completed
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  details:
+    {
+      "sizeBytes": 54344,
+      "durationMs": 840,
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:31:43] INFO audio.transcription.direct_selected
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg"
+    }
+[2026-06-25 01:31:43] INFO audio.conversion.skipped
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg",
+      "reason": "groq_direct_format"
+    }
+[2026-06-25 01:31:43] INFO whisper.api.request
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  details:
+    {
+      "model": "whisper-large-v3",
+      "language": "en",
+      "responseFormat": "verbose_json",
+      "promptLength": 178,
+      "fileSizeBytes": 54344,
+      "fileExtension": "ogg",
+      "temperature": 0
+    }
+[2026-06-25 01:31:43] INFO whisper.api.response
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  details:
+    {
+      "detectedLanguage": "English",
+      "segmentCount": 1,
+      "textLength": 178,
+      "durationMs": 490
+    }
+[2026-06-25 01:31:43] INFO whisper.transcription.completed
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  details:
+    {
+      "textPreview": " Actually just give me the availability report. Don't need to reschedule it. Don't need to review my...",
+      "textLength": 178,
+      "processingTimeMs": 1333,
+      "fileSizeBytes": 54344,
+      "qualityFlaggedSegments": 0,
+      "qualityTotalSegments": 1
+    }
+[2026-06-25 01:31:44] INFO text_processor.started
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  details:
+    {
+      "messageLength": 178
+    }
+[2026-06-25 01:31:44] INFO langgraph.stream.started
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_391
+  details:
+    {
+      "path": "/resume/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:31:51] INFO langgraph.stream.completed
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_391
+  details:
+    {
+      "path": "/resume/stream",
+      "status": "completed",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_391",
+      "durationMs": 7043
+    }
+[2026-06-25 01:31:51] INFO text_processor.completed
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_391
+  details:
+    {
+      "messageLength": 178,
+      "responseLength": 639,
+      "agentStatus": "completed",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_391",
+      "resumedFromPendingClarification": true,
+      "durationMs": 7044
+    }
+[2026-06-25 01:31:51] INFO audio_processor.completed
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  details:
+    {
+      "durationMs": 8726,
+      "transcriptionTextLength": 178,
+      "hasTranscription": true
+    }
+[2026-06-25 01:31:51] INFO telegram.reply.sent
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 393
+  messageType: voice
+  details:
+    {
+      "responseLength": 829,
+      "totalDurationMs": 10446
+    }
+[2026-06-25 01:31:51] INFO telegram.update.handling_completed
+  requestId: tg_mqscoh36_dn7mi6
+  updateId: 564452119
+  details:
+    {
+      "durationMs": 10448
+    }
+[2026-06-25 01:34:26] INFO telegram.webhook.received
+  requestId: tg_mqscs0iu_dcrug5
+  updateId: 564452120
+  messageType: text
+[2026-06-25 01:34:26] INFO telegram.update.handling_started
+  requestId: tg_mqscs0iu_dcrug5
+  updateId: 564452120
+[2026-06-25 01:34:26] INFO telegram.message.received
+  requestId: tg_mqscs0iu_dcrug5
+  updateId: 564452120
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 395
+  messageType: text
+  details:
+    {
+      "username": "jer_jerryyy",
+      "messageLength": 137,
+      "messagePreview": "also the UI for the transcribed audio should improve so it separates from the mo..."
+    }
+[2026-06-25 01:34:26] INFO processor.route.selected
+  requestId: tg_mqscs0iu_dcrug5
+  updateId: 564452120
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 395
+  messageType: text
+  details:
+    {
+      "messageLength": 137,
+      "processor": "TextProcessorService"
+    }
+[2026-06-25 01:34:26] INFO text_processor.started
+  requestId: tg_mqscs0iu_dcrug5
+  updateId: 564452120
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 395
+  messageType: text
+  details:
+    {
+      "messageLength": 137
+    }
+[2026-06-25 01:34:26] INFO langgraph.stream.started
+  requestId: tg_mqscs0iu_dcrug5
+  updateId: 564452120
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 395
+  messageType: text
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_395
+  details:
+    {
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:34:31] INFO langgraph.stream.completed
+  requestId: tg_mqscs0iu_dcrug5
+  updateId: 564452120
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 395
+  messageType: text
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_395
+  details:
+    {
+      "path": "/invoke/stream",
+      "status": "completed",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_395",
+      "durationMs": 4996
+    }
+[2026-06-25 01:34:31] INFO text_processor.completed
+  requestId: tg_mqscs0iu_dcrug5
+  updateId: 564452120
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 395
+  messageType: text
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_395
+  details:
+    {
+      "messageLength": 137,
+      "responseLength": 343,
+      "agentStatus": "completed",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_395",
+      "resumedFromPendingClarification": false,
+      "durationMs": 4998
+    }
+[2026-06-25 01:34:31] INFO telegram.reply.sent
+  requestId: tg_mqscs0iu_dcrug5
+  updateId: 564452120
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 395
+  messageType: text
+  details:
+    {
+      "responseLength": 343,
+      "totalDurationMs": 5725
+    }
+[2026-06-25 01:34:31] INFO telegram.update.handling_completed
+  requestId: tg_mqscs0iu_dcrug5
+  updateId: 564452120
+  details:
+    {
+      "durationMs": 5727
+    }
+[2026-06-25 01:38:20] INFO telegram.webhook.received
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  messageType: voice
+[2026-06-25 01:38:20] INFO telegram.update.handling_started
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+[2026-06-25 01:38:20] INFO telegram.message.received
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  details:
+    {
+      "fileSize": 20919,
+      "duration": 5
+    }
+[2026-06-25 01:38:21] INFO processor.route.selected
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  details:
+    {
+      "processor": "AudioProcessorService",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:38:21] INFO audio_processor.started
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:38:21] INFO whisper.transcription.started
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:38:21] DEBUG whisper.download.started
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:38:22] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:38:22] DEBUG whisper.download.completed
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  details:
+    {
+      "sizeBytes": 20919,
+      "durationMs": 776,
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:38:22] INFO audio.transcription.direct_selected
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg"
+    }
+[2026-06-25 01:38:22] INFO audio.conversion.skipped
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg",
+      "reason": "groq_direct_format"
+    }
+[2026-06-25 01:38:22] INFO whisper.api.request
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  details:
+    {
+      "model": "whisper-large-v3",
+      "language": "en",
+      "responseFormat": "verbose_json",
+      "promptLength": 178,
+      "fileSizeBytes": 20919,
+      "fileExtension": "ogg",
+      "temperature": 0
+    }
+[2026-06-25 01:38:22] INFO whisper.api.response
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  details:
+    {
+      "detectedLanguage": "English",
+      "segmentCount": 1,
+      "textLength": 66,
+      "durationMs": 443
+    }
+[2026-06-25 01:38:22] INFO whisper.transcription.completed
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  details:
+    {
+      "textPreview": " Remove the meet uni friends task today. Not meeting them anymore.",
+      "textLength": 66,
+      "processingTimeMs": 1221,
+      "fileSizeBytes": 20919,
+      "qualityFlaggedSegments": 0,
+      "qualityTotalSegments": 1
+    }
+[2026-06-25 01:38:23] INFO text_processor.started
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  details:
+    {
+      "messageLength": 66
+    }
+[2026-06-25 01:38:23] INFO langgraph.stream.started
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397
+  details:
+    {
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:38:39] INFO langgraph.stream.completed
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397
+  details:
+    {
+      "path": "/invoke/stream",
+      "status": "interrupted",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397",
+      "durationMs": 16267
+    }
+[2026-06-25 01:38:39] INFO telegram.clarification.pending_saved
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397
+  details:
+    {
+      "pendingKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "pendingThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397"
+    }
+[2026-06-25 01:38:39] INFO text_processor.completed
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397
+  details:
+    {
+      "messageLength": 66,
+      "responseLength": 509,
+      "agentStatus": "interrupted",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397",
+      "resumedFromPendingClarification": false,
+      "interruptType": "clarify",
+      "durationMs": 16267
+    }
+[2026-06-25 01:38:39] INFO audio_processor.completed
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  details:
+    {
+      "durationMs": 17843,
+      "transcriptionTextLength": 66,
+      "hasTranscription": true
+    }
+[2026-06-25 01:38:39] INFO telegram.reply.sent
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 397
+  messageType: voice
+  details:
+    {
+      "responseLength": 587,
+      "totalDurationMs": 19323
+    }
+[2026-06-25 01:38:39] INFO telegram.update.handling_completed
+  requestId: tg_mqscx18r_u6plm9
+  updateId: 564452121
+  details:
+    {
+      "durationMs": 19327
+    }
+[2026-06-25 01:38:54] INFO telegram.webhook.received
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  messageType: voice
+[2026-06-25 01:38:54] INFO telegram.update.handling_started
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+[2026-06-25 01:38:54] INFO telegram.message.received
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  details:
+    {
+      "fileSize": 18836,
+      "duration": 4
+    }
+[2026-06-25 01:38:55] INFO processor.route.selected
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  details:
+    {
+      "processor": "AudioProcessorService",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:38:55] INFO audio_processor.started
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:38:55] INFO whisper.transcription.started
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:38:55] DEBUG whisper.download.started
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-06-25 01:38:55] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  details:
+    {
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:38:55] DEBUG whisper.download.completed
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  details:
+    {
+      "sizeBytes": 18836,
+      "durationMs": 685,
+      "contentType": "application/octet-stream"
+    }
+[2026-06-25 01:38:55] INFO audio.transcription.direct_selected
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg"
+    }
+[2026-06-25 01:38:55] INFO audio.conversion.skipped
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  details:
+    {
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg",
+      "reason": "groq_direct_format"
+    }
+[2026-06-25 01:38:55] INFO whisper.api.request
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  details:
+    {
+      "model": "whisper-large-v3",
+      "language": "en",
+      "responseFormat": "verbose_json",
+      "promptLength": 178,
+      "fileSizeBytes": 18836,
+      "fileExtension": "ogg",
+      "temperature": 0
+    }
+[2026-06-25 01:38:56] INFO whisper.api.response
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  details:
+    {
+      "detectedLanguage": "English",
+      "segmentCount": 2,
+      "textLength": 59,
+      "durationMs": 399
+    }
+[2026-06-25 01:38:56] INFO whisper.transcription.completed
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  details:
+    {
+      "textPreview": " Oh yes, it's the meat combination group thing. Yep, sorry.",
+      "textLength": 59,
+      "processingTimeMs": 1088,
+      "fileSizeBytes": 18836,
+      "qualityFlaggedSegments": 0,
+      "qualityTotalSegments": 2
+    }
+[2026-06-25 01:38:56] INFO text_processor.started
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  details:
+    {
+      "messageLength": 59
+    }
+[2026-06-25 01:38:56] INFO langgraph.stream.started
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397
+  details:
+    {
+      "path": "/resume/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:38:59] INFO langgraph.stream.completed
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397
+  details:
+    {
+      "path": "/resume/stream",
+      "status": "interrupted",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397",
+      "durationMs": 2879
+    }
+[2026-06-25 01:38:59] INFO telegram.clarification.pending_saved
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397
+  details:
+    {
+      "pendingKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "pendingThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397"
+    }
+[2026-06-25 01:38:59] INFO text_processor.completed
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397
+  details:
+    {
+      "messageLength": 59,
+      "responseLength": 83,
+      "agentStatus": "interrupted",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397",
+      "resumedFromPendingClarification": true,
+      "interruptType": "confirm",
+      "durationMs": 2881
+    }
+[2026-06-25 01:38:59] INFO audio_processor.completed
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  details:
+    {
+      "durationMs": 4339,
+      "transcriptionTextLength": 59,
+      "hasTranscription": true
+    }
+[2026-06-25 01:38:59] INFO telegram.reply.sent
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 399
+  messageType: voice
+  details:
+    {
+      "responseLength": 154,
+      "totalDurationMs": 5848
+    }
+[2026-06-25 01:38:59] INFO telegram.update.handling_completed
+  requestId: tg_mqscxr5f_izlqrb
+  updateId: 564452122
+  details:
+    {
+      "durationMs": 5852
+    }
+[2026-06-25 01:39:02] INFO telegram.webhook.received
+  requestId: tg_mqscxxrj_9zq0ot
+  updateId: 564452123
+  messageType: unknown
+[2026-06-25 01:39:02] INFO telegram.update.handling_started
+  requestId: tg_mqscxxrj_9zq0ot
+  updateId: 564452123
+[2026-06-25 01:39:02] INFO telegram.callback.confirm
+  requestId: cb_mqscxxrp_v4mncm
+  userId: [REDACTED_ID]
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397
+  details:
+    {
+      "decision": "approve"
+    }
+[2026-06-25 01:39:03] INFO langgraph.request.started
+  requestId: cb_mqscxxrp_v4mncm
+  userId: [REDACTED_ID]
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397
+  details:
+    {
+      "path": "/resume",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-25 01:39:06] INFO langgraph.request.completed
+  requestId: cb_mqscxxrp_v4mncm
+  userId: [REDACTED_ID]
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397
+  details:
+    {
+      "path": "/resume",
+      "status": "completed",
+      "requestedThreadId": "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397",
+      "durationMs": 3198
+    }
+[2026-06-25 01:39:06] INFO telegram.callback.confirm.completed
+  requestId: cb_mqscxxrp_v4mncm
+  userId: [REDACTED_ID]
+  threadId: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_397
+  details:
+    {
+      "decision": "approve",
+      "agentStatus": "completed"
+    }
+[2026-06-25 01:39:06] INFO telegram.update.handling_completed
+  requestId: tg_mqscxxrj_9zq0ot
+  updateId: 564452123
+  details:
+    {
+      "durationMs": 4316
+    }

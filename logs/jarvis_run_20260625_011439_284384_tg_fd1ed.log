@@ -1,0 +1,54 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-25T01:14:39
+request_id: cb_mqsc2k56_d08dpe
+thread_id: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370
+user_id: telegram:701122767
+request_source: telegram
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: True
+------------------------------------------------------------------------------
+2026-06-25 01:14:39.285 | section              | === Jarvis LangGraph Run ===
+2026-06-25 01:14:39.286 | runtime.start        | Starting graph invocation. | request_id=cb_mqsc2k56_d08dpe, model=deepseek-v4-flash, allow_mutations=true, max_turns=20, thread_id=tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_370, request_source=telegram, resuming=true
+2026-06-25 01:14:39.286 | runtime.prompt       | [payload] user_prompt: approve
+2026-06-25 01:14:39.347 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-25 01:14:39.348 | graph.confirm        | Interrupting for user confirmation. | count=1, tool_names=["delete_todoist_task"], summary=Delete task "dinner with combanition".
+This action is irreversible.
+2026-06-25 01:14:39.349 | graph.confirm        | Resumed from user confirmation. | decision=approve, count=1
+2026-06-25 01:14:39.350 | graph.executor       | Evaluating guards. | count=1, decision=approve
+2026-06-25 01:14:39.350 | graph.executor       | Dispatching concurrent execution. | count=1, max_workers=1, timeout=45.0
+2026-06-25 01:14:39.350 | graph.executor       | Executing confirmed action. | held_call_id=80a12d3c-21eb-4cc8-b6ee-80bdcb89ffd3, tool_name=delete_todoist_task
+2026-06-25 01:14:39.391 | tool.start           | Preparing tool call. | id=call_00_Tpc08AqEpbh1TmnjMcBy3676, name=delete_todoist_task, mutating=true
+2026-06-25 01:14:39.391 | tool.args            | [payload] delete_todoist_task: {"task_id": "6gw8M7qr2XMJx7cp"}
+2026-06-25 01:14:39.392 | todoist.request      | Sending Todoist API request. | method=DELETE, endpoint=/tasks/{id}, has_payload=false, attempt=1, max_attempts=3
+2026-06-25 01:14:39.392 | todoist.payload      | [payload] request: null
+2026-06-25 01:14:40.150 | todoist.response     | Received Todoist API response. | status=204, has_body=false, attempt=1
+2026-06-25 01:14:40.151 | tool.done            | Tool call completed. | name=delete_todoist_task
+2026-06-25 01:14:40.151 | tool.result          | [payload] delete_todoist_task: {"message": "Task 6gw8M7qr2XMJx7cp deleted permanently", "success": true}
+2026-06-25 01:14:40.152 | graph.executor       | Execution completed. | held_call_id=80a12d3c-21eb-4cc8-b6ee-80bdcb89ffd3, success=true
+2026-06-25 01:14:40.156 | graph.agent          | Entering agent node. | turn=9, max_turns=20, messages=20
+2026-06-25 01:14:40.156 | graph.tools.selected | Selected tools for this turn. | available=10, selected=10
+2026-06-25 01:14:40.158 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=20, tools=10
+2026-06-25 01:14:41.539 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true, prompt_tokens=15172, completion_tokens=45, total_tokens=15217
+2026-06-25 01:14:41.541 | agent.final          | [payload] content: Done! The **dinner with combanition (Konbani Shen)** — due today at 19:00 — has been permanently deleted. All cleared! 🗑️
+2026-06-25 01:14:41.541 | graph.route          | Agent node completed. | next=end, turn=9
+2026-06-25 01:14:41.546 | runtime.done         | Graph invocation completed. | request_id=cb_mqsc2k56_d08dpe, turns=9, tool_results=8, has_error=false, interrupted=false, total_tokens=15217
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-25T01:14:41
+duration_seconds: 2.262
+request_id: cb_mqsc2k56_d08dpe
+turns: 9
+tool_results: 8
+has_error: False
+interrupted: False
+prompt_tokens: 15172
+completion_tokens: 45
+total_tokens: 15217
+cached_tokens: 14976
+reasoning_tokens: 7
+==============================================================================
