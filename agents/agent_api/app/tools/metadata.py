@@ -20,6 +20,7 @@ class ToolDisplayMeta:
     label: str
     irreversible: bool = False
     always_risky: bool = False
+    needs_task_context: bool = False
     highlight_arg: Optional[str] = None
     render_fn: Optional[Callable[[dict], str]] = None
 
@@ -61,6 +62,7 @@ _REGISTRY: Dict[str, ToolDisplayMeta] = {
         label="Delete task",
         irreversible=True,
         always_risky=True,
+        needs_task_context=True,
         render_fn=_render_task_with_context,
     ),
     "bulk_add_todoist_tasks": ToolDisplayMeta(
@@ -82,11 +84,18 @@ _REGISTRY: Dict[str, ToolDisplayMeta] = {
     "complete_task": ToolDisplayMeta(
         verb="completing",
         label="Complete task",
+        needs_task_context=True,
         render_fn=_render_task_with_context,
     ),
 }
 
 DEFAULT_META = ToolDisplayMeta(verb="modifying", label="Modify item")
+
+_IRREVERSIBLE_TOOLS = frozenset(name for name, m in _REGISTRY.items() if m.irreversible)
+_ALWAYS_RISKY_TOOLS = frozenset(name for name, m in _REGISTRY.items() if m.always_risky)
+_NEEDS_TASK_CONTEXT = frozenset(
+    name for name, m in _REGISTRY.items() if m.needs_task_context
+)
 
 
 def get_meta(tool_name: str) -> ToolDisplayMeta:
@@ -101,12 +110,17 @@ def get_verb(tool_name: str) -> str:
 
 def irreversible_tools() -> frozenset:
     """Tools whose effects cannot be undone (drives suffix text in confirmations)."""
-    return frozenset(name for name, m in _REGISTRY.items() if m.irreversible)
+    return _IRREVERSIBLE_TOOLS
 
 
 def always_risky_tools() -> frozenset:
     """Tools that always route to the confirm gate regardless of count."""
-    return frozenset(name for name, m in _REGISTRY.items() if m.always_risky)
+    return _ALWAYS_RISKY_TOOLS
+
+
+def needs_task_context_tools() -> frozenset:
+    """Tools that benefit from task-content enrichment before confirmation."""
+    return _NEEDS_TASK_CONTEXT
 
 
 __all__ = [
@@ -116,4 +130,5 @@ __all__ = [
     "get_meta",
     "get_verb",
     "irreversible_tools",
+    "needs_task_context_tools",
 ]

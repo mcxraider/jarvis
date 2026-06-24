@@ -1,0 +1,89 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-24T17:04:25
+request_id: e6358417-5e55-4efe-b5e6-6a65035df441
+thread_id: 044edf28-9fcd-412a-8a63-dd735b9439ee
+user_id: local-user
+request_source: cli
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: True
+------------------------------------------------------------------------------
+2026-06-24 17:04:25.561 | section              | === Jarvis LangGraph Run ===
+2026-06-24 17:04:25.562 | runtime.start        | Starting graph invocation. | request_id=e6358417-5e55-4efe-b5e6-6a65035df441, model=deepseek-v4-flash, allow_mutations=true, max_turns=20, thread_id=044edf28-9fcd-412a-8a63-dd735b9439ee, request_source=cli, resuming=true
+2026-06-24 17:04:25.562 | runtime.prompt       | [payload] user_prompt: add 24 tasks titled 'hehehehehehhe' due tomorrow
+2026-06-24 17:04:25.611 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-24 17:04:25.613 | graph.confirm        | Interrupting for user confirmation. | count=4, tool_names=["add_todoist_task"], summary=I'm adding 4 items:
+  1. Add task "hehehehehehhe".
+  2. Add task "hehehehehehhe".
+  3. Add task "hehehehehehhe".
+  4. Add task "hehehehehehhe".
+Please confirm to proceed.
+2026-06-24 17:04:25.613 | graph.confirm        | Resumed from user confirmation. | decision=approve, count=4
+2026-06-24 17:04:25.615 | graph.executor       | Evaluating guards. | count=4, decision=approve
+2026-06-24 17:04:25.615 | graph.executor       | Dispatching concurrent execution. | count=4, max_workers=4, timeout=45.0
+2026-06-24 17:04:25.615 | graph.executor       | Executing confirmed action. | held_call_id=e900243f-741c-4b47-a91b-7df95a04fbcf, tool_name=add_todoist_task
+2026-06-24 17:04:25.615 | graph.executor       | Executing confirmed action. | held_call_id=b2c8f214-f11c-4515-b5c6-c756a2a176f0, tool_name=add_todoist_task
+2026-06-24 17:04:25.616 | tool.start           | Preparing tool call. | id=call_00_kK1IS4qTLrkZkSfI9p8u1887, name=add_todoist_task, mutating=true
+2026-06-24 17:04:25.616 | graph.executor       | Executing confirmed action. | held_call_id=7b5c8751-ff71-42a7-a770-3b222c7ccb65, tool_name=add_todoist_task
+2026-06-24 17:04:25.616 | tool.start           | Preparing tool call. | id=call_01_vfuqGkdoEVQMFg5Awu1H8980, name=add_todoist_task, mutating=true
+2026-06-24 17:04:25.616 | tool.args            | [payload] add_todoist_task: {"content": "hehehehehehhe", "due_string": "tomorrow"}
+2026-06-24 17:04:25.617 | tool.start           | Preparing tool call. | id=call_02_5YEPB5hRR8hpsTQStWG49946, name=add_todoist_task, mutating=true
+2026-06-24 17:04:25.617 | graph.executor       | Executing confirmed action. | held_call_id=5957e8e4-a0ab-4269-8aba-adcd24fe355f, tool_name=add_todoist_task
+2026-06-24 17:04:25.617 | tool.args            | [payload] add_todoist_task: {"content": "hehehehehehhe", "due_string": "tomorrow"}
+2026-06-24 17:04:25.618 | tool.args            | [payload] add_todoist_task: {"content": "hehehehehehhe", "due_string": "tomorrow"}
+2026-06-24 17:04:25.618 | tool.start           | Preparing tool call. | id=call_03_cz10Vm3aecOS7Ajqrt2r2801, name=add_todoist_task, mutating=true
+2026-06-24 17:04:25.618 | todoist.request      | Sending Todoist API request. | method=POST, endpoint=/tasks, has_payload=true, attempt=1, max_attempts=3
+2026-06-24 17:04:25.619 | todoist.request      | Sending Todoist API request. | method=POST, endpoint=/tasks, has_payload=true, attempt=1, max_attempts=3
+2026-06-24 17:04:25.619 | tool.args            | [payload] add_todoist_task: {"content": "hehehehehehhe", "due_string": "tomorrow"}
+2026-06-24 17:04:25.619 | todoist.payload      | [payload] request: {"content": "hehehehehehhe", "due_string": "tomorrow"}
+2026-06-24 17:04:25.619 | todoist.payload      | [payload] request: {"content": "hehehehehehhe", "due_string": "tomorrow"}
+2026-06-24 17:04:25.619 | todoist.request      | Sending Todoist API request. | method=POST, endpoint=/tasks, has_payload=true, attempt=1, max_attempts=3
+2026-06-24 17:04:25.620 | todoist.request      | Sending Todoist API request. | method=POST, endpoint=/tasks, has_payload=true, attempt=1, max_attempts=3
+2026-06-24 17:04:25.620 | todoist.payload      | [payload] request: {"content": "hehehehehehhe", "due_string": "tomorrow"}
+2026-06-24 17:04:25.620 | todoist.payload      | [payload] request: {"content": "hehehehehehhe", "due_string": "tomorrow"}
+2026-06-24 17:04:26.835 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-24 17:04:26.835 | todoist.payload      | [payload] response: {"added_at": "2026-06-24T09:04:26.317193Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3983, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "hehehehehehhe", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-25", "is_recurring": false, "lang": "en", "string": "tomorrow", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gwv7fJGg4rmFphp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-24T09:04:26.317214Z", "user_id": "41485550"}
+2026-06-24 17:04:26.836 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-24 17:04:26.836 | tool.done            | Tool call completed. | name=add_todoist_task
+2026-06-24 17:04:26.837 | todoist.payload      | [payload] response: {"added_at": "2026-06-24T09:04:26.322331Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3983, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "hehehehehehhe", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-25", "is_recurring": false, "lang": "en", "string": "tomorrow", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gwv7fHh8p52xFGG", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-24T09:04:26.322352Z", "user_id": "41485550"}
+2026-06-24 17:04:26.837 | tool.result          | [payload] add_todoist_task: {"added_at": "2026-06-24T09:04:26.317193Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3983, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "hehehehehehhe", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-25", "is_recurring": false, "lang": "en", "string": "tomorrow", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gwv7fJGg4rmFphp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-24T09:04:26.317214Z", "user_id": "41485550"}
+2026-06-24 17:04:26.837 | tool.done            | Tool call completed. | name=add_todoist_task
+2026-06-24 17:04:26.837 | graph.executor       | Execution completed. | held_call_id=e900243f-741c-4b47-a91b-7df95a04fbcf, success=true
+2026-06-24 17:04:26.838 | tool.result          | [payload] add_todoist_task: {"added_at": "2026-06-24T09:04:26.322331Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3983, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "hehehehehehhe", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-25", "is_recurring": false, "lang": "en", "string": "tomorrow", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gwv7fHh8p52xFGG", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-24T09:04:26.322352Z", "user_id": "41485550"}
+2026-06-24 17:04:26.838 | graph.executor       | Execution completed. | held_call_id=5957e8e4-a0ab-4269-8aba-adcd24fe355f, success=true
+2026-06-24 17:04:26.846 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-24 17:04:26.847 | todoist.payload      | [payload] response: {"added_at": "2026-06-24T09:04:26.319533Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3983, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "hehehehehehhe", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-25", "is_recurring": false, "lang": "en", "string": "tomorrow", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gwv7fGhPmg2RGGG", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-24T09:04:26.319558Z", "user_id": "41485550"}
+2026-06-24 17:04:26.847 | tool.done            | Tool call completed. | name=add_todoist_task
+2026-06-24 17:04:26.847 | tool.result          | [payload] add_todoist_task: {"added_at": "2026-06-24T09:04:26.319533Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3983, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "hehehehehehhe", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-25", "is_recurring": false, "lang": "en", "string": "tomorrow", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gwv7fGhPmg2RGGG", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-24T09:04:26.319558Z", "user_id": "41485550"}
+2026-06-24 17:04:26.848 | graph.executor       | Execution completed. | held_call_id=b2c8f214-f11c-4515-b5c6-c756a2a176f0, success=true
+2026-06-24 17:04:27.184 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-24 17:04:27.185 | todoist.payload      | [payload] response: {"added_at": "2026-06-24T09:04:26.732185Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3984, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "hehehehehehhe", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-25", "is_recurring": false, "lang": "en", "string": "tomorrow", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gwv7fHCVCvmf6rp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-24T09:04:26.732204Z", "user_id": "41485550"}
+2026-06-24 17:04:27.185 | tool.done            | Tool call completed. | name=add_todoist_task
+2026-06-24 17:04:27.186 | tool.result          | [payload] add_todoist_task: {"added_at": "2026-06-24T09:04:26.732185Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3984, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "hehehehehehhe", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-25", "is_recurring": false, "lang": "en", "string": "tomorrow", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gwv7fHCVCvmf6rp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-24T09:04:26.732204Z", "user_id": "41485550"}
+2026-06-24 17:04:27.187 | graph.executor       | Execution completed. | held_call_id=7b5c8751-ff71-42a7-a770-3b222c7ccb65, success=true
+2026-06-24 17:04:27.190 | graph.agent          | Entering agent node. | turn=8, max_turns=20, messages=35
+2026-06-24 17:04:27.191 | graph.tools.selected | Selected tools for this turn. | available=10, selected=10
+2026-06-24 17:04:27.192 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=35, tools=10
+2026-06-24 17:04:28.517 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true, prompt_tokens=14430, completion_tokens=58, total_tokens=14488
+2026-06-24 17:04:28.518 | agent.final          | [payload] content: All **24 tasks** titled **"hehehehehehhe"** have been successfully created in your Todoist inbox, all due **tomorrow (June 25, 2026)** ✅
+2026-06-24 17:04:28.519 | graph.route          | Agent node completed. | next=end, turn=8
+2026-06-24 17:04:28.522 | runtime.done         | Graph invocation completed. | request_id=e6358417-5e55-4efe-b5e6-6a65035df441, turns=8, tool_results=26, has_error=false, interrupted=false, total_tokens=66597
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-24T17:04:28
+duration_seconds: 2.962
+request_id: e6358417-5e55-4efe-b5e6-6a65035df441
+turns: 8
+tool_results: 26
+has_error: False
+interrupted: False
+prompt_tokens: 64356
+completion_tokens: 2241
+total_tokens: 66597
+cached_tokens: 55040
+reasoning_tokens: 492
+==============================================================================
