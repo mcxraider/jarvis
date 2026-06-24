@@ -1,0 +1,48 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-25T00:57:38
+request_id: tg_mqsbgomy_eqlded
+thread_id: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_365
+user_id: telegram:701122767
+request_source: telegram
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: True
+------------------------------------------------------------------------------
+2026-06-25 00:57:38.339 | section              | === Jarvis LangGraph Run ===
+2026-06-25 00:57:38.339 | runtime.start        | Starting graph invocation. | request_id=tg_mqsbgomy_eqlded, model=deepseek-v4-flash, allow_mutations=true, max_turns=20, thread_id=tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_365, request_source=telegram, resuming=true
+2026-06-25 00:57:38.340 | runtime.prompt       | [payload] user_prompt: yes
+2026-06-25 00:57:38.410 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-25 00:57:38.412 | graph.hitl           | Interrupting for user clarification. | question=I found **23 tasks** due tomorrow, but their title is **"hehehehehehhe"** — close to what you typed but with a couple of extra letters. Did you mean those tasks?, deferred_tools=0, extra_questions=0
+2026-06-25 00:57:38.412 | graph.hitl           | Resumed from user clarification.
+2026-06-25 00:57:38.413 | graph.agent          | Entering agent node. | turn=4, max_turns=20, messages=9
+2026-06-25 00:57:38.414 | graph.tools.selected | Selected tools for this turn. | available=10, selected=10
+2026-06-25 00:57:38.414 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=9, tools=10
+2026-06-25 00:57:55.634 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=24, has_content=true, has_reasoning=true, prompt_tokens=11917, completion_tokens=2832, total_tokens=14749
+2026-06-25 00:57:55.636 | graph.route          | Agent node completed. | next=tools, turn=4
+2026-06-25 00:57:55.653 | graph.prepare_confirm | Froze risky actions into held_calls. | held_call_count=24, tool_names=["delete_todoist_task"], deferred_count=0
+2026-06-25 00:57:55.656 | graph.confirm        | Interrupting for user confirmation. | count=24, tool_names=["delete_todoist_task"], summary=I'm deleting 24 items:
+  1. Delete task "hehehehehehhe".
+  2. Delete task "hehehehehehhe".
+  3. Delete task "hehehehehehhe".
+  4. Delete task "hehehehehehhe".
+  5. Delete task "...
+2026-06-25 00:57:55.658 | runtime.done         | Graph invocation completed. | request_id=tg_mqsbgomy_eqlded, turns=4, tool_results=2, has_error=false, interrupted=true, interrupt_type=confirm, total_tokens=14749
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-25T00:57:55
+duration_seconds: 17.321
+request_id: tg_mqsbgomy_eqlded
+turns: 4
+tool_results: 2
+has_error: False
+interrupted: True
+prompt_tokens: 11917
+completion_tokens: 2832
+total_tokens: 14749
+cached_tokens: 11648
+reasoning_tokens: 1732
+==============================================================================
