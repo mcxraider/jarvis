@@ -414,18 +414,18 @@ export class LangGraphAgentClient {
     status?: string;
     thread_id?: string;
     response?: string;
-    interrupt?: import('../../types/agent.types').LangGraphInterrupt;
-    tool_results?: Record<string, unknown>[];
-    error?: string;
+    interrupt?: import('../../types/agent.types').LangGraphInterrupt | null;
+    tool_results?: Record<string, unknown>[] | null;
+    error?: string | null;
   }): LangGraphAgentResponse {
     const status = (body.status as LangGraphAgentStatus) || 'failed';
     return {
       status,
       threadId: body.thread_id || '',
       response: body.response || 'Jarvis could not complete that request.',
-      interrupt: body.interrupt,
+      interrupt: body.interrupt ?? undefined,
       toolResults: body.tool_results || [],
-      error: body.error,
+      error: body.error ?? undefined,
     };
   }
 

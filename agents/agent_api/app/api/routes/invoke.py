@@ -76,8 +76,8 @@ def to_response(result: JarvisState) -> AgentResponse:
 
 def response_payload(response: AgentResponse) -> Dict[str, Any]:
     if hasattr(response, "model_dump"):
-        return response.model_dump()
-    return response.dict()
+        return response.model_dump(exclude_none=True)
+    return response.dict(exclude_none=True)
 
 
 def stream_agent_run(run_callable: Any):
