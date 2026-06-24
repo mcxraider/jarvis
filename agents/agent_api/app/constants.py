@@ -17,6 +17,19 @@ DEBUG_PAYLOADS = settings.debug_payloads
 
 CONFIRM_BULK_THRESHOLD = settings.confirm_bulk_threshold
 
+SUMMARIZER_MODEL = settings.summarizer_model
+SUMMARIZE_THRESHOLD = settings.summarize_threshold
+SUMMARIZER_REQUEST_TIMEOUT_SECONDS = settings.summarizer_request_timeout_seconds
+SUMMARIZER_MAX_RETRY_ATTEMPTS = settings.summarizer_max_retry_attempts
+SUMMARIZER_RETRY_MAX_DELAY_SECONDS = settings.summarizer_retry_max_delay_seconds
+SUMMARIZER_MIN_ID_COVERAGE = settings.summarizer_min_id_coverage
+SUMMARIZER_MAX_TOKENS_CEILING = settings.summarizer_max_tokens_ceiling
+
+EXECUTOR_MAX_WORKERS = settings.executor_max_workers
+EXECUTOR_BATCH_TIMEOUT_SECONDS = settings.executor_batch_timeout_seconds
+EXECUTOR_CIRCUIT_BREAKER_THRESHOLD = settings.executor_circuit_breaker_threshold
+EXECUTOR_THROTTLE_ENABLED = settings.executor_throttle_enabled
+
 DEEPSEEK_MODEL = settings.deepseek_model
 DEEPSEEK_BASE_URL = settings.deepseek_base_url
 DEEPSEEK_REQUEST_TIMEOUT_SECONDS = settings.deepseek_request_timeout_seconds
@@ -36,6 +49,17 @@ __all__ = [
     "MAX_AGENT_TURNS",
     "DEBUG_TRACE",
     "DEBUG_PAYLOADS",
+    "SUMMARIZER_MODEL",
+    "SUMMARIZE_THRESHOLD",
+    "SUMMARIZER_REQUEST_TIMEOUT_SECONDS",
+    "SUMMARIZER_MAX_RETRY_ATTEMPTS",
+    "SUMMARIZER_RETRY_MAX_DELAY_SECONDS",
+    "SUMMARIZER_MIN_ID_COVERAGE",
+    "SUMMARIZER_MAX_TOKENS_CEILING",
+    "EXECUTOR_MAX_WORKERS",
+    "EXECUTOR_BATCH_TIMEOUT_SECONDS",
+    "EXECUTOR_CIRCUIT_BREAKER_THRESHOLD",
+    "EXECUTOR_THROTTLE_ENABLED",
     "DEEPSEEK_MODEL",
     "DEEPSEEK_BASE_URL",
     "DEEPSEEK_REQUEST_TIMEOUT_SECONDS",

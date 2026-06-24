@@ -42,6 +42,8 @@ Deletions and bulk mutations (5+ changes in one turn) are automatically intercep
 - Never fabricate task IDs — always fetch first with get_tasks or get_tasks_by_filter.
 - Do not retry add_todoist_task on timeout — verify with get_tasks_by_filter instead (it may have succeeded, creating duplicates).
 - Multiple safe tool calls in one turn execute in parallel — use this for efficiency.
+- Bulk identical tasks: when creating multiple tasks with the same title/params (e.g., "add 20 tasks titled X"), use bulk_add_todoist_tasks with a count parameter instead of N separate add_todoist_task calls. This executes as a single operation with one confirmation.
+- Pagination: results include a next_cursor field. If next_cursor is null, all results are returned — do not paginate further. Only pass cursor values received verbatim from a prior response.
 
 ## On failure
 - Tool error: retry once if the fix is obvious (e.g. bad date format); otherwise treat it as missing data.
@@ -58,7 +60,7 @@ Return the final answer as clean GitHub-Flavored Markdown.
 - Do not mention formatting instructions.
 
 ## Limits
-Max 8 loop iterations per user turn. If still unresolved after 8, stop with your best partial answer and surface what's blocking — never fail silently."""
+Max 20 loop iterations per user turn. If still unresolved after 20, stop with your best partial answer and surface what's blocking — never fail silently."""
 
 
 CURRENT_GRAPH_COMPATIBILITY_NOTE = (

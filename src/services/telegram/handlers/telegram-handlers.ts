@@ -1,49 +1,21 @@
-// src/services/telegram/handlers/telegram-handlers.ts
+// src/services/telegram/handlers/telegram-handlers.ts — Registers all Telegraf event
+// handlers in the correct order. Registration order matters because Telegraf evaluates
+// handlers top-down and stops at the first match within a category (commands, then
+// specialized message types, then the generic 'message' catch-all).
+
 import { Telegraf, Context } from 'telegraf';
-import { LangGraphAgentClient } from '../../ai/langgraph-agent-client.service';
-import { FileService } from '../file.service';
-import { MessageProcessorService } from '../message-processor.service';
-import { PendingClarificationStore, createPendingClarificationStore } from '../pending-clarification.store';
-import { CommandHandlers } from '../handlers/command-handlers';
-import { CallbackHandler } from '../handlers/callback-handler';
-import { MessageHandlers } from '../handlers/message-handlers';
-import { BotActivityService } from '../bot-activity.service';
-import { BotStatusService } from '../bot-status.service';
+import { CommandHandlers } from './command-handlers';
+import { CallbackHandler } from './callback-handler';
+import { MessageHandlers } from './message-handlers';
 
-/**
- * Centralizes all Telegram bot handlers
- */
 export class TelegramHandlers {
-  private readonly commandHandlers: CommandHandlers;
-  private readonly messageHandlers: MessageHandlers;
-  private callbackHandler?: CallbackHandler;
-  private readonly agentClient?: LangGraphAgentClient;
-  private readonly pendingStore?: PendingClarificationStore;
-
   constructor(
-    fileService: FileService,
-    messageProcessor: MessageProcessorService,
-    activityService: BotActivityService,
-    statusService: BotStatusService,
-    agentClient?: LangGraphAgentClient,
-    pendingStore?: PendingClarificationStore,
-  ) {
-    this.commandHandlers = new CommandHandlers(activityService, statusService);
-    this.messageHandlers = new MessageHandlers(fileService, messageProcessor, activityService);
-    this.agentClient = agentClient;
-    this.pendingStore = pendingStore;
-  }
+    private readonly commandHandlers: CommandHandlers,
+    private readonly messageHandlers: MessageHandlers,
+    private readonly callbackHandler: CallbackHandler,
+  ) {}
 
-  private getCallbackHandler(): CallbackHandler {
-    if (!this.callbackHandler) {
-      this.callbackHandler = new CallbackHandler(
-        this.agentClient || new LangGraphAgentClient(),
-        this.pendingStore || createPendingClarificationStore(),
-      );
-    }
-    return this.callbackHandler;
-  }
-
+  // Wires all handler groups onto the Telegraf bot instance. Called once at startup.
   setupHandlers(bot: Telegraf<Context>): void {
     this.setupCommandHandlers(bot);
     this.setupCallbackHandlers(bot);
@@ -55,10 +27,13 @@ export class TelegramHandlers {
     bot.command('status', this.commandHandlers.handleStatus.bind(this.commandHandlers));
   }
 
+  // Inline keyboard button presses (e.g. Approve/Decline on confirm interrupts).
   private setupCallbackHandlers(bot: Telegraf<Context>): void {
-    bot.on('callback_query', (ctx) => this.getCallbackHandler().handleCallbackQuery(ctx));
+    bot.on('callback_query', (ctx) => this.callbackHandler.handleCallbackQuery(ctx));
   }
 
+  // Message handlers ordered from most specific to least specific. The final 'message'
+  // handler acts as a catch-all for any media type we haven't explicitly handled above.
   private setupMessageHandlers(bot: Telegraf<Context>): void {
     bot.on('text', this.messageHandlers.handleText.bind(this.messageHandlers));
     bot.on('voice', this.messageHandlers.handleVoice.bind(this.messageHandlers));

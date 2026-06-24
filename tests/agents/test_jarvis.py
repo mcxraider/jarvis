@@ -558,15 +558,13 @@ class JarvisGraphTests(unittest.TestCase):
     def test_system_prompt_uses_orchestrator_contract(self) -> None:
         prompt = jarvis.get_system_prompt()
 
-        self.assertIn("You are Jarvis, the Jerry's personal orchestrator agent.", prompt)
-        self.assertIn("DISPATCH requires a dispatch_workers tool", prompt)
-        self.assertIn("Call ask_user", prompt)
+        self.assertIn("You are Jarvis, Jerry's personal assistant agent.", prompt)
+        self.assertIn("ask_user", prompt)
         self.assertIn(
             "End ANSWER at the requested deliverable; do not append offers for further help",
             prompt,
         )
-        self.assertIn("Max 8 loop iterations per user turn", prompt)
-        self.assertIn("Current LangGraph runner supports ANSWER and TOOL_CALL", prompt)
+        self.assertIn("Max 20 loop iterations per user turn", prompt)
 
     def test_worker_prompt_available_for_worker_nodes(self) -> None:
         prompt = jarvis.get_worker_prompt()
@@ -916,7 +914,7 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(result["messages"][3]["tool_call_id"], "call_ask")
         self.assertEqual(result["messages"][3]["name"], jarvis.ASK_USER_TOOL_NAME)
         self.assertEqual(json.loads(result["messages"][3]["content"])["user_reply"], "the dentist task")
-        self.assertEqual(result["messages"][4]["content"], "the dentist task")
+        self.assertIn("Clarification received", result["messages"][4]["content"])
         self.assertEqual(len(agent_client.calls), 2)
         second_call_roles = [message.get("role") for message in agent_client.calls[1]]
         self.assertEqual(second_call_roles, ["system", "user", "assistant", "tool", "user"])

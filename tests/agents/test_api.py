@@ -90,7 +90,7 @@ class JarvisApiTests(unittest.TestCase):
         def fake_run(**kwargs):
             tracer = kwargs["tracer"]
             tracer.event("runtime.start", "Starting graph invocation.", resuming=False)
-            tracer.event("graph.agent", "Entering agent node.", turn=1, max_turns=8)
+            tracer.event("graph.agent", "Entering agent node.", turn=1, max_turns=20)
             tracer.event("agent.request", "Calling DeepSeek chat completions.")
             tracer.event("agent.response", "Received assistant message.", tool_calls=1)
             tracer.event("graph.route", "Agent node completed.", next="tools")

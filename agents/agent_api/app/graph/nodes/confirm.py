@@ -10,6 +10,7 @@ from typing import List, Optional
 from langgraph.types import interrupt
 
 from agents.agent_api.app.graph.state import JarvisState
+from agents.agent_api.app.tools.metadata import get_meta, get_verb, irreversible_tools
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 APPROVE_TOKENS = frozenset({"approve", "yes", "confirm", "ok", "y"})
@@ -27,27 +28,49 @@ def render_action_summary(held_call: dict) -> str:
     """Produce a human-readable summary of a single frozen action."""
     tool_name = held_call.get("tool_name", "unknown")
     args = held_call.get("args", {})
+    meta = get_meta(tool_name)
 
-    if tool_name == "delete_todoist_task":
-        task_id = args.get("task_id", "unknown")
-        context = held_call.get("context", {})
-        task_content = context.get("task_content")
-        if task_content:
-            return f"Delete task \"{task_content}\" — this is irreversible."
-        return f"Delete task (id={task_id}) — this is irreversible."
+    if meta.render_fn:
+        return meta.render_fn(held_call)
+
+    if meta.highlight_arg:
+        value = args.get(meta.highlight_arg, "")
+        if value:
+            return f'{meta.label} "{value}".'
 
     arg_summary = ", ".join(f"{k}={v!r}" for k, v in list(args.items())[:4])
     return f"{tool_name}({arg_summary})"
 
 
+def _batch_suffix(tool_names: set) -> str:
+    """Context-sensitive caution suffix based on which tools are in the batch."""
+    irrev = irreversible_tools()
+    if tool_names and tool_names <= irrev:
+        return "This action is irreversible."
+    if tool_names & irrev:
+        return "Some of these actions are irreversible."
+    return "Please confirm to proceed."
+
+
 def render_batch_summary(held_calls: List[dict]) -> str:
     """Produce a human-readable summary for a batch of frozen actions."""
     if len(held_calls) == 1:
-        return render_action_summary(held_calls[0])
+        tool_name = held_calls[0].get("tool_name", "")
+        suffix = _batch_suffix({tool_name})
+        return f"{render_action_summary(held_calls[0])}\n{suffix}"
 
-    lines = [f"Batch of {len(held_calls)} actions:"]
+    tool_names = {h.get("tool_name", "") for h in held_calls}
+    verbs = {get_verb(name) for name in tool_names}
+
+    if len(verbs) == 1:
+        header = f"I'm {next(iter(verbs))} {len(held_calls)} items:"
+    else:
+        header = f"I'm modifying {len(held_calls)} items ({', '.join(sorted(verbs))}):"
+
+    lines = [header]
     for i, held in enumerate(held_calls, 1):
         lines.append(f"  {i}. {render_action_summary(held)}")
+    lines.append(_batch_suffix(tool_names))
     return "\n".join(lines)
 
 

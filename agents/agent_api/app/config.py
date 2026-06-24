@@ -51,6 +51,17 @@ class Settings:
     todoist_retry_base_delay_seconds: float
     todoist_retry_max_delay_seconds: float
     confirm_bulk_threshold: int
+    summarizer_model: str
+    summarize_threshold: int
+    summarizer_request_timeout_seconds: float
+    summarizer_max_retry_attempts: int
+    summarizer_retry_max_delay_seconds: float
+    summarizer_min_id_coverage: float
+    summarizer_max_tokens_ceiling: int
+    executor_max_workers: int
+    executor_batch_timeout_seconds: float
+    executor_circuit_breaker_threshold: int
+    executor_throttle_enabled: bool
     user_timezone: str
     debug_trace: bool
     debug_payloads: bool
@@ -80,7 +91,7 @@ def load_settings() -> Settings:
             "https://api.todoist.com/api/v1",
         ),
         allow_mutations=_bool_env("JARVIS_ALLOW_MUTATIONS", True),
-        max_agent_turns=_int_env("JARVIS_MAX_AGENT_TURNS", 8),
+        max_agent_turns=_int_env("JARVIS_MAX_AGENT_TURNS", 20),
         todoist_max_retry_attempts=_int_env("TODOIST_MAX_RETRY_ATTEMPTS", 3),
         todoist_retry_total_timeout_seconds=_float_env(
             "TODOIST_RETRY_TOTAL_TIMEOUT_SECONDS",
@@ -89,6 +100,20 @@ def load_settings() -> Settings:
         todoist_retry_base_delay_seconds=_float_env("TODOIST_RETRY_BASE_DELAY_SECONDS", 0.5),
         todoist_retry_max_delay_seconds=_float_env("TODOIST_RETRY_MAX_DELAY_SECONDS", 4.0),
         confirm_bulk_threshold=_int_env("JARVIS_CONFIRM_BULK_THRESHOLD", 5),
+        summarizer_model=os.getenv(
+            "JARVIS_SUMMARIZER_MODEL",
+            os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
+        ),
+        summarize_threshold=_int_env("JARVIS_SUMMARIZE_THRESHOLD", 50),
+        summarizer_request_timeout_seconds=_float_env("JARVIS_SUMMARIZER_TIMEOUT_SECONDS", 30.0),
+        summarizer_max_retry_attempts=_int_env("JARVIS_SUMMARIZER_MAX_RETRY_ATTEMPTS", 3),
+        summarizer_retry_max_delay_seconds=_float_env("JARVIS_SUMMARIZER_RETRY_MAX_DELAY_SECONDS", 8.0),
+        summarizer_min_id_coverage=_float_env("JARVIS_SUMMARIZER_MIN_ID_COVERAGE", 0.7),
+        summarizer_max_tokens_ceiling=_int_env("JARVIS_SUMMARIZER_MAX_TOKENS_CEILING", 15000),
+        executor_max_workers=_int_env("JARVIS_EXECUTOR_MAX_WORKERS", 5),
+        executor_batch_timeout_seconds=_float_env("JARVIS_EXECUTOR_BATCH_TIMEOUT_SECONDS", 45.0),
+        executor_circuit_breaker_threshold=_int_env("JARVIS_EXECUTOR_CIRCUIT_BREAKER_THRESHOLD", 2),
+        executor_throttle_enabled=_bool_env("JARVIS_EXECUTOR_THROTTLE_ENABLED", True),
         user_timezone=os.getenv("JARVIS_USER_TIMEZONE", "Asia/Taipei"),
         debug_trace=_bool_env("JARVIS_DEBUG", True),
         debug_payloads=_bool_env("JARVIS_DEBUG_PAYLOADS", True),

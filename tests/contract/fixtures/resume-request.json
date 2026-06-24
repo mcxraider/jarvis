@@ -1,0 +1,8 @@
+{
+  "message": "Yes, go ahead and delete it",
+  "user_id": "user_123",
+  "thread_id": "thread_abc123",
+  "source": "telegram",
+  "telegram_user_id": 12345,
+  "allow_mutations": true
+}

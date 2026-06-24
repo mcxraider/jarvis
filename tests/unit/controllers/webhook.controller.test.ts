@@ -69,7 +69,7 @@ describe('createWebhookRouter', () => {
     expect(handleUpdate).toHaveBeenCalledWith(expect.objectContaining(update));
   });
 
-  it('returns 500 when bot update handling fails', async () => {
+  it('returns 200 even when bot update handling fails (fire-and-forget)', async () => {
     process.env.TELEGRAM_SECRET_TOKEN = 'expected-secret';
     const { handler } = getHandler(jest.fn().mockRejectedValue(new Error('boom')));
     const response = createResponse();
@@ -79,7 +79,6 @@ describe('createWebhookRouter', () => {
       response,
     );
 
-    expect(response.status).toHaveBeenCalledWith(500);
-    expect(response.json).toHaveBeenCalledWith({ error: 'Internal Server Error' });
+    expect(response.sendStatus).toHaveBeenCalledWith(200);
   });
 });

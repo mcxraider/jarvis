@@ -1,9 +1,18 @@
-import { ToolResult } from '../../../types/tool.types';
+// src/services/telegram/formatters/tool-result-formatter.ts — Formats LangGraph tool
+// execution results into user-facing summary text. Shows a success count for clean
+// runs, or a bulleted failure list with labels when some tools error out.
 
-/**
- * Formats structured tool execution results without asking GPT to summarize facts.
- */
+export interface ToolResult {
+  tool_call_id: string;
+  toolName?: string;
+  displayLabel?: string;
+  content: any;
+  error?: string;
+}
+
 export class ToolResultFormatter {
+  // Produces a one-line summary for all-success cases, or a detailed breakdown
+  // listing which tools failed and why.
   formatToolResults(toolResults: ToolResult[]): string {
     if (toolResults.length === 0) {
       return 'Could not complete the request.';

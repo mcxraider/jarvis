@@ -1,0 +1,6 @@
+{
+  "status": "failed",
+  "thread_id": "thread_abc123",
+  "response": "",
+  "error": "DeepSeek API is unreachable after 3 attempts."
+}

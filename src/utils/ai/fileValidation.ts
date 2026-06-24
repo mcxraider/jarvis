@@ -1,15 +1,9 @@
-/**
- * File validation utilities for AI services
- * Provides common validation functions for audio, image, and document files
- */
+// src/utils/ai/fileValidation.ts — Simple file validation helpers shared across
+// AI services (Whisper transcription, audio conversion). Keep these pure functions
+// with no external dependencies so they're easy to test.
 
-/**
- * Validates that the file size is within acceptable limits
- *
- * @param fileSizeBytes - Size of the file in bytes
- * @param maxFileSizeBytes - Maximum allowed file size in bytes
- * @throws {Error} If file size exceeds the maximum allowed size
- */
+// Throws if the file exceeds the allowed size. Used before sending files to the
+// Whisper API (which has a 25MB hard limit) and after audio format conversion.
 export function validateFileSize(fileSizeBytes: number, maxFileSizeBytes: number): void {
   if (fileSizeBytes > maxFileSizeBytes) {
     const maxSizeMB = Math.round(maxFileSizeBytes / (1024 * 1024));
@@ -19,12 +13,7 @@ export function validateFileSize(fileSizeBytes: number, maxFileSizeBytes: number
   }
 }
 
-/**
- * Converts bytes to human-readable format
- *
- * @param bytes - Size in bytes
- * @returns Human-readable string (e.g., "1.2 MB", "340 KB")
- */
+// Converts raw byte counts to human-readable strings (e.g. "1.2 MB", "340 KB").
 export function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 Bytes';
 
@@ -35,13 +24,7 @@ export function formatFileSize(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-/**
- * Validates file extension against allowed extensions
- *
- * @param fileName - Name of the file
- * @param allowedExtensions - Array of allowed file extensions (without dots)
- * @returns True if extension is allowed
- */
+// Checks if a file's extension is in the allowed list (extensions without dots).
 export function validateFileExtension(fileName: string, allowedExtensions: string[]): boolean {
   const extension = fileName.split('.').pop()?.toLowerCase();
   return extension ? allowedExtensions.includes(extension) : false;

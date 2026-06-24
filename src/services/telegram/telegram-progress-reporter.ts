@@ -9,9 +9,38 @@ import {
   sendRichDraft,
 } from './formatters/telegram-rich';
 
-const PROGRESS_LABELS = ['Thinking...', 'Fetching', 'Writing'] as const;
+// Maps agent progress stages to short, user-facing labels.
+// null = terminal stage (no UI update; completion handles cleanup).
+const STAGE_LABELS: Record<string, string | null> = {
+  run_started: 'Starting...',
+  run_resumed: 'Resuming...',
+  thinking: 'Thinking...',
+  model_request: 'Thinking...',
+  model_tool_decision: 'Planning actions...',
+  model_answer: 'Drafting response...',
+  route_tools: 'Routing to tools...',
+  tools_started: 'Preparing tools...',
+  tools_calling: 'Calling Todoist...',
+  tool_update: 'Updating Todoist...',
+  tool_lookup: 'Checking Todoist...',
+  tool_done: 'Processing results...',
+  tool_issue: 'Handling an issue...',
+  route_agent: 'Continuing...',
+  synthesizing: 'Writing response...',
+  clarifying: 'Preparing question...',
+  done: null,
+  paused: null,
+  paused_confirm: null,
+  paused_clarify: null,
+  failed: null,
+};
+
+// Fallback labels used only when no progress events arrive (non-streaming mode).
+const FALLBACK_LABELS = ['Thinking...', 'Fetching', 'Writing'] as const;
 const TRANSCRIBING_LABEL = 'Transcribing...';
-const DEFAULT_ROTATION_INTERVAL_MS = 10_000;
+
+const MIN_UPDATE_INTERVAL_MS = 2_000;
+const HEARTBEAT_INTERVAL_MS = 8_000;
 const THINKING_CUSTOM_EMOJI_ID = '5573333417954639880';
 const THINKING_CUSTOM_EMOJI_FALLBACK = '😀';
 
@@ -19,18 +48,29 @@ export class TelegramProgressReporter {
   private statusMessage?: Message.TextMessage;
   private richActive: boolean;
   private draftId?: number;
-  private labelIndex = 0;
-  private rotationTimer?: ReturnType<typeof setInterval>;
-  private rotationTask: Promise<void> = Promise.resolve();
-  private rotationInFlight = false;
   private started = false;
   private agentPhaseStarted = false;
   private completed = false;
 
+  // Event-driven state
+  private currentLabel = '';
+  private lastPaintTime = 0;
+  private pendingLabel: string | null = null;
+  private debounceTimer?: ReturnType<typeof setTimeout>;
+  private receivedAnyEvent = false;
+
+  // Heartbeat state (replaces the old rotation timer)
+  private heartbeatTimer?: ReturnType<typeof setInterval>;
+  private heartbeatDots = 0;
+
+  // Fallback rotation state (for non-streaming mode)
+  private fallbackTimer?: ReturnType<typeof setInterval>;
+  private fallbackIndex = 0;
+  private rotationInFlight = false;
+
   constructor(
     private readonly ctx: Context,
     private readonly logContext: LogContext = {},
-    private readonly rotationIntervalMs = DEFAULT_ROTATION_INTERVAL_MS,
   ) {
     this.richActive = isRichMessagesEnabled();
   }
@@ -40,15 +80,17 @@ export class TelegramProgressReporter {
 
     this.started = true;
     this.agentPhaseStarted = true;
-    this.labelIndex = 0;
-    await this.showInitialStatus(PROGRESS_LABELS[this.labelIndex]);
-    this.startRotation();
+    this.currentLabel = FALLBACK_LABELS[0];
+    await this.showInitialStatus(this.currentLabel);
+    this.lastPaintTime = Date.now();
+    this.startFallbackRotation();
   }
 
   async startTranscribing(): Promise<void> {
     if (this.started || this.completed) return;
 
     this.started = true;
+    this.currentLabel = TRANSCRIBING_LABEL;
     await this.showInitialStatus(TRANSCRIBING_LABEL);
   }
 
@@ -57,34 +99,90 @@ export class TelegramProgressReporter {
 
     this.started = true;
     this.agentPhaseStarted = true;
-    this.labelIndex = 0;
-    await this.paintLabel(PROGRESS_LABELS[this.labelIndex]);
-    this.startRotation();
+    this.currentLabel = FALLBACK_LABELS[0];
+    await this.paintLabel(this.currentLabel);
+    this.lastPaintTime = Date.now();
+    this.startFallbackRotation();
   }
 
-  async record(_event: LangGraphProgressEvent): Promise<void> {
-    // Progress events still drive the streamed agent request, but the Telegram UI
-    // intentionally shows only the timer-based status rotation.
+  async record(event: LangGraphProgressEvent): Promise<void> {
+    if (this.completed || !this.agentPhaseStarted) return;
+
+    const label = STAGE_LABELS[event.stage];
+    if (label === undefined || label === null) return;
+    if (label === this.currentLabel) return;
+
+    // First event: kill fallback rotation, switch to event-driven mode
+    if (!this.receivedAnyEvent) {
+      this.receivedAnyEvent = true;
+      this.stopFallbackRotation();
+      this.startHeartbeat();
+    }
+
+    this.heartbeatDots = 0;
+    this.scheduleUpdate(label);
   }
 
   async complete(
-    _status: 'Done' | 'Paused for clarification' | 'Something went wrong',
+    _status: 'Done' | 'Paused for confirmation' | 'Paused for clarification' | 'Something went wrong',
   ): Promise<void> {
     this.completed = true;
-    this.stopRotation();
-    await this.rotationTask;
+    this.stopFallbackRotation();
+    this.stopHeartbeat();
+    this.clearDebounce();
     await this.removePlainStatus();
   }
 
-  private async rotate(): Promise<void> {
-    if (this.completed || this.rotationInFlight) return;
+  private scheduleUpdate(label: string): void {
+    const now = Date.now();
+    const elapsed = now - this.lastPaintTime;
+
+    if (elapsed >= MIN_UPDATE_INTERVAL_MS) {
+      this.clearDebounce();
+      this.applyLabel(label);
+    } else {
+      this.pendingLabel = label;
+      if (!this.debounceTimer) {
+        const wait = MIN_UPDATE_INTERVAL_MS - elapsed;
+        this.debounceTimer = setTimeout(() => {
+          this.debounceTimer = undefined;
+          if (this.pendingLabel && !this.completed) {
+            const buffered = this.pendingLabel;
+            this.pendingLabel = null;
+            this.applyLabel(buffered);
+          }
+        }, wait);
+      }
+    }
+  }
+
+  private applyLabel(label: string): void {
+    if (this.completed || label === this.currentLabel) return;
+    this.currentLabel = label;
+    this.lastPaintTime = Date.now();
+    void this.paintLabel(label);
+  }
+
+  // Heartbeat: if no events arrive for a while, animate dots to show liveness
+  private heartbeat(): void {
+    if (this.completed) return;
+    this.heartbeatDots = (this.heartbeatDots + 1) % 3;
+
+    const base = this.currentLabel.replace(/\.+$/, '');
+    const dots = '.'.repeat(this.heartbeatDots + 1);
+    void this.paintLabel(`${base}${dots}`);
+  }
+
+  // Fallback: timer-based rotation for when no streaming events arrive
+  private async fallbackRotate(): Promise<void> {
+    if (this.completed || this.rotationInFlight || this.receivedAnyEvent) return;
 
     this.rotationInFlight = true;
-    this.labelIndex = (this.labelIndex + 1) % PROGRESS_LABELS.length;
-    const label = PROGRESS_LABELS[this.labelIndex];
+    this.fallbackIndex = (this.fallbackIndex + 1) % FALLBACK_LABELS.length;
+    this.currentLabel = FALLBACK_LABELS[this.fallbackIndex];
 
     try {
-      await this.paintLabel(label);
+      await this.paintLabel(this.currentLabel);
     } finally {
       this.rotationInFlight = false;
     }
@@ -190,23 +288,38 @@ export class TelegramProgressReporter {
     });
   }
 
-  private stopRotation(): void {
-    if (!this.rotationTimer) return;
-    clearInterval(this.rotationTimer);
-    this.rotationTimer = undefined;
+  private startHeartbeat(): void {
+    if (this.completed || this.heartbeatTimer) return;
+    this.heartbeatTimer = setInterval(() => this.heartbeat(), HEARTBEAT_INTERVAL_MS);
   }
 
-  private startRotation(): void {
-    if (this.completed || this.rotationTimer) return;
+  private stopHeartbeat(): void {
+    if (!this.heartbeatTimer) return;
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = undefined;
+  }
 
-    this.rotationTimer = setInterval(
-      () => {
-        if (!this.rotationInFlight) {
-          this.rotationTask = this.rotate();
-        }
-      },
-      Math.max(1, this.rotationIntervalMs),
-    );
+  private startFallbackRotation(): void {
+    if (this.completed || this.fallbackTimer) return;
+    this.fallbackTimer = setInterval(() => {
+      if (!this.rotationInFlight) {
+        void this.fallbackRotate();
+      }
+    }, 10_000);
+  }
+
+  private stopFallbackRotation(): void {
+    if (!this.fallbackTimer) return;
+    clearInterval(this.fallbackTimer);
+    this.fallbackTimer = undefined;
+  }
+
+  private clearDebounce(): void {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = undefined;
+    }
+    this.pendingLabel = null;
   }
 
   private renderRichLabel(label: string): string {

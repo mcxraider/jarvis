@@ -1,8 +1,19 @@
+// src/services/telegram/pending-clarification.store.ts — Persistence layer for HITL
+// (human-in-the-loop) interrupt state. When the LangGraph agent pauses for user input
+// (clarify or confirm), a record is saved here so the next user message can resume
+// the correct thread. Two implementations are provided:
+//   - MemoryPendingClarificationStore: in-process Map (local dev, single instance)
+//   - PostgresPendingClarificationStore: durable Postgres table (production, multi-instance)
+// The factory function at the bottom selects the implementation based on environment config.
+
 import { Pool } from 'pg';
 import { logger } from '../../utils/logger';
 
 export type PendingClarificationStatus = 'pending' | 'completed' | 'failed' | 'expired';
 
+// Two interrupt flavors from the LangGraph agent:
+//   - 'clarify': agent needs more information before proceeding
+//   - 'confirm': agent wants explicit approval before executing a destructive action
 export type PendingInterruptType = 'clarify' | 'confirm';
 
 export interface PendingClarificationRecord {
@@ -26,6 +37,8 @@ export interface PendingClarificationStore {
   clear(pendingKey: string, status: Exclude<PendingClarificationStatus, 'pending'>): Promise<void>;
 }
 
+// In-memory implementation: fast but volatile. State is lost on process restart.
+// Suitable for local development and single-instance deployments.
 export class MemoryPendingClarificationStore implements PendingClarificationStore {
   private readonly records = new Map<string, PendingClarificationRecord>();
 
@@ -54,6 +67,9 @@ export class MemoryPendingClarificationStore implements PendingClarificationStor
   }
 }
 
+// Postgres-backed implementation: durable across restarts and horizontally scalable.
+// Uses upsert (ON CONFLICT) to handle concurrent saves for the same pending key.
+// Automatically creates the table on first use and expires stale records via SQL.
 export class PostgresPendingClarificationStore implements PendingClarificationStore {
   private readonly pool: Pool;
   private setupPromise?: Promise<void>;
@@ -190,6 +206,9 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
   }
 }
 
+// Factory: selects Postgres if a DSN is available (or TELEGRAM_PENDING_STORE=postgres),
+// otherwise falls back to the in-memory store. This lets local dev "just work" with
+// no database while production uses durable storage automatically.
 export function createPendingClarificationStore(): PendingClarificationStore {
   const configuredStore = process.env.TELEGRAM_PENDING_STORE?.trim().toLowerCase();
   const postgresDsn =

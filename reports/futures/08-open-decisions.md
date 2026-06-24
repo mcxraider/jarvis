@@ -2,6 +2,8 @@
 
 Unresolved questions that require a product choice before the relevant feature can be implemented. Capture the decision here once made.
 
+> **Update (2026-06-24):** Progress Messages decision is now resolved (edit-in-place, event-driven, 2s throttle). Confirmation Thresholds partially resolved (`CONFIRM_BULK_THRESHOLD=5`). All other decisions remain open.
+
 ---
 
 ## Tool Selection
@@ -60,7 +62,7 @@ Unresolved questions that require a product choice before the relevant feature c
 
 ---
 
-## Progress Messages
+## Progress Messages ✅ RESOLVED
 
-- How often should progress messages be sent or edited for long-running graph runs?
-- Should progress updates be a separate Telegram message, or always edit-in-place on a single message?
+- ~~How often should progress messages be sent or edited for long-running graph runs?~~ → 2s minimum between edits (debounced). 8s heartbeat for liveness.
+- ~~Should progress updates be a separate Telegram message, or always edit-in-place on a single message?~~ → Edit-in-place on a single ephemeral rich draft (or plain message fallback). Deleted on completion.

@@ -1,0 +1,8 @@
+{
+  "message": "Add a task to buy groceries",
+  "user_id": "user_123",
+  "source": "telegram",
+  "telegram_user_id": 12345,
+  "thread_id": "thread_abc123",
+  "allow_mutations": true
+}

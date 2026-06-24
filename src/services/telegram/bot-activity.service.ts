@@ -1,3 +1,8 @@
+// src/services/telegram/bot-activity.service.ts — Lightweight in-memory activity tracker.
+// Records a running count of interactions and the most recent activity timestamp/type.
+// Used by BotStatusService to surface operational metrics in /status responses.
+// Intentionally stateless across restarts — counters reset on deploy.
+
 export type BotActivityType =
   | 'command_help'
   | 'command_status'
@@ -16,9 +21,6 @@ export interface BotActivitySnapshot {
   lastActivityType: BotActivityType | null;
 }
 
-/**
- * Tracks lightweight in-process bot activity for operational status reporting.
- */
 export class BotActivityService {
   private readonly startedAt = new Date();
   private totalInteractions = 0;

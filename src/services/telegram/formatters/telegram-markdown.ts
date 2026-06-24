@@ -1,3 +1,10 @@
+// src/services/telegram/formatters/telegram-markdown.ts — Converts standard Markdown
+// (bold, italic, code, headers) to Telegram's MarkdownV2 format, which requires
+// escaping nearly every special character. Uses a placeholder strategy: extract
+// formatted spans first, escape everything else, then reinsert the formatted spans.
+// All send/reply helpers try MarkdownV2 first, then fall back to plain text on
+// parse errors (Telegram rejects the message if the escaping is wrong).
+
 import { Context } from 'telegraf';
 import { Message } from 'telegraf/typings/core/types/typegram';
 import { logger } from '../../../utils/logger';
@@ -16,6 +23,8 @@ export function inlineCode(text: string): string {
   return `\`${text.replace(/([`\\])/g, '\\$1')}\``;
 }
 
+// Converts standard Markdown formatting to Telegram MarkdownV2 syntax.
+// Handles: inline code, bold (**), italic (*), and headers (# → bold).
 export function toTelegramMarkdownV2(text: string): string {
   const placeholders: string[] = [];
   let normalized = text;
@@ -48,6 +57,7 @@ export function toTelegramMarkdownV2(text: string): string {
   return normalized;
 }
 
+// Sends a reply with MarkdownV2 formatting. On parse failure, retries as plain text.
 export async function replyWithMarkdown(
   reply: ReplyFunction,
   text: string,
@@ -67,6 +77,8 @@ export async function replyWithMarkdown(
   }
 }
 
+// Sends a message to a specific chat with MarkdownV2. Used by TelegramBotService
+// for direct sends (e.g. "private bot" rejection replies to unauthorized users).
 export async function sendMessageWithMarkdown(
   sendMessage: (chatId: number | string, text: string, options?: any) => Promise<Message.TextMessage>,
   chatId: number | string,
@@ -89,6 +101,8 @@ export async function sendMessageWithMarkdown(
   }
 }
 
+// Edits an existing message's text to MarkdownV2. Used by the progress reporter
+// to update the status indicator without sending a new message.
 export async function editMessageTextWithMarkdown(
   editMessageText: (
     chatId: number | string,

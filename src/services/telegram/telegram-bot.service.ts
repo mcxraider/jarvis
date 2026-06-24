@@ -1,99 +1,58 @@
-// src/services/telegram/telegram-bot.service.ts
+// src/services/telegram/telegram-bot.service.ts — Top-level Telegram bot lifecycle manager.
+// Owns the Telegraf instance, enforces user authorization, manages webhook registration,
+// and acts as the public entry point for handling inbound updates from the Express layer.
+
 import { createRequestId, logger } from '../../utils/logger';
 import { Telegraf, Context } from 'telegraf';
 import { Message } from 'telegraf/typings/core/types/typegram';
 import { TelegramHandlers } from './handlers/telegram-handlers';
-import { FileService } from './file.service';
-import { MessageProcessorService } from './message-processor.service';
 import { TelegramConfig } from '../../types/telegram.types';
-import { BotActivityService } from './bot-activity.service';
-import { BotStatusService } from './bot-status.service';
-import { TodoistAPIService } from '../external/todoist-api.service';
-import { GPT_CONSTANTS } from '../ai/constants/gpt.constants';
 import { sendMessageWithMarkdown } from './formatters/telegram-markdown';
-import { LangGraphAgentClient } from '../ai/langgraph-agent-client.service';
-import { PendingClarificationStore } from './pending-clarification.store';
 
-/**
- * Service class responsible for managing Telegram bot operations
- */
 export class TelegramBotService {
   public readonly bot: Telegraf<Context>;
-  private readonly botToken: string;
   private readonly allowedUserIds: Set<number>;
-  private readonly handlers: TelegramHandlers;
-  private readonly fileService: FileService;
-  private readonly messageProcessor: MessageProcessorService;
-  private readonly activityService: BotActivityService;
-  private readonly statusService: BotStatusService;
 
   constructor(
-    config: TelegramConfig,
-    messageProcessor: MessageProcessorService,
-    agentClient?: LangGraphAgentClient,
-    pendingClarificationStore?: PendingClarificationStore,
+    private readonly config: TelegramConfig,
+    private readonly handlers: TelegramHandlers,
   ) {
-    this.botToken = config.token;
+    // Store allowed user IDs in a Set for O(1) authorization lookups.
     this.allowedUserIds = new Set(config.allowedUserIds);
     this.bot = new Telegraf(config.token);
-    this.messageProcessor = messageProcessor;
-    this.fileService = new FileService(this.botToken, this.bot.telegram);
-    this.activityService = new BotActivityService();
-    this.statusService = new BotStatusService(this.activityService, {
-      gptModel: process.env.DEEPSEEK_MODEL || GPT_CONSTANTS.DEFAULT_MODEL,
-      todoistService: process.env.TODOIST_API_KEY
-        ? new TodoistAPIService(process.env.TODOIST_API_KEY)
-        : undefined,
-    });
-    this.handlers = new TelegramHandlers(
-      this.fileService,
-      this.messageProcessor,
-      this.activityService,
-      this.statusService,
-      agentClient,
-      pendingClarificationStore,
-    );
 
-    this.setupBotHandlers();
+    // Wire up all command/message/callback handlers onto the Telegraf instance.
+    this.handlers.setupHandlers(this.bot);
     this.setupErrorHandling();
 
     logger.info('telegram.bot.initialized');
   }
 
-  /**
-   * Sets up all bot message handlers and commands
-   */
-  private setupBotHandlers(): void {
-    this.handlers.setupHandlers(this.bot);
-  }
-
-  /**
-   * Sets up global error handling for the bot
-   */
+  // Global error boundary: catches unhandled errors from any Telegraf middleware
+  // and sends a generic "try again" reply so the user isn't left hanging.
   private setupErrorHandling(): void {
     this.bot.catch(async (err: unknown, ctx: Context) => {
       const error = err as Error;
-      logger.error('Bot error occurred', {
+      logger.error('telegram.bot.error', {
         error: error.message,
         stack: error.stack,
         userId: ctx.from?.id,
-        chatId: ctx.chat?.id
+        chatId: ctx.chat?.id,
       });
 
       try {
         await ctx.reply('Something went wrong. Please try again.');
       } catch (replyError) {
-        logger.error('Failed to send error message', {
+        logger.error('telegram.bot.error_reply_failed', {
           originalError: error.message,
-          replyError: (replyError as Error).message
+          replyError: (replyError as Error).message,
         });
       }
     });
   }
 
-  /**
-   * Sets up webhook for receiving updates from Telegram
-   */
+  // Registers the webhook URL with Telegram and syncs bot commands.
+  // drop_pending_updates=true avoids replaying stale messages from before startup.
   async setupWebhook(webhookUrl: string, secretToken: string): Promise<void> {
     try {
       const fullWebhookUrl = `${webhookUrl}/webhook/${secretToken}`;
@@ -108,7 +67,7 @@ export class TelegramBotService {
       await this.bot.telegram.setWebhook(fullWebhookUrl, {
         secret_token: secretToken,
         max_connections: 100,
-        drop_pending_updates: true
+        drop_pending_updates: true,
       });
 
       logger.info('telegram.webhook.configured', {
@@ -118,30 +77,25 @@ export class TelegramBotService {
     } catch (error) {
       logger.error('telegram.webhook.setup_failed', {
         error: (error as Error).message,
-        webhookUrl
+        webhookUrl,
       });
       throw new Error(`Webhook setup failed: ${(error as Error).message}`);
     }
   }
 
-  /**
-   * Removes the webhook
-   */
   async removeWebhook(): Promise<void> {
     try {
       await this.bot.telegram.deleteWebhook({ drop_pending_updates: true });
       logger.info('telegram.webhook.removed');
     } catch (error) {
-      logger.error('telegram.webhook.remove_failed', {
-        error: (error as Error).message
-      });
+      logger.error('telegram.webhook.remove_failed', { error: (error as Error).message });
       throw error;
     }
   }
 
-  /**
-   * Handles incoming updates from Telegram webhook
-   */
+  // Main entry point called by the webhook controller for each inbound Telegram update.
+  // Checks authorization first — unauthorized users get a "private bot" reply — then
+  // delegates to Telegraf's internal dispatch which routes to the registered handlers.
   async handleUpdate(update: any): Promise<void> {
     const requestId = update.__requestId || createRequestId('tg');
     const startedAt = Date.now();
@@ -188,6 +142,7 @@ export class TelegramBotService {
     }
   }
 
+  // Extracts the sender's Telegram user ID from any update type (message, edit, callback, etc.)
   private extractSenderId(update: any): number | undefined {
     const senderId =
       update?.message?.from?.id ??
@@ -231,14 +186,7 @@ export class TelegramBotService {
     }
   }
 
-  /**
-   * Sends a message to a specific chat
-   */
-  async sendMessage(
-    chatId: number,
-    text: string,
-    options?: any
-  ): Promise<Message.TextMessage> {
+  async sendMessage(chatId: number, text: string, options?: any): Promise<Message.TextMessage> {
     try {
       return await sendMessageWithMarkdown(
         this.bot.telegram.sendMessage.bind(this.bot.telegram),
@@ -247,61 +195,47 @@ export class TelegramBotService {
         options,
       );
     } catch (error) {
-      logger.error('Failed to send message', {
+      logger.error('telegram.send_message.failed', {
         chatId,
         textLength: text.length,
-        error: (error as Error).message
+        error: (error as Error).message,
       });
       throw error;
     }
   }
 
-  /**
-   * Gets bot information
-   */
   async getBotInfo(): Promise<any> {
     try {
       const botInfo = await this.bot.telegram.getMe();
       logger.debug('telegram.bot.info_retrieved', { username: botInfo.username });
       return botInfo;
     } catch (error) {
-      logger.error('Failed to get bot info', {
-        error: (error as Error).message
-      });
+      logger.error('telegram.bot.info_failed', { error: (error as Error).message });
       throw error;
     }
   }
 
-  /**
-   * Starts polling for updates (for development)
-   */
   async startPolling(): Promise<void> {
     try {
       await this.syncCommands();
       await this.bot.launch();
       logger.info('telegram.bot.polling_started');
     } catch (error) {
-      logger.error('Failed to start polling', {
-        error: (error as Error).message
-      });
+      logger.error('telegram.bot.polling_failed', { error: (error as Error).message });
       throw error;
     }
   }
 
-  /**
-   * Stops the bot gracefully
-   */
   async stop(): Promise<void> {
     try {
       this.bot.stop();
       logger.info('telegram.bot.stopped');
     } catch (error) {
-      logger.error('Error stopping bot', {
-        error: (error as Error).message
-      });
+      logger.error('telegram.bot.stop_failed', { error: (error as Error).message });
     }
   }
 
+  // Publishes the bot's command menu to Telegram so users see autocomplete hints.
   private async syncCommands(): Promise<void> {
     await this.bot.telegram.setMyCommands([
       { command: 'help', description: 'Show available commands and supported inputs' },

@@ -9,6 +9,11 @@ jest.mock('../../../../../src/services/ai/whisper.service', () => ({
 import { AudioProcessorService } from '../../../../../src/services/telegram/processors/audio-processor.service';
 import { WhisperService } from '../../../../../src/services/ai/whisper.service';
 
+function makeService(textProcessor: any): AudioProcessorService {
+  const whisper = new WhisperService() as any;
+  return new AudioProcessorService(whisper, textProcessor);
+}
+
 describe('AudioProcessorService', () => {
   beforeEach(() => {
     mockTranscribeAudio.mockResolvedValue({
@@ -27,7 +32,7 @@ describe('AudioProcessorService', () => {
     const textProcessor = {
       processTextMessage: jest.fn().mockResolvedValue({ response: 'Task created.' }),
     };
-    const service = new AudioProcessorService(textProcessor as any);
+    const service = makeService(textProcessor);
     const logContext = { requestId: 'tg_test', messageType: 'voice' };
 
     const response = await service.processAudioMessage(
@@ -58,7 +63,7 @@ describe('AudioProcessorService', () => {
     const textProcessor = {
       processTextMessage: jest.fn().mockResolvedValue({ response: 'Task created.' }),
     };
-    const service = new AudioProcessorService(textProcessor as any);
+    const service = makeService(textProcessor);
 
     await service.processAudioMessage('https://example.com/voice.ogg', 7, {}, {
       onTranscribed,
@@ -83,7 +88,7 @@ describe('AudioProcessorService', () => {
     const textProcessor = {
       processTextMessage: jest.fn().mockResolvedValue({ response: 'Summary ready.' }),
     };
-    const service = new AudioProcessorService(textProcessor as any);
+    const service = makeService(textProcessor);
 
     const response = await service.processAudioDocument(
       'https://example.com/meeting.mp3',
@@ -110,7 +115,7 @@ describe('AudioProcessorService', () => {
     const textProcessor = {
       processTextMessage: jest.fn().mockRejectedValue(new Error('Agent unavailable')),
     };
-    const service = new AudioProcessorService(textProcessor as any);
+    const service = makeService(textProcessor);
 
     await expect(
       service.processAudioMessage('https://example.com/voice.ogg', 7),
@@ -130,7 +135,7 @@ describe('AudioProcessorService', () => {
     const onTranscribed = jest.fn();
     const onProgress = jest.fn();
     const textProcessor = { processTextMessage: jest.fn() };
-    const service = new AudioProcessorService(textProcessor as any);
+    const service = makeService(textProcessor);
 
     await expect(
       service.processAudioMessage('https://example.com/silent.ogg', 7, {}, {
@@ -148,7 +153,7 @@ describe('AudioProcessorService', () => {
     mockTranscribeAudio.mockRejectedValue(new Error('Whisper unavailable'));
     const onTranscribed = jest.fn();
     const textProcessor = { processTextMessage: jest.fn() };
-    const service = new AudioProcessorService(textProcessor as any);
+    const service = makeService(textProcessor);
 
     await expect(
       service.processAudioMessage('https://example.com/broken.ogg', 7, {}, { onTranscribed }),
@@ -156,22 +161,5 @@ describe('AudioProcessorService', () => {
 
     expect(onTranscribed).not.toHaveBeenCalled();
     expect(textProcessor.processTextMessage).not.toHaveBeenCalled();
-  });
-
-  it('configures WhisperService with the default audio pipeline transcription settings', () => {
-    const textProcessor = {
-      processTextMessage: jest.fn(),
-    };
-
-    new AudioProcessorService(textProcessor as any);
-
-    expect(WhisperService).toHaveBeenCalledWith(
-      expect.objectContaining({
-        enforceEnglishOnly: true,
-        language: 'en',
-        qualityMonitoringEnabled: true,
-        prompt: expect.stringContaining('personal productivity assistant'),
-      }),
-    );
   });
 });

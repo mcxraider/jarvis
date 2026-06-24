@@ -1,12 +1,16 @@
-# Foundation
+# Foundation ✅
 
 Core infrastructure that must exist before the system can run reliably in production. Everything else depends on this layer.
 
+> **Overall status (2026-06-24): DONE.** All foundation items are implemented. Default checkpointer is still InMemory for local dev but Postgres/Redis backends are ready.
+
 ---
 
-## 1.1 Durable, Shared Checkpointer
+## 1.1 Durable, Shared Checkpointer ✅
 
-**Status:** `InMemorySaver()` is the current default, which means graph state only exists inside the running Python process.
+**Status (2026-06-24):** Done. `create_default_checkpointer()` factory in `agents/agent_api/app/checkpointing/__init__.py` supports InMemory (default local), Postgres (`PostgresSaver`), and Redis backends. Configured via `JARVIS_CHECKPOINT_BACKEND` env var. Thread ID flows through `config["configurable"]["thread_id"]` in `builder.py`.
+
+**Original problem:** `InMemorySaver()` is the current default, which means graph state only exists inside the running Python process.
 
 **Why it blocks production:**
 
@@ -89,9 +93,11 @@ Adds a stateful dependency and connection-pool management. However, this is nece
 
 ---
 
-## 1.2 FastAPI Service — Decouple HITL from the CLI
+## 1.2 FastAPI Service — Decouple HITL from the CLI ✅
 
-**Status:** Partially implemented.
+**Status (2026-06-24):** Done. `POST /invoke` (with streaming), `POST /resume`, and `POST /health` all implemented. Pending clarification store supports both in-memory and Postgres with TTL expiry. Request metadata (source, telegram_user_id, request_id) flows through the full stack.
+
+**Original status:** Partially implemented.
 
 The project now has a FastAPI service surface for graph execution:
 
@@ -173,9 +179,11 @@ Graph and API tests should use `source="test"` when they need to distinguish aut
 
 ---
 
-## 1.3 Cancellation and Clarification Expiry
+## 1.3 Cancellation and Clarification Expiry ✅
 
-**Status:** Paused clarification threads do not yet have an explicit user cancellation path or a durable validity check.
+**Status (2026-06-24):** Done. `PendingClarificationStore` (`src/services/telegram/pending-clarification.store.ts`) stores `created_at`, `expires_at`, `status` (pending/completed/failed/expired). Postgres implementation checks expiry on retrieval (`expires_at > NOW()`). TTL configurable via `TELEGRAM_PENDING_TTL_MS`.
+
+**Original status:** Paused clarification threads do not yet have an explicit user cancellation path or a durable validity check.
 
 **Why it matters:**
 
@@ -204,9 +212,11 @@ This request expired because it was waiting for details for too long. Please sta
 
 ---
 
-## 1.4 Single Source of Truth for Tool Schemas
+## 1.4 Single Source of Truth for Tool Schemas ✅
 
-**Status:** Tools are defined twice — `get_todoist_tools()` (OpenAI schema with constraints) and `build_todoist_langchain_tools()` (executable `@tool` wrappers with no validation). Constraints shown to the model are not enforced at execution; the two definitions can silently drift.
+**Status (2026-06-24):** Done. `ToolSpec` dataclass in `agents/agent_api/app/tools/base.py` consolidates schema, handler, and mutating flag. `ToolRegistry` in the same file is the single source. Pydantic models with `@model_validator` enforce constraints (e.g., `UpdateTodoistTaskInput` in `tools/todoist/tools.py`).
+
+**Original status:** Tools are defined twice — `get_todoist_tools()` (OpenAI schema with constraints) and `build_todoist_langchain_tools()` (executable `@tool` wrappers with no validation). Constraints shown to the model are not enforced at execution; the two definitions can silently drift.
 
 **Why it matters:** The model can send a malformed `due_date`, or pass `due_string` + `due_date` + `due_datetime` together (Todoist resolves that unpredictably), and nothing rejects it. Tool-calling reliability is illusory.
 
@@ -216,9 +226,11 @@ This request expired because it was waiting for details for too long. Please sta
 
 ---
 
-## 1.5 Python / TypeScript Boundary Contract
+## 1.5 Python / TypeScript Boundary Contract ✅
 
-**Status:** The boundary exists in practice, but the typed request/response contract between the TypeScript bridge and Python FastAPI is informal.
+**Status (2026-06-24):** Done. Pydantic schemas in `agents/agent_api/app/api/schemas.py` (`InvokeRequest`, `ResumeRequest`, `AgentResponse`) define the typed boundary. Zod schemas in `src/types/agent.types.ts` validate on the TypeScript side. Idempotency key schema in `canonicalize.py`. One execution path enforced: mutations route through Python only.
+
+**Original status:** The boundary exists in practice, but the typed request/response contract between the TypeScript bridge and Python FastAPI is informal.
 
 **Required fields crossing the boundary:**
 

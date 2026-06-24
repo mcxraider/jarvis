@@ -1,10 +1,16 @@
-import { GPT_CONSTANTS } from '../ai/constants/gpt.constants';
-import { TodoistAPIService } from '../external/todoist-api.service';
+// src/services/telegram/bot-status.service.ts — Aggregates system health information
+// for the /status command. Checks runtime uptime, the configured AI model, Todoist API
+// reachability, and interaction metrics. Outputs a Markdown-formatted status card.
+
 import { BotActivityService } from './bot-activity.service';
 
+export interface TodoistHealthCheck {
+  getProjects: () => Promise<{ results: { id: string }[]; next_cursor: string | null }>;
+}
+
 export interface BotStatusServiceOptions {
-  gptModel?: string;
-  todoistService?: Pick<TodoistAPIService, 'getProjects'>;
+  agentModel?: string;
+  todoistService?: TodoistHealthCheck;
 }
 
 export interface BotStatusSnapshot {
@@ -13,7 +19,7 @@ export interface BotStatusSnapshot {
     uptimeMs: number;
     startedAt: Date;
   };
-  gpt: {
+  agent: {
     model: string;
   };
   todoist: {
@@ -27,18 +33,15 @@ export interface BotStatusSnapshot {
   };
 }
 
-/**
- * Aggregates runtime health for the Telegram /status command.
- */
 export class BotStatusService {
-  private readonly gptModel: string;
-  private readonly todoistService?: Pick<TodoistAPIService, 'getProjects'>;
+  private readonly agentModel: string;
+  private readonly todoistService?: TodoistHealthCheck;
 
   constructor(
     private readonly activityService: BotActivityService,
     options: BotStatusServiceOptions = {},
   ) {
-    this.gptModel = options.gptModel || GPT_CONSTANTS.DEFAULT_MODEL;
+    this.agentModel = options.agentModel || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
     this.todoistService = options.todoistService;
   }
 
@@ -52,8 +55,8 @@ export class BotStatusService {
         uptimeMs: activity.uptimeMs,
         startedAt: activity.startedAt,
       },
-      gpt: {
-        model: this.gptModel,
+      agent: {
+        model: this.agentModel,
       },
       todoist,
       activity: {
@@ -64,6 +67,7 @@ export class BotStatusService {
     };
   }
 
+  // Builds the human-readable status card shown to the user via the /status command.
   async getFormattedStatus(): Promise<string> {
     const snapshot = await this.getSnapshot();
     const overallStatus = snapshot.todoist.ok ? 'healthy' : 'degraded';
@@ -76,7 +80,7 @@ export class BotStatusService {
       `• Uptime: ${this.formatDuration(snapshot.runtime.uptimeMs)}`,
       '',
       `**AI**`,
-      `• Model: \`${snapshot.gpt.model}\``,
+      `• Model: \`${snapshot.agent.model}\``,
       '',
       `**Dependencies**`,
       `• Todoist: ${snapshot.todoist.ok ? 'reachable' : 'degraded'} (${snapshot.todoist.detail})`,
@@ -89,23 +93,14 @@ export class BotStatusService {
 
   private async getTodoistStatus(): Promise<BotStatusSnapshot['todoist']> {
     if (!this.todoistService) {
-      return {
-        ok: false,
-        detail: 'not configured',
-      };
+      return { ok: false, detail: 'not configured' };
     }
 
     try {
       const projects = await this.todoistService.getProjects();
-      return {
-        ok: true,
-        detail: `${projects.results.length} project(s) visible`,
-      };
+      return { ok: true, detail: `${projects.results.length} project(s) visible` };
     } catch (error) {
-      return {
-        ok: false,
-        detail: (error as Error).message,
-      };
+      return { ok: false, detail: (error as Error).message };
     }
   }
 
@@ -114,28 +109,20 @@ export class BotStatusService {
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
-
     return `${hours}h ${minutes}m ${seconds}s`;
   }
 
   private formatLastActivity(lastActivityAt: Date | null): string {
-    if (!lastActivityAt) {
-      return 'none yet';
-    }
+    if (!lastActivityAt) return 'none yet';
 
     const elapsedMs = Date.now() - lastActivityAt.getTime();
     const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
 
-    if (elapsedSeconds < 60) {
-      return `${elapsedSeconds}s ago`;
-    }
+    if (elapsedSeconds < 60) return `${elapsedSeconds}s ago`;
 
     const elapsedMinutes = Math.floor(elapsedSeconds / 60);
-    if (elapsedMinutes < 60) {
-      return `${elapsedMinutes}m ago`;
-    }
+    if (elapsedMinutes < 60) return `${elapsedMinutes}m ago`;
 
-    const elapsedHours = Math.floor(elapsedMinutes / 60);
-    return `${elapsedHours}h ago`;
+    return `${Math.floor(elapsedMinutes / 60)}h ago`;
   }
 }
