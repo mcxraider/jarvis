@@ -1,14 +1,23 @@
-// src/services/telegram/processors/text-processor.service.ts
+// src/services/telegram/processors/text-processor.service.ts — Core text processing
+// pipeline. Receives user text, manages pending HITL (human-in-the-loop) interrupts,
+// calls the LangGraph agent (invoke for new conversations, resume for pending ones),
+// and returns a structured result including any interrupt metadata.
+//
+// Key behavior: if there's a pending "confirm" interrupt for this user, the processor
+// blocks new messages (except yes/no) until the user resolves the approval.
+
 import crypto from 'crypto';
 import { LogContext, logger } from '../../../utils/logger';
 import { LangGraphAgentClient, LangGraphProgressCallback } from '../../ai/langgraph-agent-client.service';
 import {
-  createPendingClarificationStore,
   PendingClarificationRecord,
   PendingClarificationStore,
   PendingInterruptType,
 } from '../pending-clarification.store';
+import { classifyError } from '../errors/classified-error';
 
+// Pending clarification records expire after 30 minutes by default. After that, the
+// user's next message starts a fresh conversation thread rather than resuming.
 const PENDING_CLARIFICATION_TTL_MS = 30 * 60 * 1000;
 
 export interface TextProcessorResult {
@@ -17,22 +26,19 @@ export interface TextProcessorResult {
   threadId?: string;
 }
 
-/**
- * Service responsible for processing text messages
- */
 export class TextProcessorService {
   private readonly pendingClarificationTtlMs: number;
 
   constructor(
-    private readonly agentClient: LangGraphAgentClient = new LangGraphAgentClient(),
-    private readonly pendingClarificationStore: PendingClarificationStore = createPendingClarificationStore(),
+    private readonly agentClient: LangGraphAgentClient,
+    private readonly pendingClarificationStore: PendingClarificationStore,
   ) {
     this.pendingClarificationTtlMs = this.resolvePendingClarificationTtlMs();
   }
 
-  /**
-   * Processes text messages from users
-   */
+  // Main processing entry point. Determines whether to invoke a new agent thread or
+  // resume a pending one, sends the request, persists any new interrupt state, and
+  // returns the formatted result for the Telegram reply layer.
   async processTextMessage(
     text: string,
     userId?: number,
@@ -143,20 +149,11 @@ export class TextProcessorService {
   }
 
   private handleTextProcessingError(error: Error, _text: string): string {
-    const msg = error.message;
-
-    if (msg.includes('Message cannot be empty')) {
-      return 'Please send a message with some text.';
-    }
-    if (msg.includes('exceeds maximum allowed length')) {
-      return 'Message too long. Please keep it under 4000 characters.';
-    }
-    if (msg.includes('Service is temporarily busy')) {
-      return 'Service is busy. Please try again in a moment.';
-    }
-    return 'Something went wrong processing your request. Please try again.';
+    return classifyError(error).userMessage;
   }
 
+  // Builds a deterministic pending-store key scoped to the chat+user combination.
+  // Uses hashed identifiers to avoid storing raw Telegram IDs in the database.
   private pendingKey(telegramUserId: number | undefined, internalUserId: string, logContext: LogContext = {}): string {
     if (logContext.chatId !== undefined) {
       const userSegment = telegramUserId ?? internalUserId;
@@ -166,6 +163,8 @@ export class TextProcessorService {
     return telegramUserId ? `telegram:${this.hashIdentifier(telegramUserId)}` : `internal:${internalUserId}`;
   }
 
+  // Generates a unique thread ID for a new conversation. Incorporates the chat/user
+  // identity and message identifier so parallel conversations don't collide.
   private buildTelegramThreadId(
     telegramUserId: number | undefined,
     internalUserId: string,
@@ -212,7 +211,7 @@ export class TextProcessorService {
   }
 
   private hashIdentifier(value: number | string): string {
-    return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 10);
+    return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 32);
   }
 
   private sanitizeThreadSegment(value: number | string): string {
@@ -222,6 +221,8 @@ export class TextProcessorService {
       .slice(0, 64);
   }
 
+  // Checks if the user's text is a yes/no decision for a pending confirm interrupt.
+  // Allows the message through even when a confirm is pending, so it can resume the thread.
   private isConfirmDecision(text: string): boolean {
     const normalized = text.trim().toLowerCase();
     const approveTokens = new Set(['yes', 'approve', 'confirm', 'ok', 'y']);
@@ -229,6 +230,8 @@ export class TextProcessorService {
     return approveTokens.has(normalized) || declineTokens.has(normalized);
   }
 
+  // Resolves the Telegram user ID to a human-readable or internal user identifier.
+  // Uses TELEGRAM_USER_MAP env var (format: "12345:jerry,67890:alex") for named mappings.
   private mapTelegramUserId(telegramUserId: number | undefined): string {
     if (!telegramUserId) return 'anonymous';
 

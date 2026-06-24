@@ -9,6 +9,7 @@ from agents.agent_api.app.graph.nodes.confirm import (
     create_confirm_node,
     parse_decision,
     render_action_summary,
+    render_batch_summary,
 )
 
 
@@ -39,13 +40,20 @@ class TestRenderActionSummary:
         held = {"tool_name": "delete_todoist_task", "args": {"task_id": "42"}}
         result = render_action_summary(held)
         assert "42" in result
-        assert "irreversible" in result.lower()
+        assert result.endswith(".")
 
-    def test_generic_tool(self):
+    def test_update_tool(self):
         held = {"tool_name": "update_todoist_task", "args": {"task_id": "1", "content": "New"}}
         result = render_action_summary(held)
-        assert "update_todoist_task" in result
-        assert "task_id" in result
+        assert "Update task" in result
+        assert "id=1" in result
+        assert "content" in result
+
+    def test_truly_generic_tool(self):
+        held = {"tool_name": "some_unknown_tool", "args": {"foo": "bar", "baz": 42}}
+        result = render_action_summary(held)
+        assert "some_unknown_tool" in result
+        assert "foo" in result
 
     def test_truncates_args(self):
         held = {"tool_name": "some_tool", "args": {f"key{i}": f"val{i}" for i in range(10)}}
@@ -124,7 +132,8 @@ class TestConfirmNode:
         payload = mock_interrupt.call_args[0][0]
         assert payload["count"] == 3
         assert len(payload["held_call_ids"]) == 3
-        assert "Batch of 3 actions" in payload["summary"]
+        assert "I'm deleting 3 items" in payload["summary"]
+        assert "This action is irreversible." in payload["summary"]
 
     def test_migration_shim_singular_held_call(self):
         """Old-format state with singular held_call still works."""
@@ -143,3 +152,69 @@ class TestConfirmNode:
             }
             result = node(state)
             assert result["confirm_decision"] == "approve"
+
+
+class TestRenderBatchSummary:
+    def test_delete_batch_uses_deleting_verb(self):
+        held_calls = [
+            {"tool_name": "delete_todoist_task", "args": {"task_id": "1"}},
+            {"tool_name": "delete_todoist_task", "args": {"task_id": "2"}},
+            {"tool_name": "delete_todoist_task", "args": {"task_id": "3"}},
+        ]
+        summary = render_batch_summary(held_calls)
+        assert "I'm deleting 3 items:" in summary
+        assert "This action is irreversible." in summary
+
+    def test_add_batch_uses_adding_verb(self):
+        held_calls = [
+            {"tool_name": "add_todoist_task", "args": {"content": "Task A"}},
+            {"tool_name": "add_todoist_task", "args": {"content": "Task B"}},
+        ]
+        summary = render_batch_summary(held_calls)
+        assert "I'm adding 2 items:" in summary
+        assert "Please confirm to proceed." in summary
+
+    def test_update_batch_uses_updating_verb(self):
+        held_calls = [
+            {"tool_name": "update_todoist_task", "args": {"task_id": "1", "content": "X"}},
+            {"tool_name": "update_todoist_task", "args": {"task_id": "2", "priority": 4}},
+        ]
+        summary = render_batch_summary(held_calls)
+        assert "I'm updating 2 items:" in summary
+        assert "Please confirm to proceed." in summary
+
+    def test_mixed_batch_uses_modifying(self):
+        held_calls = [
+            {"tool_name": "delete_todoist_task", "args": {"task_id": "1"}},
+            {"tool_name": "update_todoist_task", "args": {"task_id": "2", "content": "Y"}},
+        ]
+        summary = render_batch_summary(held_calls)
+        assert "I'm modifying 2 items" in summary
+        assert "deleting" in summary
+        assert "updating" in summary
+        assert "Some of these actions are irreversible." in summary
+
+    def test_single_delete_irreversible_suffix(self):
+        held_calls = [
+            {"tool_name": "delete_todoist_task", "args": {"task_id": "1"}},
+        ]
+        summary = render_batch_summary(held_calls)
+        assert "This action is irreversible." in summary
+
+    def test_single_add_confirm_suffix(self):
+        held_calls = [
+            {"tool_name": "add_todoist_task", "args": {"content": "New task"}},
+        ]
+        summary = render_batch_summary(held_calls)
+        assert "Please confirm to proceed." in summary
+        assert "irreversible" not in summary.lower()
+
+    def test_complete_task_batch(self):
+        held_calls = [
+            {"tool_name": "complete_task", "args": {"task_id": "1"}, "context": {"task_content": "Buy milk"}},
+            {"tool_name": "complete_task", "args": {"task_id": "2"}, "context": {"task_content": "Call mom"}},
+        ]
+        summary = render_batch_summary(held_calls)
+        assert "I'm completing 2 items:" in summary
+        assert "Buy milk" in summary
+        assert "Call mom" in summary

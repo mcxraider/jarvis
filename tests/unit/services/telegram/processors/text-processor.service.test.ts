@@ -3,7 +3,7 @@ import { TextProcessorService } from '../../../../../src/services/telegram/proce
 import { MemoryPendingClarificationStore } from '../../../../../src/services/telegram/pending-clarification.store';
 
 function telegramThreadId(identity: number | string, messageKey: number | string): string {
-  const hash = crypto.createHash('sha256').update(String(identity)).digest('hex').slice(0, 10);
+  const hash = crypto.createHash('sha256').update(String(identity)).digest('hex').slice(0, 32);
   const segment = String(messageKey)
     .trim()
     .replace(/[^a-zA-Z0-9_-]/g, '_')

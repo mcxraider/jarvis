@@ -1,27 +1,20 @@
-// src/services/telegram/message-processor.service.ts
+// src/services/telegram/message-processor.service.ts — Unified message routing layer.
+// Takes incoming messages of any supported type (text, audio, photo, document) and
+// dispatches to the appropriate processor. Acts as a facade so callers (MessageHandlers)
+// don't need to know which processor handles which media type.
+
 import { logger } from '../../utils/logger';
 import { TextProcessorResult, TextProcessorService } from './processors/text-processor.service';
 import { AudioProcessingHooks, AudioProcessorService } from './processors/audio-processor.service';
 import { LogContext } from '../../utils/logger';
-import { LangGraphAgentClient, LangGraphProgressCallback } from '../ai/langgraph-agent-client.service';
-import { PendingClarificationStore } from './pending-clarification.store';
+import { LangGraphProgressCallback } from '../ai/langgraph-agent-client.service';
 
-/**
- * Main service responsible for coordinating message processing
- * Delegates to specialized processors based on message type
- */
 export class MessageProcessorService {
-  private readonly textProcessor: TextProcessorService;
-  private readonly audioProcessor: AudioProcessorService;
+  constructor(
+    private readonly textProcessor: TextProcessorService,
+    private readonly audioProcessor: AudioProcessorService,
+  ) {}
 
-  constructor(agentClient?: LangGraphAgentClient, pendingClarificationStore?: PendingClarificationStore) {
-    this.textProcessor = new TextProcessorService(agentClient, pendingClarificationStore);
-    this.audioProcessor = new AudioProcessorService(this.textProcessor);
-  }
-
-  /**
-   * Processes text messages from users
-   */
   async processTextMessage(
     text: string,
     userId?: number,
@@ -39,9 +32,6 @@ export class MessageProcessorService {
     return this.textProcessor.processTextMessage(text, userId, logContext, onProgress);
   }
 
-  /**
-   * Processes audio messages (voice notes, audio files)
-   */
   async processAudioMessage(
     fileUrl: string,
     userId?: number,
@@ -53,15 +43,12 @@ export class MessageProcessorService {
       userId,
       messageType: logContext.messageType || 'audio',
       processor: 'AudioProcessorService',
-      fileUrl: fileUrl.substring(0, 50) + '...', // Log partial URL for privacy
+      fileUrl: fileUrl.substring(0, 50) + '...',
     });
 
     return this.audioProcessor.processAudioMessage(fileUrl, userId, logContext, hooks);
   }
 
-  /**
-   * Processes documents that contain audio
-   */
   async processAudioDocument(
     fileUrl: string,
     fileName: string,
@@ -89,9 +76,9 @@ export class MessageProcessorService {
     );
   }
 
-  /**
-   * Processes photo messages by forwarding their available context through the text processor.
-   */
+  // Photos are handled as contextual text: we build a structured description from the
+  // photo metadata and caption, then send that as a text message to the LangGraph agent.
+  // The agent cannot see the image pixels, but can reason about the provided context.
   async processPhotoMessage(
     photoContext: {
       fileId: string;
@@ -128,10 +115,8 @@ export class MessageProcessorService {
     return this.textProcessor.processTextMessage(contextualMessage, userId, logContext);
   }
 
-  /**
-   * Determines message type and routes to appropriate processor
-   * This method can be used for automatic routing based on message content
-   */
+  // Generic dispatch method that routes based on a type discriminator. Useful for
+  // programmatic callers that build message descriptors dynamically.
   async processMessage(
     messageData: {
       type: 'text' | 'audio' | 'audio_document' | 'photo';

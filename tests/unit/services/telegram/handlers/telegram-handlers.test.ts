@@ -6,20 +6,25 @@ describe('TelegramHandlers', () => {
       command: jest.fn(),
       on: jest.fn(),
     } as any;
-    const fileService = {} as any;
-    const messageProcessor = {} as any;
-    const activityService = {
-      recordActivity: jest.fn(),
+    const commandHandlers = {
+      handleHelp: jest.fn(),
+      handleStatus: jest.fn(),
     } as any;
-    const statusService = {
-      getFormattedStatus: jest.fn(),
+    const messageHandlers = {
+      handleText: jest.fn(),
+      handleVoice: jest.fn(),
+      handleAudio: jest.fn(),
+      handlePhoto: jest.fn(),
+      handleSticker: jest.fn(),
+      handleVideoNote: jest.fn(),
+      handleAnimation: jest.fn(),
+      handleDocument: jest.fn(),
+      handleUnknown: jest.fn(),
     } as any;
-    const handlers = new TelegramHandlers(
-      fileService,
-      messageProcessor,
-      activityService,
-      statusService,
-    );
+    const callbackHandler = {
+      handleCallbackQuery: jest.fn(),
+    } as any;
+    const handlers = new TelegramHandlers(commandHandlers, messageHandlers, callbackHandler);
 
     handlers.setupHandlers(bot);
 

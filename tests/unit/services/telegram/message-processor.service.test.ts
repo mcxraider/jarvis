@@ -17,7 +17,9 @@ describe('MessageProcessorService', () => {
   let service: MessageProcessorService;
 
   beforeEach(() => {
-    service = new MessageProcessorService();
+    const { TextProcessorService } = require('../../../../src/services/telegram/processors/text-processor.service');
+    const { AudioProcessorService } = require('../../../../src/services/telegram/processors/audio-processor.service');
+    service = new MessageProcessorService(new TextProcessorService(), new AudioProcessorService());
   });
 
   it('routes text messages to the text processor', async () => {

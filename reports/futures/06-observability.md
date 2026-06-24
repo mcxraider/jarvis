@@ -1,18 +1,20 @@
-# Observability & Testing
+# Observability & Testing 🟡
 
 Visibility into system behavior and a testing strategy. The system should be debuggable before scaling, not after.
 
+> **Overall status (2026-06-24): PARTIAL.** Token usage logging done. Unit tests exist for Python side. No scenario evals, no integration tests across TS ↔ Python, no structured JSON logger on Python side.
+
 ---
 
-## 6.1 Metrics and Cost Accounting
+## 6.1 Metrics and Cost Accounting 🟡
 
-**Status:** `TracePrinter` prints human-readable lines; LangSmith captures traces. No metrics, no token/cost accounting per run, logs are not machine-parseable.
+**Status (2026-06-24):** Partial. Token usage logging done (`UsageSummary` accumulates per-turn, written to per-run file logs, LangSmith traces). TypeScript logger has structured JSON + PII redaction. **Gap:** Python side still uses print/standard logging (no structured JSON with correlation keys). No exported counters/histograms. Token usage not surfaced in API response.
 
-**Fix:**
+**Remaining:**
 - Replace `print` with a structured JSON logger; include `thread_id` as a correlation key in every log line.
-- Read `response.usage` from each DeepSeek response and accumulate into `JarvisState`.
 - Export counters/histograms: tool success %, turns per run, p50/p95 latency, cost per run, tokens in/out.
 - Redact task content (potential PII) in logs and traces.
+- Surface token usage in the API response (currently internal-only).
 
 **Key metrics to track:**
 
@@ -30,9 +32,11 @@ Visibility into system behavior and a testing strategy. The system should be deb
 
 ---
 
-## 6.2 Eval Harness and Regression Tests
+## 6.2 Eval Harness and Regression Tests 🟡
 
-**Status:** No tests or eval. `USER_PROMPTS` is a manual smoke list with no assertions.
+**Status (2026-06-24):** Partial. Unit tests exist: `test_risk_classifier.py`, `test_canonicalize.py`, `test_confirm_node.py`, `test_executor_node.py`, `test_edges_confirm.py`. TypeScript tests: 108 tests across 19 suites. **Gap:** No scenario evals with tool-call sequence assertions. No golden-trace diffs. No LLM-as-judge.
+
+**Original problem:** No tests or eval. `USER_PROMPTS` is a manual smoke list with no assertions.
 
 **Why it matters:** Every prompt or model tweak is an uncontrolled change. Regressions in tool-call sequences are invisible.
 
@@ -58,7 +62,9 @@ Visibility into system behavior and a testing strategy. The system should be deb
 
 ---
 
-## 6.3 Integration Tests (TypeScript ↔ Python)
+## 6.3 Integration Tests (TypeScript ↔ Python) ❌
+
+**Status (2026-06-24):** Not started. No cross-language integration tests.
 
 - TypeScript message processor calls the Python bridge and handles all response states: `completed`, `clarification`, `blocked`, `tool_unavailable`, `failed`.
 - Mid-run Telegram messages are ignored or routed to status without starting a second graph.

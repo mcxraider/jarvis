@@ -1,10 +1,14 @@
-# Future Scope
+# Future Scope ❌
 
 Longer-horizon features. Implement after the foundation, safety, and core reliability layers are solid.
 
+> **Overall status (2026-06-24): NOT STARTED.** Voice parity (7.4) is partial (transcription works, needs test coverage). Everything else is not started.
+
 ---
 
-## 7.1 Scheduled Jobs — Briefs and Smart Reminders
+## 7.1 Scheduled Jobs — Briefs and Smart Reminders ❌
+
+**Status (2026-06-24):** Not started. No cron/scheduling infrastructure, no recurring job storage.
 
 Proactive agent workflows that run without waiting for a Telegram message. Uses the same orchestration, safety, idempotency, and return-to-user paths as user-triggered requests, but starts from a trusted scheduler event.
 
@@ -34,9 +38,11 @@ Proactive agent workflows that run without waiting for a Telegram message. Uses 
 
 ---
 
-## 7.2 Calendar Integration
+## 7.2 Calendar Integration ❌
 
-**Status:** "Put in my cal" currently has no calendar tool and routes ambiguously.
+**Status (2026-06-24):** Not started. `agents/agent_api/app/tools/calendar/__init__.py` contains only a placeholder comment. No real calendar tool or API integration.
+
+**Original problem:** "Put in my cal" currently has no calendar tool and routes ambiguously.
 
 **Goal:** Add a real calendar integration so Jarvis can decide whether a request belongs in Todoist, a calendar, or both.
 
@@ -48,9 +54,11 @@ Proactive agent workflows that run without waiting for a Telegram message. Uses 
 
 ---
 
-## 7.3 Parallel Fan-Out with Send API
+## 7.3 Parallel Fan-Out with Send API ❌
 
-**Status:** Bulk independent work (e.g., 8 packing tasks) runs as serial tool calls in a single agent turn. Requires DISPATCH to be implemented first (see Foundation 1.3).
+**Status (2026-06-24):** Not started. No LangGraph Send API usage. No parallel worker subgraph.
+
+**Original problem:** Bulk independent work (e.g., 8 packing tasks) runs as serial tool calls in a single agent turn. Requires DISPATCH to be implemented first (see Foundation 1.3).
 
 **Fix:** Use LangGraph's `Send` API to fan out independent subtasks to parallel worker subgraphs, then join results.
 
@@ -61,9 +69,11 @@ Proactive agent workflows that run without waiting for a Telegram message. Uses 
 
 ---
 
-## 7.4 Voice Parity
+## 7.4 Voice Parity 🟡
 
-**Status:** Audio messages are transcribed and then routed through `TextProcessorService` → LangGraph. The path exists; the gap is test coverage and edge-case handling.
+**Status (2026-06-24):** Partial. Full audio pipeline works: `WhisperService` (Groq) → format conversion → transcription → `TextProcessorService` → LangGraph. Progress reporter handles two-phase UX (Transcribing → Agent labels). **Gap:** Limited test coverage for transcription → LangGraph → Todoist path. No voice *output*.
+
+**Original note:** Audio messages are transcribed and then routed through `TextProcessorService` → LangGraph. The path exists; the gap is test coverage and edge-case handling.
 
 **Goals:**
 - Ensure transcribed audio goes through the same orchestrator path as text with no behavioral difference.
@@ -72,19 +82,23 @@ Proactive agent workflows that run without waiting for a Telegram message. Uses 
 
 ---
 
-## 7.5 Soft Delete / Undo Window
+## 7.5 Soft Delete / Undo Window ❌
 
-**Status:** `delete_todoist_task` is permanent with no undo.
+**Status (2026-06-24):** Not started. Deletion is permanent ("Task deleted permanently"). No undo/restore mechanism.
+
+**Original problem:** `delete_todoist_task` is permanent with no undo.
 
 **Fix:** Store deleted task payloads briefly (e.g., 5 minutes) to allow a "restore" command. After the window expires, the deletion is confirmed permanent. This is distinct from the approval gate (2.2) — undo is a recovery path after an approved deletion.
 
 ---
 
-## 7.6 Multi-User Onboarding and Authentication
+## 7.6 Multi-User Onboarding and Authentication ❌
 
 **Priority:** Low — nice to have after core features are stable.
 
-**Status:** Currently single-user via environment variables (`ALLOWED_USER_IDS`, `TODOIST_API_KEY`, etc.). Scaling to many users requires per-user credential storage and onboarding flow.
+**Status (2026-06-24):** Not started. Single-user via environment variables. No OAuth, credential storage, or onboarding flow.
+
+**Original problem:** Currently single-user via environment variables (`ALLOWED_USER_IDS`, `TODOIST_API_KEY`, etc.). Scaling to many users requires per-user credential storage and onboarding flow.
 
 **Goal:** Enable Jarvis to support multiple users through Telegram, each with their own API keys and preferences, without exposing credentials in environment variables.
 

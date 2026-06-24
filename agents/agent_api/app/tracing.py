@@ -148,7 +148,9 @@ class UserProgressTracePrinter(TracePrinter):
             if fields.get("has_error"):
                 return self._progress("failed", "Something went wrong while running Jarvis")
             if fields.get("interrupted"):
-                return self._progress("paused", "Paused for your clarification")
+                if fields.get("interrupt_type") == "confirm":
+                    return self._progress("paused_confirm", "Paused for your confirmation")
+                return self._progress("paused_clarify", "Paused for your clarification")
             return self._progress("done", "Done")
 
         return None

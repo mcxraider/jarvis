@@ -1,0 +1,8 @@
+{
+  "status": "completed",
+  "thread_id": "thread_abc123",
+  "response": "I've added the task to your Todoist inbox.",
+  "tool_results": [
+    {"tool_call_id": "call_1", "tool_name": "add_todoist_task", "success": true, "content": {"id": "123"}, "error": null, "mutation_blocked": false}
+  ]
+}

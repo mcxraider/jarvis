@@ -1,28 +1,25 @@
-// src/services/telegram/file.service.ts
+// src/services/telegram/file.service.ts — Telegram file operations: resolves file IDs
+// to download URLs and fetches file content from Telegram's CDN. Used by audio
+// processors to download voice notes and audio files for transcription.
+
 import { logger } from '../../utils/logger';
 import { Telegram } from 'telegraf';
 import { AudioMimeTypes } from '../../utils/constants';
 
-/**
- * Handles file operations for Telegram bot
- */
 export class FileService {
   constructor(
     private readonly botToken: string,
     private readonly telegram: Telegram
   ) {}
 
-  /**
-   * Checks if a file is an audio file based on mime type
-   */
+  // Checks whether a MIME type corresponds to an audio format we can process.
   isAudioFile(mimeType?: string): boolean {
     if (!mimeType) return false;
     return (AudioMimeTypes as readonly string[]).includes(mimeType);
   }
 
-  /**
-   * Gets the download URL for a file from Telegram
-   */
+  // Resolves a Telegram file_id to a full download URL via the Bot API's getFile method.
+  // The resulting URL is temporary and expires after some time.
   async getFileUrl(fileId: string): Promise<string> {
     try {
       const file = await this.telegram.getFile(fileId);
@@ -39,9 +36,7 @@ export class FileService {
     }
   }
 
-  /**
-   * Downloads a file from Telegram
-   */
+  // Downloads the full file content as a Buffer by first resolving the URL, then fetching.
   async downloadFile(fileId: string): Promise<Buffer> {
     try {
       const fileUrl = await this.getFileUrl(fileId);

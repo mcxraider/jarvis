@@ -1,4 +1,8 @@
-// src/server.ts — Express setup, webhook registration, graceful shutdown
+// src/server.ts — HTTP entry point for the application.
+// Responsibilities: registers the Telegram webhook, creates the Express server with
+// the webhook route and a health-check endpoint, and handles graceful shutdown.
+// Importing ./app triggers env validation and service construction before we get here.
+
 import express, { Request, Response, NextFunction } from 'express';
 import { logger } from './utils/logger';
 import { createWebhookRouter } from './controllers/webhook.controller';
@@ -7,7 +11,8 @@ import { botService } from './app';
 const NGROK_URL = process.env.NGROK_URL!;
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
 
-// Register webhook with Telegram (runs once per URL; safe to call on every start)
+// Register the webhook URL with Telegram's servers on every startup.
+// This is idempotent — Telegram ignores the call if the URL hasn't changed.
 (async () => {
   try {
     await botService.setupWebhook(NGROK_URL, TELEGRAM_SECRET_TOKEN);
@@ -15,28 +20,83 @@ const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
     logger.error('telegram.webhook.setup_failed', {
       error: (err as Error).message,
     });
+    process.exit(1);
   }
 })();
 
-// Express app
+// --- Express application setup ---
+
 const app = express();
 app.use(express.json());
 
+// Simple liveness probe.
 app.get('/ping', (_req: Request, res: Response, _next: NextFunction) => {
   res.json({ status: 'ok' });
 });
 
+// Readiness probe — checks downstream dependencies.
+const LANGGRAPH_AGENT_URL = process.env.LANGGRAPH_AGENT_URL!;
+const HEALTH_CHECK_TIMEOUT_MS = 5000;
+
+app.get('/health', async (_req: Request, res: Response, _next: NextFunction) => {
+  const dependencies: Record<string, string> = {};
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
+    const langGraphRes = await fetch(`${LANGGRAPH_AGENT_URL.replace(/\/+$/, '')}/health`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    dependencies.langgraph = langGraphRes.ok ? 'ok' : `error (${langGraphRes.status})`;
+  } catch {
+    dependencies.langgraph = 'unreachable';
+  }
+
+  const healthy = Object.values(dependencies).every((v) => v === 'ok');
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? 'healthy' : 'degraded',
+    dependencies,
+  });
+});
+
+// Mount the Telegram webhook route at POST /webhook/:secret.
 app.use(createWebhookRouter(botService));
 
-// Start listening
+// Global error-handling middleware — catches unhandled errors from any route.
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error('server.unhandled_error', { error: err.message, stack: err.stack });
+  if (!res.headersSent) {
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// --- Start listening ---
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   logger.info('server.started', { url: `http://localhost:${PORT}` });
   logger.info('telegram.webhook.awaiting_updates', { path: '/webhook/:secret' });
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('server.shutdown.started', { signal: 'SIGTERM' });
-  process.exit(0);
-});
+// Graceful shutdown: close the HTTP server, stop the bot, then exit.
+const SHUTDOWN_TIMEOUT_MS = 10_000;
+
+function shutdown(signal: string) {
+  logger.info('server.shutdown.started', { signal });
+  const forceExit = setTimeout(() => {
+    logger.warn('server.shutdown.forced', { signal, timeoutMs: SHUTDOWN_TIMEOUT_MS });
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
+  forceExit.unref();
+
+  server.close(() => {
+    botService.stop().finally(() => {
+      logger.info('server.shutdown.completed', { signal });
+      process.exit(0);
+    });
+  });
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

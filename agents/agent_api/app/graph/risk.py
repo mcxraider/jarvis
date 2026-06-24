@@ -9,9 +9,10 @@ from typing import Any, Dict, List, Tuple
 
 from agents.agent_api.app.constants import CONFIRM_BULK_THRESHOLD
 from agents.agent_api.app.tools.base import tool_call_name
+from agents.agent_api.app.tools.metadata import always_risky_tools
 from agents.agent_api.app.tools.todoist.schemas import MUTATING_TOOL_NAMES
 
-RISKY_TOOLS = frozenset({"delete_todoist_task"})
+RISKY_TOOLS = always_risky_tools()
 
 MUTATING_TOOLS = frozenset(MUTATING_TOOL_NAMES)
 

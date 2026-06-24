@@ -1,6 +1,6 @@
 # LangGraph Agent — Current Architecture
 
-Last updated: 2026-06-23
+Last updated: 2026-06-24
 
 ## High-Level Component Map
 
@@ -27,6 +27,7 @@ flowchart TD
     agent["agent\nDeepSeek LLM call\nroutes on response type"]
     hitl["hitl\nask_user interrupt\npause + resume"]
     tools["tools\nexecute safe calls\nToolNode + dispatcher"]
+    summarize["summarize\nLLM-based condensation\nof large tool outputs"]
     prepare_confirm["prepare_confirm\nfreeze all risky → held_calls\ndefer safe siblings"]
     confirm["confirm\nshow batch summary\napprove / decline interrupt"]
     executor["executor\n4 guards → execute batch"]
@@ -40,7 +41,9 @@ flowchart TD
     agent -->|"any risky tool call"| prepare_confirm
 
     hitl -->|"user reply injected"| agent
-    tools -->|"results appended"| agent
+    tools -->|"result list > threshold"| summarize
+    tools -->|"small results"| agent
+    summarize -->|"summary replaces raw JSON"| agent
 
     prepare_confirm -->|static| confirm
 
@@ -66,7 +69,7 @@ The only node that calls the LLM.
   - `wrap_openai` + `@traceable` sends span to LangSmith
   - Accumulates `UsageSummary` (prompt / completion / cached / reasoning tokens)
 - Appends the raw assistant message to `messages`
-- Increments `turn_count`; exits to END if `>= max_agent_turns` (default 20)
+- Increments `turn_count`; exits to END with user-friendly message if `>= max_agent_turns` (default 20)
 - Sets `state["next"]`; routing is determined by `route_after_agent` (edges.py):
   1. error → END
   2. `ask_user` call → `hitl`
@@ -83,6 +86,39 @@ Executes every safe tool call from the latest assistant message.
   - Each call returns a Jarvis result envelope `{tool_call_id, tool_name, success, content, error, mutation_blocked, classified_error}`
 - Appends one `role: tool` message per result to `messages`
 - Accumulates results in `tool_results`
+- Conditional edge via `route_after_tools`:
+  - Any result containing a list > `SUMMARIZE_THRESHOLD` (default 20) → `summarize`
+  - Otherwise → `agent`
+
+### `summarize` — `graph/nodes/summarize.py`
+
+Query-aware condensation of large tool outputs (e.g. 50+ tasks from `get_tasks`) before the agent sees them.
+
+- Walks backward through `messages` to find recent `role: tool` messages
+- For each message whose `content` contains a list exceeding `SUMMARIZE_THRESHOLD`:
+
+  **Bypass checks** (skip LLM summarization entirely):
+  - Count/aggregate queries (`"how many"`, `"count"`, `"total number"`, etc.) with ≤100 items — the agent can count raw data itself
+  - Homogeneous results (>80% identical content) — repetitive data doesn't benefit from LLM compression
+
+  **Query-aware summarization** (when not bypassed):
+  - Calls the summarizer LLM (`SUMMARIZER_MODEL`, defaults to same DeepSeek model)
+  - Prompt includes the user's original request so the LLM preserves full detail for relevant tasks and abbreviates less relevant ones
+  - Groups output by project; each task retains at minimum its ID and name
+  - Dynamic `max_tokens` budget: ~50 tokens per task, capped at `SUMMARIZER_MAX_TOKENS_CEILING`
+
+  **Output validation with retry**:
+  - After first summary, validates that it references a sufficient fraction of original task IDs
+  - Coverage threshold scales inversely with item count: ≤30 items → 90%, ≤75 → 70%, >75 → 50%
+  - If validation fails, retries with a stronger instruction ("ensure you reference at least 70% of IDs")
+  - If second attempt also fails validation → deterministic truncation fallback
+
+  **On success**:
+  - Replaces message `content` with the summary (what the agent LLM sees next turn)
+  - Marks envelope with `summarized: true` and `original_item_count`
+- Raw data remains in `tool_results` for audit/debugging
+- **Retry** (network level): Tenacity-based, same pattern as orchestrator (429 / 5xx / timeout / connection)
+- **Graceful degradation**: On LLM failure after retries, falls back to deterministic truncation (first N items + count note) — never crashes the graph
 - Static edge → `agent`
 
 ### `hitl` — `graph/nodes/hitl.py`
@@ -275,10 +311,11 @@ Both `clarify` (HITL) and `confirm` (approval gate) share the same resume path �
 
 ## LLM & Retry
 
-- **Model**: `DEEPSEEK_MODEL` env var (default `deepseek-reasoner`)
+- **Orchestrator model**: `DEEPSEEK_MODEL` env var (default `deepseek-v4-flash`)
+- **Summarizer model**: `JARVIS_SUMMARIZER_MODEL` env var (defaults to same as `DEEPSEEK_MODEL`)
 - **API**: OpenAI-compatible, `openai` SDK
 - **LangSmith**: `wrap_openai` traces every completion; `@traceable` wraps `create_message` and `execute_tool`
-- **Retry**: Tenacity, exponential backoff, retries on 429 / 5xx / timeout / connection
+- **Retry**: Tenacity, exponential backoff, retries on 429 / 5xx / timeout / connection (both orchestrator and summarizer)
 - **Token tracking**: `UsageSummary` accumulates prompt / completion / cached / reasoning tokens per run
 
 ---

@@ -1,4 +1,7 @@
-// src/utils/ai/audioConverter.ts
+// src/utils/ai/audioConverter.ts — FFmpeg-based audio format converter. Telegram voice
+// notes arrive as OGG/Opus, which Groq's Whisper sometimes rejects. This utility
+// converts unsupported formats to MP3 (128kbps, 44.1kHz stereo) via a temp-file
+// round-trip. Uses the @ffmpeg-installer/ffmpeg package for a bundled binary path.
 
 import * as ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { spawn } from 'child_process';
@@ -7,48 +10,26 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { LogContext, logger } from '../logger';
 
-/**
- * Supported input audio formats that can be converted
- */
+// Formats that this converter knows how to handle as input.
 const CONVERTIBLE_FORMATS = ['oga', 'ogg', 'webm', 'opus', 'flac', 'aac', 'wma', 'amr'] as const;
 
-/**
- * Target format for conversion (MP3 is widely supported)
- */
+// All conversions target MP3 since it's universally accepted by speech-to-text APIs.
 const TARGET_FORMAT = 'mp3';
 
-/**
- * Maximum conversion timeout in milliseconds (30 seconds)
- */
+// Hard timeout to prevent hung FFmpeg processes from blocking the event loop.
 const CONVERSION_TIMEOUT_MS = 30000;
 
-/**
- * Result interface for audio conversion operations
- */
 interface ConversionResult {
-  /** The converted audio buffer */
   convertedBuffer: Buffer;
-  /** Original format */
   originalFormat: string;
-  /** Target format */
   targetFormat: string;
-  /** Conversion duration in milliseconds */
   conversionTimeMs: number;
-  /** Original file size in bytes */
   originalSizeBytes: number;
-  /** Converted file size in bytes */
   convertedSizeBytes: number;
 }
 
-/**
- * Audio converter class for handling format conversions using ffmpeg
- */
 export class AudioConverter {
-  /**
-   * Checks if ffmpeg is available on the system
-   *
-   * @returns Promise resolving to true if ffmpeg is available
-   */
+  // Verifies the bundled FFmpeg binary is executable (times out after 5s).
   static async isFFmpegAvailable(): Promise<boolean> {
     return new Promise((resolve) => {
       // CHANGED: Use the path from the installer package
@@ -70,26 +51,13 @@ export class AudioConverter {
     });
   }
 
-  /**
-   * Checks if a file extension needs conversion
-   *
-   * @param extension - File extension to check
-   * @returns True if the format needs conversion
-   */
+  // Returns true if this extension is in our convertible list (i.e. not natively supported).
   static needsConversion(extension: string): boolean {
     return CONVERTIBLE_FORMATS.includes(extension.toLowerCase() as any);
   }
 
-  /**
-   * Converts audio buffer from unsupported format to MP3
-   *
-   * @param audioBuffer - Input audio buffer
-   * @param originalExtension - Original file extension
-   * @param userId - Optional user ID for logging
-   * @param logContext - Optional log context for request correlation
-   * @returns Promise resolving to conversion result
-   * @throws {Error} If conversion fails or ffmpeg is not available
-   */
+  // Converts an audio buffer to MP3 via temp files. Writes the input buffer to a temp
+  // file, spawns FFmpeg to transcode, reads back the output, then cleans up both files.
   static async convertToMp3(
     audioBuffer: Buffer,
     originalExtension: string,
@@ -167,16 +135,8 @@ export class AudioConverter {
     }
   }
 
-  /**
-   * Performs the actual audio conversion using ffmpeg
-   *
-   * @param inputPath - Path to input file
-   * @param outputPath - Path to output file
-   * @param userId - Optional user ID for logging
-   * @param logContext - Optional log context for request correlation
-   * @returns Promise resolving to converted audio buffer
-   * @private
-   */
+  // Spawns the FFmpeg child process and returns the converted buffer on success.
+  // Encoding: libmp3lame, 128kbps, 44.1kHz, stereo — good quality/size balance for speech.
   private static performConversion(
     inputPath: string,
     outputPath: string,
@@ -252,13 +212,7 @@ export class AudioConverter {
     });
   }
 
-  /**
-   * Extracts meaningful error messages from ffmpeg stderr output
-   *
-   * @param stderr - FFmpeg stderr output
-   * @returns Cleaned error message
-   * @private
-   */
+  // Parses FFmpeg's verbose stderr output to extract the most relevant error line.
   private static extractFFmpegError(stderr: string): string {
     // Look for common error patterns in ffmpeg output
     const errorPatterns = [
@@ -280,13 +234,8 @@ export class AudioConverter {
     return lines[lines.length - 1] || 'Unknown conversion error';
   }
 
-  /**
-   * Cleans up temporary files
-   *
-   * @param filePaths - Array of file paths to clean up
-   * @param logContext - Optional log context for request correlation
-   * @private
-   */
+  // Removes temp files created during conversion. Uses allSettled so one failed
+  // cleanup doesn't prevent the other from being attempted.
   private static async cleanupTempFiles(filePaths: string[], logContext: LogContext = {}): Promise<void> {
     const cleanupPromises = filePaths.map(async (filePath) => {
       try {
@@ -303,20 +252,10 @@ export class AudioConverter {
     await Promise.allSettled(cleanupPromises);
   }
 
-  /**
-   * Gets the list of supported convertible formats
-   *
-   * @returns Array of supported input formats
-   */
   static getSupportedFormats(): readonly string[] {
     return CONVERTIBLE_FORMATS;
   }
 
-  /**
-   * Gets the target conversion format
-   *
-   * @returns Target format string
-   */
   static getTargetFormat(): string {
     return TARGET_FORMAT;
   }

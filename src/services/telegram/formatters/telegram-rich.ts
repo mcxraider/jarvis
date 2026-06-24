@@ -2,6 +2,7 @@ import { Context } from 'telegraf';
 import { Message } from 'telegraf/typings/core/types/typegram';
 import { logger } from '../../../utils/logger';
 import { replyWithMarkdown } from './telegram-markdown';
+import { splitMessage } from './message-splitter';
 
 /**
  * Telegram Rich Messages (Bot API 10.1) delivery.
@@ -51,23 +52,27 @@ export async function sendFinalReply(
   text: string,
   logContext: object = {},
 ): Promise<void> {
-  if (richEnabled && ctx.chat) {
-    try {
-      await rawCallApi(ctx, 'sendRichMessage', {
-        chat_id: ctx.chat.id,
-        rich_message: { markdown: text },
-      });
-      return;
-    } catch (error) {
-      logger.warn('telegram.rich.fallback', {
-        ...logContext,
-        method: 'sendRichMessage',
-        error: (error as Error).message,
-      });
-    }
-  }
+  const chunks = splitMessage(text);
 
-  await replyWithMarkdown(ctx.reply.bind(ctx), text, logContext);
+  for (const chunk of chunks) {
+    if (richEnabled && ctx.chat) {
+      try {
+        await rawCallApi(ctx, 'sendRichMessage', {
+          chat_id: ctx.chat.id,
+          rich_message: { markdown: chunk },
+        });
+        continue;
+      } catch (error) {
+        logger.warn('telegram.rich.fallback', {
+          ...logContext,
+          method: 'sendRichMessage',
+          error: (error as Error).message,
+        });
+      }
+    }
+
+    await replyWithMarkdown(ctx.reply.bind(ctx), chunk, logContext);
+  }
 }
 
 /**

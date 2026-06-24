@@ -41,7 +41,7 @@ def to_response(result: JarvisState) -> AgentResponse:
     if result.get("interrupted"):
         interrupt = result.get("interrupt_payload", {})
         if interrupt.get("type") == "confirm":
-            question = f"⚠️ Confirm: {interrupt.get('summary', 'Action requires approval.')}"
+            question = f"⚠️ Please Confirm: {interrupt.get('summary', 'Action requires approval.')}"
         else:
             question = str(
                 interrupt.get("question")
@@ -57,10 +57,11 @@ def to_response(result: JarvisState) -> AgentResponse:
 
     if result.get("error"):
         error = str(result.get("error"))
+        user_response = str(result.get("final_response") or "Jarvis could not complete that request.")
         return AgentResponse(
             status="failed",
             thread_id=thread_id,
-            response="Jarvis could not complete that request.",
+            response=user_response,
             tool_results=tool_results,
             error=error,
         )

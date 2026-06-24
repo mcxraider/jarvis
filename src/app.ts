@@ -1,14 +1,31 @@
-// src/app.ts — service wiring
+// src/app.ts — Application bootstrap: validates environment, constructs the full
+// service dependency graph, and exports the configured TelegramBotService instance.
+// This module is imported by server.ts, which wires up Express and the webhook.
+
 import 'dotenv/config';
+import { Telegraf, Context } from 'telegraf';
 import { logger } from './utils/logger';
-import { TelegramBotService } from './services/telegram/telegram-bot.service';
-import { MessageProcessorService } from './services/telegram/message-processor.service';
 import { TelegramConfig } from './types/telegram.types';
 import { LangGraphAgentClient } from './services/ai/langgraph-agent-client.service';
+import { WhisperService } from './services/ai/whisper.service';
 import { createPendingClarificationStore } from './services/telegram/pending-clarification.store';
+import { FileService } from './services/telegram/file.service';
+import { BotActivityService } from './services/telegram/bot-activity.service';
+import { BotStatusService } from './services/telegram/bot-status.service';
+import { TextProcessorService } from './services/telegram/processors/text-processor.service';
+import { AudioProcessorService } from './services/telegram/processors/audio-processor.service';
+import { MessageProcessorService } from './services/telegram/message-processor.service';
+import { MessageHandlers } from './services/telegram/handlers/message-handlers';
+import { CommandHandlers } from './services/telegram/handlers/command-handlers';
+import { CallbackHandler } from './services/telegram/handlers/callback-handler';
+import { TelegramHandlers } from './services/telegram/handlers/telegram-handlers';
+import { TelegramBotService } from './services/telegram/telegram-bot.service';
 import { setRichMessagesEnabled } from './services/telegram/formatters/telegram-rich';
 
-// Validate required environment variables before constructing any service
+// --- Environment validation ---
+// All of these must be set before the app can start. A missing variable
+// causes an immediate hard exit so we don't get cryptic runtime failures later.
+
 const REQUIRED_ENV_VARS = [
   'BOT_TOKEN',
   'NGROK_URL',
@@ -30,34 +47,72 @@ logger.info('app.startup.validation_completed', {
   nodeEnv: process.env.NODE_ENV || 'development',
 });
 
+// --- Parse and validate environment values ---
+
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 const NGROK_URL = process.env.NGROK_URL!;
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
+
+// Comma-separated list of Telegram numeric user IDs that are allowed to interact.
+// This is the primary access control gate — messages from unlisted users are rejected.
 const ALLOWED_TELEGRAM_USER_IDS = process.env.ALLOWED_TELEGRAM_USER_IDS!
   .split(',')
-  .map((value) => value.trim())
+  .map((v) => v.trim())
   .filter(Boolean)
-  .map((value) => Number(value));
+  .map(Number);
 
 if (
   ALLOWED_TELEGRAM_USER_IDS.length === 0 ||
   ALLOWED_TELEGRAM_USER_IDS.some((id) => !Number.isSafeInteger(id) || id <= 0)
 ) {
-  logger.error('app.startup.validation_failed', {
-    invalidEnvVar: 'ALLOWED_TELEGRAM_USER_IDS',
-  });
+  logger.error('app.startup.validation_failed', { invalidEnvVar: 'ALLOWED_TELEGRAM_USER_IDS' });
   process.exit(1);
 }
 
-// Wire up services
-const agentClient = new LangGraphAgentClient();
-const pendingClarificationStore = createPendingClarificationStore();
-const messageProcessor = new MessageProcessorService(agentClient, pendingClarificationStore);
-
-// Opt-in Telegram Rich Messages (Bot API 10.1). Defaults off; falls back to MarkdownV2.
+// Rich messages use Telegram Bot API 10.1's sendRichMessage/sendRichMessageDraft
+// for animated progress indicators. Falls back to MarkdownV2 if disabled or on error.
 const RICH_MESSAGES_ENABLED = process.env.TELEGRAM_RICH_MESSAGES === 'true';
 setRichMessagesEnabled(RICH_MESSAGES_ENABLED);
 
+// --- Service construction (manual dependency injection via constructors) ---
+// The dependency graph flows top-down: infrastructure → processors → handlers → bot.
+// Each service receives only the collaborators it needs, keeping coupling explicit.
+
+const bot = new Telegraf<Context>(BOT_TOKEN);
+
+// AI services: the LangGraph agent client talks to the Python FastAPI backend,
+// and WhisperService handles Groq-hosted audio transcription.
+const agentClient = new LangGraphAgentClient();
+const whisperService = new WhisperService({
+  enforceEnglishOnly: true,
+  language: 'en',
+  qualityMonitoringEnabled: true,
+});
+
+// Pending clarification store tracks HITL (human-in-the-loop) interrupt state
+// between messages. Backed by Postgres in production, in-memory for local dev.
+const pendingStore = createPendingClarificationStore();
+
+// Telegram infrastructure: file downloads, activity metrics, and health reporting.
+const fileService = new FileService(BOT_TOKEN, bot.telegram);
+const activityService = new BotActivityService();
+const statusService = new BotStatusService(activityService);
+
+// Message processors: text goes to LangGraph, audio gets transcribed first then
+// forwarded through the same text pipeline — so voice and typed share the same path.
+const textProcessor = new TextProcessorService(agentClient, pendingStore);
+const audioProcessor = new AudioProcessorService(whisperService, textProcessor);
+const messageProcessor = new MessageProcessorService(textProcessor, audioProcessor);
+
+// Telegram handlers: commands (/help, /status), message types, and inline callbacks.
+const messageHandlers = new MessageHandlers(fileService, messageProcessor, activityService);
+const commandHandlers = new CommandHandlers(activityService, statusService);
+const callbackHandler = new CallbackHandler(agentClient, pendingStore);
+
+const handlers = new TelegramHandlers(commandHandlers, messageHandlers, callbackHandler);
+
+// Final assembly: the TelegramBotService owns the Telegraf instance, registers
+// all handlers, and exposes handleUpdate() for the Express webhook route.
 const telegramConfig: TelegramConfig = {
   token: BOT_TOKEN,
   allowedUserIds: ALLOWED_TELEGRAM_USER_IDS,
@@ -66,7 +121,7 @@ const telegramConfig: TelegramConfig = {
   richMessages: RICH_MESSAGES_ENABLED,
 };
 
-export const botService = new TelegramBotService(telegramConfig, messageProcessor, agentClient, pendingClarificationStore);
+export const botService = new TelegramBotService(telegramConfig, handlers);
 
 logger.info('app.services.initialized', {
   telegramConfigured: true,

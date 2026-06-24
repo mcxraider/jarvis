@@ -14,13 +14,28 @@ from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 # Sample prompts for manual/CLI runs live in ``examples.py``. The runtime default
 # stays empty so ``USER_PROMPT`` is "" unless a prompt is supplied explicitly.
 USER_PROMPTS: List[str] = [
-    "meeting zac at night on friday, add it in" # always add it in first, then check for conflicts and report back if conflict else end.
+    # "add in buy chagee for feebee later"
+    # "meeting zac at night on friday, add it in" # always add it in first, then check for conflicts and report back if conflict else end.
     # "i alr did romans 7 in the train this morning uhm but not romans 8 yet, shift romans 8 to tonight"
     # "Go through my tasks, check everything that does not have a time, that is also not a birthday. Tell me first and then I will ask you to make edits",
     # "put in my cal",
+    # "can u add 24 tasks  today each one titled 'hehehehehehehehehe'",
+    # "how many hehehe tasks do i have today"
+    # "delete all my hehehe tasks today"
     # "Add three tasks for my morning routine.",
     # "Clean up my list.",
     # "Delete all tasks on Tuesday."
+    # --- Regression test prompts (test on Telegram) ---
+    # 1. Bulk add (tests bulk_add_todoist_tasks + confirm gate rendering)
+    "add 24 tasks titled 'hehehehehehhe' due tomorrow",
+    # 2. Summarizer trigger (tests route_after_tools → summarize node on large results)
+    # "show me all my tasks for today and tmr",
+    # 3. Summarizer bypass — count query (tests _is_count_query bypass path)
+    # "how many tasks do I have due this week?",
+    # 4. Concurrent executor + confirm (tests batch confirm rendering + parallel execution)
+    # "delete all my test-bulk tasks",
+    # 5. Pagination + large result handling (tests cursor null handling + summarizer)
+    # "list every task in my inbox",
 ]
 
 USER_PROMPT = USER_PROMPTS[0] if USER_PROMPTS else ""

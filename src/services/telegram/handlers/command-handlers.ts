@@ -1,19 +1,20 @@
-// src/services/telegram/handlers/command-handlers.ts
+// src/services/telegram/handlers/command-handlers.ts — Handles slash commands
+// registered in the Telegram bot menu (/help and /status). Each command logs the
+// interaction, records activity metrics, and replies with a MarkdownV2-formatted message.
+
 import { Context } from 'telegraf';
 import { logger } from '../../../utils/logger';
 import { BotActivityService } from '../bot-activity.service';
 import { BotStatusService } from '../bot-status.service';
 import { replyWithMarkdown } from '../formatters/telegram-markdown';
 
-/**
- * Handles bot commands
- */
 export class CommandHandlers {
   constructor(
     private readonly activityService: BotActivityService,
     private readonly statusService: BotStatusService,
   ) {}
 
+  // Replies with a capabilities summary and supported input types.
   async handleHelp(ctx: Context): Promise<void> {
     const userId = ctx.from?.id;
     logger.info('User requested help', { userId });
@@ -36,6 +37,8 @@ export class CommandHandlers {
     await replyWithMarkdown(ctx.reply.bind(ctx), helpMessage, { userId });
   }
 
+  // Queries the BotStatusService for runtime health, AI model info, dependency checks,
+  // and activity metrics, then formats and sends the result.
   async handleStatus(ctx: Context): Promise<void> {
     const userId = ctx.from?.id;
     logger.info('User requested status', { userId });
