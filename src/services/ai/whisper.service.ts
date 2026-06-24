@@ -1,15 +1,8 @@
-// src/services/ai/whisper.service.ts
-
-/**
- * Service for transcribing audio files using OpenAI Whisper API.
- * Handles audio file downloads, validation, and transcription processing.
- *
- * @example
- * ```typescript
- * const whisperService = new WhisperService();
- * const transcription = await whisperService.transcribeAudio('https://example.com/audio.ogg');
- * ```
- */
+// src/services/ai/whisper.service.ts — Audio transcription via Groq-hosted Whisper
+// large-v3. Handles the full lifecycle: download audio from URL → validate size →
+// attempt direct transcription → fall back to FFmpeg conversion if format is rejected →
+// transcribe → evaluate quality metrics → return structured result.
+// English-only mode is enforced by default to prevent hallucinated non-English output.
 
 import OpenAI from 'openai';
 import { LogContext, logger, truncateForLog } from '../../utils/logger';
@@ -17,27 +10,20 @@ import { AudioMimeTypes } from '../../utils/constants';
 import { validateFileSize } from '../../utils/ai/fileValidation';
 import { AudioConverter } from '../../utils/ai/audioConverter';
 
-/**
- * Constants for Whisper service configuration
- */
 const WHISPER_CONSTANTS = {
-  /** Default maximum file size (25MB as per Groq limits) */
-  DEFAULT_MAX_FILE_SIZE_BYTES: 25 * 1024 * 1024,
-  /** Default Whisper model on Groq */
+  DEFAULT_MAX_FILE_SIZE_BYTES: 25 * 1024 * 1024, // Groq's hard limit
   DEFAULT_MODEL: 'whisper-large-v3',
-  /** Default response format for segment metadata */
-  DEFAULT_RESPONSE_FORMAT: 'verbose_json' as const,
-  /** Default language (English) */
+  DEFAULT_RESPONSE_FORMAT: 'verbose_json' as const, // Needed for segment quality metadata
   DEFAULT_LANGUAGE: 'en',
-  /** Default prompt for Groq speech-to-text context and style guidance */
+  // Context prompt that helps Whisper recognize domain-specific terms.
   DEFAULT_PROMPT:
     'Telegram voice memo for a personal productivity assistant. Preserve task names, dates, labels, project names, Todoist, Groq, DeepSeek, and technical terms. Use clear punctuation.',
-  /** Groq speech-to-text prompt limit */
-  MAX_PROMPT_TOKENS: 224,
-  /** Maximum text length to log for privacy */
+  MAX_PROMPT_TOKENS: 224, // Groq's prompt token limit
   MAX_LOG_TEXT_LENGTH: 100,
 } as const;
 
+// Quality thresholds for monitoring (warn-only, not rejecting). These flag segments
+// that might have poor transcription accuracy so we can spot patterns in logs.
 const DEFAULT_QUALITY_THRESHOLDS = {
   minAvgLogprob: -0.5,
   maxNoSpeechProb: 0.6,
@@ -45,6 +31,7 @@ const DEFAULT_QUALITY_THRESHOLDS = {
   maxCompressionRatio: 2.4,
 } as const;
 
+// Formats that Groq accepts directly without needing FFmpeg conversion.
 const GROQ_DIRECT_TRANSCRIPTION_FORMATS = [
   'flac',
   'mp3',
@@ -57,6 +44,8 @@ const GROQ_DIRECT_TRANSCRIPTION_FORMATS = [
   'wav',
 ] as const;
 
+// Error message patterns that indicate a format rejection (rather than a server error).
+// When these occur, we fall back to FFmpeg conversion instead of failing outright.
 const FORMAT_REJECTION_PATTERNS = [
   /invalid file format/i,
   /unsupported audio format/i,
@@ -66,27 +55,15 @@ const FORMAT_REJECTION_PATTERNS = [
   /not a supported format/i,
 ] as const;
 
-/**
- * Configuration interface for Whisper service options
- */
 interface WhisperConfig {
-  /** OpenAI API key - loaded from environment variables */
   apiKey: string;
-  /** Maximum file size in bytes (default: 25MB as per OpenAI limits) */
   maxFileSizeBytes?: number;
-  /** Model to use for transcription (default: whisper-1) */
   model?: string;
-  /** Language for transcription (default: 'en' for English only) */
   language?: string;
-  /** Response format (default: text) */
   responseFormat?: 'json' | 'text' | 'srt' | 'verbose_json' | 'vtt';
-  /** Whether to enforce English-only transcription (default: true) */
   enforceEnglishOnly?: boolean;
-  /** Context/style prompt for transcription. Groq limits this to 224 tokens. */
   prompt?: string;
-  /** Whether to inspect verbose_json segment quality metadata (default: true) */
   qualityMonitoringEnabled?: boolean;
-  /** Monitor-only thresholds for segment quality metadata */
   qualityThresholds?: Partial<QualityThresholds>;
 }
 
@@ -134,13 +111,8 @@ interface ParsedTranscription {
   detectedLanguage?: string;
 }
 
-/**
- * Result interface for transcription operations
- */
 interface TranscriptionResult {
-  /** The transcribed text */
   text: string;
-  /** Original file URL */
   fileUrl: string;
   processingTimeMs: number;
   detectedLanguage?: string;
@@ -148,21 +120,12 @@ interface TranscriptionResult {
   quality?: TranscriptionQuality;
 }
 
-/**
- * Service for transcribing audio files using OpenAI Whisper API
- */
 export class WhisperService {
   private readonly openai: OpenAI;
   private readonly config: Required<Omit<WhisperConfig, 'language' | 'qualityThresholds'>>;
   private readonly language: string;
   private readonly qualityThresholds: QualityThresholds;
 
-  /**
-   * Creates a new WhisperService instance
-   *
-   * @param config - Configuration options for the service
-   * @throws {Error} If OpenAI API key is not provided
-   */
   constructor(config?: Partial<WhisperConfig>) {
     const apiKey = config?.apiKey || process.env.GROQ_API_KEY;
 
@@ -213,14 +176,8 @@ export class WhisperService {
     });
   }
 
-  /**
-   * Transcribes audio from a given URL
-   *
-   * @param fileUrl - URL of the audio file to transcribe
-   * @param userId - Optional user ID for logging purposes
-   * @returns Promise resolving to transcription result
-   * @throws {Error} If file download fails, file is too large, or transcription fails
-   */
+  // Main entry point: downloads audio from URL, validates, converts if needed, transcribes,
+  // evaluates quality, and returns the complete result with timing metadata.
   async transcribeAudio(
     fileUrl: string,
     userId?: number,
@@ -486,15 +443,7 @@ export class WhisperService {
     return result;
   }
 
-  /**
-   * Downloads audio file from the provided URL
-   *
-   * @param fileUrl - URL of the audio file
-   * @param userId - Optional user ID for logging
-   * @param logContext - Log context for request correlation
-   * @returns Promise resolving to audio file buffer
-   * @private
-   */
+  // Fetches the raw audio bytes from the given URL (typically a Telegram CDN link).
   private async downloadAudioFile(
     fileUrl: string,
     userId?: number,
@@ -508,14 +457,16 @@ export class WhisperService {
       fileUrl: this.sanitizeUrlForLogging(fileUrl),
     });
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+
     try {
-      const response = await fetch(fileUrl);
+      const response = await fetch(fileUrl, { signal: controller.signal });
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      // Validate content type if available
       const contentType = response.headers.get('content-type');
       if (contentType && !this.isValidAudioMimeType(contentType)) {
         logger.warn('whisper.download.unexpected_content_type', {
@@ -546,20 +497,12 @@ export class WhisperService {
         durationMs: Date.now() - downloadStart,
       });
       throw new Error(`Failed to download audio file: ${(error as Error).message}`);
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
-  /**
-   * Performs the actual transcription using OpenAI Whisper API
-   *
-   * @param audioFile - Audio file to transcribe
-   * @param fileSizeBytes - Size of the file being transcribed
-   * @param fileExtension - Extension of the file being transcribed
-   * @param userId - Optional user ID for logging
-   * @param logContext - Log context for request correlation
-   * @returns Promise resolving to transcribed text
-   * @private
-   */
+  // Calls the Groq Whisper API with the prepared File object and returns parsed segments.
   private async performTranscription(
     audioFile: File,
     fileSizeBytes: number,
@@ -775,13 +718,8 @@ export class WhisperService {
     return FORMAT_REJECTION_PATTERNS.some((pattern) => pattern.test(error.message));
   }
 
-  /**
-   * Validates that the transcribed content appears to be in English
-   * Logs warnings if non-English content is detected
-   *
-   * @param text - The transcribed text to validate
-   * @private
-   */
+  // Heuristic check for non-English content (CJK, Cyrillic, Arabic, Hebrew, etc.).
+  // Logs a warning but doesn't reject — the transcription is still returned.
   private validateEnglishContent(text: string, logContext: LogContext = {}): void {
     // Basic heuristic to detect potential non-English content
     const nonLatinChars = /[^\x00-\x7F\s\p{P}]/u.test(text);
@@ -801,13 +739,7 @@ export class WhisperService {
     }
   }
 
-  /**
-   * Extracts file extension from URL
-   *
-   * @param url - File URL
-   * @returns File extension without dot, or null if not found
-   * @private
-   */
+  // Extracts the file extension from a URL path (e.g. "/file/audio.ogg" → "ogg").
   private extractFileExtension(url: string): string | null {
     try {
       const urlObj = new URL(url);
@@ -856,13 +788,7 @@ export class WhisperService {
     return promptTokens.slice(0, WHISPER_CONSTANTS.MAX_PROMPT_TOKENS).join(' ');
   }
 
-  /**
-   * Gets MIME type from file extension
-   *
-   * @param extension - File extension
-   * @returns MIME type string
-   * @private
-   */
+  // Maps a file extension to the corresponding MIME type for the File constructor.
   private getMimeTypeFromExtension(extension: string): string {
     const mimeTypeMap: Record<string, string> = {
       flac: 'audio/flac',
@@ -881,25 +807,12 @@ export class WhisperService {
     return mimeTypeMap[extension.toLowerCase()] || 'audio/ogg';
   }
 
-  /**
-   * Validates if a MIME type is a supported audio format
-   *
-   * @param mimeType - MIME type to validate
-   * @returns True if the MIME type is supported
-   * @private
-   */
   private isValidAudioMimeType(mimeType: string): boolean {
     const normalizedMimeType = mimeType.split(';')[0].toLowerCase(); // Remove charset if present
     return AudioMimeTypes.includes(normalizedMimeType as any);
   }
 
-  /**
-   * Sanitizes URL for logging by truncating sensitive parts
-   *
-   * @param url - URL to sanitize
-   * @returns Sanitized URL string for logging
-   * @private
-   */
+  // Truncates long URLs for safe logging (Telegram CDN URLs contain bot tokens).
   private sanitizeUrlForLogging(url: string): string {
     if (url.length <= 100) {
       return url;
@@ -908,11 +821,7 @@ export class WhisperService {
     return url.substring(0, 50) + '...[truncated]...' + url.substring(url.length - 20);
   }
 
-  /**
-   * Gets current service configuration
-   *
-   * @returns Service configuration (excluding sensitive data)
-   */
+  // Returns the current configuration (minus the API key) for diagnostics/debugging.
   getConfig(): Omit<WhisperConfig, 'apiKey'> {
     return {
       maxFileSizeBytes: this.config.maxFileSizeBytes,

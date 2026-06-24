@@ -1,3 +1,13 @@
+// src/utils/logger.ts — Centralized Winston logger with automatic PII redaction.
+// Outputs to four transports:
+//   - Console: pretty-printed in dev, JSON in production
+//   - logs/app.log: all levels, JSON format (machine-parseable)
+//   - logs/error.log: warn+ only, JSON format
+//   - logs/app-readable.log: all levels, human-readable indented format
+//   - logs/error-readable.log: warn+ only, human-readable
+// Sensitive values (tokens, API keys, Telegram file URLs, user/chat IDs) are
+// automatically redacted before writing to any transport.
+
 import winston from 'winston';
 import fs from 'fs';
 import path from 'path';
@@ -8,6 +18,7 @@ const LOG_LEVEL =
 const LOG_FORMAT =
   process.env.LOG_FORMAT || (process.env.NODE_ENV === 'production' ? 'json' : 'pretty');
 
+// Patterns for identifying sensitive values that should never appear in logs.
 const SENSITIVE_KEY_PATTERN =
   /(authorization|token|secret|api[_-]?key|password|bot[_-]?token|openai[_-]?api[_-]?key|todoist[_-]?api[_-]?key|telegram[_-]?secret)/i;
 const PRIVATE_ID_KEY_PATTERN = /^(chat_?id|user_?id|from_?id|telegram_?user_?id)$/i;
@@ -16,6 +27,8 @@ function ensureLogDir(): void {
   fs.mkdirSync(LOG_DIR, { recursive: true });
 }
 
+// Recursively walks through log metadata and replaces sensitive values with
+// placeholder strings. Handles nested objects, arrays, Bearer tokens, and Telegram URLs.
 function redactValue(value: unknown, key = ''): unknown {
   if (SENSITIVE_KEY_PATTERN.test(key)) {
     return '[REDACTED]';
@@ -134,6 +147,7 @@ const humanReadableFileFormat = winston.format.combine(
 
 ensureLogDir();
 
+// Standard context fields passed through the request lifecycle for log correlation.
 export interface LogContext {
   requestId?: string;
   updateId?: number;
@@ -144,10 +158,12 @@ export interface LogContext {
   threadId?: string;
 }
 
+// Generates a short, unique request ID for log correlation (e.g. "tg_m1abc_x9y2z3").
 export function createRequestId(prefix = 'req'): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// Truncates long strings for log output — prevents message bodies from bloating logs.
 export function truncateForLog(value: string | undefined, maxLength = 80): string | undefined {
   if (!value) return value;
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;

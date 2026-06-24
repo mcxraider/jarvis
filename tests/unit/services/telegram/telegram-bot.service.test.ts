@@ -23,32 +23,11 @@ jest.mock('telegraf', () => {
 });
 
 describe('TelegramBotService', () => {
-  const originalTodoistApiKey = process.env.TODOIST_API_KEY;
-  const originalOpenAiModel = process.env.OPENAI_MODEL;
-
-  beforeEach(() => {
-    process.env.TODOIST_API_KEY = 'todoist-key';
-    process.env.OPENAI_MODEL = 'gpt-4o';
-  });
-
-  afterEach(() => {
-    jest.resetModules();
-
-    if (originalTodoistApiKey === undefined) {
-      delete process.env.TODOIST_API_KEY;
-    } else {
-      process.env.TODOIST_API_KEY = originalTodoistApiKey;
-    }
-
-    if (originalOpenAiModel === undefined) {
-      delete process.env.OPENAI_MODEL;
-    } else {
-      process.env.OPENAI_MODEL = originalOpenAiModel;
-    }
-  });
-
   async function createService() {
     const { TelegramBotService } = await import('../../../../src/services/telegram/telegram-bot.service');
+    const handlers = {
+      setupHandlers: jest.fn(),
+    } as any;
     return new TelegramBotService(
       {
         token: 'bot-token',
@@ -56,9 +35,13 @@ describe('TelegramBotService', () => {
         webhookUrl: 'https://example.com',
         secretToken: 'secret',
       },
-      {} as any,
+      handlers,
     );
   }
+
+  afterEach(() => {
+    jest.resetModules();
+  });
 
   it('syncs only /help and /status before webhook setup', async () => {
     const service = await createService();

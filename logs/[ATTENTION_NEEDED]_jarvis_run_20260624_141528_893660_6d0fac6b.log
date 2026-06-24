@@ -1,0 +1,39 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-24T14:15:28
+request_id: 064eee38-f3d7-4b2f-ad53-b9e6c7bc4a34
+thread_id: 6d0fac6b-8559-4430-95cc-0736a4d42f63
+user_id: local-user
+request_source: cli
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: True
+------------------------------------------------------------------------------
+2026-06-24 14:15:28.895 | section              | === Jarvis LangGraph Run ===
+2026-06-24 14:15:28.895 | runtime.start        | Starting graph invocation. | request_id=064eee38-f3d7-4b2f-ad53-b9e6c7bc4a34, model=deepseek-v4-flash, allow_mutations=true, max_turns=20, thread_id=6d0fac6b-8559-4430-95cc-0736a4d42f63, request_source=cli, resuming=true
+2026-06-24 14:15:28.895 | runtime.prompt       | [payload] user_prompt: can u add 24 tasks  today each one titled 'hehehehehehehehehe'
+2026-06-24 14:15:28.943 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-24 14:15:28.944 | graph.confirm        | Interrupting for user confirmation. | count=4, tool_names=["add_todoist_task"], summary=Batch of 4 actions:
+  1. add_todoist_task(content='hehehehehehehehehe', due_string='today')
+  2. add_todoist_task(content='hehehehehehehehehe', due_string='today')
+  3. add_todo...
+2026-06-24 14:15:28.944 | graph.confirm        | Resumed from user confirmation. | decision=decline, count=4
+2026-06-24 14:15:28.946 | runtime.done         | Graph invocation completed. | request_id=064eee38-f3d7-4b2f-ad53-b9e6c7bc4a34, turns=3, tool_results=20, has_error=false, interrupted=false, total_tokens=23455
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-24T14:15:28
+duration_seconds: 0.053
+request_id: 064eee38-f3d7-4b2f-ad53-b9e6c7bc4a34
+turns: 3
+tool_results: 20
+has_error: False
+interrupted: False
+prompt_tokens: 21769
+completion_tokens: 1686
+total_tokens: 23455
+cached_tokens: 14336
+reasoning_tokens: 190
+==============================================================================

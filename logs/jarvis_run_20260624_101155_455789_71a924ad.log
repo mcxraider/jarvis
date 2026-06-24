@@ -1,0 +1,45 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-24T10:11:55
+request_id: f782f9e6-6235-48b4-b9f7-9357057ed91b
+thread_id: 71a924ad-21ff-41fb-81df-556c5257d721
+user_id: local-user
+request_source: cli
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-06-24 10:11:55.456 | section              | === Jarvis LangGraph Run ===
+2026-06-24 10:11:55.456 | runtime.start        | Starting graph invocation. | request_id=f782f9e6-6235-48b4-b9f7-9357057ed91b, model=deepseek-v4-flash, allow_mutations=true, max_turns=20, thread_id=71a924ad-21ff-41fb-81df-556c5257d721, request_source=cli, resuming=false
+2026-06-24 10:11:55.456 | runtime.prompt       | [payload] user_prompt: add in buy chagee for feebee later
+2026-06-24 10:11:55.494 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-24 10:11:55.606 | graph.agent          | Entering agent node. | turn=1, max_turns=20, messages=2
+2026-06-24 10:11:55.606 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-24 10:11:55.609 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-24 10:11:59.209 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true, prompt_tokens=2948, completion_tokens=295, total_tokens=3243
+2026-06-24 10:11:59.209 | graph.hitl_upgrade   | Converted text question to ask_user tool call. | question_preview=I can add this task for you! But "later" is a bit vague — could you clarify when you'd like "Buy cha
+2026-06-24 10:11:59.210 | graph.route          | Agent node completed. | next=hitl, turn=1
+2026-06-24 10:11:59.212 | graph.hitl           | Interrupting for user clarification. | question=I can add this task for you! But "later" is a bit vague — could you clarify when you'd like "Buy chagee for feebee" to be due?
+
+For example:
+- **Today** (June 24)
+- **Tomorrow**..., deferred_tools=0, extra_questions=0
+2026-06-24 10:11:59.217 | runtime.done         | Graph invocation completed. | request_id=f782f9e6-6235-48b4-b9f7-9357057ed91b, turns=1, tool_results=0, has_error=false, interrupted=true, total_tokens=3243
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-24T10:11:59
+duration_seconds: 3.762
+request_id: f782f9e6-6235-48b4-b9f7-9357057ed91b
+turns: 1
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 2948
+completion_tokens: 295
+total_tokens: 3243
+cached_tokens: 2816
+reasoning_tokens: 214
+==============================================================================

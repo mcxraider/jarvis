@@ -1,39 +1,33 @@
-// src/services/telegram/processors/audio-processor.service.ts
+// src/services/telegram/processors/audio-processor.service.ts — Two-stage audio pipeline:
+//   1. Transcribes audio via WhisperService (Groq-hosted Whisper large-v3).
+//   2. Forwards the transcribed text through TextProcessorService → LangGraph agent.
+// The final reply includes both the transcription (prefixed with 🗣️) and the agent
+// response, separated by a horizontal rule so the user can see what was understood.
+
 import { LogContext, logger } from '../../../utils/logger';
 import { WhisperService } from '../../ai/whisper.service';
 import { LangGraphProgressCallback } from '../../ai/langgraph-agent-client.service';
 import { TextProcessorResult, TextProcessorService } from './text-processor.service';
+import { classifyError } from '../errors/classified-error';
 
-const DEFAULT_AUDIO_TRANSCRIPTION_PROMPT =
-  'Telegram voice memo for a personal productivity assistant. Preserve task names, dates, labels, project names, Todoist, Groq, DeepSeek, and technical terms. Use clear punctuation.';
+// Visual separator between the transcription echo and the agent's response.
 const TRANSCRIPTION_SEPARATOR = '\n\n---\n\n';
 
+// Lifecycle hooks for audio processing — used by MessageHandlers to update the
+// Telegram progress indicator between the transcription and agent-processing phases.
 export interface AudioProcessingHooks {
   onTranscribed?: () => void | Promise<void>;
   onProgress?: LangGraphProgressCallback;
 }
 
-/**
- * Service responsible for processing audio messages and documents
- */
 export class AudioProcessorService {
-  private readonly whisperService: WhisperService;
-  private readonly textProcessor: TextProcessorService;
+  constructor(
+    private readonly whisperService: WhisperService,
+    private readonly textProcessor: TextProcessorService,
+  ) {}
 
-  constructor(textProcessor: TextProcessorService) {
-    this.whisperService = new WhisperService({
-      enforceEnglishOnly: true,
-      language: 'en',
-      prompt: DEFAULT_AUDIO_TRANSCRIPTION_PROMPT,
-      qualityMonitoringEnabled: true,
-    });
-
-    this.textProcessor = textProcessor;
-  }
-
-  /**
-   * Processes audio messages (voice notes, audio files)
-   */
+  // Processes voice notes and audio messages. Downloads the file from Telegram's CDN,
+  // transcribes it, then passes the text through the agent pipeline.
   async processAudioMessage(
     fileUrl: string,
     userId?: number,
@@ -106,9 +100,8 @@ export class AudioProcessorService {
     }
   }
 
-  /**
-   * Processes documents that contain audio
-   */
+  // Same as processAudioMessage but for files sent as Telegram "documents" (e.g. MP3
+  // files uploaded as attachments rather than recorded as voice notes).
   async processAudioDocument(
     fileUrl: string,
     fileName: string,
@@ -189,37 +182,17 @@ export class AudioProcessorService {
   }
 
   private handleAudioProcessingError(error: Error): string {
-    const msg = error.message;
-
-    if (msg.includes('File size') && msg.includes('exceeds')) {
-      return 'Audio file is too large. Maximum size is 25 MB.';
-    }
-    if (msg.includes('Unsupported audio format')) {
-      return 'Unsupported audio format. Please send MP3, OGG, WAV, or M4A.';
-    }
-    if (msg.includes('Audio format conversion is not available')) {
-      return 'This format requires conversion but the converter is unavailable. Please send MP3 or WAV.';
-    }
-    if (msg.includes('Audio format conversion failed')) {
-      return 'Audio format conversion failed. Please send MP3 or WAV directly.';
-    }
-    if (msg.includes('Failed to download')) {
-      return 'Could not download the audio file. Please try sending it again.';
+    const classified = classifyError(error);
+    if (classified.category !== 'permanent') {
+      return classified.userMessage;
     }
     return 'Transcription failed. Please try again.';
   }
 
   private handleAudioDocumentError(error: Error, fileName: string, _mimeType: string): string {
-    const msg = error.message;
-
-    if (msg.includes('File size') && msg.includes('exceeds')) {
-      return `\`${fileName}\` is too large. Maximum size is 25 MB.`;
-    }
-    if (msg.includes('Unsupported audio format')) {
-      return `\`${fileName}\` — unsupported format. Please send MP3, OGG, WAV, or M4A.`;
-    }
-    if (msg.includes('Audio format conversion')) {
-      return `\`${fileName}\` — conversion failed. Please send MP3 or WAV directly.`;
+    const classified = classifyError(error);
+    if (classified.category === 'user_actionable') {
+      return `\`${fileName}\` — ${classified.userMessage}`;
     }
     return `Could not transcribe \`${fileName}\`. Please try again.`;
   }

@@ -1,0 +1,79 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-24T14:28:43
+request_id: 7ab99faf-8c4f-4e13-beca-fe9ed3975cd3
+thread_id: ee36a698-3aa1-4690-8310-104cb31c7475
+user_id: local-user
+request_source: cli
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: True
+------------------------------------------------------------------------------
+2026-06-24 14:28:43.398 | section              | === Jarvis LangGraph Run ===
+2026-06-24 14:28:43.399 | runtime.start        | Starting graph invocation. | request_id=7ab99faf-8c4f-4e13-beca-fe9ed3975cd3, model=deepseek-v4-flash, allow_mutations=true, max_turns=20, thread_id=ee36a698-3aa1-4690-8310-104cb31c7475, request_source=cli, resuming=true
+2026-06-24 14:28:43.399 | runtime.prompt       | [payload] user_prompt: delete all my hehehe tasks today
+2026-06-24 14:28:43.447 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-24 14:28:43.448 | graph.confirm        | Interrupting for user confirmation. | count=3, tool_names=["delete_todoist_task"], summary=Batch of 3 actions:
+  1. Delete task "hehehehehehehehehe" — this is irreversible.
+  2. Delete task "hehehehehehehehehe" — this is irreversible.
+  3. Delete task "heheheheheheheh...
+2026-06-24 14:28:43.449 | graph.confirm        | Resumed from user confirmation. | decision=approve, count=3
+2026-06-24 14:28:43.450 | graph.executor       | Evaluating guards. | count=3, decision=approve
+2026-06-24 14:28:43.450 | graph.executor       | Executing confirmed action. | held_call_id=d7831a0f-d0c0-48b1-8d2e-8df0bdcfc751, tool_name=delete_todoist_task
+2026-06-24 14:28:43.450 | tool.start           | Preparing tool call. | id=call_00_h2odurO6eTqKwS3zKDaf9880, name=delete_todoist_task, mutating=true
+2026-06-24 14:28:43.450 | tool.args            | [payload] delete_todoist_task: {"task_id": "6gwrFR8cGf5xj2MG"}
+2026-06-24 14:28:43.451 | todoist.request      | Sending Todoist API request. | method=DELETE, endpoint=/tasks/{id}, has_payload=false, attempt=1, max_attempts=3
+2026-06-24 14:28:43.451 | todoist.payload      | [payload] request: null
+2026-06-24 14:28:44.288 | todoist.response     | Received Todoist API response. | status=204, has_body=false, attempt=1
+2026-06-24 14:28:44.289 | tool.done            | Tool call completed. | name=delete_todoist_task
+2026-06-24 14:28:44.289 | tool.result          | [payload] delete_todoist_task: {"message": "Task 6gwrFR8cGf5xj2MG deleted permanently", "success": true}
+2026-06-24 14:28:44.290 | graph.executor       | Execution completed. | held_call_id=d7831a0f-d0c0-48b1-8d2e-8df0bdcfc751, success=true
+2026-06-24 14:28:44.290 | graph.executor       | Executing confirmed action. | held_call_id=b14f0e19-0d03-45b8-8481-ac8bccc7ea99, tool_name=delete_todoist_task
+2026-06-24 14:28:44.292 | tool.start           | Preparing tool call. | id=call_01_azBAj1vVDkp1vDgmVVzV8471, name=delete_todoist_task, mutating=true
+2026-06-24 14:28:44.292 | tool.args            | [payload] delete_todoist_task: {"task_id": "6gwrFRG6fxVX8XPG"}
+2026-06-24 14:28:44.293 | todoist.request      | Sending Todoist API request. | method=DELETE, endpoint=/tasks/{id}, has_payload=false, attempt=1, max_attempts=3
+2026-06-24 14:28:44.294 | todoist.payload      | [payload] request: null
+2026-06-24 14:28:45.061 | todoist.response     | Received Todoist API response. | status=204, has_body=false, attempt=1
+2026-06-24 14:28:45.062 | tool.done            | Tool call completed. | name=delete_todoist_task
+2026-06-24 14:28:45.063 | tool.result          | [payload] delete_todoist_task: {"message": "Task 6gwrFRG6fxVX8XPG deleted permanently", "success": true}
+2026-06-24 14:28:45.063 | graph.executor       | Execution completed. | held_call_id=b14f0e19-0d03-45b8-8481-ac8bccc7ea99, success=true
+2026-06-24 14:28:45.063 | graph.executor       | Executing confirmed action. | held_call_id=350ad1a3-16b6-4b87-ade7-4eafdef41e2d, tool_name=delete_todoist_task
+2026-06-24 14:28:45.065 | tool.start           | Preparing tool call. | id=call_02_mQoMjDbUJKAgfpSRelh33520, name=delete_todoist_task, mutating=true
+2026-06-24 14:28:45.066 | tool.args            | [payload] delete_todoist_task: {"task_id": "6gwrFRHqQ2p9XmMG"}
+2026-06-24 14:28:45.067 | todoist.request      | Sending Todoist API request. | method=DELETE, endpoint=/tasks/{id}, has_payload=false, attempt=1, max_attempts=3
+2026-06-24 14:28:45.067 | todoist.payload      | [payload] request: null
+2026-06-24 14:28:45.779 | todoist.response     | Received Todoist API response. | status=204, has_body=false, attempt=1
+2026-06-24 14:28:45.780 | tool.done            | Tool call completed. | name=delete_todoist_task
+2026-06-24 14:28:45.780 | tool.result          | [payload] delete_todoist_task: {"message": "Task 6gwrFRHqQ2p9XmMG deleted permanently", "success": true}
+2026-06-24 14:28:45.780 | graph.executor       | Execution completed. | held_call_id=350ad1a3-16b6-4b87-ade7-4eafdef41e2d, success=true
+2026-06-24 14:28:45.782 | graph.agent          | Entering agent node. | turn=3, max_turns=20, messages=8
+2026-06-24 14:28:45.783 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-24 14:28:45.783 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=8, tools=9
+2026-06-24 14:28:47.562 | agent.response       | Received assistant message. | has_tool_calls=false, tool_calls=0, has_content=true, has_reasoning=true, prompt_tokens=5555, completion_tokens=98, total_tokens=5653
+2026-06-24 14:28:47.563 | agent.final          | [payload] content: Done! All **3 "hehehe" tasks** due today have been deleted permanently. 🧹
+
+| # | Task | Status |
+|---|------|--------|
+| 1 | hehehehehehehehehe | ✅ Deleted |
+| 2 | hehehehehehehehehe | ✅ Deleted |
+| 3 | hehehehehehehehehe | ✅ Deleted |
+2026-06-24 14:28:47.563 | graph.route          | Agent node completed. | next=end, turn=3
+2026-06-24 14:28:47.566 | runtime.done         | Graph invocation completed. | request_id=7ab99faf-8c4f-4e13-beca-fe9ed3975cd3, turns=3, tool_results=4, has_error=false, interrupted=false, total_tokens=13967
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-24T14:28:47
+duration_seconds: 4.169
+request_id: 7ab99faf-8c4f-4e13-beca-fe9ed3975cd3
+turns: 3
+tool_results: 4
+has_error: False
+interrupted: False
+prompt_tokens: 13375
+completion_tokens: 592
+total_tokens: 13967
+cached_tokens: 11008
+reasoning_tokens: 259
+==============================================================================

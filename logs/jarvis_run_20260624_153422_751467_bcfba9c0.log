@@ -1,0 +1,42 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-24T15:34:22
+request_id: 77c8f174-9e80-49f9-ac14-a066961dcd3a
+thread_id: bcfba9c0-6373-4097-b776-1f8a773826ac
+user_id: local-user
+request_source: cli
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-06-24 15:34:22.752 | section              | === Jarvis LangGraph Run ===
+2026-06-24 15:34:22.752 | runtime.start        | Starting graph invocation. | request_id=77c8f174-9e80-49f9-ac14-a066961dcd3a, model=deepseek-v4-flash, allow_mutations=true, max_turns=20, thread_id=bcfba9c0-6373-4097-b776-1f8a773826ac, request_source=cli, resuming=false
+2026-06-24 15:34:22.752 | runtime.prompt       | [payload] user_prompt: add 24 tasks titled 'test-bulk' due tomorrow
+2026-06-24 15:34:22.838 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-24 15:34:22.925 | graph.agent          | Entering agent node. | turn=1, max_turns=20, messages=2
+2026-06-24 15:34:22.925 | graph.tools.selected | Selected tools for this turn. | available=10, selected=10
+2026-06-24 15:34:22.928 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=10
+2026-06-24 15:34:25.507 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true, prompt_tokens=3491, completion_tokens=204, total_tokens=3695
+2026-06-24 15:34:25.508 | graph.route          | Agent node completed. | next=tools, turn=1
+2026-06-24 15:34:25.513 | graph.prepare_confirm | Froze risky actions into held_calls. | held_call_count=1, tool_names=["bulk_add_todoist_tasks"], deferred_count=0
+2026-06-24 15:34:25.515 | graph.confirm        | Interrupting for user confirmation. | count=1, tool_names=["bulk_add_todoist_tasks"], summary=Bulk-add tasks: 24× "test-bulk".
+Please confirm to proceed.
+2026-06-24 15:34:25.523 | runtime.done         | Graph invocation completed. | request_id=77c8f174-9e80-49f9-ac14-a066961dcd3a, turns=1, tool_results=0, has_error=false, interrupted=true, interrupt_type=confirm, total_tokens=3695
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-24T15:34:25
+duration_seconds: 2.771
+request_id: 77c8f174-9e80-49f9-ac14-a066961dcd3a
+turns: 1
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 3491
+completion_tokens: 204
+total_tokens: 3695
+cached_tokens: 3456
+reasoning_tokens: 118
+==============================================================================

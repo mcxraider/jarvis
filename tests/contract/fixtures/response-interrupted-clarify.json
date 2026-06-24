@@ -1,0 +1,11 @@
+{
+  "status": "interrupted",
+  "thread_id": "thread_abc123",
+  "response": "",
+  "interrupt": {
+    "type": "clarify",
+    "question": "Which project should I add this task to?",
+    "reason": "Multiple projects match your request.",
+    "missing_fields": ["project_id"]
+  }
+}

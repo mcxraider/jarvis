@@ -15,7 +15,7 @@ from agents.agent_api.app.constants import (
     USER_ID,
 )
 from agents.agent_api.app.graph.assembly import NodeSpec, build_graph
-from agents.agent_api.app.graph.edges import route_after_agent, route_after_confirm
+from agents.agent_api.app.graph.edges import route_after_agent, route_after_confirm, route_after_tools
 from agents.agent_api.app.graph.nodes.confirm import create_confirm_node
 from agents.agent_api.app.graph.nodes.executor import create_executor_node
 from agents.agent_api.app.graph.nodes.hitl import create_hitl_node
@@ -25,6 +25,7 @@ from agents.agent_api.app.graph.nodes.orchestrator import (
     create_agent_node,
 )
 from agents.agent_api.app.graph.nodes.prepare_confirm import create_prepare_confirm_node
+from agents.agent_api.app.graph.nodes.summarize import create_summarize_node
 from agents.agent_api.app.graph.nodes.tools import create_tools_node
 from agents.agent_api.app.graph.prompts import USER_PROMPT, build_initial_messages
 from agents.agent_api.app.graph.state import JarvisState, enrich_interrupt_status
@@ -75,7 +76,13 @@ def create_jarvis_graph(
                 "end": "end",
             },
         ),
-        NodeSpec(name="tools", node=create_tools_node(tool_dispatcher, tracer), static_route="agent"),
+        NodeSpec(
+            name="tools",
+            node=create_tools_node(tool_dispatcher, tracer),
+            router=route_after_tools,
+            route_map={"agent": "agent", "summarize": "summarize"},
+        ),
+        NodeSpec(name="summarize", node=create_summarize_node(tracer), static_route="agent"),
         NodeSpec(name="hitl", node=create_hitl_node(tracer), static_route="agent"),
         NodeSpec(
             name="prepare_confirm",
@@ -261,6 +268,7 @@ def run_jarvis(
         tool_results=len(result.get("tool_results", [])),
         has_error=bool(result.get("error")),
         interrupted=bool(result.get("interrupted")),
+        interrupt_type=result.get("pending_interrupt"),
         total_tokens=usage.total_tokens or None,
     )
     if run_log is not None:

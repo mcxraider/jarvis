@@ -63,7 +63,7 @@ def create_prepare_confirm_node(tracer: Optional[TracePrinter] = None):
         ]
 
         for held in held_calls:
-            if held["tool_name"] == "delete_todoist_task":
+            if held["tool_name"] in ("delete_todoist_task", "complete_task"):
                 task_id = held["args"].get("task_id", "")
                 task_content = _find_task_content(messages, task_id)
                 if task_content:

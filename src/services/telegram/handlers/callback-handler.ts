@@ -1,25 +1,27 @@
-// src/services/telegram/handlers/callback-handler.ts
+// src/services/telegram/handlers/callback-handler.ts — Handles inline keyboard callbacks
+// from Telegram. Currently supports the "confirm" flow: when the LangGraph agent pauses
+// for human approval, the user taps Approve or Decline, and this handler resumes the
+// agent thread with their decision and delivers the follow-up response.
+
 import crypto from 'crypto';
 import { Context } from 'telegraf';
 import { createRequestId, logger } from '../../../utils/logger';
 import { LangGraphAgentClient } from '../../ai/langgraph-agent-client.service';
 import { sendFinalReply } from '../formatters/telegram-rich';
-import {
-  PendingClarificationStore,
-  createPendingClarificationStore,
-} from '../pending-clarification.store';
+import { PendingClarificationStore } from '../pending-clarification.store';
 
+// All confirm callbacks are prefixed with "confirm:" followed by "approve" or "decline"
+// and the threadId, e.g. "confirm:approve:tg_abc123_msg456"
 const CONFIRM_PREFIX = 'confirm:';
 
-/**
- * Handles Telegram inline keyboard callback queries for confirm-gate actions.
- */
 export class CallbackHandler {
   constructor(
-    private readonly agentClient: LangGraphAgentClient = new LangGraphAgentClient(),
-    private readonly pendingStore: PendingClarificationStore = createPendingClarificationStore(),
+    private readonly agentClient: LangGraphAgentClient,
+    private readonly pendingStore: PendingClarificationStore,
   ) {}
 
+  // Processes inline keyboard button presses. Parses the callback_data to determine
+  // the action type, then dispatches accordingly (currently only "confirm" is supported).
   async handleCallbackQuery(ctx: Context): Promise<void> {
     const callbackQuery = ctx.callbackQuery;
     if (!callbackQuery || !('data' in callbackQuery)) return;
@@ -52,20 +54,8 @@ export class CallbackHandler {
     try {
       await ctx.answerCbQuery(decision === 'approve' ? 'Approved!' : 'Declined.');
 
-      const internalUserId = this.mapTelegramUserId(userId);
-      const agentResponse = await this.agentClient.resume(
-        {
-          message: decision,
-          userId: internalUserId,
-          source: 'telegram',
-          telegramUserId: userId,
-          requestId,
-          threadId,
-        },
-        { requestId, threadId },
-      );
-
-      // Edit the original message to reflect the decision
+      // Optimistic UI: edit the message to show the decision immediately, removing
+      // the inline keyboard. This gives instant feedback before the blocking resume() call.
       const statusEmoji = decision === 'approve' ? '✅' : '❌';
       const statusText = decision === 'approve' ? 'Approved' : 'Declined';
 
@@ -83,6 +73,19 @@ export class CallbackHandler {
           });
         }
       }
+
+      const internalUserId = this.mapTelegramUserId(userId);
+      const agentResponse = await this.agentClient.resume(
+        {
+          message: decision,
+          userId: internalUserId,
+          source: 'telegram',
+          telegramUserId: userId,
+          requestId,
+          threadId,
+        },
+        { requestId, threadId },
+      );
 
       // Send the agent's response as a follow-up
       if (agentResponse.response) {
@@ -113,6 +116,8 @@ export class CallbackHandler {
     }
   }
 
+  // Maps a Telegram numeric user ID to the internal user identifier used by the agent.
+  // Checks TELEGRAM_USER_MAP env var for explicit mappings (format: "telegramId:name,...").
   private mapTelegramUserId(telegramUserId: number | undefined): string {
     if (!telegramUserId) return 'anonymous';
     const map = process.env.TELEGRAM_USER_MAP || '';
@@ -125,6 +130,8 @@ export class CallbackHandler {
     return mappedUser?.[1] || `telegram:${telegramUserId}`;
   }
 
+  // Builds a deterministic key for the pending-clarification store. Uses a SHA-256 hash
+  // of chat+user identifiers so sensitive IDs aren't stored in cleartext.
   private buildPendingKey(telegramUserId: number | undefined, chatId: number | undefined): string {
     if (chatId !== undefined) {
       const userSegment = telegramUserId ?? 'anonymous';
@@ -134,6 +141,6 @@ export class CallbackHandler {
   }
 
   private hashIdentifier(value: number | string): string {
-    return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 10);
+    return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 32);
   }
 }

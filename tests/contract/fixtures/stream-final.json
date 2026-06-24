@@ -1,0 +1,9 @@
+{
+  "type": "final",
+  "response": {
+    "status": "completed",
+    "thread_id": "thread_abc123",
+    "response": "Done!",
+    "tool_results": []
+  }
+}

@@ -1,12 +1,16 @@
-# Agent Intelligence
+# Agent Intelligence 🟡
 
 Making the agent correct on complex, multi-step tasks. Single-shot model discretion is not enough for bulk mutations, follow-up references, or ambiguous intent.
 
+> **Overall status (2026-06-24): PARTIAL.** Tool selection architecture is ready (stub selector in place). Error classification done. Verification, reference resolution, and planner/worker split are not started.
+
 ---
 
-## 3.1 Verification / Reflection Step
+## 3.1 Verification / Reflection Step ❌
 
-**Status:** After tool execution the model can assert success without checking. For "add 8 packing tasks," nothing verifies 8 tasks were actually created before answering "done."
+**Status (2026-06-24):** Not started. No post-tools reconciliation node. Model can assert success without verification.
+
+**Original problem:** After tool execution the model can assert success without checking. For "add 8 packing tasks," nothing verifies 8 tasks were actually created before answering "done."
 
 **Why it matters:** Hallucinated success on bulk or multi-step tasks is the most damaging silent failure for a productivity tool.
 
@@ -17,9 +21,11 @@ Making the agent correct on complex, multi-step tasks. Single-shot model discret
 
 ---
 
-## 3.2 Name-to-ID Resolution Contract
+## 3.2 Name-to-ID Resolution Contract 🟡
 
-**Status:** `complete`, `update`, and `delete` require a `task_id`, but users say "mark buy groceries as done." Nothing prevents the model from fabricating an ID instead of doing `get_tasks` → match → act.
+**Status (2026-06-24):** Partial. `canonicalize.py` freezes tool calls with IDs captured at execution time. Provenance is implicit. **Gap:** No explicit tracking of "IDs seen in read results" in graph state. No rejection of fabricated IDs. No `resolve_task()` tool. No numbered-list disambiguation.
+
+**Original problem:** `complete`, `update`, and `delete` require a `task_id`, but users say "mark buy groceries as done." Nothing prevents the model from fabricating an ID instead of doing `get_tasks` → match → act.
 
 **Why it matters:** A hallucinated `task_id` either errors or, worse, hits the wrong task — a silent mutation on data the user didn't intend.
 
@@ -31,9 +37,11 @@ Making the agent correct on complex, multi-step tasks. Single-shot model discret
 
 ---
 
-## 3.3 Tool Selection Layer
+## 3.3 Tool Selection Layer 🟡
 
-**Status:** All Todoist tools are always exposed to the orchestrator. A future registry of dozens of tools (calendar, email, search, files) would make this unscalable.
+**Status (2026-06-24):** Architecture done, implementation stub. `ToolSelector` protocol in `agents/agent_api/app/tools/selection.py`. `StaticToolSelector` passes all tools through (placeholder). Multi-app scaffolding exists (`tools/{calendar,gmail,notion,todoist}/`). `ask_user` always-include guard in place. See `03.3-tool-selection-service.md` for full spec. **Gap:** No deterministic matcher, dependency expansion, or confidence gating implemented.
+
+**Original problem:** All Todoist tools are always exposed to the orchestrator. A future registry of dozens of tools (calendar, email, search, files) would make this unscalable.
 
 **Goal:** Narrow the candidate tools to a small relevant subset before planning begins, reducing context cost and tool-choice confusion.
 
@@ -49,9 +57,11 @@ Making the agent correct on complex, multi-step tasks. Single-shot model discret
 
 ---
 
-## 3.4 Tool Error Classification and Recovery Router
+## 3.4 Tool Error Classification and Recovery Router 🟡
 
-**Status:** Tool failures are passed back to the model for retry. The model may retry the same broken call with slightly different arguments, pushing backend integration issues onto the user.
+**Status (2026-06-24):** Partial. Error taxonomy fully implemented in `todoist/client.py` (rate-limit, transient, auth, validation, not-found, deprecated). Dispatcher catches and classifies errors. `to_classifier_payload()` structures metadata. **Gap:** Recovery routing per error type (retry vs fallback vs config message) not fully wired.
+
+**Original problem:** Tool failures are passed back to the model for retry. The model may retry the same broken call with slightly different arguments, pushing backend integration issues onto the user.
 
 **Example failure mode:**
 - User asks what they completed last week.
@@ -79,9 +89,11 @@ Making the agent correct on complex, multi-step tasks. Single-shot model discret
 
 ---
 
-## 3.5 Follow-Up Context and Reference Resolution
+## 3.5 Follow-Up Context and Reference Resolution ❌
 
-**Status:** After listing tasks, a follow-up like "mark that one complete" has no structured context to resolve which task was meant. The agent must either guess or ask a generic question.
+**Status (2026-06-24):** Not started. No storage of recently shown entities in state. No reference-resolution node for vague pronouns.
+
+**Original problem:** After listing tasks, a follow-up like "mark that one complete" has no structured context to resolve which task was meant. The agent must either guess or ask a generic question.
 
 **Required behavior:**
 - Store recently shown entities in state: task IDs, names, due dates, priorities, status, and supported follow-up actions.
@@ -96,25 +108,35 @@ Making the agent correct on complex, multi-step tasks. Single-shot model discret
 
 ---
 
-## 3.6 Planner / Worker / Executor Split
+## 3.6 Planner / Worker / Executor Split 🟡
 
-**Status:** Complex requests (e.g., "add 8 packing tasks for my trip") run as serial tool calls driven by model discretion in a single agent pass.
+**Status (2026-06-24):** Partial. Executor node exists (`nodes/executor.py`) and runs frozen `held_calls`. Worker prompt drafted (`prompts/worker.py`) but not wired into graph. `held_calls` mechanism enables batch planning (prepare_confirm → confirm → executor). **Gap:** No dedicated planner or worker dispatch nodes.
+
+**Original problem:** Complex requests (e.g., "add 8 packing tasks for my trip") run as serial tool calls driven by model discretion in a single agent pass.
 
 **Goal:** Separate planning from execution for structured batch work.
 
 **Staged flow:**
-1. Orchestrator decides the overall action and tool family.
-2. Parser workers extract and normalize individual task payloads from the user's message.
-3. Executor performs side effects only after the plan is fully structured.
+1. Orchestrator decides the overall action and tool family — it picks *which* tools to call but does NOT finalize parameters.
+2. A dedicated **worker node** receives the orchestrator's tool call intents and organizes/validates the parameters: normalizes dates, resolves task references to IDs, fills defaults, validates required fields, and structures batch payloads.
+3. Executor performs side effects only after the worker has fully structured the calls.
 4. Verifier confirms results and passes verified facts to the return-to-user node.
+
+**Why separate parameter preparation from orchestration:**
+- The orchestrator is optimized for intent understanding and routing — it shouldn't also be responsible for precise parameter formatting (date parsing, ID resolution, field validation).
+- A worker node can use deterministic logic for most parameter preparation (regex date parsing, lookup tables) and only call the LLM for ambiguous cases.
+- Reduces hallucinated parameters: the orchestrator might guess a task ID or malformat a date; the worker validates against actual state before execution.
+- Enables parameter-level retries without re-running the full orchestrator.
 
 **Rule:** The model should not blindly call the same mutating tool many times without a plan. First build a structured batch internally, then execute it through the proper tool layer.
 
 ---
 
-## 3.7 Return-to-User Node
+## 3.7 Return-to-User Node 🟡
 
-**Status:** The final Telegram response is produced inline by the model with no dedicated verification pass.
+**Status (2026-06-24):** Partial. Final response generated inline in orchestrator. `to_response()` in routes produces `AgentResponse` with status, thread_id, response, tool_results. **Gap:** Not a dedicated node; no grounding in verified execution facts; no deterministic copy for partial/failure states.
+
+**Original problem:** The final Telegram response is produced inline by the model with no dedicated verification pass.
 
 **Purpose of a dedicated node:**
 - Produce the final response grounded in verified execution results, not model assumptions.

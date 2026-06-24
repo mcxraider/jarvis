@@ -1,0 +1,40 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-24T14:12:19
+request_id: 7a91aa87-cd14-4a75-ab13-a109867ed312
+thread_id: 875aae5c-eb5e-41b6-bd70-83dd6673b037
+user_id: local-user
+request_source: cli
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-06-24 14:12:19.754 | section              | === Jarvis LangGraph Run ===
+2026-06-24 14:12:19.754 | runtime.start        | Starting graph invocation. | request_id=7a91aa87-cd14-4a75-ab13-a109867ed312, model=deepseek-v4-flash, allow_mutations=true, max_turns=20, thread_id=875aae5c-eb5e-41b6-bd70-83dd6673b037, request_source=cli, resuming=false
+2026-06-24 14:12:19.754 | runtime.prompt       | [payload] user_prompt: put in my cal
+2026-06-24 14:12:19.778 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-24 14:12:19.843 | graph.agent          | Entering agent node. | turn=1, max_turns=20, messages=2
+2026-06-24 14:12:19.843 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-24 14:12:19.845 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-24 14:12:22.317 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true, prompt_tokens=2941, completion_tokens=146, total_tokens=3087
+2026-06-24 14:12:22.318 | graph.route          | Agent node completed. | next=hitl, turn=1
+2026-06-24 14:12:22.322 | graph.hitl           | Interrupting for user clarification. | question=What would you like me to add to your calendar? Please provide the task/event details (e.g., title, date/time, any notes)., deferred_tools=0, extra_questions=0
+2026-06-24 14:12:22.330 | runtime.done         | Graph invocation completed. | request_id=7a91aa87-cd14-4a75-ab13-a109867ed312, turns=1, tool_results=0, has_error=false, interrupted=true, total_tokens=3087
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-24T14:12:22
+duration_seconds: 2.577
+request_id: 7a91aa87-cd14-4a75-ab13-a109867ed312
+turns: 1
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 2941
+completion_tokens: 146
+total_tokens: 3087
+cached_tokens: 2816
+reasoning_tokens: 42
+==============================================================================

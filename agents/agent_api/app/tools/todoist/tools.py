@@ -87,6 +87,7 @@ def get_todoist_tool_specs(todoist_client: Any) -> List[ToolSpec]:
     schemas = {schema["function"]["name"]: schema for schema in get_todoist_tool_schemas()}
     handlers = {
         "add_todoist_task": todoist_client.add_todoist_task,
+        "bulk_add_todoist_tasks": todoist_client.bulk_add_todoist_tasks,
         "get_todoist_task": todoist_client.get_todoist_task,
         "get_tasks": todoist_client.get_tasks,
         "get_tasks_by_filter": todoist_client.get_tasks_by_filter,
@@ -157,6 +158,39 @@ def build_todoist_langchain_tools(dispatch: DispatchFn) -> List[Any]:
                 "duration": duration,
                 "duration_unit": duration_unit,
                 "deadline_date": deadline_date,
+            },
+        )
+
+    @tool
+    def bulk_add_todoist_tasks(
+        content: str,
+        count: int,
+        tool_call_id: Annotated[str, InjectedToolCallId],
+        description: Optional[str] = None,
+        project_id: Optional[str] = None,
+        section_id: Optional[str] = None,
+        labels: Optional[List[str]] = None,
+        priority: Optional[int] = None,
+        due_string: Optional[str] = None,
+        due_date: Optional[str] = None,
+        due_datetime: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create multiple identical Todoist tasks in one operation."""
+
+        return dispatch(
+            tool_call_id,
+            "bulk_add_todoist_tasks",
+            {
+                "content": content,
+                "count": count,
+                "description": description,
+                "project_id": project_id,
+                "section_id": section_id,
+                "labels": labels,
+                "priority": priority,
+                "due_string": due_string,
+                "due_date": due_date,
+                "due_datetime": due_datetime,
             },
         )
 
@@ -278,6 +312,7 @@ def build_todoist_langchain_tools(dispatch: DispatchFn) -> List[Any]:
 
     return [
         add_todoist_task,
+        bulk_add_todoist_tasks,
         get_todoist_task,
         get_tasks,
         get_tasks_by_filter,

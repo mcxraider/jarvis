@@ -1,0 +1,15 @@
+{
+  "status": "interrupted",
+  "thread_id": "thread_abc123",
+  "response": "",
+  "interrupt": {
+    "type": "confirm",
+    "reason": "This will delete a task permanently.",
+    "risk": "irreversible",
+    "tool_call_id": "call_2",
+    "held_call_id": "held_abc",
+    "summary": "Delete task: Buy groceries",
+    "tool_name": "delete_todoist_task",
+    "args": {"task_id": "456"}
+  }
+}

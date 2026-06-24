@@ -1,0 +1,59 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-24T14:28:32
+request_id: 96ef8955-4836-4a31-b22d-5b0b86c13837
+thread_id: ee36a698-3aa1-4690-8310-104cb31c7475
+user_id: local-user
+request_source: cli
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-06-24 14:28:32.965 | section              | === Jarvis LangGraph Run ===
+2026-06-24 14:28:32.965 | runtime.start        | Starting graph invocation. | request_id=96ef8955-4836-4a31-b22d-5b0b86c13837, model=deepseek-v4-flash, allow_mutations=true, max_turns=20, thread_id=ee36a698-3aa1-4690-8310-104cb31c7475, request_source=cli, resuming=false
+2026-06-24 14:28:32.965 | runtime.prompt       | [payload] user_prompt: delete all my hehehe tasks today
+2026-06-24 14:28:32.987 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-24 14:28:33.060 | graph.agent          | Entering agent node. | turn=1, max_turns=20, messages=2
+2026-06-24 14:28:33.060 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-24 14:28:33.061 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=2, tools=9
+2026-06-24 14:28:34.864 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=true, has_reasoning=true, prompt_tokens=2945, completion_tokens=110, total_tokens=3055
+2026-06-24 14:28:34.864 | graph.route          | Agent node completed. | next=tools, turn=1
+2026-06-24 14:28:34.866 | graph.tools          | Entering tools node. | tool_calls=1, accumulated_results=0
+2026-06-24 14:28:34.868 | tool.start           | Preparing tool call. | id=call_00_cXjFPu7nyQDY0HEnklDJ8666, name=get_tasks_by_filter, mutating=false
+2026-06-24 14:28:34.868 | tool.args            | [payload] get_tasks_by_filter: {"cursor": null, "lang": null, "limit": null, "query": "today"}
+2026-06-24 14:28:34.869 | todoist.request      | Sending Todoist API request. | method=GET, endpoint=/tasks/filter, has_payload=false, attempt=1, max_attempts=3
+2026-06-24 14:28:34.869 | todoist.payload      | [payload] request: null
+2026-06-24 14:28:35.635 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-24 14:28:35.636 | todoist.payload      | [payload] response: {"next_cursor": null, "results": [{"added_at": "2026-06-16T04:49:41.726928Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3937, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "crossfit with singpass", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-24T19:00:00", "is_recurring": false, "lang": "en", "string": "24 Jun 19:00", "timezone": null}, "duration": null, "goal_ids": [], "id": "6grxrjr3GM87v5Hp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 1, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-16T04:50:03.534879Z", "user_id": "41485550"}, {"added_at": "2026-06-19T05:03:48.698301Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked"...
+2026-06-24 14:28:35.637 | tool.done            | Tool call completed. | name=get_tasks_by_filter
+2026-06-24 14:28:35.638 | tool.result          | [payload] get_tasks_by_filter: {"next_cursor": null, "results": [{"added_at": "2026-06-16T04:49:41.726928Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3937, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "crossfit with singpass", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-24T19:00:00", "is_recurring": false, "lang": "en", "string": "24 Jun 19:00", "timezone": null}, "duration": null, "goal_ids": [], "id": "6grxrjr3GM87v5Hp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 1, "priority": 4, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-16T04:50:03.534879Z", "user_id": "41485550"}, {"added_at": "2026-06-19T05:03:48.698301Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked"...
+2026-06-24 14:28:35.640 | graph.route          | Tools node completed. | next=agent, successes=1, failures=0
+2026-06-24 14:28:35.644 | graph.agent          | Entering agent node. | turn=2, max_turns=20, messages=4
+2026-06-24 14:28:35.644 | graph.tools.selected | Selected tools for this turn. | available=9, selected=9
+2026-06-24 14:28:35.645 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=4, tools=9
+2026-06-24 14:28:39.876 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=3, has_content=true, has_reasoning=true, prompt_tokens=4875, completion_tokens=384, total_tokens=5259
+2026-06-24 14:28:39.878 | graph.route          | Agent node completed. | next=tools, turn=2
+2026-06-24 14:28:39.882 | graph.prepare_confirm | Froze risky actions into held_calls. | held_call_count=3, tool_names=["delete_todoist_task"], deferred_count=0
+2026-06-24 14:28:39.883 | graph.confirm        | Interrupting for user confirmation. | count=3, tool_names=["delete_todoist_task"], summary=Batch of 3 actions:
+  1. Delete task "hehehehehehehehehe" — this is irreversible.
+  2. Delete task "hehehehehehehehehe" — this is irreversible.
+  3. Delete task "heheheheheheheh...
+2026-06-24 14:28:39.893 | runtime.done         | Graph invocation completed. | request_id=96ef8955-4836-4a31-b22d-5b0b86c13837, turns=2, tool_results=1, has_error=false, interrupted=true, total_tokens=8314
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-24T14:28:39
+duration_seconds: 6.928
+request_id: 96ef8955-4836-4a31-b22d-5b0b86c13837
+turns: 2
+tool_results: 1
+has_error: False
+interrupted: True
+prompt_tokens: 7820
+completion_tokens: 494
+total_tokens: 8314
+cached_tokens: 5760
+reasoning_tokens: 252
+==============================================================================

@@ -229,6 +229,84 @@ class TodoistApiClient:
         _validate_duration_pair(payload)
         return self._request(f"{TODOIST_REST_BASE_URL}/tasks", "POST", payload)
 
+    def bulk_add_todoist_tasks(self, arguments: Dict[str, Any]) -> Any:
+        """Add multiple identical tasks concurrently with batch resilience."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
+
+        from agents.agent_api.app.constants import (
+            EXECUTOR_BATCH_TIMEOUT_SECONDS,
+            EXECUTOR_CIRCUIT_BREAKER_THRESHOLD,
+            EXECUTOR_MAX_WORKERS,
+        )
+        from agents.agent_api.app.graph.resilience import BatchCircuitBreaker, BatchThrottle
+
+        arguments = dict(arguments)
+        count = arguments.pop("count")
+        single_args = _without_none(arguments)
+        _validate_duration_pair(single_args)
+
+        if count == 1:
+            task = self._request(f"{TODOIST_REST_BASE_URL}/tasks", "POST", single_args)
+            return {"created_count": 1, "requested_count": 1, "tasks": [task], "errors": None}
+
+        max_workers = min(count, EXECUTOR_MAX_WORKERS)
+        batch_deadline = time.monotonic() + EXECUTOR_BATCH_TIMEOUT_SECONDS
+        throttle = BatchThrottle()
+        breaker = BatchCircuitBreaker(threshold=EXECUTOR_CIRCUIT_BREAKER_THRESHOLD)
+
+        results = [None] * count
+        errors = []
+
+        def _execute_one(idx: int) -> None:
+            if breaker.is_open():
+                errors.append({"index": idx, "error": f"Skipped: circuit breaker tripped ({breaker.open_reason()})", "skipped": True})
+                return
+
+            remaining = max(0.0, batch_deadline - time.monotonic())
+            throttle.wait_if_paused(timeout=remaining)
+
+            if breaker.is_open():
+                errors.append({"index": idx, "error": f"Skipped: circuit breaker tripped ({breaker.open_reason()})", "skipped": True})
+                return
+
+            try:
+                results[idx] = self._request(f"{TODOIST_REST_BASE_URL}/tasks", "POST", dict(single_args))
+                breaker.record_success()
+            except TodoistApiError as exc:
+                if exc.kind in ("transient", "rate-limit"):
+                    breaker.record_failure(exc.kind)
+                if exc.kind == "rate-limit" and exc.retry_after_seconds:
+                    throttle.signal_backoff(exc.retry_after_seconds)
+                errors.append({"index": idx, "error": str(exc)})
+            except Exception as exc:
+                errors.append({"index": idx, "error": str(exc)})
+
+        import contextvars
+        pool = ThreadPoolExecutor(max_workers=max_workers)
+        ctx = contextvars.copy_context()
+        futures = {pool.submit(ctx.run, _execute_one, i): i for i in range(count)}
+        remaining_timeout = max(0.001, batch_deadline - time.monotonic())
+        done: set = set()
+        try:
+            for future in as_completed(futures, timeout=remaining_timeout):
+                done.add(future)
+                future.result()
+        except FuturesTimeoutError:
+            for future, idx in futures.items():
+                if future not in done and results[idx] is None and not any(e["index"] == idx for e in errors):
+                    errors.append({"index": idx, "error": "Batch timeout exceeded.", "timeout": True})
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+
+        created = [r for r in results if r is not None]
+        return {
+            "created_count": len(created),
+            "requested_count": count,
+            "tasks": created,
+            "errors": errors if errors else None,
+        }
+
     def get_todoist_task(self, arguments: Dict[str, Any]) -> Any:
         return self._request(f"{TODOIST_REST_BASE_URL}/tasks/{arguments['task_id']}")
 
