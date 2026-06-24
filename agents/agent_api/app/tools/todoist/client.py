@@ -282,8 +282,7 @@ class TodoistApiClient:
                 errors.append({"index": idx, "error": str(exc)})
 
         pool = ThreadPoolExecutor(max_workers=max_workers)
-        ctx = contextvars.copy_context()
-        futures = {pool.submit(ctx.run, _execute_one, i): i for i in range(count)}
+        futures = {pool.submit(contextvars.copy_context().run, _execute_one, i): i for i in range(count)}
         remaining_timeout = max(0.001, batch_deadline - time.monotonic())
         done: set = set()
         try:
