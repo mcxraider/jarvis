@@ -24,9 +24,9 @@ USER_PROMPTS: List[str] = [
     # "Clean up my list.",
     # "Delete all tasks on Tuesday."
 
-    # --- Regression test prompts (test on Telegram) ---
+    # --- Regression test prompts (test on Telegram) --- Always test this flow...
     # 1. Bulk add (tests bulk_add_todoist_tasks + confirm gate rendering)
-    "add 24 tasks titled 'hehehehehehhe' due tomorrow",
+    # "add 24 tasks titled 'hehehehehehhe' due tomorrow",
     # 2. Summarizer trigger (tests route_after_tools → summarize node on large results)
     # "show me all my tasks for today and tmr",
     # 3. Summarizer bypass — count query (tests _is_count_query bypass path)
