@@ -26,13 +26,13 @@ USER_PROMPTS: List[str] = [
 
     # --- Regression test prompts (test on Telegram) ---
     # 1. Bulk add (tests bulk_add_todoist_tasks + confirm gate rendering)
-    # "add 24 tasks titled 'hehehehehehhe' due tomorrow",
+    "add 24 tasks titled 'hehehehehehhe' due tomorrow",
     # 2. Summarizer trigger (tests route_after_tools → summarize node on large results)
     # "show me all my tasks for today and tmr",
     # 3. Summarizer bypass — count query (tests _is_count_query bypass path)
     # "how many tasks do I have due this week?",
     # 4. Concurrent executor + confirm (tests batch confirm rendering + parallel execution)
-    "delete all my hehehehehehhe tasks tmr",
+    # "delete all my hehehehehehhe tasks tmr",
     # 5. Pagination + large result handling (tests cursor null handling + summarizer)
     # "list every task in my inbox",
 
