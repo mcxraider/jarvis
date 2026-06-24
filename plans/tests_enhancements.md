@@ -13,9 +13,9 @@
 | 2a | Contract Sync (TS) | `tests/contract/agent-contract.test.ts` | 15 | **PASS** |
 | 2b | Contract Sync (Py) | `tests/agents/test_contract.py` | 17 | **PASS** |
 | 3 | Streaming NDJSON Edge Cases | `tests/unit/services/ai/langgraph-agent-client.service.test.ts` (+7) | 7 new | **PASS** |
-| 4 | Tool Dispatcher | `agents/tests/test_dispatcher.py` | 13 | **PASS** |
-| 5 | DeepSeek Retry | `agents/tests/test_deepseek_client.py` | 11 | **PASS** |
-| 6 | route_after_agent | `agents/tests/test_edges_route_after_agent.py` | 11 | **PASS** |
+| 4 | Tool Dispatcher | `tests/agents/test_dispatcher.py` | 13 | **PASS** |
+| 5 | DeepSeek Retry | `tests/agents/test_deepseek_client.py` | 11 | **PASS** |
+| 6 | route_after_agent | `tests/agents/test_edges_route_after_agent.py` | 11 | **PASS** |
 | 7 | Audio Converter | `tests/unit/utils/ai/audioConverter.test.ts` | 18 | **PASS** |
 | 14 | BotActivityService | `tests/unit/services/telegram/bot-activity.service.test.ts` | 18 | **PASS** |
 
@@ -39,7 +39,7 @@ Tests:       15 passed, 15 total
 Time:        0.627 s
 ```
 
-### Python (`python -m pytest agents/tests/ tests/agents/ -v`)
+### Python (`python -m pytest tests/agents/ -v`)
 ```
 197 passed, 2 failed
 ```
