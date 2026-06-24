@@ -1,0 +1,56 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-25T00:34:18
+request_id: cb_mqsamo0r_xj8lph
+thread_id: tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_355
+user_id: telegram:701122767
+request_source: telegram
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: True
+------------------------------------------------------------------------------
+2026-06-25 00:34:18.221 | section              | === Jarvis LangGraph Run ===
+2026-06-25 00:34:18.221 | runtime.start        | Starting graph invocation. | request_id=cb_mqsamo0r_xj8lph, model=deepseek-v4-flash, allow_mutations=true, max_turns=20, thread_id=tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_355, request_source=telegram, resuming=true
+2026-06-25 00:34:18.222 | runtime.prompt       | [payload] user_prompt: approve
+2026-06-25 00:34:18.288 | runtime.graph        | Compiled graph. | nodes=agent, hitl, tools
+2026-06-25 00:34:18.291 | graph.confirm        | Interrupting for user confirmation. | count=1, tool_names=["bulk_add_todoist_tasks"], summary=Bulk-add tasks: 24× "hehehehehehhe".
+Please confirm to proceed.
+2026-06-25 00:34:18.291 | graph.confirm        | Resumed from user confirmation. | decision=approve, count=1
+2026-06-25 00:34:18.292 | graph.executor       | Evaluating guards. | count=1, decision=approve
+2026-06-25 00:34:18.292 | graph.executor       | Dispatching concurrent execution. | count=1, max_workers=1, timeout=45.0
+2026-06-25 00:34:18.292 | graph.executor       | Executing confirmed action. | held_call_id=a816c2c2-9bf9-428a-8259-301d25cd21e2, tool_name=bulk_add_todoist_tasks
+2026-06-25 00:34:18.293 | tool.start           | Preparing tool call. | id=call_00_qAH1G6qoOoSvfUCiyN1K3746, name=bulk_add_todoist_tasks, mutating=true
+2026-06-25 00:34:18.293 | tool.args            | [payload] bulk_add_todoist_tasks: {"content": "hehehehehehhe", "count": 24, "due_string": "tomorrow"}
+2026-06-25 00:34:18.293 | todoist.request      | Sending Todoist API request. | method=POST, endpoint=/tasks, has_payload=true, attempt=1, max_attempts=3
+2026-06-25 00:34:18.293 | todoist.payload      | [payload] request: {"content": "hehehehehehhe", "due_string": "tomorrow"}
+2026-06-25 00:34:18.294 | tool.error           | Tool call failed. | name=bulk_add_todoist_tasks, error=cannot enter context: <_contextvars.Context object at 0x10a14d640> is already entered
+2026-06-25 00:34:18.298 | graph.executor       | Execution completed. | held_call_id=a816c2c2-9bf9-428a-8259-301d25cd21e2, success=false
+2026-06-25 00:34:18.299 | graph.agent          | Entering agent node. | turn=2, max_turns=20, messages=4
+2026-06-25 00:34:18.299 | graph.tools.selected | Selected tools for this turn. | available=10, selected=10
+2026-06-25 00:34:18.300 | agent.request        | Calling DeepSeek chat completions. | model=deepseek-v4-flash, messages=4, tools=10
+2026-06-25 00:34:19.473 | todoist.response     | Received Todoist API response. | status=200, has_body=true, attempt=1
+2026-06-25 00:34:19.473 | todoist.payload      | [payload] response: {"added_at": "2026-06-24T16:34:18.811661Z", "added_by_uid": "41485550", "assigned_by_uid": null, "checked": false, "child_order": 3987, "completed_at": null, "completed_by_uid": null, "completed_count": 0, "content": "hehehehehehhe", "day_order": -1, "deadline": null, "description": "", "due": {"date": "2026-06-26", "is_recurring": false, "lang": "en", "string": "tomorrow", "timezone": null}, "duration": null, "goal_ids": [], "id": "6gwxRWhGX9HRhvVp", "is_collapsed": false, "is_deleted": false, "labels": [], "note_count": 0, "parent_id": null, "postponed_count": 0, "priority": 1, "project_id": "6M5457p2vRg4g3Vp", "responsible_uid": null, "section_id": null, "updated_at": "2026-06-24T16:34:18.811677Z", "user_id": "41485550"}
+2026-06-25 00:34:20.056 | agent.response       | Received assistant message. | has_tool_calls=true, tool_calls=1, has_content=false, has_reasoning=true, prompt_tokens=3780, completion_tokens=128, total_tokens=3908
+2026-06-25 00:34:20.057 | graph.route          | Agent node completed. | next=tools, turn=2
+2026-06-25 00:34:20.062 | graph.prepare_confirm | Froze risky actions into held_calls. | held_call_count=1, tool_names=["bulk_add_todoist_tasks"], deferred_count=0
+2026-06-25 00:34:20.064 | graph.confirm        | Interrupting for user confirmation. | count=1, tool_names=["bulk_add_todoist_tasks"], summary=Bulk-add tasks: 24× "hehehehehehhe".
+Please confirm to proceed.
+2026-06-25 00:34:20.066 | runtime.done         | Graph invocation completed. | request_id=cb_mqsamo0r_xj8lph, turns=2, tool_results=1, has_error=false, interrupted=true, interrupt_type=confirm, total_tokens=3908
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-25T00:34:20
+duration_seconds: 1.846
+request_id: cb_mqsamo0r_xj8lph
+turns: 2
+tool_results: 1
+has_error: False
+interrupted: True
+prompt_tokens: 3780
+completion_tokens: 128
+total_tokens: 3908
+cached_tokens: 3584
+reasoning_tokens: 38
+==============================================================================
