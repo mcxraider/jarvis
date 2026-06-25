@@ -7,7 +7,7 @@
 import { LogContext, logger } from '../../../utils/logger';
 import { WhisperService } from '../../ai/whisper.service';
 import { LangGraphProgressCallback } from '../../ai/langgraph-agent-client.service';
-import { TextProcessorResult, TextProcessorService } from './text-processor.service';
+import { TextProcessorOptions, TextProcessorResult, TextProcessorService } from './text-processor.service';
 import { classifyError } from '../errors/classified-error';
 
 // Lifecycle hooks for audio processing — used by MessageHandlers to send the
@@ -32,7 +32,7 @@ export class AudioProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
-    options?: { gatePreAcquired?: boolean },
+    options?: TextProcessorOptions,
   ): Promise<TextProcessorResult> {
     const startTime = Date.now();
 
@@ -82,6 +82,8 @@ export class AudioProcessorService {
           response: result.response,
           interruptType: result.interruptType,
           threadId: result.threadId,
+          blocked: result.blocked,
+          bufferedMessage: result.bufferedMessage,
         };
       } catch (processingError) {
         logger.warn('audio_processor.text_processing_failed', {
@@ -117,7 +119,7 @@ export class AudioProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
-    options?: { gatePreAcquired?: boolean },
+    options?: TextProcessorOptions,
   ): Promise<TextProcessorResult> {
     const startTime = Date.now();
 
@@ -170,6 +172,8 @@ export class AudioProcessorService {
           response: result.response,
           interruptType: result.interruptType,
           threadId: result.threadId,
+          blocked: result.blocked,
+          bufferedMessage: result.bufferedMessage,
         };
       } catch (processingError) {
         logger.warn('audio_processor.document_text_processing_failed', {

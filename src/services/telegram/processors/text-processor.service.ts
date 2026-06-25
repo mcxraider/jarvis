@@ -21,6 +21,11 @@ export interface TextProcessorResult {
   bufferedMessage?: string;
 }
 
+export interface TextProcessorOptions {
+  gatePreAcquired?: boolean;
+  pendingClarificationPreReserved?: boolean;
+}
+
 export class TextProcessorService {
   private readonly pendingClarificationTtlMs: number;
   private readonly runningTtlMs: number;
@@ -41,7 +46,7 @@ export class TextProcessorService {
     userId?: number,
     logContext: LogContext = {},
     onProgress?: LangGraphProgressCallback,
-    options?: { gatePreAcquired?: boolean },
+    options?: TextProcessorOptions,
   ): Promise<TextProcessorResult> {
     const startedAt = Date.now();
 
@@ -56,6 +61,27 @@ export class TextProcessorService {
     let gateAcquired = options?.gatePreAcquired ?? false;
 
     try {
+      if (options?.pendingClarificationPreReserved) {
+        const pending = await this.pendingClarificationStore.get(gateKey);
+        if (!pending) {
+          logger.warn('conversation_gate.inconsistent_state', { ...logContext, gateKey });
+          await this.conversationGate.release(gateKey).catch(() => {});
+          return {
+            response: 'That clarification expired. Please send the request again.',
+          };
+        }
+        return await this.handlePendingClarification(
+          text,
+          pending,
+          gateKey,
+          internalUserId,
+          userId,
+          logContext,
+          onProgress,
+          { alreadyRunning: true },
+        );
+      }
+
       if (!gateAcquired) {
         const gateStatus = await this.safeGetGateStatus(gateKey);
 
@@ -71,7 +97,7 @@ export class TextProcessorService {
         if (gateStatus === 'waiting_for_clarification') {
           const pending = await this.pendingClarificationStore.get(gateKey);
           if (!pending) {
-            logger.warn('conversation_gate.inconsistent_state', { gateKey });
+            logger.warn('conversation_gate.inconsistent_state', { ...logContext, gateKey });
             await this.conversationGate.release(gateKey).catch(() => {});
           } else {
             return await this.handlePendingClarification(text, pending, gateKey, internalUserId, userId, logContext, onProgress);
@@ -161,16 +187,24 @@ export class TextProcessorService {
     userId: number | undefined,
     logContext: LogContext,
     onProgress?: LangGraphProgressCallback,
+    options?: { alreadyRunning?: boolean },
   ): Promise<TextProcessorResult> {
     if (pending.interruptType === 'confirm' && !this.isConfirmDecision(text)) {
+      if (options?.alreadyRunning) {
+        await this.conversationGate.transitionToWaiting(gateKey, this.waitingTtlMs).catch(() => {
+          this.conversationGate.release(gateKey).catch(() => {});
+        });
+      }
       return {
         response: 'You have a pending approval. Please tap ✓ Approve or ✗ Decline in the previous message, or reply *yes* or *no* to decide.',
       };
     }
 
-    const transitioned = await this.conversationGate.transitionToRunning(gateKey, this.runningTtlMs);
-    if (!transitioned) {
-      return { response: "I'm already processing your response. Please wait." };
+    if (!options?.alreadyRunning) {
+      const transitioned = await this.conversationGate.transitionToRunning(gateKey, this.runningTtlMs);
+      if (!transitioned) {
+        return { response: "I'm already processing your response. Please wait." };
+      }
     }
 
     const agentRequest = {
