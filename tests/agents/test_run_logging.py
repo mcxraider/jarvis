@@ -1,7 +1,7 @@
 """Tests for per-run readable file logging of Jarvis agent invocations."""
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from unittest import TestCase, mock
 
@@ -11,6 +11,13 @@ from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 
 class BuildRunLogPathTests(TestCase):
+    def test_aware_datetime_is_converted_to_singapore_time_for_filename(self) -> None:
+        path = run_logging.build_run_log_path(
+            "abcdef12-3456", now=datetime(2026, 6, 21, 1, 2, 3, 4, tzinfo=timezone.utc)
+        )
+
+        self.assertEqual(path.name, "jarvis_run_20260621_090203_000004_abcdef12.log")
+
     def test_filename_sorts_chronologically_and_tags_thread(self) -> None:
         earlier = run_logging.build_run_log_path(
             "abcdef12-3456", now=datetime(2026, 6, 21, 9, 0, 0, 1)
@@ -50,6 +57,17 @@ class RunFileLogEnabledTests(TestCase):
 
 
 class RunFileLogWritingTests(TestCase):
+    def test_singapore_timestamp_formatter_converts_aware_datetime(self) -> None:
+        timestamp = run_logging.format_singapore_log_timestamp(
+            datetime(2026, 6, 21, 1, 2, 3, 456000, tzinfo=timezone.utc)
+        )
+        iso_timestamp = run_logging.format_singapore_log_iso(
+            datetime(2026, 6, 21, 1, 2, 3, 456000, tzinfo=timezone.utc)
+        )
+
+        self.assertEqual(timestamp, "2026-06-21 09:02:03.456")
+        self.assertEqual(iso_timestamp, "2026-06-21T09:02:03+08:00")
+
     def test_header_lines_and_footer_are_human_readable(self) -> None:
         import tempfile
 
@@ -68,6 +86,19 @@ class RunFileLogWritingTests(TestCase):
         self.assertIn("Calling DeepSeek.", content)
         self.assertIn("Run finished", content)
         self.assertIn("turns: 2", content)
+
+    def test_write_line_uses_singapore_log_timestamp_formatter(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            run_logging, "format_singapore_log_timestamp", return_value="2026-06-21 09:02:03.456"
+        ):
+            path = run_logging.Path(tmp) / "run.log"
+            log = run_logging.RunFileLog(path)
+            log.write_line("agent.request", "Calling DeepSeek.")
+            content = path.read_text(encoding="utf-8")
+
+        self.assertIn("2026-06-21 09:02:03.456 | agent.request", content)
 
 
 class FileLoggingTracerTests(TestCase):

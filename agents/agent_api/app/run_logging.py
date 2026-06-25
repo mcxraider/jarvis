@@ -9,9 +9,11 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 LOG_DIR = _PROJECT_ROOT / "logs"
+SINGAPORE_TIME_ZONE = ZoneInfo("Asia/Singapore")
 
 PreviewFn = Callable[..., str]
 
@@ -19,10 +21,31 @@ _TRUEY = {"1", "true", "yes", "on"}
 _FALSEY = {"0", "false", "no", "off"}
 
 
+def to_singapore_time(value: Optional[datetime] = None) -> datetime:
+    """Return a datetime converted to Asia/Singapore for log display only."""
+
+    timestamp = value or datetime.now().astimezone()
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.astimezone()
+    return timestamp.astimezone(SINGAPORE_TIME_ZONE)
+
+
+def format_singapore_log_timestamp(value: Optional[datetime] = None) -> str:
+    """Format a log timestamp in Asia/Singapore time."""
+
+    return to_singapore_time(value).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+
+def format_singapore_log_iso(value: datetime) -> str:
+    """Format a header/footer timestamp in Asia/Singapore time."""
+
+    return to_singapore_time(value).isoformat(timespec="seconds")
+
+
 def build_run_log_path(thread_id: str, now: Optional[datetime] = None) -> Path:
     """Build a per-run log path whose filename sorts chronologically."""
 
-    now = now or datetime.now()
+    now = to_singapore_time(now)
     short_thread = (thread_id or "norun").replace("-", "")[:8]
     timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
     return LOG_DIR / f"jarvis_run_{timestamp}_{short_thread}.log"
@@ -75,7 +98,7 @@ class RunFileLog:
         self._append("\n".join(lines))
 
     def write_line(self, stage: str, message: str, extra: str = "") -> None:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        timestamp = format_singapore_log_timestamp()
         self._append(f"{timestamp} | {stage:<20} | {message}{extra}")
 
     def write_messages_dump(self, label: str, messages: List[Dict[str, Any]]) -> None:
@@ -261,7 +284,10 @@ __all__ = [
     "RunFileLog",
     "FileLoggingTracer",
     "build_run_log_path",
+    "format_singapore_log_iso",
+    "format_singapore_log_timestamp",
     "open_run_log",
     "run_file_log_enabled",
+    "to_singapore_time",
     "LOG_DIR",
 ]
