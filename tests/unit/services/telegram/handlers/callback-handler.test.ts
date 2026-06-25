@@ -71,6 +71,7 @@ describe('CallbackHandler', () => {
     expect(agentClient.resume).toHaveBeenCalledWith(
       expect.objectContaining({ message: 'approve', threadId: 'tg_abc_msg123' }),
       expect.objectContaining({ threadId: 'tg_abc_msg123' }),
+      expect.any(Function),
     );
   });
 
@@ -95,6 +96,7 @@ describe('CallbackHandler', () => {
     expect(agentClient.resume).toHaveBeenCalledWith(
       expect.objectContaining({ message: 'decline', threadId: 'tg_abc_msg123' }),
       expect.any(Object),
+      expect.any(Function),
     );
   });
 
