@@ -70,6 +70,35 @@ if (
   process.exit(1);
 }
 
+const TODOIST_API_KEYS_BY_TELEGRAM_USER_ID = process.env.TODOIST_API_KEYS_BY_TELEGRAM_USER_ID;
+if (TODOIST_API_KEYS_BY_TELEGRAM_USER_ID) {
+  const todoistTokenUserIds = new Set<string>();
+  const invalidEntries = TODOIST_API_KEYS_BY_TELEGRAM_USER_ID
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .filter((entry) => {
+      const [telegramUserId, token, extra] = entry.split(':');
+      const valid = telegramUserId?.trim() && token?.trim() && extra === undefined;
+      if (valid) {
+        todoistTokenUserIds.add(telegramUserId.trim());
+      }
+      return !valid;
+    });
+  const missingTodoistTokens = ALLOWED_TELEGRAM_USER_IDS
+    .map(String)
+    .filter((telegramUserId) => !todoistTokenUserIds.has(telegramUserId));
+
+  if (invalidEntries.length > 0 || missingTodoistTokens.length > 0) {
+    logger.error('app.startup.validation_failed', {
+      invalidEnvVar: 'TODOIST_API_KEYS_BY_TELEGRAM_USER_ID',
+      invalidEntries: invalidEntries.length,
+      missingAllowedTelegramUsers: missingTodoistTokens.length,
+    });
+    process.exit(1);
+  }
+}
+
 // Rich messages use Telegram Bot API 10.1's sendRichMessage/sendRichMessageDraft
 // for animated progress indicators. Falls back to MarkdownV2 if disabled or on error.
 const RICH_MESSAGES_ENABLED = process.env.TELEGRAM_RICH_MESSAGES === 'true';

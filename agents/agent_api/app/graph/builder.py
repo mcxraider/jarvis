@@ -150,6 +150,7 @@ def run_jarvis(
     max_agent_turns: int = MAX_AGENT_TURNS,
     tracer: Optional[TracePrinter] = None,
     thread_id: Optional[str] = None,
+    telegram_user_id: Optional[int] = None,
     clarification_reply: Optional[str] = None,
     checkpointer: Optional[Any] = None,
     request_id: Optional[str] = None,
@@ -208,7 +209,10 @@ def run_jarvis(
     tracer.payload("runtime.prompt", "user_prompt", user_prompt)
 
     agent_client = agent_client or DeepSeekAgentClient(tracer=tracer)
-    todoist_client = todoist_client or TodoistApiClient(tracer=tracer)
+    todoist_client = todoist_client or TodoistApiClient(
+        tracer=tracer,
+        telegram_user_id=telegram_user_id,
+    )
     # Caller-provided clients (e.g. the CLI runner) are built before run_jarvis
     # wraps the tracer, so retarget them at this run's tracer to keep their
     # agent.* / todoist.* events flowing into the per-run file log.
@@ -238,6 +242,7 @@ def run_jarvis(
             "thread_id": thread_id,
             "invocation_type": invocation_type,
             "user_id": user_id,
+            "telegram_user_id": telegram_user_id,
             "request_source": request_source,
             "model": DEEPSEEK_MODEL,
             "allow_mutations": allow_mutations,

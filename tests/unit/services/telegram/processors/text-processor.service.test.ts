@@ -1,16 +1,10 @@
-import crypto from 'crypto';
 import { TextProcessorService } from '../../../../../src/services/telegram/processors/text-processor.service';
 import { MemoryPendingClarificationStore } from '../../../../../src/services/telegram/pending-clarification.store';
 import { MemoryConversationGateStore } from '../../../../../src/services/telegram/conversation-gate.store';
+import { buildTelegramThreadId } from '../../../../../src/services/telegram/telegram-thread-id';
 
-function telegramThreadId(identity: number | string, messageKey: number | string): string {
-  const hash = crypto.createHash('sha256').update(String(identity)).digest('hex').slice(0, 32);
-  const segment = String(messageKey)
-    .trim()
-    .replace(/[^a-zA-Z0-9_-]/g, '_')
-    .slice(0, 64);
-
-  return `tg_${hash}_${segment}`;
+function telegramThreadId(userId: number): string {
+  return buildTelegramThreadId(userId, `telegram:${userId}`);
 }
 
 describe('TextProcessorService', () => {
@@ -67,19 +61,19 @@ describe('TextProcessorService', () => {
         source: 'telegram',
         telegramUserId: 701122767,
         requestId: 'tg_test',
-        threadId: telegramThreadId(555, 42),
+        threadId: telegramThreadId(701122767),
       },
       {
         requestId: 'tg_test',
         chatId: 555,
         messageId: 42,
-        threadId: telegramThreadId(555, 42),
+        threadId: telegramThreadId(701122767),
       },
     );
     expect(agentClient.resume).not.toHaveBeenCalled();
   });
 
-  it('builds the same thread id for Telegram webhook retries of the same message', async () => {
+  it('builds the same thread id for repeated messages from the same Telegram user', async () => {
     const agentClient = {
       invoke: jest.fn().mockResolvedValue({
         status: 'completed',
@@ -96,10 +90,10 @@ describe('TextProcessorService', () => {
     await service.processTextMessage('add milk', 701122767, logContext);
 
     const threadIds = agentClient.invoke.mock.calls.map(([request]) => request.threadId);
-    expect(threadIds).toEqual([telegramThreadId(555, 42), telegramThreadId(555, 42)]);
+    expect(threadIds).toEqual([telegramThreadId(701122767), telegramThreadId(701122767)]);
   });
 
-  it('builds different thread ids for different Telegram chats with the same message id', async () => {
+  it('builds different thread ids for different Telegram users', async () => {
     const agentClient = {
       invoke: jest.fn().mockResolvedValue({
         status: 'completed',
@@ -112,11 +106,75 @@ describe('TextProcessorService', () => {
     const service = createService(agentClient);
 
     await service.processTextMessage('add milk', 701122767, { chatId: 555, messageId: 42 });
-    await service.processTextMessage('add milk', 701122767, { chatId: 777, messageId: 42 });
+    await service.processTextMessage('add milk', 701122768, { chatId: 555, messageId: 43 });
 
     const threadIds = agentClient.invoke.mock.calls.map(([request]) => request.threadId);
-    expect(threadIds).toEqual([telegramThreadId(555, 42), telegramThreadId(777, 42)]);
+    expect(threadIds).toEqual([telegramThreadId(701122767), telegramThreadId(701122768)]);
     expect(threadIds[0]).not.toBe(threadIds[1]);
+  });
+
+  it('does not create a new thread id while a graph run has not completed', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const pendingStore = new MemoryPendingClarificationStore();
+    const runningAgentClient = {
+      invoke: jest.fn(),
+      resume: jest.fn(),
+    };
+    const runningService = createService(runningAgentClient, pendingStore, gateStore);
+
+    const { buildConversationKey } = require('../../../../../src/services/telegram/conversation-key');
+    const gateKey = buildConversationKey(42, 'telegram:42', 100);
+    await gateStore.tryAcquire(gateKey, 60000);
+
+    const blockedResult = await runningService.processTextMessage('second request', 42, {
+      chatId: 100,
+      messageId: 11,
+    });
+
+    expect(blockedResult.blocked).toBe(true);
+    expect(runningAgentClient.invoke).not.toHaveBeenCalled();
+    expect(runningAgentClient.resume).not.toHaveBeenCalled();
+
+    await gateStore.release(gateKey);
+
+    const interruptedAgentClient = {
+      invoke: jest.fn().mockResolvedValue({
+        status: 'interrupted',
+        threadId: 'thread-hitl',
+        response: 'Which task should I update?',
+        interrupt: { type: 'clarify', question: 'Which task should I update?' },
+        toolResults: [],
+      }),
+      resume: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'thread-hitl',
+        response: 'Updated the dentist task.',
+        toolResults: [],
+      }),
+    };
+    const interruptedService = createService(interruptedAgentClient);
+
+    await interruptedService.processTextMessage('update my task', 42, {
+      chatId: 100,
+      messageId: 20,
+    });
+    await interruptedService.processTextMessage('the dentist one', 42, {
+      chatId: 100,
+      messageId: 21,
+    });
+
+    expect(interruptedAgentClient.invoke).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: telegramThreadId(42) }),
+      expect.objectContaining({ threadId: telegramThreadId(42) }),
+    );
+    expect(interruptedAgentClient.resume).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: 'thread-hitl' }),
+      expect.objectContaining({ threadId: 'thread-hitl' }),
+    );
+    expect(interruptedAgentClient.resume).not.toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: telegramThreadId(42) }),
+      expect.any(Object),
+    );
   });
 
   it('stores HITL clarification state and resumes on the next message', async () => {

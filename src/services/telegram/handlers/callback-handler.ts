@@ -62,6 +62,18 @@ export class CallbackHandler {
         return;
       }
 
+      if (pending.telegramUserId !== userId || pending.threadId !== threadId) {
+        logger.warn('telegram.callback.confirm.rejected', {
+          requestId,
+          userId,
+          threadId,
+          pendingThreadId: pending.threadId,
+          reason: pending.telegramUserId !== userId ? 'user_mismatch' : 'thread_mismatch',
+        });
+        await ctx.answerCbQuery('This action is not available.');
+        return;
+      }
+
       const transitioned = await this.conversationGate.transitionToRunning(gateKey, this.runningTtlMs);
       if (!transitioned) {
         await ctx.answerCbQuery('Already processing your decision.');

@@ -172,6 +172,52 @@ describe('CallbackHandler', () => {
     expect(agentClient.resume).not.toHaveBeenCalled();
   });
 
+  it('rejects callback data when the encoded thread does not match the pending record', async () => {
+    const agentClient = { resume: jest.fn() };
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateStore = new MemoryConversationGateStore();
+    await setupWaitingGate(gateStore, pendingStore, 42, 100, 'tg_user_expected');
+
+    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
+    const ctx = makeCtx('confirm:approve:tg_user_other');
+
+    await handler.handleCallbackQuery(ctx);
+
+    expect(ctx.answerCbQuery).toHaveBeenCalledWith('This action is not available.');
+    expect(agentClient.resume).not.toHaveBeenCalled();
+  });
+
+  it('rejects callback data when the pending record belongs to another Telegram user', async () => {
+    const agentClient = { resume: jest.fn() };
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateStore = new MemoryConversationGateStore();
+    const gateKey = getGateKey(42, 100);
+    await gateStore.tryAcquire(gateKey, 60000);
+    await gateStore.transitionToWaiting(gateKey, 60000);
+    const now = Date.now();
+    await pendingStore.save({
+      pendingKey: gateKey,
+      threadId: 'tg_user_expected',
+      question: 'Confirm?',
+      telegramUserId: 43,
+      chatId: 100,
+      userId: 'telegram:43',
+      interruptType: 'confirm',
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + 30 * 60 * 1000,
+    });
+
+    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
+    const ctx = makeCtx('confirm:approve:tg_user_expected', 42, 100);
+
+    await handler.handleCallbackQuery(ctx);
+
+    expect(ctx.answerCbQuery).toHaveBeenCalledWith('This action is not available.');
+    expect(agentClient.resume).not.toHaveBeenCalled();
+  });
+
   it('preserves pending record and transitions gate to waiting on resume failure', async () => {
     const agentClient = {
       resume: jest.fn().mockRejectedValue(new Error('network failure')),

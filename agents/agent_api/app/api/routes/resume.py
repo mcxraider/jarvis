@@ -28,6 +28,7 @@ def resume(
             allow_mutations=allow_mutations(request.allow_mutations),
             tracer=NULL_TRACE,
             thread_id=request.thread_id,
+            telegram_user_id=request.telegram_user_id,
             clarification_reply=request.message,
             request_id=request.request_id,
         )
@@ -56,6 +57,7 @@ def resume_stream(
             allow_mutations=allow_mutations(request.allow_mutations),
             tracer=tracer,
             thread_id=request.thread_id,
+            telegram_user_id=request.telegram_user_id,
             clarification_reply=request.message,
             request_id=request.request_id,
         )
