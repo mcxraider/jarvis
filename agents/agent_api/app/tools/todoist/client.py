@@ -31,6 +31,7 @@ TODOIST_REST_BASE_URL = settings.todoist_rest_base_url
 TODOIST_COMPLETED_BY_COMPLETION_DATE_URL = (
     f"{TODOIST_REST_BASE_URL}/tasks/completed/by_completion_date"
 )
+TODOIST_TOKEN_MAP_ENV = "TODOIST_API_KEYS_BY_TELEGRAM_USER_ID"
 
 # Path segments that look like Todoist resource identifiers (task/section/project
 # IDs are numeric or alphanumeric strings). Collapse them to {id} so traces never
@@ -82,6 +83,30 @@ TODOIST_ERROR_MESSAGES = {
 }
 
 
+def _parse_todoist_token_map(raw_value: Optional[str]) -> Dict[str, str]:
+    if not raw_value:
+        return {}
+    mapping: Dict[str, str] = {}
+    for entry in raw_value.split(","):
+        cleaned = entry.strip()
+        if not cleaned:
+            continue
+        telegram_user_id, separator, token = cleaned.partition(":")
+        if not separator or not telegram_user_id.strip() or not token.strip():
+            raise ValueError(
+                f"{TODOIST_TOKEN_MAP_ENV} entries must use telegram_user_id:todoist_token"
+            )
+        mapping[telegram_user_id.strip()] = token.strip()
+    return mapping
+
+
+def todoist_api_key_for_telegram_user(telegram_user_id: Optional[int]) -> Optional[str]:
+    token_map = _parse_todoist_token_map(os.getenv(TODOIST_TOKEN_MAP_ENV))
+    if telegram_user_id is not None and token_map:
+        return token_map.get(str(telegram_user_id))
+    return os.getenv("TODOIST_API_KEY")
+
+
 @dataclass
 class TodoistApiError(Exception):
     """Structured Todoist failure safe to route through tool results."""
@@ -118,8 +143,13 @@ class TodoistApiError(Exception):
 class TodoistApiClient:
     """Direct Todoist API client using only the Python stdlib."""
 
-    def __init__(self, api_key: Optional[str] = None, tracer: Optional[TracePrinter] = None):
-        self.api_key = api_key or os.getenv("TODOIST_API_KEY")
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        tracer: Optional[TracePrinter] = None,
+        telegram_user_id: Optional[int] = None,
+    ):
+        self.api_key = api_key or todoist_api_key_for_telegram_user(telegram_user_id)
         self.tracer = tracer or NULL_TRACE
 
     @traceable(
@@ -521,5 +551,6 @@ __all__ = [
     "TODOIST_REST_BASE_URL",
     "TodoistApiError",
     "TodoistApiClient",
+    "todoist_api_key_for_telegram_user",
     "todoist_endpoint_template",
 ]

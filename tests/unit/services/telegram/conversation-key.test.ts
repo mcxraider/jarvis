@@ -1,4 +1,8 @@
-import { buildConversationKey, hashIdentifier, mapTelegramUserId } from '../../../../src/services/telegram/conversation-key';
+import {
+  buildConversationKey,
+  hashIdentifier,
+  mapTelegramUserId,
+} from '../../../../src/services/telegram/conversation-key';
 
 describe('buildConversationKey', () => {
   it('returns telegram-chat:{hash} when chatId is provided', () => {

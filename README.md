@@ -48,13 +48,21 @@ BOT_TOKEN=...
 NGROK_URL=https://your-ngrok-url.ngrok-free.app
 TELEGRAM_SECRET_TOKEN=...
 ALLOWED_TELEGRAM_USER_IDS=...
+TELEGRAM_USER_MAP=111111111:jerry,222222222:tester-a,333333333:tester-b
 LANGGRAPH_AGENT_URL=http://localhost:8000
 GROQ_API_KEY=...
 DEEPSEEK_API_KEY=...
 TODOIST_API_KEY=...
+TODOIST_API_KEYS_BY_TELEGRAM_USER_ID=111111111:todoist_token_1,222222222:todoist_token_2,333333333:todoist_token_3
 PORT=3000
 NODE_ENV=development
 ```
+
+For a minimal three-user pilot, `ALLOWED_TELEGRAM_USER_IDS` is the Telegram
+whitelist and `TODOIST_API_KEYS_BY_TELEGRAM_USER_ID` maps each allowed Telegram
+user ID to that person's Todoist token. When the per-user Todoist map is set,
+Telegram-originated Todoist calls require a matching entry instead of falling
+back to the single-user `TODOIST_API_KEY`.
 
 Optional logging controls:
 

@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import { LogContext, logger } from '../../../utils/logger';
 import { LangGraphAgentClient, LangGraphProgressCallback } from '../../ai/langgraph-agent-client.service';
 import {
@@ -7,7 +6,8 @@ import {
   PendingInterruptType,
 } from '../pending-clarification.store';
 import { ConversationGateStore, ConversationGateStatus } from '../conversation-gate.store';
-import { buildConversationKey, hashIdentifier, mapTelegramUserId } from '../conversation-key';
+import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
+import { buildTelegramThreadId } from '../telegram-thread-id';
 import { classifyError } from '../errors/classified-error';
 
 const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
@@ -89,7 +89,7 @@ export class TextProcessorService {
         }
       }
 
-      const threadId = this.buildTelegramThreadId(userId, internalUserId, logContext);
+      const threadId = buildTelegramThreadId(userId, internalUserId);
       const requestContext = { ...logContext, threadId };
       const agentRequest = {
         message: text,
@@ -283,16 +283,6 @@ export class TextProcessorService {
     return buildConversationKey(telegramUserId, internalUserId, logContext.chatId);
   }
 
-  private buildTelegramThreadId(
-    telegramUserId: number | undefined,
-    internalUserId: string,
-    logContext: LogContext,
-  ): string {
-    const identity = logContext.chatId ?? telegramUserId ?? internalUserId;
-    const messageKey = logContext.messageId ?? logContext.requestId ?? Date.now();
-    return `tg_${hashIdentifier(identity)}_${this.sanitizeThreadSegment(messageKey)}`;
-  }
-
   private buildPendingClarificationRecord(
     pendingKey: string,
     threadId: string,
@@ -329,13 +319,6 @@ export class TextProcessorService {
       return configuredTtl;
     }
     return defaultValue;
-  }
-
-  private sanitizeThreadSegment(value: number | string): string {
-    return String(value)
-      .trim()
-      .replace(/[^a-zA-Z0-9_-]/g, '_')
-      .slice(0, 64);
   }
 
   private isConfirmDecision(text: string): boolean {
