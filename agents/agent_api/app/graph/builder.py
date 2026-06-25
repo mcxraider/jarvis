@@ -29,7 +29,11 @@ from agents.agent_api.app.graph.nodes.summarize import create_summarize_node
 from agents.agent_api.app.graph.nodes.tools import create_tools_node
 from agents.agent_api.app.graph.prompts import USER_PROMPT, build_initial_messages
 from agents.agent_api.app.graph.state import JarvisState, enrich_interrupt_status
-from agents.agent_api.app.run_logging import FileLoggingTracer, open_run_log
+from agents.agent_api.app.run_logging import (
+    FileLoggingTracer,
+    format_singapore_log_iso,
+    open_run_log,
+)
 from agents.agent_api.app.tools.dispatcher import ToolDispatcher
 from agents.agent_api.app.tools.registry_factory import build_default_registry
 from agents.agent_api.app.tools.selection import DEFAULT_TOOL_SELECTOR, ToolSelector
@@ -174,7 +178,7 @@ def run_jarvis(
     run_log = open_run_log(thread_id)
     if run_log is not None:
         run_log.write_header(
-            started_at=started_at.isoformat(timespec="seconds"),
+            started_at=format_singapore_log_iso(started_at),
             request_id=request_id,
             thread_id=thread_id,
             user_id=user_id,
@@ -278,7 +282,7 @@ def run_jarvis(
             else 0.0
         )
         run_log.write_footer(
-            finished_at=finished_at.isoformat(timespec="seconds"),
+            finished_at=format_singapore_log_iso(finished_at),
             duration_seconds=round((finished_at - started_at).total_seconds(), 3),
             request_id=request_id,
             turns=result.get("turn_count"),

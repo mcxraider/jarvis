@@ -22,9 +22,24 @@ const LOG_FORMAT =
 const SENSITIVE_KEY_PATTERN =
   /(authorization|token|secret|api[_-]?key|password|bot[_-]?token|openai[_-]?api[_-]?key|todoist[_-]?api[_-]?key|telegram[_-]?secret)/i;
 const PRIVATE_ID_KEY_PATTERN = /^(chat_?id|user_?id|from_?id|telegram_?user_?id)$/i;
+const SINGAPORE_TIME_ZONE = 'Asia/Singapore';
+const singaporeTimestampFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: SINGAPORE_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+});
 
 function ensureLogDir(): void {
   fs.mkdirSync(LOG_DIR, { recursive: true });
+}
+
+export function formatSingaporeLogTimestamp(date = new Date()): string {
+  return singaporeTimestampFormatter.format(date).replace(',', '');
 }
 
 // Recursively walks through log metadata and replaces sensitive values with
@@ -134,13 +149,13 @@ const prettyConsoleFormat = winston.format.printf((info) => {
 });
 
 const jsonFileFormat = winston.format.combine(
-  winston.format.timestamp(),
+  winston.format.timestamp({ format: () => formatSingaporeLogTimestamp() }),
   redactionFormat(),
   winston.format.json(),
 );
 
 const humanReadableFileFormat = winston.format.combine(
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+  winston.format.timestamp({ format: () => formatSingaporeLogTimestamp() }),
   redactionFormat(),
   readableFileFormat,
 );
@@ -172,7 +187,7 @@ export function truncateForLog(value: string | undefined, maxLength = 80): strin
 export const logger = winston.createLogger({
   level: LOG_LEVEL,
   format: winston.format.combine(
-    winston.format.timestamp(),
+    winston.format.timestamp({ format: () => formatSingaporeLogTimestamp() }),
     winston.format.errors({ stack: true }), // logs stack trace
     redactionFormat(),
     winston.format.json(),
@@ -182,12 +197,12 @@ export const logger = winston.createLogger({
       format:
         LOG_FORMAT === 'json'
           ? winston.format.combine(
-              winston.format.timestamp(),
+              winston.format.timestamp({ format: () => formatSingaporeLogTimestamp() }),
               redactionFormat(),
               winston.format.json(),
             )
           : winston.format.combine(
-              winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+              winston.format.timestamp({ format: () => formatSingaporeLogTimestamp() }),
               redactionFormat(),
               winston.format.colorize({ level: true }),
               prettyConsoleFormat,
