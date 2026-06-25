@@ -11,29 +11,82 @@ from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 
 class BuildRunLogPathTests(TestCase):
-    def test_aware_datetime_is_converted_to_singapore_time_for_filename(self) -> None:
+    def test_telegram_username_and_thread_suffix_build_filename(self) -> None:
         path = run_logging.build_run_log_path(
-            "abcdef12-3456", now=datetime(2026, 6, 21, 1, 2, 3, 4, tzinfo=timezone.utc)
+            "abcdef12-3456",
+            now=datetime(2026, 6, 21, 1, 2, 3, 4, tzinfo=timezone.utc),
+            identity=run_logging.RunLogIdentity(
+                request_source="telegram",
+                telegram_user_id=701122767,
+                telegram_username="Jerry",
+            ),
         )
 
-        self.assertEqual(path.name, "jarvis_run_20260621_090203_000004_abcdef12.log")
+        self.assertEqual(path.parent.name, "jerry-701122767")
+        self.assertEqual(path.name, "jerry_23456.log")
 
-    def test_filename_sorts_chronologically_and_tags_thread(self) -> None:
+    def test_filename_is_stable_for_same_user_and_thread_suffix(self) -> None:
+        identity = run_logging.RunLogIdentity(
+            request_source="telegram",
+            telegram_user_id=701122767,
+            telegram_username="Jerry",
+        )
         earlier = run_logging.build_run_log_path(
-            "abcdef12-3456", now=datetime(2026, 6, 21, 9, 0, 0, 1)
+            "abcdef12-3456",
+            now=datetime(2026, 6, 21, 9, 0, 0, 1),
+            identity=identity,
         )
         later = run_logging.build_run_log_path(
-            "abcdef12-3456", now=datetime(2026, 6, 21, 9, 0, 0, 2)
+            "abcdef12-3456",
+            now=datetime(2026, 6, 21, 9, 0, 0, 2),
+            identity=identity,
         )
 
-        self.assertTrue(earlier.name.startswith("jarvis_run_2026"))
-        self.assertTrue(earlier.name.endswith("_abcdef12.log"))
-        # Lexical filename order matches chronological run order.
-        self.assertLess(earlier.name, later.name)
+        self.assertEqual(earlier.name, "jerry_23456.log")
+        self.assertEqual(later.name, "jerry_23456.log")
 
     def test_missing_thread_id_falls_back_to_placeholder(self) -> None:
         path = run_logging.build_run_log_path("", now=datetime(2026, 6, 21, 9, 0, 0))
-        self.assertTrue(path.name.endswith("_norun.log"))
+        self.assertEqual(path.parent.name, "jer_jerryyy-701122767")
+        self.assertEqual(path.name, "jer_jerryyy_norun.log")
+
+    def test_missing_username_falls_back_to_first_name(self) -> None:
+        path = run_logging.build_run_log_path(
+            "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_385",
+            now=datetime(2026, 6, 21, 9, 0, 0),
+            identity=run_logging.RunLogIdentity(
+                request_source="telegram",
+                telegram_user_id=222,
+                telegram_first_name="Alex Friend",
+            ),
+        )
+
+        self.assertEqual(path.parent.name, "alex_friend-222")
+        self.assertEqual(path.name, "alex_friend_c_385.log")
+
+    def test_sanitizes_username_for_folder_and_filename(self) -> None:
+        path = run_logging.build_run_log_path(
+            "thread-12345",
+            now=datetime(2026, 6, 21, 9, 0, 0),
+            identity=run_logging.RunLogIdentity(
+                request_source="telegram",
+                telegram_user_id=333,
+                telegram_username="  @Bad Name!!  ",
+            ),
+        )
+
+        self.assertEqual(path.parent.name, "bad_name-333")
+        self.assertEqual(path.name, "bad_name_12345.log")
+
+    def test_non_telegram_sources_use_cli_dev_folder(self) -> None:
+        path = run_logging.build_run_log_path(
+            "local-thread",
+            now=datetime(2026, 6, 21, 9, 0, 0),
+            identity=run_logging.RunLogIdentity(request_source="cli"),
+        )
+
+        self.assertEqual(path.parent.name, "jer_jerryyy-701122767")
+        self.assertEqual(path.name, "jer_jerryyy_hread.log")
 
 
 class RunFileLogEnabledTests(TestCase):
@@ -181,7 +234,7 @@ class RunJarvisFileLoggingTests(TestCase):
                 thread_id="feedface-0000",
                 request_id="tg_log",
             )
-        files = sorted(run_logging.Path(tmp).glob("jarvis_run_*.log"))
+        files = sorted(run_logging.Path(tmp).glob("*/*.log"))
         return files
 
     def test_run_writes_one_readable_file_capturing_client_events(self) -> None:

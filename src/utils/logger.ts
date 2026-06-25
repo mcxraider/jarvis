@@ -171,6 +171,8 @@ export interface LogContext {
   messageId?: number;
   messageType?: string;
   threadId?: string;
+  telegramUsername?: string;
+  telegramFirstName?: string;
 }
 
 // Generates a short, unique request ID for log correlation (e.g. "tg_m1abc_x9y2z3").

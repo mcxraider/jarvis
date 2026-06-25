@@ -29,6 +29,8 @@ def resume(
             tracer=NULL_TRACE,
             thread_id=request.thread_id,
             telegram_user_id=request.telegram_user_id,
+            telegram_username=request.telegram_username,
+            telegram_first_name=request.telegram_first_name,
             clarification_reply=request.message,
             request_id=request.request_id,
         )
@@ -58,6 +60,8 @@ def resume_stream(
             tracer=tracer,
             thread_id=request.thread_id,
             telegram_user_id=request.telegram_user_id,
+            telegram_username=request.telegram_username,
+            telegram_first_name=request.telegram_first_name,
             clarification_reply=request.message,
             request_id=request.request_id,
         )

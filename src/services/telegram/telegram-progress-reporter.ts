@@ -94,6 +94,17 @@ export class TelegramProgressReporter {
     await this.showInitialStatus(TRANSCRIBING_LABEL);
   }
 
+  // Tears down the "Transcribing..." block before the transcription message is
+  // sent, so the agent thinking block starts fresh BELOW the transcription.
+  // Plain fallback mode: deletes the status message (a real, position-fixed
+  // message), so beginAgentPhase() creates a new one under the transcription.
+  // Rich mode: the ephemeral draft is bottom-anchored and reused (morphed) by
+  // beginAgentPhase(), so there is nothing to remove here.
+  async endTranscribing(): Promise<void> {
+    if (this.completed) return;
+    await this.removePlainStatus();
+  }
+
   async beginAgentPhase(): Promise<void> {
     if (this.completed || this.agentPhaseStarted) return;
 

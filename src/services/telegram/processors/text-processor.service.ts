@@ -96,6 +96,8 @@ export class TextProcessorService {
         userId: internalUserId,
         source: 'telegram',
         telegramUserId: userId,
+        telegramUsername: logContext.telegramUsername,
+        telegramFirstName: logContext.telegramFirstName,
         requestId: logContext.requestId,
         threadId,
       };
@@ -176,6 +178,8 @@ export class TextProcessorService {
       userId: internalUserId,
       source: 'telegram',
       telegramUserId: userId,
+      telegramUsername: logContext.telegramUsername,
+      telegramFirstName: logContext.telegramFirstName,
       requestId: logContext.requestId,
       threadId: pending.threadId,
     };
