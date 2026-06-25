@@ -25,6 +25,7 @@ describe('Confirm flow: text → buttons → callback → reply', () => {
     expect(agentClient.resume).toHaveBeenCalledWith(
       expect.objectContaining({ message: 'approve', threadId: THREAD_ID }),
       expect.any(Object),
+      expect.any(Function),
     );
     expect(ctx.reply).toHaveBeenCalledWith(
       expect.any(String),
@@ -45,6 +46,7 @@ describe('Confirm flow: text → buttons → callback → reply', () => {
     expect(agentClient.resume).toHaveBeenCalledWith(
       expect.objectContaining({ message: 'decline', threadId: THREAD_ID }),
       expect.any(Object),
+      expect.any(Function),
     );
     expect(ctx.answerCbQuery).toHaveBeenCalledWith('Declined.');
   });

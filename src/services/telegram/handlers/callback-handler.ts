@@ -1,11 +1,12 @@
 import { Context } from 'telegraf';
-import { createRequestId, logger } from '../../../utils/logger';
+import { createRequestId, logger, LogContext } from '../../../utils/logger';
 import { LangGraphAgentClient, LangGraphAgentResponse } from '../../ai/langgraph-agent-client.service';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { sendFinalReply } from '../formatters/telegram-rich';
 import { PendingClarificationRecord, PendingClarificationStore } from '../pending-clarification.store';
 import { ConversationGateStore } from '../conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
+import { TelegramProgressReporter } from '../telegram-progress-reporter';
 
 const CONFIRM_PREFIX = 'confirm:';
 const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
@@ -50,6 +51,8 @@ export class CallbackHandler {
     const internalUserId = mapTelegramUserId(userId);
     const chatId = ctx.chat?.id;
     const gateKey = buildConversationKey(userId, internalUserId, chatId);
+    const logContext: LogContext = { requestId, threadId };
+    const progress = new TelegramProgressReporter(ctx, logContext);
 
     try {
       const pending = await this.pendingStore.get(gateKey);
@@ -84,6 +87,8 @@ export class CallbackHandler {
         }
       }
 
+      await progress.start();
+
       const agentResponse = await this.agentClient.resume(
         {
           message: decision,
@@ -93,10 +98,16 @@ export class CallbackHandler {
           requestId,
           threadId,
         },
-        { requestId, threadId },
+        logContext,
+        (event) => progress.record(event),
       );
 
       await this.pendingStore.clear(gateKey, 'completed').catch(() => {});
+
+      const completionStatus = agentResponse.status === 'interrupted'
+        ? (agentResponse.interrupt?.type === 'confirm' ? 'Paused for confirmation' : 'Paused for clarification')
+        : 'Done';
+      await progress.complete(completionStatus);
 
       if (agentResponse.status === 'interrupted' && agentResponse.threadId) {
         const interruptType = agentResponse.interrupt?.type === 'confirm' ? 'confirm' : 'clarify';
@@ -128,6 +139,7 @@ export class CallbackHandler {
         agentStatus: agentResponse.status,
       });
     } catch (error) {
+      await progress.complete('Something went wrong');
       await this.conversationGate.transitionToWaiting(gateKey, this.waitingTtlMs).catch(() => {
         this.conversationGate.release(gateKey).catch(() => {});
       });
