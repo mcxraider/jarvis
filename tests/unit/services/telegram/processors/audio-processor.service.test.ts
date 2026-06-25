@@ -51,6 +51,7 @@ describe('AudioProcessorService', () => {
       701122767,
       logContext,
       undefined,
+      undefined,
     );
     expect(response).toEqual(
       expect.objectContaining({ response: '🗣️: Add a Todoist task to buy milk tomorrow\n\n---\n\nTask created.' }),
@@ -76,6 +77,7 @@ describe('AudioProcessorService', () => {
       7,
       {},
       onProgress,
+      undefined,
     );
     expect(onTranscribed.mock.invocationCallOrder[0]).toBeLessThan(
       textProcessor.processTextMessage.mock.invocationCallOrder[0],
@@ -105,6 +107,7 @@ describe('AudioProcessorService', () => {
       7,
       {},
       onProgress,
+      undefined,
     );
     expect(response).toEqual(
       expect.objectContaining({ response: '🗣️: Add a Todoist task to buy milk tomorrow\n\n---\n\nSummary ready.' }),

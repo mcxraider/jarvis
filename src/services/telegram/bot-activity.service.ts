@@ -6,6 +6,7 @@
 export type BotActivityType =
   | 'command_help'
   | 'command_status'
+  | 'command_cancel'
   | 'message_text'
   | 'message_voice'
   | 'message_audio'

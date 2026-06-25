@@ -1,19 +1,24 @@
-// src/services/telegram/message-processor.service.ts — Unified message routing layer.
-// Takes incoming messages of any supported type (text, audio, photo, document) and
-// dispatches to the appropriate processor. Acts as a facade so callers (MessageHandlers)
-// don't need to know which processor handles which media type.
-
 import { logger } from '../../utils/logger';
 import { TextProcessorResult, TextProcessorService } from './processors/text-processor.service';
 import { AudioProcessingHooks, AudioProcessorService } from './processors/audio-processor.service';
 import { LogContext } from '../../utils/logger';
 import { LangGraphProgressCallback } from '../ai/langgraph-agent-client.service';
+import { ConversationGateStore } from './conversation-gate.store';
+import { buildConversationKey, mapTelegramUserId } from './conversation-key';
+
+const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
 
 export class MessageProcessorService {
+  private readonly runningTtlMs: number;
+
   constructor(
     private readonly textProcessor: TextProcessorService,
     private readonly audioProcessor: AudioProcessorService,
-  ) {}
+    private readonly conversationGate: ConversationGateStore,
+  ) {
+    const configured = Number(process.env.TELEGRAM_GATE_RUNNING_TTL_MS);
+    this.runningTtlMs = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_RUNNING_TTL_MS;
+  }
 
   async processTextMessage(
     text: string,
@@ -46,7 +51,30 @@ export class MessageProcessorService {
       fileUrl: fileUrl.substring(0, 50) + '...',
     });
 
-    return this.audioProcessor.processAudioMessage(fileUrl, userId, logContext, hooks);
+    const internalUserId = mapTelegramUserId(userId);
+    const gateKey = buildConversationKey(userId, internalUserId, logContext.chatId);
+
+    let gateAcquired = false;
+    try {
+      gateAcquired = await this.conversationGate.tryAcquire(gateKey, this.runningTtlMs);
+    } catch {
+      gateAcquired = true;
+    }
+
+    if (!gateAcquired) {
+      logger.info('conversation_gate.audio_blocked', { ...logContext, gateKey });
+      return {
+        response: "I'm still working on your previous request. Please wait.",
+        blocked: true,
+      };
+    }
+
+    try {
+      return await this.audioProcessor.processAudioMessage(fileUrl, userId, logContext, hooks, { gatePreAcquired: true });
+    } catch (error) {
+      await this.conversationGate.release(gateKey).catch(() => {});
+      throw error;
+    }
   }
 
   async processAudioDocument(
@@ -66,19 +94,34 @@ export class MessageProcessorService {
       processor: 'AudioProcessorService',
     });
 
-    return this.audioProcessor.processAudioDocument(
-      fileUrl,
-      fileName,
-      mimeType,
-      userId,
-      logContext,
-      hooks,
-    );
+    const internalUserId = mapTelegramUserId(userId);
+    const gateKey = buildConversationKey(userId, internalUserId, logContext.chatId);
+
+    let gateAcquired = false;
+    try {
+      gateAcquired = await this.conversationGate.tryAcquire(gateKey, this.runningTtlMs);
+    } catch {
+      gateAcquired = true;
+    }
+
+    if (!gateAcquired) {
+      logger.info('conversation_gate.audio_blocked', { ...logContext, gateKey });
+      return {
+        response: "I'm still working on your previous request. Please wait.",
+        blocked: true,
+      };
+    }
+
+    try {
+      return await this.audioProcessor.processAudioDocument(
+        fileUrl, fileName, mimeType, userId, logContext, hooks, { gatePreAcquired: true },
+      );
+    } catch (error) {
+      await this.conversationGate.release(gateKey).catch(() => {});
+      throw error;
+    }
   }
 
-  // Photos are handled as contextual text: we build a structured description from the
-  // photo metadata and caption, then send that as a text message to the LangGraph agent.
-  // The agent cannot see the image pixels, but can reason about the provided context.
   async processPhotoMessage(
     photoContext: {
       fileId: string;
@@ -115,8 +158,6 @@ export class MessageProcessorService {
     return this.textProcessor.processTextMessage(contextualMessage, userId, logContext);
   }
 
-  // Generic dispatch method that routes based on a type discriminator. Useful for
-  // programmatic callers that build message descriptors dynamically.
   async processMessage(
     messageData: {
       type: 'text' | 'audio' | 'audio_document' | 'photo';
@@ -178,4 +219,5 @@ export class MessageProcessorService {
         return { response: 'Unsupported message type. I can handle text, audio, and images.' };
     }
   }
+
 }

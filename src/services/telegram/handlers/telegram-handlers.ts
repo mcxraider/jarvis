@@ -25,6 +25,7 @@ export class TelegramHandlers {
   private setupCommandHandlers(bot: Telegraf<Context>): void {
     bot.command('help', this.commandHandlers.handleHelp.bind(this.commandHandlers));
     bot.command('status', this.commandHandlers.handleStatus.bind(this.commandHandlers));
+    bot.command('cancel', this.commandHandlers.handleCancel.bind(this.commandHandlers));
   }
 
   // Inline keyboard button presses (e.g. Approve/Decline on confirm interrupts).
@@ -35,6 +36,7 @@ export class TelegramHandlers {
   // Message handlers ordered from most specific to least specific. The final 'message'
   // handler acts as a catch-all for any media type we haven't explicitly handled above.
   private setupMessageHandlers(bot: Telegraf<Context>): void {
+    bot.on('edited_message' as any, () => {});
     bot.on('text', this.messageHandlers.handleText.bind(this.messageHandlers));
     bot.on('voice', this.messageHandlers.handleVoice.bind(this.messageHandlers));
     bot.on('audio', this.messageHandlers.handleAudio.bind(this.messageHandlers));

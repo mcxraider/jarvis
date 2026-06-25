@@ -12,6 +12,7 @@ jest.mock('../../../../src/services/telegram/processors/audio-processor.service'
 }));
 
 import { MessageProcessorService } from '../../../../src/services/telegram/message-processor.service';
+import { MemoryConversationGateStore } from '../../../../src/services/telegram/conversation-gate.store';
 
 describe('MessageProcessorService', () => {
   let service: MessageProcessorService;
@@ -19,7 +20,8 @@ describe('MessageProcessorService', () => {
   beforeEach(() => {
     const { TextProcessorService } = require('../../../../src/services/telegram/processors/text-processor.service');
     const { AudioProcessorService } = require('../../../../src/services/telegram/processors/audio-processor.service');
-    service = new MessageProcessorService(new TextProcessorService(), new AudioProcessorService());
+    const gateStore = new MemoryConversationGateStore();
+    service = new MessageProcessorService(new TextProcessorService(), new AudioProcessorService(), gateStore);
   });
 
   it('routes text messages to the text processor', async () => {
@@ -54,6 +56,7 @@ describe('MessageProcessorService', () => {
       7,
       {},
       hooks,
+      { gatePreAcquired: true },
     );
   });
 
@@ -133,6 +136,7 @@ describe('MessageProcessorService', () => {
       7,
       {},
       hooks,
+      { gatePreAcquired: true },
     );
   });
 

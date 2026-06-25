@@ -33,6 +33,7 @@ export class AudioProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
+    options?: { gatePreAcquired?: boolean },
   ): Promise<TextProcessorResult> {
     const startTime = Date.now();
 
@@ -58,6 +59,7 @@ export class AudioProcessorService {
           userId,
           logContext,
           hooks?.onProgress,
+          options,
         );
 
         logger.info('audio_processor.completed', {
@@ -109,6 +111,7 @@ export class AudioProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
+    options?: { gatePreAcquired?: boolean },
   ): Promise<TextProcessorResult> {
     const startTime = Date.now();
 
@@ -135,6 +138,7 @@ export class AudioProcessorService {
           userId,
           logContext,
           hooks?.onProgress,
+          options,
         );
 
         logger.info('audio_processor.document_completed', {
