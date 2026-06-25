@@ -205,6 +205,11 @@ class DeepSeekAgentClient:
             )
             raise DeepSeekAgentClientError(payload) from error
 
+        cache_hit_rate = (
+            round(turn_usage.cached_tokens / turn_usage.prompt_tokens * 100, 1)
+            if turn_usage.prompt_tokens > 0 and turn_usage.cached_tokens > 0
+            else None
+        )
         self.tracer.event(
             "agent.response",
             "Received assistant message.",
@@ -215,6 +220,8 @@ class DeepSeekAgentClient:
             prompt_tokens=turn_usage.prompt_tokens or None,
             completion_tokens=turn_usage.completion_tokens or None,
             total_tokens=turn_usage.total_tokens or None,
+            cached_tokens=turn_usage.cached_tokens or None,
+            cache_hit_rate=cache_hit_rate,
         )
         return message
 
@@ -423,6 +430,12 @@ def create_agent_node(
             else:
                 final_response = content
                 tracer.payload("agent.final", "content", final_response)
+                run_log = getattr(tracer, "run_log", None)
+                if run_log is not None:
+                    run_log.write_messages_dump(
+                        "final_turn_input (context sent to LLM on ANSWER turn)",
+                        messages[:-1],
+                    )
         else:
             tool_calls = assistant_message.get("tool_calls") or []
             if any(is_ask_user_tool_call(tc) for tc in tool_calls):

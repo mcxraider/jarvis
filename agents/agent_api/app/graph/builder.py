@@ -272,6 +272,11 @@ def run_jarvis(
         total_tokens=usage.total_tokens or None,
     )
     if run_log is not None:
+        cache_hit_rate = (
+            round(usage.cached_tokens / usage.prompt_tokens * 100, 1)
+            if usage.prompt_tokens > 0 and usage.cached_tokens > 0
+            else 0.0
+        )
         run_log.write_footer(
             finished_at=finished_at.isoformat(timespec="seconds"),
             duration_seconds=round((finished_at - started_at).total_seconds(), 3),
@@ -284,6 +289,7 @@ def run_jarvis(
             completion_tokens=usage.completion_tokens,
             total_tokens=usage.total_tokens,
             cached_tokens=usage.cached_tokens,
+            cache_hit_rate=cache_hit_rate,
             reasoning_tokens=usage.reasoning_tokens,
         )
     return result

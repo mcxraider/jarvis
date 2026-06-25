@@ -46,6 +46,19 @@ Resilience around the correct agent loop. The goal is that transient failures ar
 
 ---
 
+## 4.1c Audio Transcription Input Validation ❌
+
+**Status (2026-06-24):** Not started. No pre-transcription length/size checks.
+
+**Problem:** Audio messages are sent directly to the transcription service (Groq Whisper) without first-layer validation. Long recordings or oversized files could hit API limits, waste quota, or fail silently.
+
+**Required behavior:**
+- Check audio duration and file size before calling the transcription service.
+- Reject or warn on messages exceeding provider limits (e.g., Whisper's 25MB / ~2hr cap).
+- Surface a clear user-facing message ("Audio too long — please keep it under X minutes") rather than a raw API error.
+
+---
+
 ## 4.2 Todoist API Retry and Error Taxonomy ✅
 
 **Status (2026-06-24):** Done. Merged. Full error classification, exponential backoff with jitter, `Retry-After` support, env-backed tuning.
@@ -167,3 +180,32 @@ The following opportunities were identified during review but deferred because t
 - **Reusing `ThreadPoolExecutor` across invocations** — lifecycle and thread-safety implications.
 - **Unifying `MUTATING_TOOL_NAMES` with `metadata.py`** — larger registry consolidation effort.
 - **Per-tool post-exec routing in `edges.py`** — future design direction, not a simplification.
+
+---
+
+## 4.8 Tool Results Verification and Batch Processing ❌
+
+**Status (2026-06-25):** Not started. No tool-result integrity checks beyond the summarize node. No batch-processing threshold for large result sets.
+
+**Original problem:** The summarize node (4.3) compresses large tool results to fit the context window, but compression alone does not guarantee reliability. When a user asks "show me all my tasks" and the result set is large (e.g., 50+ tasks), the summariser may silently drop items, miscount, or lose detail. The agent then confidently reports an incomplete or incorrect picture to the user.
+
+**Why the summariser is not enough:**
+- Summarisation optimises for token budget, not correctness. It can merge, abbreviate, or omit entries.
+- The agent cannot reliably verify counts or completeness against a summary it didn't produce deterministically.
+- Users asking "show me all" expect completeness — a summarised subset is a reliability failure even if the context window is managed.
+
+**Required behavior — mandatory batch processing above a threshold:**
+- Define a configurable threshold (e.g., `BATCH_RESULT_THRESHOLD=20`) for tool result item counts.
+- When any tool returns a result set exceeding this threshold, the system MUST switch to batch-processing mode rather than passing the entire payload through the summariser:
+  1. **Chunked presentation** — break results into pages/batches and present them incrementally, or summarise with an explicit "showing N of M" disclosure.
+  2. **Deterministic counting** — maintain a verified count extracted directly from the tool result metadata (not re-counted by the LLM from message text).
+  3. **Integrity check** — after processing, compare the number of items acknowledged/presented against the actual count returned by the tool. Flag discrepancies before responding to the user.
+- This batch-processing rule applies universally — not just to `get_tasks`, but to ANY tool that can return a variable-length list (comments, projects, labels, search results, etc.).
+
+**Implementation sketch:**
+- A pre-injection gate inspects `tool_results` length before they enter the message stream.
+- If count > threshold: route through a batch-processing path that paginates, counts deterministically, and injects a structured summary with explicit totals.
+- If count ≤ threshold: pass through normally (summariser is acceptable for small sets).
+- The final response must always include the verified total when reporting on a collection ("Here are your 47 tasks" — where 47 is extracted from the tool result, not hallucinated).
+
+**Trade-off:** Batch processing adds complexity and may require multiple message turns for very large sets. But the alternative — confidently reporting incomplete data — is a worse failure mode for a personal assistant.
