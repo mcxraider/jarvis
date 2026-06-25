@@ -7,7 +7,7 @@ import {
 } from '../pending-clarification.store';
 import { ConversationGateStore, ConversationGateStatus } from '../conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
-import { buildTelegramThreadId } from '../telegram-thread-id';
+import { randomUUID } from 'crypto';
 import { classifyError } from '../errors/classified-error';
 
 const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
@@ -89,7 +89,7 @@ export class TextProcessorService {
         }
       }
 
-      const threadId = buildTelegramThreadId(userId, internalUserId);
+      const threadId = `tg_${logContext.requestId || randomUUID()}`;
       const requestContext = { ...logContext, threadId };
       const agentRequest = {
         message: text,
