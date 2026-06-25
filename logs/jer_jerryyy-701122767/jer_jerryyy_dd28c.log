@@ -519,3 +519,84 @@ cached_tokens: 8576
 cache_hit_rate: 92.9
 reasoning_tokens: 227
 ==============================================================================
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-25T23:06:57+08:00
+request_id: tg_mqtmy777_ztaqxm
+thread_id: tg_user_fd1ed82cbdaeabbc92afb8b0c57dd28c
+user_id: telegram:701122767
+telegram_user_id: 701122767
+telegram_username: jer_jerryyy
+telegram_first_name: jerry
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-06-25 23:06:57.577 | section              | === Jarvis LangGraph Run ===
+2026-06-25 23:06:57.578 | runtime.start        | Starting graph invocation.
+      request_id: tg_mqtmy777_ztaqxm
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: tg_user_fd1ed82cbdaeabbc92afb8b0c57dd28c
+      request_source: telegram
+      resuming: false
+2026-06-25 23:06:57.578 | runtime.prompt       | [payload] user_prompt: set a dinner appointment with zac anytime during dinner from 24 June onwards
+2026-06-25 23:06:57.652 | runtime.graph        | Compiled graph.
+      nodes: agent, hitl, tools
+2026-06-25 23:06:57.660 | graph.agent          | Entering agent node.
+      turn: 1
+      max_turns: 20
+      messages: 2
+2026-06-25 23:06:57.661 | graph.tools.selected | Selected tools for this turn.
+      available: 10
+      selected: 10
+2026-06-25 23:06:57.661 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      messages: 2
+      tools: 10
+2026-06-25 23:07:04.548 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 3493
+      completion_tokens: 565
+      total_tokens: 4058
+      cached_tokens: 3456
+      cache_hit_rate: 98.9
+2026-06-25 23:07:04.550 | graph.route          | Agent node completed.
+      next: hitl
+      turn: 1
+2026-06-25 23:07:04.555 | graph.hitl           | Interrupting for user clarification.
+      question: Since dinner time today (June 25) has already passed and June 24 is in the past, which date would you like to schedule the dinner with Zac from June 26 onwards? And any preferred time (e.g., 7 PM, 8 PM)?
+      deferred_tools: 0
+      extra_questions: 0
+2026-06-25 23:07:04.558 | runtime.done         | Graph invocation completed.
+      request_id: tg_mqtmy777_ztaqxm
+      turns: 1
+      tool_results: 0
+      has_error: false
+      interrupted: true
+      interrupt_type: clarify
+      total_tokens: 4058
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-25T23:07:04+08:00
+duration_seconds: 6.985
+request_id: tg_mqtmy777_ztaqxm
+turns: 1
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 3493
+completion_tokens: 565
+total_tokens: 4058
+cached_tokens: 3456
+cache_hit_rate: 98.9
+reasoning_tokens: 362
+==============================================================================

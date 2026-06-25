@@ -226,3 +226,130 @@
     {
       "error": "Bot is not running!"
     }
+[2026-06-26 24:22:34] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-06-26 24:28:13] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqtpunw7_fakwr7
+  updateId: 564452139
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 432
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-06-26 24:28:57] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqtpvmmq_udqzpw
+  updateId: 564452140
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 435
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-06-26 24:28:58] WARN whisper.transcription.quality_flagged
+  requestId: tg_mqtpvmmq_udqzpw
+  updateId: 564452140
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 435
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "flaggedSegments": 1,
+      "totalSegments": 1,
+      "flags": [
+        {
+          "segmentId": 0,
+          "start": 0,
+          "end": 4.16,
+          "reason": "low_compression_ratio",
+          "value": 0.7714286,
+          "threshold": 0.8,
+          "textPreview": " What are my tasks tomorrow?"
+        }
+      ],
+      "worstValues": {
+        "minAvgLogprob": -0.13906829,
+        "maxNoSpeechProb": 0.010952059,
+        "minCompressionRatio": 0.7714286,
+        "maxCompressionRatio": 0.7714286
+      },
+      "thresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-26 24:29:28] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqtpwa49_39u8df
+  updateId: 564452141
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 438
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-06-26 24:29:28] WARN whisper.transcription.quality_flagged
+  requestId: tg_mqtpwa49_39u8df
+  updateId: 564452141
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 438
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "flaggedSegments": 1,
+      "totalSegments": 1,
+      "flags": [
+        {
+          "segmentId": 0,
+          "start": 0,
+          "end": 0.65999997,
+          "reason": "low_avg_logprob",
+          "value": -0.57555276,
+          "threshold": -0.5,
+          "textPreview": " Us tomorrow."
+        },
+        {
+          "segmentId": 0,
+          "start": 0,
+          "end": 0.65999997,
+          "reason": "low_compression_ratio",
+          "value": 0.61904764,
+          "threshold": 0.8,
+          "textPreview": " Us tomorrow."
+        }
+      ],
+      "worstValues": {
+        "minAvgLogprob": -0.57555276,
+        "maxNoSpeechProb": 0.015899658,
+        "minCompressionRatio": 0.61904764,
+        "maxCompressionRatio": 0.61904764
+      },
+      "thresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
