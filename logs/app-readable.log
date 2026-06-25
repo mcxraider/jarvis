@@ -4950,3 +4950,41 @@
     {
       "durationMs": 4316
     }
+[2026-06-25 17:47:36] INFO text_processor.started
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 10
+  details:
+    {
+      "messageLength": 6
+    }
+[2026-06-25 17:47:36] INFO conversation_gate.transition_to_waiting
+  chatId: [REDACTED_ID]
+  messageId: 10
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "interruptType": "clarify"
+    }
+[2026-06-25 17:47:36] INFO text_processor.completed
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 10
+  threadId: thread-1
+  details:
+    {
+      "messageLength": 6,
+      "responseLength": 6,
+      "agentStatus": "interrupted",
+      "requestedThreadId": "tg_ad57366865126e55649ecb23ae1d4888_10",
+      "interruptType": "clarify",
+      "durationMs": 9
+    }
+[2026-06-25 17:47:36] INFO text_processor.started
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 11
+  details:
+    {
+      "messageLength": 7
+    }

@@ -1,11 +1,3 @@
-// src/services/telegram/processors/text-processor.service.ts — Core text processing
-// pipeline. Receives user text, manages pending HITL (human-in-the-loop) interrupts,
-// calls the LangGraph agent (invoke for new conversations, resume for pending ones),
-// and returns a structured result including any interrupt metadata.
-//
-// Key behavior: if there's a pending "confirm" interrupt for this user, the processor
-// blocks new messages (except yes/no) until the user resolves the approval.
-
 import crypto from 'crypto';
 import { LogContext, logger } from '../../../utils/logger';
 import { LangGraphAgentClient, LangGraphProgressCallback } from '../../ai/langgraph-agent-client.service';
@@ -14,36 +6,42 @@ import {
   PendingClarificationStore,
   PendingInterruptType,
 } from '../pending-clarification.store';
+import { ConversationGateStore, ConversationGateStatus } from '../conversation-gate.store';
+import { buildConversationKey, hashIdentifier, mapTelegramUserId } from '../conversation-key';
 import { classifyError } from '../errors/classified-error';
 
-// Pending clarification records expire after 30 minutes by default. After that, the
-// user's next message starts a fresh conversation thread rather than resuming.
-const PENDING_CLARIFICATION_TTL_MS = 30 * 60 * 1000;
+const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_WAITING_TTL_MS = 30 * 60 * 1000;
 
 export interface TextProcessorResult {
   response: string;
   interruptType?: PendingInterruptType;
   threadId?: string;
+  blocked?: boolean;
+  bufferedMessage?: string;
 }
 
 export class TextProcessorService {
   private readonly pendingClarificationTtlMs: number;
+  private readonly runningTtlMs: number;
+  private readonly waitingTtlMs: number;
 
   constructor(
     private readonly agentClient: LangGraphAgentClient,
     private readonly pendingClarificationStore: PendingClarificationStore,
+    private readonly conversationGate: ConversationGateStore,
   ) {
     this.pendingClarificationTtlMs = this.resolvePendingClarificationTtlMs();
+    this.runningTtlMs = this.resolveEnvTtl('TELEGRAM_GATE_RUNNING_TTL_MS', DEFAULT_RUNNING_TTL_MS);
+    this.waitingTtlMs = this.resolveEnvTtl('TELEGRAM_GATE_WAITING_TTL_MS', DEFAULT_WAITING_TTL_MS);
   }
 
-  // Main processing entry point. Determines whether to invoke a new agent thread or
-  // resume a pending one, sends the request, persists any new interrupt state, and
-  // returns the formatted result for the Telegram reply layer.
   async processTextMessage(
     text: string,
     userId?: number,
     logContext: LogContext = {},
     onProgress?: LangGraphProgressCallback,
+    options?: { gatePreAcquired?: boolean },
   ): Promise<TextProcessorResult> {
     const startedAt = Date.now();
 
@@ -53,26 +51,44 @@ export class TextProcessorService {
       messageLength: text.length,
     });
 
-    try {
-      const internalUserId = this.mapTelegramUserId(userId);
-      const pendingKey = this.pendingKey(userId, internalUserId, logContext);
-      const pendingClarification = await this.pendingClarificationStore.get(pendingKey);
+    const internalUserId = mapTelegramUserId(userId);
+    const gateKey = buildConversationKey(userId, internalUserId, logContext.chatId);
+    let gateAcquired = options?.gatePreAcquired ?? false;
 
-      if (pendingClarification?.interruptType === 'confirm' && !this.isConfirmDecision(text)) {
-        logger.info('text_processor.confirm_pending_blocked', {
-          ...logContext,
-          userId,
-          pendingKey,
-          pendingThreadId: pendingClarification.threadId,
-        });
-        return {
-          response:
-            'You have a pending approval. Please tap ✓ Approve or ✗ Decline in the previous message, or reply *yes* or *no* to decide.',
-        };
+    try {
+      if (!gateAcquired) {
+        const gateStatus = await this.safeGetGateStatus(gateKey);
+
+        if (gateStatus === 'running') {
+          await this.conversationGate.setBufferedMessage(gateKey, text).catch(() => {});
+          logger.info('conversation_gate.blocked', { ...logContext, gateKey });
+          return {
+            response: "I'm still working on your previous request. Your message has been noted — I'll mention it when I'm done.",
+            blocked: true,
+          };
+        }
+
+        if (gateStatus === 'waiting_for_clarification') {
+          const pending = await this.pendingClarificationStore.get(gateKey);
+          if (!pending) {
+            logger.warn('conversation_gate.inconsistent_state', { gateKey });
+            await this.conversationGate.release(gateKey).catch(() => {});
+          } else {
+            return await this.handlePendingClarification(text, pending, gateKey, internalUserId, userId, logContext, onProgress);
+          }
+        }
+
+        gateAcquired = await this.safeAcquireGate(gateKey);
+        if (!gateAcquired) {
+          logger.info('conversation_gate.acquire_failed', { ...logContext, gateKey });
+          return {
+            response: "I'm still working on your previous request. Please wait.",
+            blocked: true,
+          };
+        }
       }
 
-      const threadId =
-        pendingClarification?.threadId || this.buildTelegramThreadId(userId, internalUserId, logContext);
+      const threadId = this.buildTelegramThreadId(userId, internalUserId, logContext);
       const requestContext = { ...logContext, threadId };
       const agentRequest = {
         message: text,
@@ -82,40 +98,21 @@ export class TextProcessorService {
         requestId: logContext.requestId,
         threadId,
       };
-      const agentResponse = pendingClarification
-        ? onProgress
-          ? await this.agentClient.resume(agentRequest, requestContext, onProgress)
-          : await this.agentClient.resume(agentRequest, requestContext)
-        : onProgress
-          ? await this.agentClient.invoke(agentRequest, requestContext, onProgress)
-          : await this.agentClient.invoke(agentRequest, requestContext);
+      const agentResponse = onProgress
+        ? await this.agentClient.invoke(agentRequest, requestContext, onProgress)
+        : await this.agentClient.invoke(agentRequest, requestContext);
 
+      let buffered: string | undefined;
       if (agentResponse.status === 'interrupted') {
-        const interruptType: PendingInterruptType = agentResponse.interrupt?.type === 'confirm' ? 'confirm' : 'clarify';
-        await this.pendingClarificationStore.save(
-          this.buildPendingClarificationRecord(
-            pendingKey,
-            agentResponse.threadId,
-            agentResponse.response,
-            internalUserId,
-            userId,
-            logContext,
-            interruptType,
-          ),
-        );
-        logger.info('telegram.clarification.pending_saved', {
-          ...requestContext,
-          pendingKey,
-          pendingThreadId: agentResponse.threadId,
-        });
-      } else if (pendingClarification) {
-        await this.pendingClarificationStore.clear(
-          pendingKey,
-          agentResponse.status === 'failed' ? 'failed' : 'completed',
-        );
+        await this.handleInterrupt(gateKey, agentResponse, internalUserId, userId, logContext);
+      } else {
+        buffered = await this.releaseGateWithBuffer(gateKey, logContext);
       }
 
-      const response = agentResponse.response;
+      let response = agentResponse.response;
+      if (buffered) {
+        response += `\n\n---\nYou also sent: "_${buffered.slice(0, 200)}_"\nSend it again if you'd like me to handle it.`;
+      }
       const resultInterruptType: PendingInterruptType | undefined =
         agentResponse.status === 'interrupted'
           ? agentResponse.interrupt?.type === 'confirm' ? 'confirm' : 'clarify'
@@ -129,13 +126,18 @@ export class TextProcessorService {
         agentStatus: agentResponse.status,
         threadId: agentResponse.threadId,
         requestedThreadId: threadId,
-        resumedFromPendingClarification: !!pendingClarification,
         interruptType: resultInterruptType,
         durationMs: Date.now() - startedAt,
       });
 
-      return { response, interruptType: resultInterruptType, threadId: agentResponse.threadId };
+      return { response, interruptType: resultInterruptType, threadId: agentResponse.threadId, bufferedMessage: buffered };
     } catch (error) {
+      if (gateAcquired) {
+        await this.conversationGate.release(gateKey).catch(e =>
+          logger.error('conversation_gate.release_failed', { ...logContext, error: (e as Error).message })
+        );
+      }
+
       logger.error('text_processor.failed', {
         ...logContext,
         userId,
@@ -144,27 +146,142 @@ export class TextProcessorService {
         durationMs: Date.now() - startedAt,
       });
 
-      return { response: this.handleTextProcessingError(error as Error, text) };
+      return { response: classifyError(error as Error).userMessage };
     }
   }
 
-  private handleTextProcessingError(error: Error, _text: string): string {
-    return classifyError(error).userMessage;
+  private async handlePendingClarification(
+    text: string,
+    pending: PendingClarificationRecord,
+    gateKey: string,
+    internalUserId: string,
+    userId: number | undefined,
+    logContext: LogContext,
+    onProgress?: LangGraphProgressCallback,
+  ): Promise<TextProcessorResult> {
+    if (pending.interruptType === 'confirm' && !this.isConfirmDecision(text)) {
+      return {
+        response: 'You have a pending approval. Please tap ✓ Approve or ✗ Decline in the previous message, or reply *yes* or *no* to decide.',
+      };
+    }
+
+    const transitioned = await this.conversationGate.transitionToRunning(gateKey, this.runningTtlMs);
+    if (!transitioned) {
+      return { response: "I'm already processing your response. Please wait." };
+    }
+
+    const agentRequest = {
+      message: text,
+      userId: internalUserId,
+      source: 'telegram',
+      telegramUserId: userId,
+      requestId: logContext.requestId,
+      threadId: pending.threadId,
+    };
+
+    try {
+      const requestContext = { ...logContext, threadId: pending.threadId };
+      const agentResponse = onProgress
+        ? await this.agentClient.resume(agentRequest, requestContext, onProgress)
+        : await this.agentClient.resume(agentRequest, requestContext);
+
+      await this.pendingClarificationStore.clear(gateKey, 'completed').catch(() => {});
+
+      let buffered: string | undefined;
+      if (agentResponse.status === 'interrupted') {
+        await this.handleInterrupt(gateKey, agentResponse, internalUserId, userId, logContext);
+      } else {
+        buffered = await this.releaseGateWithBuffer(gateKey, logContext);
+      }
+
+      let response = agentResponse.response;
+      if (buffered) {
+        response += `\n\n---\nYou also sent: "_${buffered.slice(0, 200)}_"\nSend it again if you'd like me to handle it.`;
+      }
+      const resultInterruptType: PendingInterruptType | undefined =
+        agentResponse.status === 'interrupted'
+          ? agentResponse.interrupt?.type === 'confirm' ? 'confirm' : 'clarify'
+          : undefined;
+
+      return {
+        response,
+        interruptType: resultInterruptType,
+        threadId: agentResponse.threadId,
+        bufferedMessage: buffered,
+      };
+    } catch (error) {
+      await this.conversationGate.transitionToWaiting(gateKey, this.waitingTtlMs).catch(() => {
+        this.conversationGate.release(gateKey).catch(() => {});
+      });
+      throw error;
+    }
   }
 
-  // Builds a deterministic pending-store key scoped to the chat+user combination.
-  // Uses hashed identifiers to avoid storing raw Telegram IDs in the database.
+  private async handleInterrupt(
+    gateKey: string,
+    agentResponse: { threadId: string; response: string; interrupt?: { type?: string } },
+    internalUserId: string,
+    userId: number | undefined,
+    logContext: LogContext,
+  ): Promise<void> {
+    const interruptType: PendingInterruptType =
+      agentResponse.interrupt?.type === 'confirm' ? 'confirm' : 'clarify';
+    try {
+      await this.conversationGate.transitionToWaiting(gateKey, this.waitingTtlMs);
+      await this.pendingClarificationStore.save(
+        this.buildPendingClarificationRecord(
+          gateKey, agentResponse.threadId, agentResponse.response,
+          internalUserId, userId, logContext, interruptType,
+        ),
+      );
+      logger.info('conversation_gate.transition_to_waiting', { ...logContext, gateKey, interruptType });
+    } catch (error) {
+      await this.conversationGate.release(gateKey).catch(() => {});
+      await this.pendingClarificationStore.clear(gateKey, 'failed').catch(() => {});
+      logger.error('conversation_gate.interrupt_save_failed', {
+        ...logContext, error: (error as Error).message,
+      });
+    }
+  }
+
+  private async releaseGateWithBuffer(
+    gateKey: string,
+    logContext: LogContext,
+  ): Promise<string | undefined> {
+    const buffered = await this.conversationGate.getAndClearBufferedMessage(gateKey).catch(() => undefined);
+    await this.conversationGate.release(gateKey).catch(e =>
+      logger.error('conversation_gate.release_failed', { ...logContext, error: (e as Error).message })
+    );
+    logger.info('conversation_gate.released', { ...logContext, gateKey, hadBufferedMessage: !!buffered });
+    return buffered;
+  }
+
+  private async safeGetGateStatus(gateKey: string): Promise<ConversationGateStatus> {
+    try {
+      return await this.conversationGate.getStatus(gateKey);
+    } catch (error) {
+      logger.error('conversation_gate.store_error', {
+        gateKey, error: (error as Error).message, strategy: 'fail_open',
+      });
+      return 'idle';
+    }
+  }
+
+  private async safeAcquireGate(gateKey: string): Promise<boolean> {
+    try {
+      return await this.conversationGate.tryAcquire(gateKey, this.runningTtlMs);
+    } catch (error) {
+      logger.error('conversation_gate.acquire_error', {
+        gateKey, error: (error as Error).message, strategy: 'fail_open',
+      });
+      return true;
+    }
+  }
+
   private pendingKey(telegramUserId: number | undefined, internalUserId: string, logContext: LogContext = {}): string {
-    if (logContext.chatId !== undefined) {
-      const userSegment = telegramUserId ?? internalUserId;
-      return `telegram-chat:${this.hashIdentifier(`${logContext.chatId}:${userSegment}`)}`;
-    }
-
-    return telegramUserId ? `telegram:${this.hashIdentifier(telegramUserId)}` : `internal:${internalUserId}`;
+    return buildConversationKey(telegramUserId, internalUserId, logContext.chatId);
   }
 
-  // Generates a unique thread ID for a new conversation. Incorporates the chat/user
-  // identity and message identifier so parallel conversations don't collide.
   private buildTelegramThreadId(
     telegramUserId: number | undefined,
     internalUserId: string,
@@ -172,7 +289,7 @@ export class TextProcessorService {
   ): string {
     const identity = logContext.chatId ?? telegramUserId ?? internalUserId;
     const messageKey = logContext.messageId ?? logContext.requestId ?? Date.now();
-    return `tg_${this.hashIdentifier(identity)}_${this.sanitizeThreadSegment(messageKey)}`;
+    return `tg_${hashIdentifier(identity)}_${this.sanitizeThreadSegment(messageKey)}`;
   }
 
   private buildPendingClarificationRecord(
@@ -202,16 +319,15 @@ export class TextProcessorService {
   }
 
   private resolvePendingClarificationTtlMs(): number {
-    const configuredTtl = Number(process.env.TELEGRAM_PENDING_TTL_MS);
+    return this.resolveEnvTtl('TELEGRAM_PENDING_TTL_MS', DEFAULT_WAITING_TTL_MS);
+  }
+
+  private resolveEnvTtl(envKey: string, defaultValue: number): number {
+    const configuredTtl = Number(process.env[envKey]);
     if (Number.isFinite(configuredTtl) && configuredTtl > 0) {
       return configuredTtl;
     }
-
-    return PENDING_CLARIFICATION_TTL_MS;
-  }
-
-  private hashIdentifier(value: number | string): string {
-    return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 32);
+    return defaultValue;
   }
 
   private sanitizeThreadSegment(value: number | string): string {
@@ -221,8 +337,6 @@ export class TextProcessorService {
       .slice(0, 64);
   }
 
-  // Checks if the user's text is a yes/no decision for a pending confirm interrupt.
-  // Allows the message through even when a confirm is pending, so it can resume the thread.
   private isConfirmDecision(text: string): boolean {
     const normalized = text.trim().toLowerCase();
     const approveTokens = new Set(['yes', 'approve', 'confirm', 'ok', 'y']);
@@ -230,19 +344,4 @@ export class TextProcessorService {
     return approveTokens.has(normalized) || declineTokens.has(normalized);
   }
 
-  // Resolves the Telegram user ID to a human-readable or internal user identifier.
-  // Uses TELEGRAM_USER_MAP env var (format: "12345:jerry,67890:alex") for named mappings.
-  private mapTelegramUserId(telegramUserId: number | undefined): string {
-    if (!telegramUserId) return 'anonymous';
-
-    const map = process.env.TELEGRAM_USER_MAP || '';
-    const mappedUser = map
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-      .map((entry) => entry.split(':').map((value) => value.trim()))
-      .find(([telegramId]) => telegramId === String(telegramUserId));
-
-    return mappedUser?.[1] || `telegram:${telegramUserId}`;
-  }
 }

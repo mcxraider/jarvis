@@ -9,6 +9,7 @@ import { TelegramConfig } from './types/telegram.types';
 import { LangGraphAgentClient } from './services/ai/langgraph-agent-client.service';
 import { WhisperService } from './services/ai/whisper.service';
 import { createPendingClarificationStore } from './services/telegram/pending-clarification.store';
+import { createConversationGateStore } from './services/telegram/conversation-gate.store';
 import { FileService } from './services/telegram/file.service';
 import { BotActivityService } from './services/telegram/bot-activity.service';
 import { BotStatusService } from './services/telegram/bot-status.service';
@@ -93,6 +94,10 @@ const whisperService = new WhisperService({
 // between messages. Backed by Postgres in production, in-memory for local dev.
 const pendingStore = createPendingClarificationStore();
 
+// Conversation gate serializes access to the agent — prevents concurrent invocations
+// from rapid messages, and coordinates resume paths (text reply vs callback button).
+const conversationGate = createConversationGateStore();
+
 // Telegram infrastructure: file downloads, activity metrics, and health reporting.
 const fileService = new FileService(BOT_TOKEN, bot.telegram);
 const activityService = new BotActivityService();
@@ -100,14 +105,14 @@ const statusService = new BotStatusService(activityService);
 
 // Message processors: text goes to LangGraph, audio gets transcribed first then
 // forwarded through the same text pipeline — so voice and typed share the same path.
-const textProcessor = new TextProcessorService(agentClient, pendingStore);
+const textProcessor = new TextProcessorService(agentClient, pendingStore, conversationGate);
 const audioProcessor = new AudioProcessorService(whisperService, textProcessor);
-const messageProcessor = new MessageProcessorService(textProcessor, audioProcessor);
+const messageProcessor = new MessageProcessorService(textProcessor, audioProcessor, conversationGate);
 
-// Telegram handlers: commands (/help, /status), message types, and inline callbacks.
+// Telegram handlers: commands (/help, /status, /cancel), message types, and inline callbacks.
 const messageHandlers = new MessageHandlers(fileService, messageProcessor, activityService);
-const commandHandlers = new CommandHandlers(activityService, statusService);
-const callbackHandler = new CallbackHandler(agentClient, pendingStore);
+const commandHandlers = new CommandHandlers(activityService, statusService, conversationGate, pendingStore);
+const callbackHandler = new CallbackHandler(agentClient, pendingStore, conversationGate);
 
 const handlers = new TelegramHandlers(commandHandlers, messageHandlers, callbackHandler);
 

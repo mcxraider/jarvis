@@ -1,4 +1,6 @@
 import { CommandHandlers } from '../../../../../src/services/telegram/handlers/command-handlers';
+import { MemoryConversationGateStore } from '../../../../../src/services/telegram/conversation-gate.store';
+import { MemoryPendingClarificationStore } from '../../../../../src/services/telegram/pending-clarification.store';
 
 describe('CommandHandlers', () => {
   function createContext() {
@@ -20,7 +22,7 @@ describe('CommandHandlers', () => {
     const statusService = {
       getFormattedStatus: jest.fn(),
     } as any;
-    const handlers = new CommandHandlers(activityService, statusService);
+    const handlers = new CommandHandlers(activityService, statusService, new MemoryConversationGateStore(), new MemoryPendingClarificationStore());
 
     await handlers.handleHelp(ctx);
 
@@ -42,7 +44,7 @@ describe('CommandHandlers', () => {
     const statusService = {
       getFormattedStatus: jest.fn().mockResolvedValue('healthy status'),
     } as any;
-    const handlers = new CommandHandlers(activityService, statusService);
+    const handlers = new CommandHandlers(activityService, statusService, new MemoryConversationGateStore(), new MemoryPendingClarificationStore());
 
     await handlers.handleStatus(ctx);
 
@@ -57,7 +59,7 @@ describe('CommandHandlers', () => {
     const statusService = {
       getFormattedStatus: jest.fn().mockResolvedValue('degraded status'),
     } as any;
-    const handlers = new CommandHandlers(activityService, statusService);
+    const handlers = new CommandHandlers(activityService, statusService, new MemoryConversationGateStore(), new MemoryPendingClarificationStore());
 
     await handlers.handleStatus(ctx);
 

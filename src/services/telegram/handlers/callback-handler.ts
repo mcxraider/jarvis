@@ -1,28 +1,31 @@
-// src/services/telegram/handlers/callback-handler.ts — Handles inline keyboard callbacks
-// from Telegram. Currently supports the "confirm" flow: when the LangGraph agent pauses
-// for human approval, the user taps Approve or Decline, and this handler resumes the
-// agent thread with their decision and delivers the follow-up response.
-
-import crypto from 'crypto';
 import { Context } from 'telegraf';
 import { createRequestId, logger } from '../../../utils/logger';
 import { LangGraphAgentClient, LangGraphAgentResponse } from '../../ai/langgraph-agent-client.service';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { sendFinalReply } from '../formatters/telegram-rich';
 import { PendingClarificationRecord, PendingClarificationStore } from '../pending-clarification.store';
+import { ConversationGateStore } from '../conversation-gate.store';
+import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 
-// All confirm callbacks are prefixed with "confirm:" followed by "approve" or "decline"
-// and the threadId, e.g. "confirm:approve:tg_abc123_msg456"
 const CONFIRM_PREFIX = 'confirm:';
+const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_WAITING_TTL_MS = 30 * 60 * 1000;
 
 export class CallbackHandler {
+  private readonly runningTtlMs: number;
+  private readonly waitingTtlMs: number;
+
   constructor(
     private readonly agentClient: LangGraphAgentClient,
     private readonly pendingStore: PendingClarificationStore,
-  ) {}
+    private readonly conversationGate: ConversationGateStore,
+  ) {
+    const runningTtl = Number(process.env.TELEGRAM_GATE_RUNNING_TTL_MS);
+    this.runningTtlMs = Number.isFinite(runningTtl) && runningTtl > 0 ? runningTtl : DEFAULT_RUNNING_TTL_MS;
+    const waitingTtl = Number(process.env.TELEGRAM_GATE_WAITING_TTL_MS);
+    this.waitingTtlMs = Number.isFinite(waitingTtl) && waitingTtl > 0 ? waitingTtl : DEFAULT_WAITING_TTL_MS;
+  }
 
-  // Processes inline keyboard button presses. Parses the callback_data to determine
-  // the action type, then dispatches accordingly (currently only "confirm" is supported).
   async handleCallbackQuery(ctx: Context): Promise<void> {
     const callbackQuery = ctx.callbackQuery;
     if (!callbackQuery || !('data' in callbackQuery)) return;
@@ -34,7 +37,7 @@ export class CallbackHandler {
     }
 
     const parts = data.slice(CONFIRM_PREFIX.length).split(':');
-    const decision = parts[0]; // "approve" or "decline"
+    const decision = parts[0];
     const threadId = parts.slice(1).join(':');
 
     if (!decision || !threadId) {
@@ -44,22 +47,28 @@ export class CallbackHandler {
 
     const userId = ctx.from?.id;
     const requestId = createRequestId('cb');
-
-    logger.info('telegram.callback.confirm', {
-      requestId,
-      userId,
-      decision,
-      threadId,
-    });
+    const internalUserId = mapTelegramUserId(userId);
+    const chatId = ctx.chat?.id;
+    const gateKey = buildConversationKey(userId, internalUserId, chatId);
 
     try {
+      const pending = await this.pendingStore.get(gateKey);
+      if (!pending) {
+        await ctx.answerCbQuery('This action has expired.');
+        try { await ctx.editMessageReplyMarkup(undefined); } catch {}
+        return;
+      }
+
+      const transitioned = await this.conversationGate.transitionToRunning(gateKey, this.runningTtlMs);
+      if (!transitioned) {
+        await ctx.answerCbQuery('Already processing your decision.');
+        return;
+      }
+
       await ctx.answerCbQuery(decision === 'approve' ? 'Approved!' : 'Declined.');
 
-      // Optimistic UI: edit the message to show the decision immediately, removing
-      // the inline keyboard. This gives instant feedback before the blocking resume() call.
       const statusEmoji = decision === 'approve' ? '✅' : '❌';
       const statusText = decision === 'approve' ? 'Approved' : 'Declined';
-
       if (ctx.callbackQuery?.message) {
         try {
           const originalText =
@@ -75,7 +84,6 @@ export class CallbackHandler {
         }
       }
 
-      const internalUserId = this.mapTelegramUserId(userId);
       const agentResponse = await this.agentClient.resume(
         {
           message: decision,
@@ -88,17 +96,28 @@ export class CallbackHandler {
         { requestId, threadId },
       );
 
-      const chatId = ctx.chat?.id;
-      const pendingKey = this.buildPendingKey(userId, internalUserId, chatId);
+      await this.pendingStore.clear(gateKey, 'completed').catch(() => {});
 
-      if (agentResponse.status === 'interrupted' && agentResponse.interrupt?.type === 'confirm' && agentResponse.threadId) {
-        await this.sendConfirmReply(ctx, agentResponse.response, agentResponse.threadId, requestId);
-        await this.savePendingRecord(pendingKey, agentResponse, internalUserId, userId, chatId, requestId);
-      } else {
-        if (agentResponse.response) {
+      if (agentResponse.status === 'interrupted' && agentResponse.threadId) {
+        const interruptType = agentResponse.interrupt?.type === 'confirm' ? 'confirm' : 'clarify';
+        await this.conversationGate.transitionToWaiting(gateKey, this.waitingTtlMs);
+        await this.savePendingRecord(gateKey, agentResponse, internalUserId, userId, chatId, requestId, interruptType);
+        if (interruptType === 'confirm') {
+          await this.sendConfirmReply(ctx, agentResponse.response, agentResponse.threadId, requestId);
+        } else {
           await sendFinalReply(ctx, agentResponse.response, { requestId });
         }
-        await this.pendingStore.clear(pendingKey, agentResponse.status === 'failed' ? 'failed' : 'completed');
+      } else {
+        const buffered = await this.conversationGate.getAndClearBufferedMessage(gateKey).catch(() => undefined);
+        await this.conversationGate.release(gateKey).catch(() => {});
+
+        if (agentResponse.response) {
+          let finalResponse = agentResponse.response;
+          if (buffered) {
+            finalResponse += `\n\n---\nYou also sent: "_${buffered.slice(0, 200)}_"\nSend it again if you'd like me to handle it.`;
+          }
+          await sendFinalReply(ctx, finalResponse, { requestId });
+        }
       }
 
       logger.info('telegram.callback.confirm.completed', {
@@ -109,6 +128,9 @@ export class CallbackHandler {
         agentStatus: agentResponse.status,
       });
     } catch (error) {
+      await this.conversationGate.transitionToWaiting(gateKey, this.waitingTtlMs).catch(() => {
+        this.conversationGate.release(gateKey).catch(() => {});
+      });
       logger.error('telegram.callback.confirm.failed', {
         requestId,
         userId,
@@ -120,19 +142,6 @@ export class CallbackHandler {
     }
   }
 
-  // Maps a Telegram numeric user ID to the internal user identifier used by the agent.
-  // Checks TELEGRAM_USER_MAP env var for explicit mappings (format: "telegramId:name,...").
-  private mapTelegramUserId(telegramUserId: number | undefined): string {
-    if (!telegramUserId) return 'anonymous';
-    const map = process.env.TELEGRAM_USER_MAP || '';
-    const mappedUser = map
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-      .map((entry) => entry.split(':').map((value) => value.trim()))
-      .find(([telegramId]) => telegramId === String(telegramUserId));
-    return mappedUser?.[1] || `telegram:${telegramUserId}`;
-  }
 
   private async sendConfirmReply(ctx: Context, text: string, threadId: string, requestId: string): Promise<void> {
     const replyMarkup = {
@@ -157,6 +166,7 @@ export class CallbackHandler {
     telegramUserId: number | undefined,
     chatId: number | undefined,
     requestId: string,
+    interruptType: 'confirm' | 'clarify' = 'confirm',
   ): Promise<void> {
     const now = Date.now();
     const record: PendingClarificationRecord = {
@@ -167,24 +177,12 @@ export class CallbackHandler {
       chatId,
       userId: internalUserId,
       requestId,
-      interruptType: 'confirm',
+      interruptType,
       status: 'pending',
       createdAt: now,
       updatedAt: now,
-      expiresAt: now + 30 * 60 * 1000,
+      expiresAt: now + this.waitingTtlMs,
     };
     await this.pendingStore.save(record);
-  }
-
-  private buildPendingKey(telegramUserId: number | undefined, internalUserId: string, chatId: number | undefined): string {
-    if (chatId !== undefined) {
-      const userSegment = telegramUserId ?? internalUserId;
-      return `telegram-chat:${this.hashIdentifier(`${chatId}:${userSegment}`)}`;
-    }
-    return telegramUserId ? `telegram:${this.hashIdentifier(telegramUserId)}` : `internal:${internalUserId}`;
-  }
-
-  private hashIdentifier(value: number | string): string {
-    return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 32);
   }
 }
