@@ -221,3 +221,8 @@
     {
       "contentType": "application/octet-stream"
     }
+[2026-06-25 22:53:49] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
