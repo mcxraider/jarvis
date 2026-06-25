@@ -89,7 +89,7 @@ class FileLoggingTracerTests(TestCase):
 
         self.assertIn("=== Run ===", content)
         self.assertIn("tool.done", content)
-        self.assertIn("name=get_tasks", content)
+        self.assertIn("name: get_tasks", content)
         self.assertIn("[payload] get_tasks", content)
 
     def test_unknown_attribute_delegates_to_wrapped_tracer(self) -> None:
@@ -117,6 +117,7 @@ class _FakeAgentClientWithTracer:
 
 _TODOIST_METHODS = (
     "add_todoist_task",
+    "bulk_add_todoist_tasks",
     "get_todoist_task",
     "get_tasks",
     "get_tasks_by_filter",

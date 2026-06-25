@@ -12,7 +12,7 @@ from typing import Any, Dict, List
 from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 
 USER_PROMPTS: List[str] = [
-    # "add in buy chagee for feebee later"
+    "add in go home with feebee later"
     # "meeting zac at night on friday, add it in" # always add it in first, then check for conflicts and report back if conflict else end.
     # "i alr did romans 7 in the train this morning uhm but not romans 8 yet, shift romans 8 to tonight"
     # "Go through my tasks, check everything that does not have a time, that is also not a birthday. Tell me first and then I will ask you to make edits",
@@ -54,14 +54,6 @@ USER_PROMPTS: List[str] = [
     # "Add an analyst briefing this Thursday 11am to 11:30am.",
     # "Add a recruiter intro call this Thursday 11:30am to 12pm.",
     # "Cancel the meetings that clash with Thursday's board call, but not the ones with my direct reports.",  # no confirm→hitl path; agent guesses (destructive) or dies after prepare_confirm
-
-    # ── 3 · confirm_semantics / partial_approval ──
-    # "Add a hold called Focus block today 9am to 10am.",
-    # "Add another hold called Focus block today 9am to 10am.",
-    # "Add a hold called Focus block today 10am to 11am.",
-    # "Add a hold called Investor prep today 8am to 8:30am.",
-    # "Add another hold called Investor prep today 8am to 8:30am.",
-    # "I double-booked myself this morning making holds, kill the duplicates, there are a few.",  # binary confirm: the 10-11 block isn't a dupe; no approve-3-skip-1 without decline→END
 
     # ── 4 · confirm_semantics / deferred_sibling_prerequisite ──
     # "Add Partnerships sync (tentative) tomorrow 2pm.",
@@ -158,6 +150,88 @@ USER_PROMPTS: List[str] = [
     # "Add a partner sync next Tuesday 10am.",
     # "Add a team check-in next Tuesday 11am.",
     # "I land in London Tuesday morning. If the Tokyo leg is still on my calendar, leave next week alone; otherwise shift Tuesday's calls to after 2pm local.",  # conditional branch in one turn + '2pm local' TZ conversion; A=no changes, B=shift after 2pm London
+    
+    # --16 -- stress testing the bulk add of many tasks, and the summarizer for large results, and the count query bypass, and the concurrent executor with confirm, and the pagination with large result handling
+    # part a
+    # '''Add these 20 different items into my Todoist task calendar:
+    #     1. Submit internship timesheet tomorrow at 9am
+    #     2. Review fraud detection experiment results tomorrow at 11am
+    #     3. Buy groceries tomorrow evening
+    #     4. Call Mum on Friday at 8pm
+    #     5. Pay credit card bill on Friday
+    #     6. Clean my room on Saturday morning
+    #     7. Go for a 5km run on Saturday at 5pm
+    #     8. Meal prep for the week on Sunday at 3pm
+    #     9. Read 2 chapters of ML textbook on Monday at 10am
+    #     10. Finish LangGraph checkpointing notes on Monday at 2pm
+    #     11. Update GitHub README on Tuesday at 4pm
+    #     12. Book dentist appointment on Wednesday morning
+    #     13. Prepare slides for project meeting next Thursday at 1pm
+    #     14. Meet Feebee for dinner next Thursday at 7pm
+    #     15. Renew library books next Friday
+    #     16. Plan Korea trip itinerary next Saturday at 2pm
+    #     17. Pack passport, adapter, sunscreen, headphones and power bank as separate packing tasks for Korea trip next Sunday morning
+    #     18. Check AWS SageMaker costs on the 1st of next month
+    #     19. Review monthly budget on the 1st of next month at 9pm
+    #     20. Water the plants every Sunday at 10am
+    # '''
+
+    
+    # part b
+    # '''
+    # Remove the following items from my Todoist task calendar:
+        # 1. Submit internship timesheet
+        # 2. Review fraud detection experiment results
+        # 3. Buy groceries
+        # 4. Call Mum
+        # 5. Pay credit card bill
+        # 6. Clean my room
+        # 7. Go for a 5km run
+        # 8. Meal prep for the week
+        # 9. Read 2 chapters of ML textbook
+        # 10. Finish LangGraph checkpointing notes
+        # 11. Update GitHub README
+        # 12. Book dentist appointment
+        # 13. Prepare slides for project meeting
+        # 14. Meet Feebee for dinner
+        # 15. Renew library books
+        # 16. Plan Korea trip itinerary
+        # 17. Pack passport
+        # 18. Pack adapter
+        # 19. Pack sunscreen
+        # 20. Pack headphones
+        # 21. Pack power bank
+        # 22. Check AWS SageMaker costs
+        # 23. Review monthly budget
+        # 24. Water the plants
+    # '''
+    
+    # part c
+    # '''I need you to organise my next two weeks in Todoist. Add 20 tasks/calendar items across work, errands, health, finance, and personal life. Use the exact due dates/times when I give them, infer sensible task titles, split bundled packing items into separate tasks, and make recurring items recurring.
+        # Tasks:
+        # - tomorrow 9am submit internship timesheet
+        # - tomorrow 11am review fraud detection experiment results
+        # - tomorrow evening buy groceries
+        # - Friday 8pm call Mum
+        # - Friday pay credit card bill
+        # - Saturday morning clean my room
+        # - Saturday 5pm go for a 5km run
+        # - Sunday 3pm meal prep for the week
+        # - Monday 10am read 2 chapters of ML textbook
+        # - Monday 2pm finish LangGraph checkpointing notes
+        # - Tuesday 4pm update GitHub README
+        # - Wednesday morning book dentist appointment
+        # - next Thursday 1pm prepare slides for project meeting
+        # - next Thursday 7pm meet Feebee for dinner
+        # - next Friday renew library books
+        # - next Saturday 2pm plan Korea trip itinerary
+        # - next Sunday morning pack passport, adapter, sunscreen, headphones, and power bank as separate Todoist tasks
+        # - 1st of next month check AWS SageMaker costs
+        # - 1st of next month 9pm review monthly budget
+        # - every Sunday 10am water the plants
+    # '''
+
+    
 ]
 
 USER_PROMPT = USER_PROMPTS[0] if USER_PROMPTS else ""

@@ -9,6 +9,11 @@ import pytest
 os.environ["LANGSMITH_TRACING"] = "false"
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
+# Clear proxy env vars so httpx doesn't try to use a SOCKS/HTTP proxy when
+# instantiating the OpenAI client in unit tests.
+for _proxy_var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"):
+    os.environ.pop(_proxy_var, None)
+
 from httpx import Request, Response as HttpxResponse
 from openai import APIConnectionError, APIStatusError, APITimeoutError, RateLimitError
 
