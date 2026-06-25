@@ -128,6 +128,10 @@ const telegramConfig: TelegramConfig = {
 
 export const botService = new TelegramBotService(telegramConfig, handlers);
 
+conversationGate.setOnExpiry((_gateKey, chatId) => {
+  botService.sendMessage(chatId, '⏱ Request timed out. Send a new message to try again.').catch(() => {});
+});
+
 logger.info('app.services.initialized', {
   telegramConfigured: true,
   langGraphAgentConfigured: true,

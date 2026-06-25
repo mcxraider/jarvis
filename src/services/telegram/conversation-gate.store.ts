@@ -9,22 +9,32 @@ export interface ConversationGateRecord {
   startedAt: number;
   expiresAt: number;
   bufferedMessage?: string;
+  chatId?: number;
 }
 
+export type GateExpiryCallback = (gateKey: string, chatId: number) => void;
+
 export interface ConversationGateStore {
-  tryAcquire(gateKey: string, ttlMs: number): Promise<boolean>;
+  tryAcquire(gateKey: string, ttlMs: number, chatId?: number): Promise<boolean>;
   getStatus(gateKey: string): Promise<ConversationGateStatus>;
   release(gateKey: string): Promise<void>;
   transitionToWaiting(gateKey: string, ttlMs: number): Promise<void>;
   transitionToRunning(gateKey: string, ttlMs: number): Promise<boolean>;
   setBufferedMessage(gateKey: string, message: string): Promise<void>;
   getAndClearBufferedMessage(gateKey: string): Promise<string | undefined>;
+  setOnExpiry(callback: GateExpiryCallback): void;
 }
 
 export class MemoryConversationGateStore implements ConversationGateStore {
   private readonly records = new Map<string, ConversationGateRecord>();
+  private readonly timers = new Map<string, NodeJS.Timeout>();
+  private onExpiryCallback?: GateExpiryCallback;
 
-  async tryAcquire(gateKey: string, ttlMs: number): Promise<boolean> {
+  setOnExpiry(callback: GateExpiryCallback): void {
+    this.onExpiryCallback = callback;
+  }
+
+  async tryAcquire(gateKey: string, ttlMs: number, chatId?: number): Promise<boolean> {
     const existing = this.records.get(gateKey);
     if (existing && existing.status !== 'idle' && existing.expiresAt > Date.now()) {
       return false;
@@ -35,7 +45,9 @@ export class MemoryConversationGateStore implements ConversationGateStore {
       status: 'running',
       startedAt: now,
       expiresAt: now + ttlMs,
+      chatId,
     });
+    this.scheduleExpiry(gateKey, ttlMs);
     return true;
   }
 
@@ -44,12 +56,14 @@ export class MemoryConversationGateStore implements ConversationGateStore {
     if (!record) return 'idle';
     if (record.expiresAt <= Date.now()) {
       this.records.delete(gateKey);
+      this.cancelExpiry(gateKey);
       return 'idle';
     }
     return record.status;
   }
 
   async release(gateKey: string): Promise<void> {
+    this.cancelExpiry(gateKey);
     this.records.delete(gateKey);
   }
 
@@ -58,6 +72,7 @@ export class MemoryConversationGateStore implements ConversationGateStore {
     if (!record || record.status !== 'running') return;
     record.status = 'waiting_for_clarification';
     record.expiresAt = Date.now() + ttlMs;
+    this.scheduleExpiry(gateKey, ttlMs);
   }
 
   async transitionToRunning(gateKey: string, ttlMs: number): Promise<boolean> {
@@ -65,10 +80,12 @@ export class MemoryConversationGateStore implements ConversationGateStore {
     if (!record || record.status !== 'waiting_for_clarification') return false;
     if (record.expiresAt <= Date.now()) {
       this.records.delete(gateKey);
+      this.cancelExpiry(gateKey);
       return false;
     }
     record.status = 'running';
     record.expiresAt = Date.now() + ttlMs;
+    this.scheduleExpiry(gateKey, ttlMs);
     return true;
   }
 
@@ -86,17 +103,49 @@ export class MemoryConversationGateStore implements ConversationGateStore {
     record.bufferedMessage = undefined;
     return msg;
   }
+
+  private scheduleExpiry(gateKey: string, ttlMs: number): void {
+    this.cancelExpiry(gateKey);
+    const timer = setTimeout(() => {
+      this.timers.delete(gateKey);
+      const record = this.records.get(gateKey);
+      if (!record) return;
+      const chatId = record.chatId;
+      this.records.delete(gateKey);
+      logger.info('conversation_gate.ttl_expired', { gateKey, chatId });
+      if (chatId && this.onExpiryCallback) {
+        this.onExpiryCallback(gateKey, chatId);
+      }
+    }, ttlMs);
+    timer.unref();
+    this.timers.set(gateKey, timer);
+  }
+
+  private cancelExpiry(gateKey: string): void {
+    const existing = this.timers.get(gateKey);
+    if (existing) {
+      clearTimeout(existing);
+      this.timers.delete(gateKey);
+    }
+  }
 }
 
 export class PostgresConversationGateStore implements ConversationGateStore {
   private readonly pool: Pool;
   private setupPromise?: Promise<void>;
+  private readonly timers = new Map<string, NodeJS.Timeout>();
+  private readonly chatIds = new Map<string, number>();
+  private onExpiryCallback?: GateExpiryCallback;
 
   constructor(connectionString: string) {
     this.pool = new Pool({ connectionString });
   }
 
-  async tryAcquire(gateKey: string, ttlMs: number): Promise<boolean> {
+  setOnExpiry(callback: GateExpiryCallback): void {
+    this.onExpiryCallback = callback;
+  }
+
+  async tryAcquire(gateKey: string, ttlMs: number, chatId?: number): Promise<boolean> {
     await this.ensureTable();
     const result = await this.pool.query(
       `
@@ -114,7 +163,12 @@ export class PostgresConversationGateStore implements ConversationGateStore {
       `,
       [gateKey, ttlMs],
     );
-    return result.rowCount !== null && result.rowCount > 0;
+    const acquired = result.rowCount !== null && result.rowCount > 0;
+    if (acquired && chatId) {
+      this.chatIds.set(gateKey, chatId);
+      this.scheduleExpiry(gateKey, ttlMs);
+    }
+    return acquired;
   }
 
   async getStatus(gateKey: string): Promise<ConversationGateStatus> {
@@ -130,6 +184,8 @@ export class PostgresConversationGateStore implements ConversationGateStore {
   }
 
   async release(gateKey: string): Promise<void> {
+    this.cancelExpiry(gateKey);
+    this.chatIds.delete(gateKey);
     await this.ensureTable();
     await this.pool.query(`DELETE FROM telegram_conversation_gates WHERE gate_key = $1`, [gateKey]);
   }
@@ -147,6 +203,7 @@ export class PostgresConversationGateStore implements ConversationGateStore {
       `,
       [gateKey, ttlMs],
     );
+    this.scheduleExpiry(gateKey, ttlMs);
   }
 
   async transitionToRunning(gateKey: string, ttlMs: number): Promise<boolean> {
@@ -164,7 +221,11 @@ export class PostgresConversationGateStore implements ConversationGateStore {
       `,
       [gateKey, ttlMs],
     );
-    return result.rowCount !== null && result.rowCount > 0;
+    const transitioned = result.rowCount !== null && result.rowCount > 0;
+    if (transitioned) {
+      this.scheduleExpiry(gateKey, ttlMs);
+    }
+    return transitioned;
   }
 
   async setBufferedMessage(gateKey: string, message: string): Promise<void> {
@@ -187,6 +248,29 @@ export class PostgresConversationGateStore implements ConversationGateStore {
       [gateKey],
     );
     return result.rows[0]?.buffered_message ?? undefined;
+  }
+
+  private scheduleExpiry(gateKey: string, ttlMs: number): void {
+    this.cancelExpiry(gateKey);
+    const timer = setTimeout(() => {
+      this.timers.delete(gateKey);
+      const chatId = this.chatIds.get(gateKey);
+      this.chatIds.delete(gateKey);
+      logger.info('conversation_gate.ttl_expired', { gateKey, chatId });
+      if (chatId && this.onExpiryCallback) {
+        this.onExpiryCallback(gateKey, chatId);
+      }
+    }, ttlMs);
+    timer.unref();
+    this.timers.set(gateKey, timer);
+  }
+
+  private cancelExpiry(gateKey: string): void {
+    const existing = this.timers.get(gateKey);
+    if (existing) {
+      clearTimeout(existing);
+      this.timers.delete(gateKey);
+    }
   }
 
   private async ensureTable(): Promise<void> {
