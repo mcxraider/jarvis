@@ -353,3 +353,207 @@
         "maxCompressionRatio": 2.4
       }
     }
+[2026-06-26 01:03:32] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-06-26 01:26:34] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqtrxp8f_yy5z9d
+  updateId: 564452144
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 445
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-06-26 01:26:34] WARN whisper.transcription.quality_flagged
+  requestId: tg_mqtrxp8f_yy5z9d
+  updateId: 564452144
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 445
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "flaggedSegments": 1,
+      "totalSegments": 1,
+      "flags": [
+        {
+          "segmentId": 0,
+          "start": 0,
+          "end": 2.6799998,
+          "reason": "low_compression_ratio",
+          "value": 0.7777778,
+          "threshold": 0.8,
+          "textPreview": " What are my tasks tomorrow?"
+        }
+      ],
+      "worstValues": {
+        "minAvgLogprob": -0.21057199,
+        "maxNoSpeechProb": 0.010978699,
+        "minCompressionRatio": 0.7777778,
+        "maxCompressionRatio": 0.7777778
+      },
+      "thresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-26 01:27:02] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqtrybfw_w332nv
+  updateId: 564452145
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 448
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-06-26 01:27:28] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqtryvrl_zcyc0z
+  updateId: 564452146
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 451
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-06-26 01:27:28] WARN whisper.transcription.quality_flagged
+  requestId: tg_mqtryvrl_zcyc0z
+  updateId: 564452146
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 451
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "flaggedSegments": 1,
+      "totalSegments": 1,
+      "flags": [
+        {
+          "segmentId": 0,
+          "start": 0,
+          "end": 5.42,
+          "reason": "low_avg_logprob",
+          "value": -0.95780164,
+          "threshold": -0.5,
+          "textPreview": " Um..."
+        },
+        {
+          "segmentId": 0,
+          "start": 0,
+          "end": 5.42,
+          "reason": "low_compression_ratio",
+          "value": 0.42857143,
+          "threshold": 0.8,
+          "textPreview": " Um..."
+        }
+      ],
+      "worstValues": {
+        "minAvgLogprob": -0.95780164,
+        "maxNoSpeechProb": 0.046691895,
+        "minCompressionRatio": 0.42857143,
+        "maxCompressionRatio": 0.42857143
+      },
+      "thresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-26 01:27:54] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqtrzfy8_0m100m
+  updateId: 564452147
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 454
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-06-26 01:28:24] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqts02rf_vfcg46
+  updateId: 564452148
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 457
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-06-26 01:32:43] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqts5n3x_ydvm45
+  updateId: 564452155
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 471
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-06-26 01:34:24] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqts7sa3_h7w5yz
+  updateId: 564452157
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 476
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-06-26 01:35:43] WARN whisper.download.unexpected_content_type
+  requestId: tg_mqts9h5y_8g9488
+  updateId: 564452160
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 483
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-06-26 01:48:54] ERROR telegram.bot.error
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  details:
+    {
+      "error": "Promise timed out after 90000 milliseconds"
+    }
+  stack:
+    TimeoutError: Promise timed out after 90000 milliseconds
+        at Timeout._onTimeout (/Users/Spare/Desktop/jarvis-mcp/node_modules/p-timeout/index.js:39:64)
+        at listOnTimeout (node:internal/timers:581:17)
+        at processTimers (node:internal/timers:519:7)

@@ -1,0 +1,274 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-26T01:27:03+08:00
+request_id: tg_mqtrybfw_w332nv
+thread_id: tg_tg_mqtrybfw_w332nv
+user_id: jer_jerryyy
+telegram_user_id: 701122767
+telegram_username: jer_jerryyy
+telegram_first_name: jerry
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-06-26 01:27:03.938 | section              | === Jarvis LangGraph Run ===
+2026-06-26 01:27:03.938 | runtime.start        | Starting graph invocation.
+      request_id: tg_mqtrybfw_w332nv
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: tg_tg_mqtrybfw_w332nv
+      request_source: telegram
+      resuming: false
+2026-06-26 01:27:03.938 | runtime.prompt       | [payload] user_prompt:  For my task tomorrow, AG is not supposed to be at 4am, it's actually 4pm.
+2026-06-26 01:27:04.005 | runtime.graph        | Compiled graph.
+      nodes: agent, hitl, tools
+2026-06-26 01:27:04.009 | graph.agent          | Entering agent node.
+      turn: 1
+      max_turns: 20
+      messages: 2
+2026-06-26 01:27:04.009 | graph.tools.selected | Selected tools for this turn.
+      available: 10
+      selected: 10
+2026-06-26 01:27:04.009 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      messages: 2
+      tools: 10
+2026-06-26 01:27:05.675 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: false
+      has_reasoning: true
+      prompt_tokens: 3502
+      completion_tokens: 130
+      total_tokens: 3632
+      cached_tokens: 3456
+      cache_hit_rate: 98.7
+2026-06-26 01:27:05.676 | graph.route          | Agent node completed.
+      next: tools
+      turn: 1
+2026-06-26 01:27:05.681 | graph.tools          | Entering tools node.
+      tool_calls: 1
+      accumulated_results: 0
+2026-06-26 01:27:05.685 | tool.start           | Preparing tool call.
+      id: call_00_NpffuzV7wMTYvlfIQMqY0516
+      name: get_tasks_by_filter
+      mutating: false
+2026-06-26 01:27:05.685 | tool.args            | [payload] get_tasks_by_filter:
+      query: tomorrow
+2026-06-26 01:27:05.687 | todoist.request      | Sending Todoist API request.
+      method: GET
+      endpoint: /tasks/filter
+      has_payload: false
+      attempt: 1
+      max_attempts: 3
+2026-06-26 01:27:05.687 | todoist.payload      | [payload] request: None
+2026-06-26 01:27:06.379 | todoist.response     | Received Todoist API response.
+      status: 200
+      has_body: true
+      attempt: 1
+2026-06-26 01:27:06.379 | todoist.payload      | [payload] response:
+      results: [{"user_id": "41485550", "id": "6gv3W5Prcv8Q4MjG", "project_id": "6M5457p2vRg4g3Vp", "section_id": null, "parent_id": null, "added_by_uid": "41485550", "assigned_by_uid": null, "responsible_uid": null, "labels": [], "deadline": null, "duration": null, "is_collapsed": false, "checked": false, "is_deleted": false, "added_at": "2026-06-16T10:09:56.129150Z", "completed_at": null, "completed_by_uid": null, "updated_at": "2026-06-21T16:15:48.344320Z", "due": {"date": "2026-06-27T13:15:00", "timezone": null, "string": "27 Jun 13:15", "lang": "en", "is_recurring": false}, "priority": 4, "child_order": 3939, "content": "worship practice", "description": "", "note_count": 0, "day_order": -1, "goal_ids": [], "completed_count": 0, "postponed_count": 1}, {"user_id": "41485550", "id": "6gwXJRRRpQ8FxpRG", "project_id": "6M5457p2vRg4g3Vp", "section_id": null, "parent_id": null, "added_by_uid": "41485550", "assigned_by_uid": null, "responsible_uid": null, "labels": [], "deadline": null, "duration": null, "is_collapsed": false, "checked": false, "is_deleted": false, "added_at": "2026-06-23T01:44:02.062239Z", "completed_at": null, "completed_by_uid": null, "updated_at": "2026-06-23T01:44:02.062258Z", "due": {"date": "2026-06-27T04:00:00", "timezone": null, "string": "27 Jun 04:00", "lang": "en", "is_recurring": false}, "priority": 4, "child_order": 3969, "content": "AG", "description": "", "note_count": 0, "day_order": -1, "goal_ids": [], "completed_count": 0, "postponed_count": 0}, {"user_id": "41485550", "id": "6gx8JXGHCMqQX3Rp", "project_id": "6M5457p2vRg4g3Vp", "section_id": null, "parent_id": null, "added_by_uid": "41485550", "assigned_by_uid": null, "responsible_uid": null, "labels": [], "deadline": null, "duration": null, "is_collapsed": false, "checked": false, "is_deleted": false, "added_at": "2026-06-25T14:35:28.641652Z", "completed_at": null, "completed_by_uid": null, "updated_at": "2026-06-25T14:35:28.641671Z", "due": {"date": "2026-06-27T11:30:00", "timezone": null, "string": "27 Jun 11:30", "lang": "en", "is_recurring": false}, "priority": 1, "child_order": 3990, "content": "lunch with grandma", "description": "", "note_count": 0, "day_order": -1, "goal_ids": [], "completed_count": 0, "postponed_count": 0}]
+2026-06-26 01:27:06.380 | tool.done            | Tool call completed.
+      name: get_tasks_by_filter
+2026-06-26 01:27:06.381 | tool.result          | [payload] get_tasks_by_filter:
+      results: [{"user_id": "41485550", "id": "6gv3W5Prcv8Q4MjG", "project_id": "6M5457p2vRg4g3Vp", "section_id": null, "parent_id": null, "added_by_uid": "41485550", "assigned_by_uid": null, "responsible_uid": null, "labels": [], "deadline": null, "duration": null, "is_collapsed": false, "checked": false, "is_deleted": false, "added_at": "2026-06-16T10:09:56.129150Z", "completed_at": null, "completed_by_uid": null, "updated_at": "2026-06-21T16:15:48.344320Z", "due": {"date": "2026-06-27T13:15:00", "timezone": null, "string": "27 Jun 13:15", "lang": "en", "is_recurring": false}, "priority": 4, "child_order": 3939, "content": "worship practice", "description": "", "note_count": 0, "day_order": -1, "goal_ids": [], "completed_count": 0, "postponed_count": 1}, {"user_id": "41485550", "id": "6gwXJRRRpQ8FxpRG", "project_id": "6M5457p2vRg4g3Vp", "section_id": null, "parent_id": null, "added_by_uid": "41485550", "assigned_by_uid": null, "responsible_uid": null, "labels": [], "deadline": null, "duration": null, "is_collapsed": false, "checked": false, "is_deleted": false, "added_at": "2026-06-23T01:44:02.062239Z", "completed_at": null, "completed_by_uid": null, "updated_at": "2026-06-23T01:44:02.062258Z", "due": {"date": "2026-06-27T04:00:00", "timezone": null, "string": "27 Jun 04:00", "lang": "en", "is_recurring": false}, "priority": 4, "child_order": 3969, "content": "AG", "description": "", "note_count": 0, "day_order": -1, "goal_ids": [], "completed_count": 0, "postponed_count": 0}, {"user_id": "41485550", "id": "6gx8JXGHCMqQX3Rp", "project_id": "6M5457p2vRg4g3Vp", "section_id": null, "parent_id": null, "added_by_uid": "41485550", "assigned_by_uid": null, "responsible_uid": null, "labels": [], "deadline": null, "duration": null, "is_collapsed": false, "checked": false, "is_deleted": false, "added_at": "2026-06-25T14:35:28.641652Z", "completed_at": null, "completed_by_uid": null, "updated_at": "2026-06-25T14:35:28.641671Z", "due": {"date": "2026-06-27T11:30:00", "timezone": null, "string": "27 Jun 11:30", "lang": "en", "is_recurring": false}, "priority": 1, "child_order": 3990, "content": "lunch with grandma", "description": "", "note_count": 0, "day_order": -1, "goal_ids": [], "completed_count": 0, "postponed_count": 0}]
+2026-06-26 01:27:06.382 | graph.route          | Tools node completed.
+      next: agent
+      successes: 1
+      failures: 0
+2026-06-26 01:27:06.389 | graph.agent          | Entering agent node.
+      turn: 2
+      max_turns: 20
+      messages: 4
+2026-06-26 01:27:06.389 | graph.tools.selected | Selected tools for this turn.
+      available: 10
+      selected: 10
+2026-06-26 01:27:06.391 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      messages: 4
+      tools: 10
+2026-06-26 01:27:09.119 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 4589
+      completion_tokens: 291
+      total_tokens: 4880
+      cached_tokens: 3584
+      cache_hit_rate: 78.1
+2026-06-26 01:27:09.121 | graph.route          | Agent node completed.
+      next: tools
+      turn: 2
+2026-06-26 01:27:09.126 | graph.tools          | Entering tools node.
+      tool_calls: 1
+      accumulated_results: 1
+2026-06-26 01:27:09.130 | tool.start           | Preparing tool call.
+      id: call_00_MUEv3YZQSO4uX8MUdKzd7337
+      name: update_todoist_task
+      mutating: true
+2026-06-26 01:27:09.130 | tool.args            | [payload] update_todoist_task:
+      task_id: 6gwXJRRRpQ8FxpRG
+      due_datetime: 2026-06-27T16:00:00
+2026-06-26 01:27:09.131 | todoist.request      | Sending Todoist API request.
+      method: POST
+      endpoint: /tasks/{id}
+      has_payload: true
+      attempt: 1
+      max_attempts: 3
+2026-06-26 01:27:09.131 | todoist.payload      | [payload] request:
+      due_datetime: 2026-06-27T16:00:00
+2026-06-26 01:27:10.000 | todoist.response     | Received Todoist API response.
+      status: 200
+      has_body: true
+      attempt: 1
+2026-06-26 01:27:10.001 | todoist.payload      | [payload] response:
+      user_id: 41485550
+      id: 6gwXJRRRpQ8FxpRG
+      project_id: 6M5457p2vRg4g3Vp
+      added_by_uid: 41485550
+      added_at: 2026-06-23T01:44:02.062239Z
+      updated_at: 2026-06-25T17:27:09.408533Z
+      due:
+            date: 2026-06-27T16:00:00
+            string: 2026-06-27 16:00
+            lang: en
+      priority: 4
+      child_order: 3969
+      content: AG
+      day_order: -1
+      postponed_count: 1
+2026-06-26 01:27:10.002 | tool.done            | Tool call completed.
+      name: update_todoist_task
+2026-06-26 01:27:10.002 | tool.result          | [payload] update_todoist_task:
+      user_id: 41485550
+      id: 6gwXJRRRpQ8FxpRG
+      project_id: 6M5457p2vRg4g3Vp
+      added_by_uid: 41485550
+      added_at: 2026-06-23T01:44:02.062239Z
+      updated_at: 2026-06-25T17:27:09.408533Z
+      due:
+            date: 2026-06-27T16:00:00
+            string: 2026-06-27 16:00
+            lang: en
+      priority: 4
+      child_order: 3969
+      content: AG
+      day_order: -1
+      postponed_count: 1
+2026-06-26 01:27:10.006 | graph.route          | Tools node completed.
+      next: agent
+      successes: 1
+      failures: 0
+2026-06-26 01:27:10.010 | graph.agent          | Entering agent node.
+      turn: 3
+      max_turns: 20
+      messages: 6
+2026-06-26 01:27:10.010 | graph.tools.selected | Selected tools for this turn.
+      available: 10
+      selected: 10
+2026-06-26 01:27:10.012 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      messages: 6
+      tools: 10
+2026-06-26 01:27:11.150 | agent.response       | Received assistant message.
+      has_tool_calls: false
+      tool_calls: 0
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 5247
+      completion_tokens: 64
+      total_tokens: 5311
+      cached_tokens: 4864
+      cache_hit_rate: 92.7
+2026-06-26 01:27:11.151 | agent.final          | [payload] content: All set! The **AG** task for tomorrow (June 27) has been updated from **4:00 AM** → **4:00 PM**. ✅
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+MESSAGES DUMP: final_turn_input (context sent to LLM on ANSWER turn)
+message_count: 6
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[
+  {
+    "role": "system",
+    "content": "You are Jarvis, Jerry's personal assistant agent. You handle requests by calling tools directly, chaining multiple calls when needed.\n\nTodoist is Jerry's single app for both tasks and calendar — route any task, to-do, or calendar/scheduling request there unless the user names a different tool.\n\n## Your loop\nOn every turn, evaluate in this order and act on the first branch that fits:\n1. ASK_USER — the request is missing information required to act safely or correctly. Call ask_user with one focused question. This pauses the loop until they reply.\n2. TOOL_CALL — a well-defined action (or several independent ones in parallel). Chain calls across turns when results inform the next step.\n3. ANSWER — the task is complete, or no further tool/action is needed. ANSWER is only for final responses that complete the request or summarize completed work — never use it to ask for missing details. If you find yourself writing a question inside an ANSWER, that's a signal you should have chosen ASK_USER instead.\nLoop (think → act → observe) until you choose ANSWER.\n\n## Clarification policy\nIf you cannot proceed correctly without more information from the user, you MUST call ask_user — never ask a clarifying question inside ANSWER. ANSWER may end with an optional offer for further action, but must not contain a question required to complete the current request.\n\nAsk before acting when:\n- You're unsure about a critical detail and can't make a confident guess from context or reasonable defaults.\n- Two+ reasonable interpretations exist and a wrong guess wastes time or money.\n- A required parameter has no sensible default.\n\nDon't ask when a reasonable default exists — use it and state the assumption in your final answer. Don't ask if one more tool call would resolve it yourself. One focused question, not an interrogation.\n\nIMPORTANT: If you respond with only text that contains a question, the system will auto-convert it to an ask_user call. Always use ask_user explicitly when you need user input — this avoids your response being reformatted.\n\n## Confirm gate (system-managed)\nDeletions and bulk mutations (5+ changes in one turn) are automatically intercepted for user approval before execution. You will receive the result after the user decides. If declined, acknowledge gracefully — do not retry the same action unless the user explicitly asks again.\n\n## Todoist tool tips\n- Prefer due_string for dates (\"tomorrow 3pm\", \"next monday\") — Todoist parses natural language.\n- Priority is inverted: 4 = urgent, 3 = high, 2 = medium, 1 = normal (default).\n- Filter examples for get_tasks_by_filter: \"today\", \"overdue\", \"due before: next week\", \"p1\", \"#Work\", \"@label\".\n- Never fabricate task IDs — always fetch first with get_tasks or get_tasks_by_filter.\n- Do not retry add_todoist_task on timeout — verify with get_tasks_by_filter instead (it may have succeeded, creating duplicates).\n- Multiple safe tool calls in one turn execute in parallel — use this for efficiency.\n- Bulk identical tasks: when creating multiple tasks with the same title/params (e.g., \"add 20 tasks titled X\"), use bulk_add_todoist_tasks with a count parameter instead of N separate add_todoist_task calls. This executes as a single operation with one confirmation.\n- Pagination: results include a next_cursor field. If next_cursor is null, all results are returned — do not paginate further. Only pass cursor values received verbatim from a prior response.\n\n## On failure\n- Tool error: retry once if the fix is obvious (e.g. bad date format); otherwise treat it as missing data.\n- If a failure blocks a destructive or irreversible action, stop and ASK_USER rather than guessing a workaround.\n- Never silently drop a failed subtask from the final answer — surface what couldn't be retrieved and why.\n\n## Final answer formatting\nReturn the final answer as clean GitHub-Flavored Markdown.\n- Do not ask follow up or clarification questions inside ANSWER.\n- End ANSWER at the requested deliverable; do not append offers for further help such as \"let me know if…\".\n- Use headings, lists, bold, italics, code, links, and tables when useful.\n- Do not wrap the entire response in a code block.\n- Do not output HTML or Telegram-specific tags.\n- Do not mention formatting instructions.\n\n## Limits\nMax 20 loop iterations per user turn. If still unresolved after 20, stop with your best partial answer and surface what's blocking — never fail silently.\n\n## Runtime context\nCurrent date: 2026-06-26\nUser timezone: +08\nAvailable tools: Todoist task tools only.\n"
+  },
+  {
+    "role": "user",
+    "content": "Request context:\nCurrent request date and time: 2026-06-26T01:27:04+08:00\n\nUser request:\n For my task tomorrow, AG is not supposed to be at 4am, it's actually 4pm."
+  },
+  {
+    "content": "",
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "call_00_NpffuzV7wMTYvlfIQMqY0516",
+        "function": {
+          "arguments": "{\"query\": \"tomorrow\"}",
+          "name": "get_tasks_by_filter"
+        },
+        "type": "function",
+        "index": 0
+      }
+    ],
+    "reasoning_content": "The user wants to update a task scheduled for tomorrow (2026-06-27). They're referring to a task called \"AG\" (likely a task title) that has a time of 4am but should be 4pm instead. Let me first find the task for \"AG\" that's due tomorrow.\n\nLet me search for tasks due tomorrow that might have \"AG\" in the title."
+  },
+  {
+    "role": "tool",
+    "tool_call_id": "call_00_NpffuzV7wMTYvlfIQMqY0516",
+    "name": "get_tasks_by_filter",
+    "content": "{\"tool_call_id\": \"call_00_NpffuzV7wMTYvlfIQMqY0516\", \"tool_name\": \"get_tasks_by_filter\", \"success\": true, \"content\": {\"results\": [{\"user_id\": \"41485550\", \"id\": \"6gv3W5Prcv8Q4MjG\", \"project_id\": \"6M5457p2vRg4g3Vp\", \"section_id\": null, \"parent_id\": null, \"added_by_uid\": \"41485550\", \"assigned_by_uid\": null, \"responsible_uid\": null, \"labels\": [], \"deadline\": null, \"duration\": null, \"is_collapsed\": false, \"checked\": false, \"is_deleted\": false, \"added_at\": \"2026-06-16T10:09:56.129150Z\", \"completed_at\": null, \"completed_by_uid\": null, \"updated_at\": \"2026-06-21T16:15:48.344320Z\", \"due\": {\"date\": \"2026-06-27T13:15:00\", \"timezone\": null, \"string\": \"27 Jun 13:15\", \"lang\": \"en\", \"is_recurring\": false}, \"priority\": 4, \"child_order\": 3939, \"content\": \"worship practice\", \"description\": \"\", \"note_count\": 0, \"day_order\": -1, \"goal_ids\": [], \"completed_count\": 0, \"postponed_count\": 1}, {\"user_id\": \"41485550\", \"id\": \"6gwXJRRRpQ8FxpRG\", \"project_id\": \"6M5457p2vRg4g3Vp\", \"section_id\": null, \"parent_id\": null, \"added_by_uid\": \"41485550\", \"assigned_by_uid\": null, \"responsible_uid\": null, \"labels\": [], \"deadline\": null, \"duration\": null, \"is_collapsed\": false, \"checked\": false, \"is_deleted\": false, \"added_at\": \"2026-06-23T01:44:02.062239Z\", \"completed_at\": null, \"completed_by_uid\": null, \"updated_at\": \"2026-06-23T01:44:02.062258Z\", \"due\": {\"date\": \"2026-06-27T04:00:00\", \"timezone\": null, \"string\": \"27 Jun 04:00\", \"lang\": \"en\", \"is_recurring\": false}, \"priority\": 4, \"child_order\": 3969, \"content\": \"AG\", \"description\": \"\", \"note_count\": 0, \"day_order\": -1, \"goal_ids\": [], \"completed_count\": 0, \"postponed_count\": 0}, {\"user_id\": \"41485550\", \"id\": \"6gx8JXGHCMqQX3Rp\", \"project_id\": \"6M5457p2vRg4g3Vp\", \"section_id\": null, \"parent_id\": null, \"added_by_uid\": \"41485550\", \"assigned_by_uid\": null, \"responsible_uid\": null, \"labels\": [], \"deadline\": null, \"duration\": null, \"is_collapsed\": false, \"checked\": false, \"is_deleted\": false, \"added_at\": \"2026-06-25T14:35:28.641652Z\", \"completed_at\": null, \"completed_by_uid\": null, \"updated_at\": \"2026-06-25T14:35:28.641671Z\", \"due\": {\"date\": \"2026-06-27T11:30:00\", \"timezone\": null, \"string\": \"27 Jun 11:30\", \"lang\": \"en\", \"is_recurring\": false}, \"priority\": 1, \"child_order\": 3990, \"content\": \"lunch with grandma\", \"description\": \"\", \"note_count\": 0, \"day_order\": -1, \"goal_ids\": [], \"completed_count\": 0, \"postponed_count\": 0}], \"next_cursor\": null}, \"error\": null, \"mutation_blocked\": false, \"classified_error\": null}"
+  },
+  {
+    "content": "I found the task **\"AG\"** set for tomorrow (June 27) at 4:00 AM. Let me update it to 4:00 PM.",
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "call_00_MUEv3YZQSO4uX8MUdKzd7337",
+        "function": {
+          "arguments": "{\"task_id\": \"6gwXJRRRpQ8FxpRG\", \"due_datetime\": \"2026-06-27T16:00:00\"}",
+          "name": "update_todoist_task"
+        },
+        "type": "function",
+        "index": 0
+      }
+    ],
+    "reasoning_content": "I can see the task \"AG\" (id: 6gwXJRRRpQ8FxpRG) is due on 2026-06-27 at 04:00 (4am). The user wants to change it to 4pm. I need to update the due time from 4am to 4pm.\n\nThe current due is 2026-06-27T04:00:00. I need to change it to 2026-06-27T16:00:00 (4pm).\n\nI can use `update_todoist_task` with `due_datetime` set to \"2026-06-27T16:00:00\" or I could use `due_string` like \"tomorrow 4pm\". Let me use `due_datetime` for precision."
+  },
+  {
+    "role": "tool",
+    "tool_call_id": "call_00_MUEv3YZQSO4uX8MUdKzd7337",
+    "name": "update_todoist_task",
+    "content": "{\"tool_call_id\": \"call_00_MUEv3YZQSO4uX8MUdKzd7337\", \"tool_name\": \"update_todoist_task\", \"success\": true, \"content\": {\"user_id\": \"41485550\", \"id\": \"6gwXJRRRpQ8FxpRG\", \"project_id\": \"6M5457p2vRg4g3Vp\", \"section_id\": null, \"parent_id\": null, \"added_by_uid\": \"41485550\", \"assigned_by_uid\": null, \"responsible_uid\": null, \"labels\": [], \"deadline\": null, \"duration\": null, \"is_collapsed\": false, \"checked\": false, \"is_deleted\": false, \"added_at\": \"2026-06-23T01:44:02.062239Z\", \"completed_at\": null, \"completed_by_uid\": null, \"updated_at\": \"2026-06-25T17:27:09.408533Z\", \"due\": {\"date\": \"2026-06-27T16:00:00\", \"timezone\": null, \"string\": \"2026-06-27 16:00\", \"lang\": \"en\", \"is_recurring\": false}, \"priority\": 4, \"child_order\": 3969, \"content\": \"AG\", \"description\": \"\", \"note_count\": 0, \"day_order\": -1, \"goal_ids\": [], \"completed_count\": 0, \"postponed_count\": 1}, \"error\": null, \"mutation_blocked\": false, \"classified_error\": null}"
+  }
+]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+2026-06-26 01:27:11.153 | graph.route          | Agent node completed.
+      next: end
+      turn: 3
+2026-06-26 01:27:11.157 | runtime.done         | Graph invocation completed.
+      request_id: tg_mqtrybfw_w332nv
+      turns: 3
+      tool_results: 2
+      has_error: false
+      interrupted: false
+      total_tokens: 13823
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-06-26T01:27:11+08:00
+duration_seconds: 7.221
+request_id: tg_mqtrybfw_w332nv
+turns: 3
+tool_results: 2
+has_error: False
+interrupted: False
+prompt_tokens: 13338
+completion_tokens: 485
+total_tokens: 13823
+cached_tokens: 11904
+cache_hit_rate: 89.2
+reasoning_tokens: 282
+==============================================================================
