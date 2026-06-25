@@ -246,8 +246,8 @@ class TestBulkAddResilience:
         # Elapsed should be >= 0.3s due to throttle backoff
         assert elapsed >= 0.25
 
-    @patch("agents.agent_api.app.constants.EXECUTOR_MAX_WORKERS", 1)
-    @patch("agents.agent_api.app.constants.EXECUTOR_BATCH_TIMEOUT_SECONDS", 0.1)
+    @patch("agents.agent_api.app.tools.todoist.client.EXECUTOR_MAX_WORKERS", 1)
+    @patch("agents.agent_api.app.tools.todoist.client.EXECUTOR_BATCH_TIMEOUT_SECONDS", 0.1)
     @patch.object(TodoistApiClient, "_request")
     def test_batch_timeout_cancels_slow_requests(self, mock_request):
         """Requests exceeding the batch deadline get timeout errors."""

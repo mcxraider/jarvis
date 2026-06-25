@@ -81,6 +81,9 @@ class FakeTodoistClient:
     def get_completed_todoist_tasks_by_completion_date(self, arguments: Dict[str, Any]) -> Any:
         return [self._record("get_completed_todoist_tasks_by_completion_date", arguments)]
 
+    def bulk_add_todoist_tasks(self, arguments: Dict[str, Any]) -> Any:
+        return self._record("bulk_add_todoist_tasks", arguments)
+
 
 class ParallelTrackingTodoistClient(FakeTodoistClient):
     """Fake client that records overlapping tool execution."""

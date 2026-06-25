@@ -8,7 +8,7 @@ Telegram/API runs alike leave a persistent, human-readable record on disk.
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 LOG_DIR = _PROJECT_ROOT / "logs"
@@ -78,6 +78,25 @@ class RunFileLog:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         self._append(f"{timestamp} | {stage:<20} | {message}{extra}")
 
+    def write_messages_dump(self, label: str, messages: List[Dict[str, Any]]) -> None:
+        """Write a full messages array as indented JSON, clearly demarcated.
+
+        Used for the final LLM call context — the complete conversation the model
+        saw when it decided to answer. Not truncated; these logs are local-only.
+        """
+        import json as _json
+
+        separator = "~" * 78
+        lines = [
+            separator,
+            f"MESSAGES DUMP: {label}",
+            f"message_count: {len(messages)}",
+            separator,
+            _json.dumps(messages, indent=2, ensure_ascii=False, default=str),
+            separator,
+        ]
+        self._append("\n".join(lines))
+
     def _append(self, text: str) -> None:
         with open(self.path, "a", encoding="utf-8") as handle:
             handle.write(text + "\n")
@@ -101,12 +120,13 @@ class FileLoggingTracer:
 
     def event(self, stage: str, message: str, **fields: Any) -> None:
         self._tracer.event(stage, message, **fields)
-        self.run_log.write_line(stage, message, self._format_fields(fields, self._preview_fn()))
+        extra = _format_event_fields_readable(fields)
+        self.run_log.write_line(stage, message, extra)
 
     def payload(self, stage: str, label: str, value: Any, limit: int = 900) -> None:
         self._tracer.payload(stage, label, value, limit=limit)
-        preview = self._preview_fn()(value, limit)
-        self.run_log.write_line(stage, f"[payload] {label}: {preview}")
+        readable = _format_payload_readable(value)
+        self.run_log.write_line(stage, f"[payload] {label}:{readable}")
 
     def _preview_fn(self) -> PreviewFn:
         return getattr(self._tracer, "_preview", _fallback_preview)
@@ -128,6 +148,113 @@ def _fallback_preview(value: Any, limit: int = 180) -> str:
     if len(text) > limit:
         return text[: limit - 3] + "..."
     return text
+
+
+def _format_event_fields_readable(fields: Dict[str, Any]) -> str:
+    """Format event **fields as multi-line indented key: value lines for file logs."""
+    clean = {k: v for k, v in fields.items() if v is not None}
+    if not clean:
+        return ""
+    lines = []
+    for key, value in clean.items():
+        formatted = _format_value(value, _INDENT)
+        if "\n" in formatted:
+            lines.append(f"{_INDENT}{key}:{formatted}")
+        else:
+            lines.append(f"{_INDENT}{key}: {formatted}")
+    return "\n" + "\n".join(lines)
+
+
+_INDENT = "      "
+_NESTED_INDENT = "            "
+_EMPTY_VALUES = (None, "", [], {}, False)
+
+
+def _format_value(value: Any, indent: str = _INDENT) -> str:
+    """Format a single value for the readable payload output."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, dict):
+        nested_indent = indent + "      "
+        return _format_dict_block(value, nested_indent)
+    if isinstance(value, list):
+        if not value:
+            return "[]"
+        if all(isinstance(item, (str, int, float, bool)) for item in value):
+            return "[" + ", ".join(str(item) for item in value) + "]"
+        import json as _json
+        return _json.dumps(value, ensure_ascii=False, default=str)
+    return str(value)
+
+
+def _format_dict_block(data: Dict[str, Any], indent: str) -> str:
+    """Format a nested dict as multi-line indented output, stripping empty values."""
+    lines = []
+    for key, value in data.items():
+        if value in _EMPTY_VALUES:
+            continue
+        formatted = _format_value(value, indent)
+        if "\n" in formatted:
+            lines.append(f"\n{indent}{key}:{formatted}")
+        else:
+            lines.append(f"\n{indent}{key}: {formatted}")
+    return "".join(lines) if lines else " (empty)"
+
+
+def _format_dict_readable(data: Dict[str, Any]) -> str:
+    """Format a dict as indented key: value lines, stripping empty values."""
+    lines = []
+    for key, value in data.items():
+        if value in _EMPTY_VALUES:
+            continue
+        formatted = _format_value(value, _INDENT)
+        if "\n" in formatted:
+            lines.append(f"{_INDENT}{key}:{formatted}")
+        else:
+            lines.append(f"{_INDENT}{key}: {formatted}")
+    return "\n".join(lines) if lines else f"{_INDENT}(empty)"
+
+
+def _format_payload_readable(value: Any) -> str:
+    """Convert a payload value to a human-readable multi-line format.
+
+    Used by FileLoggingTracer for per-run file logs. Strips null/empty fields
+    from dicts and formats as indented YAML-like output.
+    """
+    if isinstance(value, dict):
+        return "\n" + _format_dict_readable(value)
+
+    if isinstance(value, list):
+        if not value:
+            return " (empty list)"
+        if all(isinstance(item, dict) for item in value):
+            header = f"\n{_INDENT}({len(value)} items)"
+            blocks = []
+            for item in value[:10]:
+                blocks.append(_format_dict_readable(item))
+            result = header + "\n" + f"\n\n".join(blocks)
+            if len(value) > 10:
+                result += f"\n{_INDENT}... and {len(value) - 10} more"
+            return result
+        import json as _json
+        text = _json.dumps(value, ensure_ascii=False, default=str)
+        if len(text) <= 120:
+            return " " + text
+        return "\n" + _INDENT + text[:500] + ("..." if len(text) > 500 else "")
+
+    if isinstance(value, str):
+        if len(value) <= 120:
+            return " " + value
+        return "\n" + _INDENT + value[:500] + "..."
+
+    text = str(value)
+    if len(text) > 900:
+        return " " + text[:897] + "..."
+    return " " + text
 
 
 __all__ = [

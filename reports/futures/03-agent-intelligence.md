@@ -106,6 +106,24 @@ Making the agent correct on complex, multi-step tasks. Single-shot model discret
 
 **Scope:** Clarification should not fire for simple list queries ("what tasks do I have today?") — intent is clear. Clarification fires only on ambiguous follow-up mutations.
 
+**Previous message context injection:**
+The agent MUST include the user's previous message(s) in context when processing a new request. Without this, the model loses conversational continuity and treats each message in isolation.
+
+**Example failure without context:**
+```
+User: "remind me to call the dentist later"
+Agent: creates task "Call the dentist" with no due date
+Agent replies: "Since you said 'later' without a specific time, I left the due date unset.
+               If you'd like me to add a due date/time to it, just let me know!"
+```
+
+This is wrong — "later" in conversational context (e.g., if the user previously said "I'm busy until 3pm") likely means "after 3pm today" or at minimum "later today." Even without prior context, "later" as a colloquial time reference should default to "later today" rather than "no due date." The model should either:
+1. Resolve "later" against prior conversational context if available (e.g., user mentioned a time anchor).
+2. Default to a reasonable interpretation ("later today") rather than dropping the temporal signal entirely.
+3. Ask for clarification only if genuinely ambiguous — NOT treat "later" as meaningless.
+
+The previous message must always be injected into the graph state so the model can resolve these conversational references. This is not optional — without it, the model repeatedly falls back to unhelpful "I don't know what you meant" responses for perfectly natural language.
+
 ---
 
 ## 3.6 Planner / Worker / Executor Split 🟡

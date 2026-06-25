@@ -27,9 +27,9 @@ export const AgentResponseSchema = z.object({
   status: z.enum(['completed', 'interrupted', 'failed']),
   thread_id: z.string(),
   response: z.string(),
-  interrupt: LangGraphInterruptSchema.optional(),
-  tool_results: z.array(z.record(z.unknown())).optional(),
-  error: z.string().optional(),
+  interrupt: LangGraphInterruptSchema.nullish(),
+  tool_results: z.array(z.record(z.unknown())).nullish(),
+  error: z.string().nullish(),
 });
 
 // Streaming protocol: each line of the NDJSON stream is either a progress event
