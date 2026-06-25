@@ -56,7 +56,8 @@ export class MessageProcessorService {
 
     let gateAcquired = false;
     try {
-      gateAcquired = await this.conversationGate.tryAcquire(gateKey, this.runningTtlMs);
+      const chatIdNum = typeof logContext.chatId === 'number' ? logContext.chatId : undefined;
+      gateAcquired = await this.conversationGate.tryAcquire(gateKey, this.runningTtlMs, chatIdNum);
     } catch {
       gateAcquired = true;
     }
@@ -99,7 +100,8 @@ export class MessageProcessorService {
 
     let gateAcquired = false;
     try {
-      gateAcquired = await this.conversationGate.tryAcquire(gateKey, this.runningTtlMs);
+      const chatIdNum = typeof logContext.chatId === 'number' ? logContext.chatId : undefined;
+      gateAcquired = await this.conversationGate.tryAcquire(gateKey, this.runningTtlMs, chatIdNum);
     } catch {
       gateAcquired = true;
     }

@@ -78,7 +78,8 @@ export class TextProcessorService {
           }
         }
 
-        gateAcquired = await this.safeAcquireGate(gateKey);
+        const chatIdNum = typeof logContext.chatId === 'number' ? logContext.chatId : undefined;
+        gateAcquired = await this.safeAcquireGate(gateKey, chatIdNum);
         if (!gateAcquired) {
           logger.info('conversation_gate.acquire_failed', { ...logContext, gateKey });
           return {
@@ -267,9 +268,9 @@ export class TextProcessorService {
     }
   }
 
-  private async safeAcquireGate(gateKey: string): Promise<boolean> {
+  private async safeAcquireGate(gateKey: string, chatId?: number): Promise<boolean> {
     try {
-      return await this.conversationGate.tryAcquire(gateKey, this.runningTtlMs);
+      return await this.conversationGate.tryAcquire(gateKey, this.runningTtlMs, chatId);
     } catch (error) {
       logger.error('conversation_gate.acquire_error', {
         gateKey, error: (error as Error).message, strategy: 'fail_open',
