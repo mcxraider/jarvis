@@ -37,6 +37,8 @@ class JarvisApiTests(unittest.TestCase):
                     "message": "add milk",
                     "user_id": "jerry",
                     "telegram_user_id": 123,
+                    "telegram_username": "tester",
+                    "telegram_first_name": "Test",
                     "request_id": "tg_test",
                 },
             )
@@ -58,6 +60,8 @@ class JarvisApiTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["user_id"], "jerry")
         self.assertEqual(run.call_args.kwargs["request_source"], "telegram")
         self.assertEqual(run.call_args.kwargs["telegram_user_id"], 123)
+        self.assertEqual(run.call_args.kwargs["telegram_username"], "tester")
+        self.assertEqual(run.call_args.kwargs["telegram_first_name"], "Test")
         self.assertEqual(run.call_args.kwargs["request_id"], "tg_test")
 
     def test_invoke_interrupted(self) -> None:

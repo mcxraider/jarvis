@@ -51,7 +51,12 @@ export class CallbackHandler {
     const internalUserId = mapTelegramUserId(userId);
     const chatId = ctx.chat?.id;
     const gateKey = buildConversationKey(userId, internalUserId, chatId);
-    const logContext: LogContext = { requestId, threadId };
+    const logContext: LogContext = {
+      requestId,
+      threadId,
+      telegramUsername: ctx.from?.username,
+      telegramFirstName: ctx.from?.first_name,
+    };
     const progress = new TelegramProgressReporter(ctx, logContext);
 
     try {
@@ -107,6 +112,8 @@ export class CallbackHandler {
           userId: internalUserId,
           source: 'telegram',
           telegramUserId: userId,
+          telegramUsername: ctx.from?.username,
+          telegramFirstName: ctx.from?.first_name,
           requestId,
           threadId,
         },

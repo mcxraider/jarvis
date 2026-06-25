@@ -39,6 +39,8 @@ export interface LangGraphAgentRequest {
   userId: string;
   source?: string;
   telegramUserId?: number;
+  telegramUsername?: string;
+  telegramFirstName?: string;
   requestId?: string;
   threadId?: string;
 }
@@ -404,6 +406,8 @@ export class LangGraphAgentClient {
       user_id: request.userId,
       source: request.source,
       telegram_user_id: request.telegramUserId,
+      telegram_username: request.telegramUsername,
+      telegram_first_name: request.telegramFirstName,
       request_id: request.requestId,
       thread_id: request.threadId,
     };

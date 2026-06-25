@@ -54,11 +54,12 @@ describe('AudioProcessorService', () => {
       undefined,
     );
     expect(response).toEqual(
-      expect.objectContaining({ response: '🗣️: Add a Todoist task to buy milk tomorrow\n\n---\n\nTask created.' }),
+      expect.objectContaining({ response: 'Task created.' }),
     );
   });
 
-  it('awaits the transcription hook and forwards progress before processing audio text', async () => {
+  it('sends the transcription then awaits hooks before processing audio text', async () => {
+    const onTranscription = jest.fn().mockResolvedValue(undefined);
     const onTranscribed = jest.fn().mockResolvedValue(undefined);
     const onProgress = jest.fn();
     const textProcessor = {
@@ -67,10 +68,12 @@ describe('AudioProcessorService', () => {
     const service = makeService(textProcessor);
 
     await service.processAudioMessage('https://example.com/voice.ogg', 7, {}, {
+      onTranscription,
       onTranscribed,
       onProgress,
     });
 
+    expect(onTranscription).toHaveBeenCalledWith('Add a Todoist task to buy milk tomorrow');
     expect(onTranscribed).toHaveBeenCalledTimes(1);
     expect(textProcessor.processTextMessage).toHaveBeenCalledWith(
       'Add a Todoist task to buy milk tomorrow',
@@ -79,12 +82,36 @@ describe('AudioProcessorService', () => {
       onProgress,
       undefined,
     );
+    // Transcription is sent first, then the agent phase begins, then processing runs.
+    expect(onTranscription.mock.invocationCallOrder[0]).toBeLessThan(
+      onTranscribed.mock.invocationCallOrder[0],
+    );
     expect(onTranscribed.mock.invocationCallOrder[0]).toBeLessThan(
       textProcessor.processTextMessage.mock.invocationCallOrder[0],
     );
   });
 
-  it('forwards hooks for audio documents', async () => {
+  it('still processes the request when sending the transcription fails', async () => {
+    const onTranscription = jest.fn().mockRejectedValue(new Error('Telegram send failed'));
+    const onTranscribed = jest.fn();
+    const textProcessor = {
+      processTextMessage: jest.fn().mockResolvedValue({ response: 'Task created.' }),
+    };
+    const service = makeService(textProcessor);
+
+    const response = await service.processAudioMessage('https://example.com/voice.ogg', 7, {}, {
+      onTranscription,
+      onTranscribed,
+    });
+
+    expect(onTranscription).toHaveBeenCalledTimes(1);
+    expect(onTranscribed).toHaveBeenCalledTimes(1);
+    expect(textProcessor.processTextMessage).toHaveBeenCalledTimes(1);
+    expect(response).toEqual(expect.objectContaining({ response: 'Task created.' }));
+  });
+
+  it('forwards hooks for audio documents and returns only the agent reply', async () => {
+    const onTranscription = jest.fn();
     const onTranscribed = jest.fn();
     const onProgress = jest.fn();
     const textProcessor = {
@@ -98,9 +125,10 @@ describe('AudioProcessorService', () => {
       'audio/mpeg',
       7,
       {},
-      { onTranscribed, onProgress },
+      { onTranscription, onTranscribed, onProgress },
     );
 
+    expect(onTranscription).toHaveBeenCalledWith('Add a Todoist task to buy milk tomorrow');
     expect(onTranscribed).toHaveBeenCalledTimes(1);
     expect(textProcessor.processTextMessage).toHaveBeenCalledWith(
       'Add a Todoist task to buy milk tomorrow',
@@ -110,11 +138,11 @@ describe('AudioProcessorService', () => {
       undefined,
     );
     expect(response).toEqual(
-      expect.objectContaining({ response: '🗣️: Add a Todoist task to buy milk tomorrow\n\n---\n\nSummary ready.' }),
+      expect.objectContaining({ response: 'Summary ready.' }),
     );
   });
 
-  it('keeps the divider when text processing fails', async () => {
+  it('returns a plain failure message when text processing fails', async () => {
     const textProcessor = {
       processTextMessage: jest.fn().mockRejectedValue(new Error('Agent unavailable')),
     };
@@ -124,8 +152,7 @@ describe('AudioProcessorService', () => {
       service.processAudioMessage('https://example.com/voice.ogg', 7),
     ).resolves.toHaveProperty(
       'response',
-      '🗣️: Add a Todoist task to buy milk tomorrow\n\n---\n\n' +
-        '_Could not process the request. Please try again._',
+      '_Could not process the request. Please try again._',
     );
   });
 

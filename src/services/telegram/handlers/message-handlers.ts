@@ -10,7 +10,7 @@ import { FileService } from '../file.service';
 import { MessageProcessorService } from '../message-processor.service';
 import { BotActivityService, BotActivityType } from '../bot-activity.service';
 import { sendFinalReply } from '../formatters/telegram-rich';
-import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
+import { replyWithMarkdown, toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
 import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service';
 import { TextProcessorResult } from '../processors/text-processor.service';
@@ -206,6 +206,7 @@ export class MessageHandlers {
     await this.runWithAudioProgress(ctx, logContext, userId, startedAt, async (reporter, onTranscribed, onProgress) => {
       const fileUrl = await this.fileService.getFileUrl(document.file_id);
       return this.messageProcessor.processAudioDocument(fileUrl, fileName, mimeType, userId, logContext, {
+        onTranscription: (text) => this.sendTranscription(ctx, reporter, text, logContext),
         onTranscribed,
         onProgress,
       });
@@ -256,9 +257,10 @@ export class MessageHandlers {
       duration: audioFile.duration,
     });
 
-    await this.runWithAudioProgress(ctx, logContext, userId, startedAt, async (_reporter, onTranscribed, onProgress) => {
+    await this.runWithAudioProgress(ctx, logContext, userId, startedAt, async (reporter, onTranscribed, onProgress) => {
       const fileUrl = await this.fileService.getFileUrl(audioFile.file_id);
       return this.messageProcessor.processAudioMessage(fileUrl, userId, logContext, {
+        onTranscription: (text) => this.sendTranscription(ctx, reporter, text, logContext),
         onTranscribed,
         onProgress,
       });
@@ -312,6 +314,20 @@ export class MessageHandlers {
     }
   }
 
+  // Sends the transcription as its own message once Whisper finishes, decoupled
+  // from the agent's eventual reply. First tears down the "Transcribing..." block
+  // so this message lands above the subsequent thinking block (transcription on
+  // top), matching the desired top-to-bottom chat flow.
+  private async sendTranscription(
+    ctx: Context,
+    reporter: TelegramProgressReporter,
+    text: string,
+    logContext: LogContext,
+  ): Promise<void> {
+    await reporter.endTranscribing();
+    await replyWithMarkdown(ctx.reply.bind(ctx), `🗣️: ${text}`, logContext);
+  }
+
   // Routes the final response to the appropriate reply method. Confirm-type interrupts
   // get inline Approve/Decline buttons; everything else goes as a plain rich/markdown reply.
   private async sendResult(ctx: Context, result: TextProcessorResult, logContext: LogContext): Promise<void> {
@@ -343,6 +359,8 @@ export class MessageHandlers {
       chatId: ctx.chat?.id || message?.chat?.id,
       messageId: message?.message_id,
       messageType,
+      telegramUsername: ctx.from?.username,
+      telegramFirstName: ctx.from?.first_name,
     };
   }
 

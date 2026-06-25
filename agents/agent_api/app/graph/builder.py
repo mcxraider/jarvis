@@ -31,6 +31,7 @@ from agents.agent_api.app.graph.prompts import USER_PROMPT, build_initial_messag
 from agents.agent_api.app.graph.state import JarvisState, enrich_interrupt_status
 from agents.agent_api.app.run_logging import (
     FileLoggingTracer,
+    RunLogIdentity,
     format_singapore_log_iso,
     open_run_log,
 )
@@ -151,6 +152,8 @@ def run_jarvis(
     tracer: Optional[TracePrinter] = None,
     thread_id: Optional[str] = None,
     telegram_user_id: Optional[int] = None,
+    telegram_username: Optional[str] = None,
+    telegram_first_name: Optional[str] = None,
     clarification_reply: Optional[str] = None,
     checkpointer: Optional[Any] = None,
     request_id: Optional[str] = None,
@@ -176,13 +179,22 @@ def run_jarvis(
     started_at = datetime.now()
 
     base_tracer = tracer if tracer is not None else TracePrinter()
-    run_log = open_run_log(thread_id)
+    run_log_identity = RunLogIdentity(
+        request_source=request_source,
+        telegram_user_id=telegram_user_id,
+        telegram_username=telegram_username,
+        telegram_first_name=telegram_first_name,
+    )
+    run_log = open_run_log(thread_id, run_log_identity)
     if run_log is not None:
         run_log.write_header(
             started_at=format_singapore_log_iso(started_at),
             request_id=request_id,
             thread_id=thread_id,
             user_id=user_id,
+            telegram_user_id=telegram_user_id,
+            telegram_username=telegram_username,
+            telegram_first_name=telegram_first_name,
             request_source=request_source,
             invocation_type=invocation_type,
             model=DEEPSEEK_MODEL,
@@ -243,6 +255,8 @@ def run_jarvis(
             "invocation_type": invocation_type,
             "user_id": user_id,
             "telegram_user_id": telegram_user_id,
+            "telegram_username": telegram_username,
+            "telegram_first_name": telegram_first_name,
             "request_source": request_source,
             "model": DEEPSEEK_MODEL,
             "allow_mutations": allow_mutations,

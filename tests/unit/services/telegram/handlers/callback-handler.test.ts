@@ -9,7 +9,7 @@ function makeCtx(callbackData: string, userId = 42, chatId = 100) {
       data: callbackData,
       message: { text: '⚠️ Confirm: Delete 5 tasks', chat: { id: chatId } },
     },
-    from: { id: userId },
+    from: { id: userId, username: 'tester', first_name: 'Test' },
     chat: { id: chatId },
     answerCbQuery: jest.fn().mockResolvedValue(undefined),
     editMessageText: jest.fn().mockResolvedValue(undefined),
@@ -69,8 +69,17 @@ describe('CallbackHandler', () => {
     await handler.handleCallbackQuery(ctx);
 
     expect(agentClient.resume).toHaveBeenCalledWith(
-      expect.objectContaining({ message: 'approve', threadId: 'tg_abc_msg123' }),
-      expect.objectContaining({ threadId: 'tg_abc_msg123' }),
+      expect.objectContaining({
+        message: 'approve',
+        threadId: 'tg_abc_msg123',
+        telegramUsername: 'tester',
+        telegramFirstName: 'Test',
+      }),
+      expect.objectContaining({
+        threadId: 'tg_abc_msg123',
+        telegramUsername: 'tester',
+        telegramFirstName: 'Test',
+      }),
       expect.any(Function),
     );
   });

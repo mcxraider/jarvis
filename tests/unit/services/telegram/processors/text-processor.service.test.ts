@@ -51,6 +51,8 @@ describe('TextProcessorService', () => {
         requestId: 'tg_test',
         chatId: 555,
         messageId: 42,
+        telegramUsername: 'jerry',
+        telegramFirstName: 'Jerry',
       }),
     ).resolves.toHaveProperty('response', 'Done.');
 
@@ -60,6 +62,8 @@ describe('TextProcessorService', () => {
         userId: 'jerry',
         source: 'telegram',
         telegramUserId: 701122767,
+        telegramUsername: 'jerry',
+        telegramFirstName: 'Jerry',
         requestId: 'tg_test',
         threadId: telegramThreadId(701122767),
       },
@@ -67,6 +71,8 @@ describe('TextProcessorService', () => {
         requestId: 'tg_test',
         chatId: 555,
         messageId: 42,
+        telegramUsername: 'jerry',
+        telegramFirstName: 'Jerry',
         threadId: telegramThreadId(701122767),
       },
     );
@@ -199,7 +205,12 @@ describe('TextProcessorService', () => {
       service.processTextMessage('update my task', 42, { chatId: 100, messageId: 10 }),
     ).resolves.toHaveProperty('response', 'Which task should I update?');
     await expect(
-      service.processTextMessage('the dentist task', 42, { chatId: 100, messageId: 11 }),
+      service.processTextMessage('the dentist task', 42, {
+        chatId: 100,
+        messageId: 11,
+        telegramUsername: 'tester',
+        telegramFirstName: 'Test',
+      }),
     ).resolves.toHaveProperty('response', 'Updated the dentist task.');
 
     expect(agentClient.resume).toHaveBeenCalledWith(
@@ -208,12 +219,16 @@ describe('TextProcessorService', () => {
         userId: 'telegram:42',
         source: 'telegram',
         telegramUserId: 42,
+        telegramUsername: 'tester',
+        telegramFirstName: 'Test',
         requestId: undefined,
         threadId: 'thread-hitl',
       },
       {
         chatId: 100,
         messageId: 11,
+        telegramUsername: 'tester',
+        telegramFirstName: 'Test',
         threadId: 'thread-hitl',
       },
     );

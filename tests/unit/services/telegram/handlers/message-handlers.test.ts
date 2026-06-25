@@ -3,7 +3,7 @@ import { MessageHandlers } from '../../../../../src/services/telegram/handlers/m
 describe('MessageHandlers', () => {
   function createContext(message: Record<string, unknown>) {
     return {
-      from: { id: 123, username: 'tester' },
+      from: { id: 123, username: 'tester', first_name: 'Test' },
       chat: { id: 456 },
       message,
       reply: jest.fn().mockResolvedValue({ message_id: 77 }),
@@ -14,6 +14,35 @@ describe('MessageHandlers', () => {
     } as any;
   }
 
+  it('routes text messages with Telegram identity metadata', async () => {
+    const fileService = {
+      isAudioFile: jest.fn(),
+      getFileUrl: jest.fn(),
+    } as any;
+    const messageProcessor = {
+      processTextMessage: jest.fn().mockResolvedValue({ response: 'processed text' }),
+    } as any;
+    const activityService = { recordActivity: jest.fn() } as any;
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService);
+    const ctx = createContext({ text: 'hello', message_id: 99 });
+
+    await handlers.handleText(ctx);
+
+    expect(messageProcessor.processTextMessage).toHaveBeenCalledWith(
+      'hello',
+      123,
+      expect.objectContaining({
+        messageId: 99,
+        messageType: 'text',
+        telegramUsername: 'tester',
+        telegramFirstName: 'Test',
+      }),
+      expect.any(Function),
+    );
+    expect(activityService.recordActivity).toHaveBeenCalledWith('message_text');
+    expect(ctx.reply).toHaveBeenCalledWith('processed text', { parse_mode: 'MarkdownV2' });
+  });
+
   it('routes audio documents through processAudioDocument', async () => {
     const fileService = {
       isAudioFile: jest.fn().mockReturnValue(true),
@@ -22,6 +51,7 @@ describe('MessageHandlers', () => {
     const messageProcessor = {
       processAudioDocument: jest.fn().mockImplementation(async (...args: any[]) => {
         const hooks = args[5];
+        await hooks.onTranscription('transcribed text');
         await hooks.onTranscribed();
         await hooks.onProgress({ stage: 'completed', message: 'Done' });
         return { response: 'processed document' };
@@ -52,6 +82,7 @@ describe('MessageHandlers', () => {
       123,
       expect.objectContaining({ messageType: 'document' }),
       expect.objectContaining({
+        onTranscription: expect.any(Function),
         onTranscribed: expect.any(Function),
         onProgress: expect.any(Function),
       }),
@@ -61,13 +92,14 @@ describe('MessageHandlers', () => {
     expect(ctx.reply).toHaveBeenCalledWith('Transcribing\\.\\.\\.', {
       parse_mode: 'MarkdownV2',
     });
-    expect(ctx.telegram.editMessageText).toHaveBeenCalledWith(
-      456,
-      77,
-      undefined,
-      'Thinking\\.\\.\\.',
-      { parse_mode: 'MarkdownV2' },
-    );
+    // The transcription is delivered as its own message, above the thinking block.
+    expect(ctx.reply).toHaveBeenCalledWith('🗣️: transcribed text', {
+      parse_mode: 'MarkdownV2',
+    });
+    // Thinking block starts fresh below the transcription (new message, not an edit).
+    expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.\\.\\.', {
+      parse_mode: 'MarkdownV2',
+    });
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
     expect(ctx.reply).toHaveBeenCalledWith('processed document', { parse_mode: 'MarkdownV2' });
   });
@@ -82,6 +114,7 @@ describe('MessageHandlers', () => {
     const messageProcessor = {
       processAudioMessage: jest.fn().mockImplementation(async (...args: any[]) => {
         const hooks = args[3];
+        await hooks.onTranscription('transcribed text');
         await hooks.onTranscribed();
         await hooks.onProgress({ stage: 'completed', message: 'Done' });
         return { response: 'processed audio' };
@@ -103,11 +136,15 @@ describe('MessageHandlers', () => {
       123,
       expect.any(Object),
       expect.objectContaining({
+        onTranscription: expect.any(Function),
         onTranscribed: expect.any(Function),
         onProgress: expect.any(Function),
       }),
     );
-    expect(ctx.telegram.editMessageText).toHaveBeenCalled();
+    expect(ctx.reply).toHaveBeenCalledWith('🗣️: transcribed text', {
+      parse_mode: 'MarkdownV2',
+    });
+    expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.\\.\\.', { parse_mode: 'MarkdownV2' });
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
   });
 

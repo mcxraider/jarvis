@@ -1,11 +1,13 @@
 """Per-run readable file logs for Jarvis agent invocations.
 
-Every call to run_jarvis() gets its own timestamped log file under logs/,
+Every call to run_jarvis() gets its own readable log file under logs/,
 independent of terminal trace settings (JARVIS_DEBUG), so CLI and
 Telegram/API runs alike leave a persistent, human-readable record on disk.
 """
 
 import os
+import re
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -19,6 +21,16 @@ PreviewFn = Callable[..., str]
 
 _TRUEY = {"1", "true", "yes", "on"}
 _FALSEY = {"0", "false", "no", "off"}
+_CLI_LOG_NAME = "jer_jerryyy"
+_CLI_TELEGRAM_USER_ID = 701122767
+
+
+@dataclass(frozen=True)
+class RunLogIdentity:
+    request_source: str = "api"
+    telegram_user_id: Optional[int] = None
+    telegram_username: Optional[str] = None
+    telegram_first_name: Optional[str] = None
 
 
 def to_singapore_time(value: Optional[datetime] = None) -> datetime:
@@ -42,13 +54,36 @@ def format_singapore_log_iso(value: datetime) -> str:
     return to_singapore_time(value).isoformat(timespec="seconds")
 
 
-def build_run_log_path(thread_id: str, now: Optional[datetime] = None) -> Path:
-    """Build a per-run log path whose filename sorts chronologically."""
+def sanitize_log_segment(value: Optional[str], fallback: str = "telegram") -> str:
+    """Return a filesystem-safe lowercase-ish path segment."""
 
-    now = to_singapore_time(now)
-    short_thread = (thread_id or "norun").replace("-", "")[:8]
-    timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
-    return LOG_DIR / f"jarvis_run_{timestamp}_{short_thread}.log"
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", (value or "").strip().lower())
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    return cleaned or fallback
+
+
+def _log_identity_parts(identity: Optional[RunLogIdentity]) -> tuple[str, int]:
+    if identity and identity.request_source == "telegram" and identity.telegram_user_id is not None:
+        display_name = identity.telegram_username or identity.telegram_first_name or "telegram"
+        return sanitize_log_segment(display_name), identity.telegram_user_id
+    return _CLI_LOG_NAME, _CLI_TELEGRAM_USER_ID
+
+
+def _thread_suffix(thread_id: str) -> str:
+    return thread_id[-5:] if thread_id else "norun"
+
+
+def build_run_log_path(
+    thread_id: str,
+    now: Optional[datetime] = None,
+    identity: Optional[RunLogIdentity] = None,
+) -> Path:
+    """Build a per-run log path grouped by user identity."""
+
+    safe_name, telegram_user_id = _log_identity_parts(identity)
+    folder = f"{safe_name}-{telegram_user_id}"
+    thread_suffix = sanitize_log_segment(_thread_suffix(thread_id), fallback="norun")
+    return LOG_DIR / folder / f"{safe_name}_{thread_suffix}.log"
 
 
 def run_file_log_enabled() -> bool:
@@ -70,12 +105,12 @@ def run_file_log_enabled() -> bool:
     return "PYTEST_CURRENT_TEST" not in os.environ
 
 
-def open_run_log(thread_id: str) -> Optional["RunFileLog"]:
+def open_run_log(thread_id: str, identity: Optional[RunLogIdentity] = None) -> Optional["RunFileLog"]:
     """Open a per-run log file, or return None when file logging is disabled."""
 
     if not run_file_log_enabled():
         return None
-    return RunFileLog(build_run_log_path(thread_id))
+    return RunFileLog(build_run_log_path(thread_id, identity=identity))
 
 
 class RunFileLog:
@@ -282,6 +317,7 @@ def _format_payload_readable(value: Any) -> str:
 
 __all__ = [
     "RunFileLog",
+    "RunLogIdentity",
     "FileLoggingTracer",
     "build_run_log_path",
     "format_singapore_log_iso",
