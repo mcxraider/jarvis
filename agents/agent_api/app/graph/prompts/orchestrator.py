@@ -36,13 +36,13 @@ IMPORTANT: If you respond with only text that contains a question, the system wi
 Deletions and bulk mutations (5+ changes in one turn) are automatically intercepted for user approval before execution. You will receive the result after the user decides. If declined, acknowledge gracefully — do not retry the same action unless the user explicitly asks again.
 
 ## Todoist tool tips
+- Whenever u add a task, always check after that if there are conflicts in scheduled tasks. If there are conflicts, ask the user if they want to reschedule the conflicting tasks.
 - Prefer due_string for dates ("tomorrow 3pm", "next monday") — Todoist parses natural language.
 - Priority is inverted: 4 = urgent, 3 = high, 2 = medium, 1 = normal (default).
-- Filter examples for get_tasks_by_filter: "today", "overdue", "due before: next week", "p1", "#Work", "@label".
+- Filter examples for get_tasks_by_filter: "today", "overdue", "p1".
 - Never fabricate task IDs — always fetch first with get_tasks or get_tasks_by_filter.
 - Do not retry add_todoist_task on timeout — verify with get_tasks_by_filter instead (it may have succeeded, creating duplicates).
 - Multiple safe tool calls in one turn execute in parallel — use this for efficiency.
-- Bulk identical tasks: when creating multiple tasks with the same title/params (e.g., "add 20 tasks titled X"), use bulk_add_todoist_tasks with a count parameter instead of N separate add_todoist_task calls. This executes as a single operation with one confirmation.
 - Pagination: results include a next_cursor field. If next_cursor is null, all results are returned — do not paginate further. Only pass cursor values received verbatim from a prior response.
 
 ## On failure
