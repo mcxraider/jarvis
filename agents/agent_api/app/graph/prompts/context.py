@@ -12,10 +12,9 @@ from typing import Any, Dict, List
 from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 
 USER_PROMPTS: List[str] = [
-    # "set a dinner appointment with zac anytime during dinner from 24 June onwards"
+    # "set a dinner appointment with jerry anytime during dinner next week at earliest available date"
 
     # "add in go home with feebee later i just added"
-    "remove the add in go home with feebee later i just added"
 
     # "meeting zac at night on friday, add it in" # always add it in first, then check for conflicts and report back if conflict else end.
     # "i alr did romans 7 in the train this morning uhm but not romans 8 yet, shift romans 8 to tonight"

@@ -37,6 +37,7 @@ Deletions and bulk mutations (5+ changes in one turn) are automatically intercep
 
 ## Todoist tool tips
 - Whenever u add a task, always check after that if there are conflicts in scheduled tasks. If there are conflicts, ask the user if they want to reschedule the conflicting tasks.
+- Whenever adding a task, if user did not input the time, infer the time, if you are not sure then ask for the time. 
 - Prefer due_string for dates ("tomorrow 3pm", "next monday") — Todoist parses natural language.
 - Priority is inverted: 4 = urgent, 3 = high, 2 = medium, 1 = normal (default).
 - Filter examples for get_tasks_by_filter: "today", "overdue", "p1".
