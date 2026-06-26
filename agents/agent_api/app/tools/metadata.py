@@ -51,9 +51,12 @@ def _render_update(held_call: dict) -> str:
     changed = [k for k in args if k != "task_id"]
     meta = _REGISTRY["update_todoist_task"]
     fields = ", ".join(changed[:3])
+    context = held_call.get("context", {})
+    task_content = context.get("task_content")
+    target = f'"{task_content}"' if task_content else f"(id={task_id})"
     if fields:
-        return f"{meta.label} (id={task_id}): {fields}."
-    return f"{meta.label} (id={task_id})."
+        return f"{meta.label} {target}: {fields}."
+    return f"{meta.label} {target}."
 
 
 _REGISTRY: Dict[str, ToolDisplayMeta] = {
@@ -79,6 +82,7 @@ _REGISTRY: Dict[str, ToolDisplayMeta] = {
     "update_todoist_task": ToolDisplayMeta(
         verb="updating",
         label="Update task",
+        needs_task_context=True,
         render_fn=_render_update,
     ),
     "complete_task": ToolDisplayMeta(

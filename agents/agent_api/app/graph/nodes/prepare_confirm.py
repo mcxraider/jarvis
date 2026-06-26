@@ -16,6 +16,30 @@ from agents.agent_api.app.tools.metadata import needs_task_context_tools
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 
+def _extract_task_items(data: Any) -> List[Dict[str, Any]]:
+    """Return Todoist task dicts from common tool-result envelope shapes."""
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    if not isinstance(data, dict):
+        return []
+
+    results = data.get("results")
+    if isinstance(results, list):
+        return [item for item in results if isinstance(item, dict)]
+
+    content = data.get("content")
+    if isinstance(content, dict):
+        if isinstance(content.get("results"), list):
+            return [item for item in content["results"] if isinstance(item, dict)]
+        if content.get("id"):
+            return [content]
+
+    if data.get("id"):
+        return [data]
+
+    return []
+
+
 def _find_task_content(messages: List[Dict[str, Any]], task_id: str) -> Optional[str]:
     """Search prior tool results for the content/name of a Todoist task by id."""
     for msg in messages:
@@ -26,15 +50,8 @@ def _find_task_content(messages: List[Dict[str, Any]], task_id: str) -> Optional
             continue
         try:
             data = json.loads(content_str)
-            if not isinstance(data, dict):
-                continue
-            results = data.get("results")
-            if not results and isinstance(data.get("content"), dict):
-                results = data["content"].get("results")
-            if not results:
-                continue
-            for task in results:
-                if isinstance(task, dict) and task.get("id") == task_id:
+            for task in _extract_task_items(data):
+                if task.get("id") == task_id:
                     return task.get("content")
         except (json.JSONDecodeError, TypeError):
             continue
