@@ -263,6 +263,20 @@ class TestUsageAccumulation:
 
 
 class TestSuccessfulResponse:
+    def test_request_enables_deepseek_thinking_high_effort(self):
+        """DeepSeek V4 Flash requests opt into thinking mode at high effort."""
+        client = build_client(max_retry_attempts=3)
+        response = make_response(content="All done", tool_calls=None)
+        with patch.object(
+            client.client.chat.completions,
+            "create",
+            return_value=response,
+        ) as mock_create:
+            client.create_message(messages=[{"role": "user", "content": "hi"}], tools=[])
+
+        assert mock_create.call_args.kwargs["reasoning_effort"] == "high"
+        assert mock_create.call_args.kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
+
     def test_successful_response_returns_message_dict(self):
         """Normal completion returns the message as a dict."""
         client = build_client(max_retry_attempts=3)
