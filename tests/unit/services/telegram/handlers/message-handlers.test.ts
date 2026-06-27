@@ -1,4 +1,7 @@
 import { MessageHandlers } from '../../../../../src/services/telegram/handlers/message-handlers';
+import { TELEGRAM_ONBOARDING_MESSAGE } from '../../../../../src/services/telegram/onboarding-message';
+import { MemoryOnboardingStore, OnboardingStore } from '../../../../../src/services/telegram/onboarding.store';
+import { logger } from '../../../../../src/utils/logger';
 
 describe('MessageHandlers', () => {
   function createContext(message: Record<string, unknown>) {
@@ -12,6 +15,30 @@ describe('MessageHandlers', () => {
         deleteMessage: jest.fn().mockResolvedValue(true),
       },
     } as any;
+  }
+
+  function createHandlers(options: {
+    fileService?: any;
+    messageProcessor?: any;
+    activityService?: any;
+    onboardingStore?: OnboardingStore;
+  } = {}) {
+    const fileService = options.fileService || {
+      isAudioFile: jest.fn(),
+      getFileUrl: jest.fn(),
+    };
+    const messageProcessor = options.messageProcessor || {
+      processTextMessage: jest.fn().mockResolvedValue({ response: 'processed text' }),
+    };
+    const activityService = options.activityService || { recordActivity: jest.fn() };
+    const handlers = new MessageHandlers(
+      fileService,
+      messageProcessor,
+      activityService,
+      options.onboardingStore,
+    );
+
+    return { handlers, fileService, messageProcessor, activityService };
   }
 
   it('routes text messages with Telegram identity metadata', async () => {
@@ -41,6 +68,82 @@ describe('MessageHandlers', () => {
     );
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_text');
     expect(ctx.reply).toHaveBeenCalledWith('processed text', { parse_mode: 'MarkdownV2' });
+  });
+
+  it('sends onboarding before processing the first text from a new user', async () => {
+    const onboardingStore = new MemoryOnboardingStore();
+    const { handlers, messageProcessor } = createHandlers({ onboardingStore });
+    const ctx = createContext({ text: 'hello', message_id: 99 });
+
+    await handlers.handleText(ctx);
+
+    expect(messageProcessor.processTextMessage).toHaveBeenCalledWith(
+      'hello',
+      123,
+      expect.objectContaining({ messageType: 'text' }),
+      expect.any(Function),
+    );
+    expect(ctx.reply).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('Jarvis'),
+      { parse_mode: 'MarkdownV2' },
+    );
+    expect(ctx.reply).toHaveBeenNthCalledWith(
+      2,
+      'Thinking\\.\\.\\.',
+      { parse_mode: 'MarkdownV2' },
+    );
+    expect(ctx.reply).toHaveBeenCalledWith(
+      expect.stringContaining('dinner appointment with Zac'),
+      { parse_mode: 'MarkdownV2' },
+    );
+    expect(await onboardingStore.markSeenIfNew(123)).toBe(false);
+  });
+
+  it('does not send onboarding again for a previously seen text user', async () => {
+    const onboardingStore = new MemoryOnboardingStore();
+    await onboardingStore.markSeenIfNew(123);
+    const { handlers } = createHandlers({ onboardingStore });
+    const ctx = createContext({ text: 'hello again', message_id: 99 });
+
+    await handlers.handleText(ctx);
+
+    expect(ctx.reply).not.toHaveBeenCalledWith(
+      expect.stringContaining('Jarvis'),
+      expect.any(Object),
+    );
+    expect(ctx.reply).toHaveBeenCalledWith('processed text', { parse_mode: 'MarkdownV2' });
+  });
+
+  it('continues processing when onboarding storage fails', async () => {
+    const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => logger);
+    const onboardingStore = {
+      markSeenIfNew: jest.fn().mockRejectedValue(new Error('store unavailable')),
+    };
+    const { handlers, messageProcessor } = createHandlers({ onboardingStore });
+    const ctx = createContext({ text: 'hello', message_id: 99 });
+
+    await handlers.handleText(ctx);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      'telegram.onboarding.failed',
+      expect.objectContaining({
+        userId: 123,
+        error: 'store unavailable',
+      }),
+    );
+    expect(messageProcessor.processTextMessage).toHaveBeenCalled();
+    expect(ctx.reply).toHaveBeenCalledWith('processed text', { parse_mode: 'MarkdownV2' });
+
+    warnSpy.mockRestore();
+  });
+
+  it('keeps the onboarding copy compact and task-focused', () => {
+    expect(TELEGRAM_ONBOARDING_MESSAGE).toContain('**Jarvis**');
+    expect(TELEGRAM_ONBOARDING_MESSAGE).toContain('Simple:');
+    expect(TELEGRAM_ONBOARDING_MESSAGE).toContain('Tougher:');
+    expect(TELEGRAM_ONBOARDING_MESSAGE).toContain('Set a dinner appointment with Zac');
+    expect(TELEGRAM_ONBOARDING_MESSAGE).toContain("I'll ask before risky or bulk changes.");
   });
 
   it('routes audio documents through processAudioDocument', async () => {
