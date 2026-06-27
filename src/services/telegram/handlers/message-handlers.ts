@@ -14,12 +14,15 @@ import { replyWithMarkdown, toTelegramMarkdownV2 } from '../formatters/telegram-
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
 import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service';
 import { TextProcessorResult } from '../processors/text-processor.service';
+import { TELEGRAM_ONBOARDING_MESSAGE } from '../onboarding-message';
+import { OnboardingStore } from '../onboarding.store';
 
 export class MessageHandlers {
   constructor(
     private readonly fileService: FileService,
     private readonly messageProcessor: MessageProcessorService,
     private readonly activityService: BotActivityService,
+    private readonly onboardingStore?: OnboardingStore,
   ) {}
 
   // Primary text message handler. Shows a rotating progress indicator while the
@@ -49,6 +52,7 @@ export class MessageHandlers {
     let lastProgressStage = '';
 
     try {
+      await this.maybeSendOnboarding(ctx, userId, logContext);
       await progressReporter.start();
       const result = await this.messageProcessor.processTextMessage(
         messageText,
@@ -75,6 +79,28 @@ export class MessageHandlers {
       });
       await progressReporter.complete('Something went wrong');
       await ctx.reply('Something went wrong processing your message. Please try again.');
+    }
+  }
+
+  private async maybeSendOnboarding(
+    ctx: Context,
+    userId: number | undefined,
+    logContext: LogContext,
+  ): Promise<void> {
+    if (!userId || !this.onboardingStore) return;
+
+    try {
+      const shouldSend = await this.onboardingStore.markSeenIfNew(userId);
+      if (!shouldSend) return;
+
+      await replyWithMarkdown(ctx.reply.bind(ctx), TELEGRAM_ONBOARDING_MESSAGE, logContext);
+      logger.info('telegram.onboarding.sent', { ...logContext, userId });
+    } catch (error) {
+      logger.warn('telegram.onboarding.failed', {
+        ...logContext,
+        userId,
+        error: (error as Error).message,
+      });
     }
   }
 
