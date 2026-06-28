@@ -5,6 +5,7 @@ import json
 import pytest
 
 from agents.agent_api.app.graph.nodes.prepare_confirm import create_prepare_confirm_node
+from agents.agent_api.app.graph.risk import BULK_THRESHOLD
 
 
 def _make_tool_call(name: str, call_id: str = "call_1", args=None) -> dict:
@@ -123,7 +124,15 @@ class TestPrepareConfirmNode:
                 }
             )
         ]
-        state = _make_state(calls, prior_messages=prior_messages)
+        prior_mutations = [
+            {"tool_name": "add_todoist_task"}
+            for _ in range(BULK_THRESHOLD)
+        ]
+        state = _make_state(
+            calls,
+            tool_results=prior_mutations,
+            prior_messages=prior_messages,
+        )
         node = create_prepare_confirm_node()
         result = node(state)
         assert result["held_calls"][0]["context"] == {

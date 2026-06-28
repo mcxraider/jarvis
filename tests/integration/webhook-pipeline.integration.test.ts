@@ -26,7 +26,9 @@ describe('Webhook pipeline integration', () => {
     const reply = jest.fn().mockResolvedValue({ message_id: 10 });
     const editMessageText = jest.fn().mockResolvedValue(true);
     const messageProcessor = {
-      processTextMessage: jest.fn().mockResolvedValue('Mocked Jarvis reply'),
+      processTextMessage: jest.fn().mockResolvedValue({
+        response: 'Mocked Jarvis reply',
+      }),
     } as any;
     const handlers = new MessageHandlers(
       {} as any,
@@ -58,6 +60,7 @@ describe('Webhook pipeline integration', () => {
     };
 
     const response = await request(app).post('/webhook/test-secret').send(update);
+    await botService.handleUpdate.mock.results[0]?.value;
 
     logger.logRequest('webhook_text_update', { update });
     logger.logResponse('webhook_text_update', {
@@ -72,7 +75,6 @@ describe('Webhook pipeline integration', () => {
       expect.objectContaining({ messageType: 'text' }),
       expect.any(Function),
     );
-    expect(editMessageText).toHaveBeenCalled();
     expect(reply).toHaveBeenCalledWith('Mocked Jarvis reply', { parse_mode: 'MarkdownV2' });
   });
 

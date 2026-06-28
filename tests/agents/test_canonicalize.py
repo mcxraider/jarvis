@@ -6,6 +6,8 @@ import pytest
 
 from agents.agent_api.app.graph.canonicalize import (
     build_held_call,
+    build_operation_idempotency_key,
+    build_request_idempotency_key,
     canonicalize,
     verify_hash,
 )
@@ -77,6 +79,12 @@ class TestBuildHeldCall:
         h2 = build_held_call(tc, "thread_1", 2)
         assert h1["idempotency_key"] != h2["idempotency_key"]
 
+    def test_idempotency_key_varies_with_tool_name(self):
+        args = {"task_id": "999"}
+        h1 = build_held_call(self._make_tool_call("complete_task", args), "thread_1", 1)
+        h2 = build_held_call(self._make_tool_call("delete_todoist_task", args), "thread_1", 1)
+        assert h1["idempotency_key"] != h2["idempotency_key"]
+
     def test_args_normalized(self):
         tc = self._make_tool_call(args={"z": 1, "a": 2})
         held = build_held_call(tc, "t", 0)
@@ -106,3 +114,31 @@ class TestVerifyHash:
         held = build_held_call(tc, "t", 0)
         held["args"]["extra"] = "injected"
         assert verify_hash(held) is False
+
+
+class TestIdempotencyKeys:
+    def test_operation_key_is_order_independent(self):
+        first = build_operation_idempotency_key(
+            "add_todoist_task",
+            {"content": "milk", "priority": 2},
+            "thread-1",
+            3,
+        )
+        second = build_operation_idempotency_key(
+            "add_todoist_task",
+            {"priority": 2, "content": "milk"},
+            "thread-1",
+            3,
+        )
+        assert first == second
+
+    def test_request_key_scopes_route_source_and_user(self):
+        base = build_request_idempotency_key("invoke", "telegram", "jerry", "request-1")
+        assert base != build_request_idempotency_key("resume", "telegram", "jerry", "request-1")
+        assert base != build_request_idempotency_key("invoke", "api", "jerry", "request-1")
+        assert base != build_request_idempotency_key("invoke", "telegram", "friend", "request-1")
+
+    def test_component_framing_prevents_concatenation_collision(self):
+        first = build_request_idempotency_key("ab", "c", "d", "e")
+        second = build_request_idempotency_key("a", "bc", "d", "e")
+        assert first != second

@@ -369,6 +369,36 @@ class TodoistApiClient:
             return {"items": [], "next_cursor": None}
         return {"items": data.get("items", []), "next_cursor": data.get("next_cursor")}
 
+    def uncomplete_task(self, arguments: Dict[str, Any]) -> Any:
+        self._request(f"{TODOIST_REST_BASE_URL}/tasks/{arguments['task_id']}/reopen", "POST")
+        return {"success": True, "message": f"Task {arguments['task_id']} reopened"}
+
+    def get_comments(self, arguments: Dict[str, Any]) -> Any:
+        arguments = _without_none(arguments)
+        comment_id = arguments.pop("comment_id", None)
+        if comment_id is not None:
+            return self._request(f"{TODOIST_REST_BASE_URL}/comments/{comment_id}")
+        if not arguments.get("task_id") and not arguments.get("project_id"):
+            raise ValueError("get_comments requires task_id, project_id, or comment_id")
+        params = _query_params(arguments)
+        suffix = f"?{params}" if params else ""
+        return self._request(f"{TODOIST_REST_BASE_URL}/comments{suffix}")
+
+    def add_comment(self, arguments: Dict[str, Any]) -> Any:
+        payload = _without_none(arguments)
+        _validate_comment_target(payload)
+        return self._request(f"{TODOIST_REST_BASE_URL}/comments", "POST", payload)
+
+    def get_labels(self, arguments: Dict[str, Any]) -> Any:
+        arguments = dict(arguments)
+        search = arguments.pop("search", None)
+        params = _query_params(_without_none(arguments))
+        suffix = f"?{params}" if params else ""
+        data = self._request(f"{TODOIST_REST_BASE_URL}/labels{suffix}")
+        if search is None:
+            return data
+        return _filter_labels_by_name(data, search)
+
 
 def _without_none(data: Dict[str, Any]) -> Dict[str, Any]:
     """Drop None values before sending arguments to Todoist."""
@@ -389,6 +419,38 @@ def _validate_duration_pair(data: Dict[str, Any]) -> None:
         raise ValueError("duration must be a positive integer")
     if duration_unit is not None and duration_unit not in {"minute", "day"}:
         raise ValueError("duration_unit must be minute or day")
+
+
+def _validate_comment_target(data: Dict[str, Any]) -> None:
+    """A comment must attach to exactly one of a task or a project."""
+
+    has_task = bool(data.get("task_id"))
+    has_project = bool(data.get("project_id"))
+    if has_task == has_project:
+        raise ValueError("add_comment requires exactly one of task_id or project_id")
+
+
+def _filter_labels_by_name(data: Any, search: str) -> Any:
+    """Filter a labels response to names containing ``search`` (case-insensitive).
+
+    Handles both the paginated ``{"results": [...], "next_cursor": ...}`` shape and a
+    bare list, so the tool keeps working if the API response shape varies.
+    """
+
+    needle = search.casefold()
+
+    def _matches(label: Any) -> bool:
+        name = label.get("name", "") if isinstance(label, dict) else str(label)
+        return needle in name.casefold()
+
+    if isinstance(data, dict):
+        results = data.get("results")
+        if isinstance(results, list):
+            return {**data, "results": [label for label in results if _matches(label)]}
+        return data
+    if isinstance(data, list):
+        return [label for label in data if _matches(label)]
+    return data
 
 
 def _with_default_completion_date_range(data: Dict[str, Any]) -> Dict[str, Any]:

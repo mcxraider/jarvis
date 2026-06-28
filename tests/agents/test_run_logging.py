@@ -207,8 +207,12 @@ _TODOIST_METHODS = (
     "get_tasks_by_filter",
     "update_todoist_task",
     "complete_task",
+    "uncomplete_task",
     "delete_todoist_task",
     "get_completed_todoist_tasks_by_completion_date",
+    "get_comments",
+    "add_comment",
+    "get_labels",
 )
 
 

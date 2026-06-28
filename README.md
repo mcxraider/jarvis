@@ -2,6 +2,45 @@
 
 Jarvis is a personal Telegram assistant for Todoist. Send a text message to the bot, and the TypeScript Telegram service forwards it to a Python LangGraph agent API that creates, lists, updates, completes, or deletes Todoist tasks.
 
+## Idempotency Operations
+
+Production runs use `JARVIS_POSTGRES_DSN` for both LangGraph checkpoints and
+idempotency records. The API creates and migrates `idempotency_results`
+automatically. Request results are retained for four hours by default; mutating
+tool results are retained for two hours.
+
+```bash
+JARVIS_IDEMPOTENCY_REQUEST_TTL_SECONDS=14400
+JARVIS_IDEMPOTENCY_OPERATION_TTL_SECONDS=7200
+JARVIS_IDEMPOTENCY_LEASE_SECONDS=60
+JARVIS_IDEMPOTENCY_WAIT_SECONDS=30
+JARVIS_IDEMPOTENCY_POLL_INTERVAL_SECONDS=0.1
+JARVIS_IDEMPOTENCY_CLEANUP_INTERVAL_SECONDS=1800
+```
+
+Expired rows are removed in the background. Postgres advisory locking ensures
+only one API worker runs each cleanup sweep. Store failures are fail-open: the
+request continues and a warning is logged, but duplicate protection is reduced
+until Postgres recovers.
+
+Useful production checks:
+
+```sql
+SELECT layer, status, COUNT(*)
+FROM idempotency_results
+GROUP BY layer, status;
+
+SELECT COUNT(*) AS expired_rows
+FROM idempotency_results
+WHERE expires_at <= NOW();
+```
+
+Deploy the additive migration before increasing API worker count. For rollback,
+disable the idempotency wiring in the application but retain the table; dropping
+it is unnecessary. Postgres cannot transactionally commit a Todoist HTTP side
+effect, so a process death after Todoist succeeds but before result persistence
+remains an external exactly-once boundary.
+
 The app runs as an Express webhook server with Telegraf handling Telegram updates.
 
 ## What Works
