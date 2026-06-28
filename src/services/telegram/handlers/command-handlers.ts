@@ -3,6 +3,8 @@ import { logger } from '../../../utils/logger';
 import { BotActivityService } from '../bot-activity.service';
 import { BotStatusService } from '../bot-status.service';
 import { replyWithMarkdown } from '../formatters/telegram-markdown';
+import { sendFinalReply } from '../formatters/telegram-rich';
+import { TELEGRAM_ONBOARDING_MESSAGE } from '../onboarding-message';
 import { ConversationGateStore } from '../conversation-gate.store';
 import { PendingClarificationStore } from '../pending-clarification.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
@@ -14,6 +16,15 @@ export class CommandHandlers {
     private readonly conversationGate: ConversationGateStore,
     private readonly pendingStore: PendingClarificationStore,
   ) {}
+
+  // Sent when the user first opens the bot and presses Start (or types /start).
+  async handleStart(ctx: Context): Promise<void> {
+    const userId = ctx.from?.id;
+    logger.info('telegram.command.start', { userId });
+    this.activityService.recordActivity('command_start');
+
+    await sendFinalReply(ctx, TELEGRAM_ONBOARDING_MESSAGE, { userId });
+  }
 
   async handleHelp(ctx: Context): Promise<void> {
     const userId = ctx.from?.id;

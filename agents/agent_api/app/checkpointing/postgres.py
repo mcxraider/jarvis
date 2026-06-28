@@ -20,7 +20,7 @@ def create_postgres_checkpointer(dsn: Optional[str]) -> Any:
 
     pool = ConnectionPool(
         conninfo=dsn,
-        kwargs={"autocommit": True, "prepare_threshold": 0},
+        kwargs={"autocommit": True, "prepare_threshold": None},
     )
     checkpointer = PostgresSaver(pool)
     if hasattr(checkpointer, "setup"):

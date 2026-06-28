@@ -1,0 +1,29 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-06-28T22:33:48+08:00
+request_id: tg_update_564452168
+thread_id: tg_tg_update_564452168
+user_id: telegram:701122767
+telegram_user_id: 701122767
+telegram_username: jer_jerryyy
+telegram_first_name: jerry
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-06-28 22:33:48.644 | section              | === Jarvis LangGraph Run ===
+2026-06-28 22:33:48.644 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_564452168
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: tg_tg_update_564452168
+      request_source: telegram
+      resuming: false
+2026-06-28 22:33:48.644 | runtime.prompt       | [payload] user_prompt: when am i free next week?
+2026-06-28 22:33:49.056 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools

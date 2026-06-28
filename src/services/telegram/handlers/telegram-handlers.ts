@@ -23,6 +23,7 @@ export class TelegramHandlers {
   }
 
   private setupCommandHandlers(bot: Telegraf<Context>): void {
+    bot.command('start', this.commandHandlers.handleStart.bind(this.commandHandlers));
     bot.command('help', this.commandHandlers.handleHelp.bind(this.commandHandlers));
     bot.command('status', this.commandHandlers.handleStatus.bind(this.commandHandlers));
     bot.command('cancel', this.commandHandlers.handleCancel.bind(this.commandHandlers));
