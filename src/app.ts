@@ -10,7 +10,6 @@ import { LangGraphAgentClient } from './services/ai/langgraph-agent-client.servi
 import { WhisperService } from './services/ai/whisper.service';
 import { createPendingClarificationStore } from './services/telegram/pending-clarification.store';
 import { createConversationGateStore } from './services/telegram/conversation-gate.store';
-import { createOnboardingStore } from './services/telegram/onboarding.store';
 import { FileService } from './services/telegram/file.service';
 import { BotActivityService } from './services/telegram/bot-activity.service';
 import { BotStatusService } from './services/telegram/bot-status.service';
@@ -127,7 +126,6 @@ const pendingStore = createPendingClarificationStore();
 // Conversation gate serializes access to the agent — prevents concurrent invocations
 // from rapid messages, and coordinates resume paths (text reply vs callback button).
 const conversationGate = createConversationGateStore();
-const onboardingStore = createOnboardingStore();
 
 // Telegram infrastructure: file downloads, activity metrics, and health reporting.
 const fileService = new FileService(BOT_TOKEN, bot.telegram);
@@ -141,7 +139,7 @@ const audioProcessor = new AudioProcessorService(whisperService, textProcessor);
 const messageProcessor = new MessageProcessorService(textProcessor, audioProcessor, conversationGate);
 
 // Telegram handlers: commands (/help, /status, /cancel), message types, and inline callbacks.
-const messageHandlers = new MessageHandlers(fileService, messageProcessor, activityService, onboardingStore);
+const messageHandlers = new MessageHandlers(fileService, messageProcessor, activityService);
 const commandHandlers = new CommandHandlers(activityService, statusService, conversationGate, pendingStore);
 const callbackHandler = new CallbackHandler(agentClient, pendingStore, conversationGate);
 

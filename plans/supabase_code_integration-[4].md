@@ -6,6 +6,31 @@ The Supabase tables already exist (`users`, `user_credentials`, `threads`, `user
 
 ---
 
+## Testing Policy (Stage Gate)
+
+**Hard rule: every stage ships with robust automated tests, and the full gate below must pass before the next stage begins.** Do not start stage N+1 until stage N's tests are written and the entire gate is green.
+
+After each stage, run the gate:
+
+```bash
+black --check agents/ tests/
+python3 -m pytest tests/agents/ -v        # full suite — no regressions allowed
+python -c "from agents.agent_api.app.db import get_pool"   # import-safe without DSN
+```
+
+Conventions all new tests follow (match the existing suite):
+
+- pytest, in `tests/agents/`, named `test_*.py`. Run with `python3 -m pytest tests/agents/ -v`.
+- Reuse the `FakePool` / `FakeConnection` / `FakeCursor` mocking pattern from `tests/agents/test_idempotency_store.py`. `FakeCursor.execute()` records `(normalized_sql, params)`; `fetchone()` returns a canned row — this stands in for `psycopg_pool` with no live database.
+- Every new module does a deferred `from agents.agent_api.app.db import get_pool` *inside* the function body, so inject a fake with `patch("agents.agent_api.app.db.get_pool", return_value=FakePool(...))` — the call-time import picks up the patched attribute. For Stage 1's `get_pool` itself, patch `psycopg_pool.ConnectionPool` and assert lazy/singleton behavior.
+- Route tests use `fastapi.testclient.TestClient` + `unittest.mock.patch` of `agents.agent_api.app.api.routes.invoke.run_jarvis` (see `tests/agents/test_api.py`, `tests/agents/test_request_idempotency.py`).
+- `tests/conftest.py` sets `JARVIS_POSTGRES_DSN=""`/`DATABASE_URL=""`, so DB-enabled paths must `monkeypatch.setenv` / `monkeypatch.setattr(settings, ...)` to be exercised.
+- Run the **entire** suite (not just the new file) each time so earlier stages cannot regress.
+
+Each stage below carries a **Tests (must pass before next stage)** block listing the required cases.
+
+---
+
 ## Stage 1 — Shared DB Pool (`db.py`)
 
 **New file:** `agents/agent_api/app/db.py`
@@ -66,6 +91,13 @@ def get_pool() -> Any:
         logger.info("Shared DB pool opened.")
         return _pool
 ```
+
+**Tests (must pass before next stage)** — new file `tests/agents/test_db_pool.py`:
+
+- `get_pool()` raises `RuntimeError` when `settings.postgres_dsn` is unset.
+- Lazy singleton: with `postgres_dsn` set and `psycopg_pool.ConnectionPool` patched, two `get_pool()` calls return the same object and the pool is constructed exactly once.
+- The pool is `.open()`-ed and `.wait()`-ed exactly once on creation.
+- Import safety: `import agents.agent_api.app.db` succeeds with no DSN configured (no pool built at import time).
 
 ---
 
@@ -151,6 +183,14 @@ def todoist_api_key_for_telegram_user(telegram_user_id: Optional[int]) -> Option
     return os.getenv("TODOIST_API_KEY")
 ```
 
+**Tests (must pass before next stage)** — new file `tests/agents/test_credentials.py` (+ extend the todoist client test):
+
+- Returns `None` when `telegram_user_id is None` and when `postgres_dsn` is unset, without touching the pool.
+- Returns the `api_key` when the cursor yields a row; returns `None` when no row.
+- Fail-open: when `get_pool()`/the cursor raises, returns `None` (no exception propagates) and logs a warning.
+- Asserted SQL filters on the `service` param and `is_active = TRUE`, and passes `str(telegram_user_id)`.
+- `todoist_api_key_for_telegram_user` priority order: DB key wins; when DB returns `None`, the env token map is used; when both miss, the global `TODOIST_API_KEY` env var is the fallback.
+
 ---
 
 ## Stage 3 — Thread Registration
@@ -220,6 +260,13 @@ def _register_thread(
     thread_status = "interrupted" if result.get("interrupted") else "completed"
     _register_thread(thread_id, telegram_user_id, user_prompt, thread_status, resuming)
 ```
+
+**Tests (must pass before next stage)** — new file `tests/agents/test_thread_register.py`:
+
+- No-op when `telegram_user_id is None` (pool never accessed).
+- Non-resume path issues the `INSERT ... ON CONFLICT (thread_id) DO UPDATE` with `(thread_id, user_prompt, status, str(telegram_user_id))`.
+- Resume path issues the increment `UPDATE threads SET message_count = message_count + 1` with `(status, thread_id)`.
+- Fire-and-forget: a raising pool is swallowed (no exception propagates) and a warning is logged.
 
 ---
 
@@ -384,6 +431,12 @@ from agents.agent_api.app.api.rate_limit import check_rate_limit
 check_rate_limit(request.telegram_user_id)
 ```
 
+**Tests (must pass before next stage)** — new files `tests/agents/test_thread_ownership.py`, `tests/agents/test_rate_limit.py`, plus extensions to `tests/agents/test_api.py`:
+
+- Ownership: no-op when `postgres_dsn` unset / `telegram_user_id is None`; allow when no row (legacy thread); **raise `HTTPException(403)`** when the owner telegram id differs; allow when it matches; on a generic pool exception fail-open (allow), but a raised `HTTPException` is re-raised, not swallowed.
+- Rate limit: no-op when `postgres_dsn` unset / `telegram_user_id is None`; no-op when no row (unlimited); allow + increment when `current_count <= max_requests`; **raise `HTTPException(429)`** (with `Retry-After`) when over; reset branch taken when `reset_at <= NOW()`; generic exception fails open, `HTTPException` re-raised.
+- Route integration via `TestClient`: a 403 from ownership and a 429 from rate limiting propagate as the response status on `/resume` and `/resume/stream`; the rate-limit guard fires on `/invoke`, `/invoke/stream`, and `/invoke-bulk`.
+
 ---
 
 ## Stage 5 — Per-User Timezone (Preferences)
@@ -516,6 +569,14 @@ In `run_jarvis()` — fetch preferences and pass timezone:
     )
 ```
 
+**Tests (must pass before next stage)** — new file `tests/agents/test_preferences_timezone.py`:
+
+- `get_user_preferences` returns `{}` for `None`/no-DSN; returns the dict from the row; returns `{}` when the row value is non-dict; returns `{}` on a pool exception (logs warning).
+- `_user_timezone` precedence: explicit `override` wins → else `JARVIS_USER_TIMEZONE` env var → else UTC fallback when detection fails.
+- `get_orchestrator_prompt(tz)` / `get_system_prompt(tz)` embed the resolved timezone in the prompt text.
+- `build_initial_messages(prompt, timezone=...)` and `build_initial_state(..., timezone=...)` thread the timezone into the system message.
+- `run_jarvis` calls `get_user_preferences` and forwards `prefs.get("timezone")` into `build_initial_state` (mocked preferences + mocked graph).
+
 ---
 
 ## Stage 6 — Usage Logging
@@ -591,6 +652,12 @@ def _log_usage(
     _log_usage(telegram_user_id, thread_id, usage, duration_ms, DEEPSEEK_MODEL)
 ```
 
+**Tests (must pass before next stage)** — new file `tests/agents/test_usage_logging.py`:
+
+- No-op when `telegram_user_id is None` or `usage.total_tokens` is falsy (pool never accessed).
+- Issues `INSERT INTO usage_logs (...)` with the expected params `(thread_id, model, prompt_tokens, completion_tokens, latency_ms, str(telegram_user_id))`, defaulting `None` token counts to `0`.
+- Fire-and-forget: a raising pool is swallowed (no exception propagates) and a warning is logged.
+
 ---
 
 ## Stage 7 — RLS Policies (Supabase Dashboard SQL)
@@ -626,9 +693,17 @@ CREATE POLICY "users_own_rate_limits" ON rate_limits
 
 **Note:** The FastAPI service connects with the service role key (via `postgres_dsn`), which bypasses RLS automatically. These policies protect the tables when accessed through Supabase client-side SDKs (e.g., a future dashboard).
 
+**Tests (must pass before this stage is considered done)** — SQL-only, not unit-testable, so the gate for this stage is a manual check plus the unchanged full pytest suite still passing:
+
+- After applying the policies, confirm the service-role DSN can still read/write all five tables (RLS bypassed) — exercise via one `/invoke` round-trip that touches credentials, threads, and usage.
+- Confirm the new policies are present (`SELECT * FROM pg_policies WHERE tablename IN ('user_credentials','threads','user_preferences','usage_logs','rate_limits');`).
+- Re-run the full suite `python3 -m pytest tests/agents/ -v` to confirm no regression from prior stages.
+
 ---
 
 ## Deployment Strategy
+
+A PR may only open after its stages' test gates are green (full pytest suite + `black --check` + import smoke check, per the Testing Policy above).
 
 | PR | Stages | Risk | Rollback |
 |----|--------|------|----------|
@@ -654,6 +729,14 @@ CREATE POLICY "users_own_rate_limits" ON rate_limits
 | `agents/agent_api/app/graph/prompts/context.py` | 5 | Edit (add timezone param) |
 | `agents/agent_api/app/api/routes/invoke.py` | 4 | Edit (add rate_limit import + 3 calls) |
 | `agents/agent_api/app/api/routes/resume.py` | 4 | Edit (add ownership + rate_limit imports + 4 calls) |
+| `tests/agents/test_db_pool.py` | 1 | **Create** |
+| `tests/agents/test_credentials.py` | 2, 5 | **Create** |
+| `tests/agents/test_thread_register.py` | 3 | **Create** |
+| `tests/agents/test_thread_ownership.py` | 4 | **Create** |
+| `tests/agents/test_rate_limit.py` | 4 | **Create** |
+| `tests/agents/test_preferences_timezone.py` | 5 | **Create** |
+| `tests/agents/test_usage_logging.py` | 6 | **Create** |
+| `tests/agents/test_api.py` | 4 | Edit (add 403/429 route propagation cases) |
 
 ---
 
@@ -667,11 +750,23 @@ CREATE POLICY "users_own_rate_limits" ON rate_limits
 
 4. **No new dependencies** — `psycopg` and `psycopg_pool` are already in the dependency tree. No new packages required.
 
+5. **Testability via deferred `get_pool`** — Because every DB function imports `get_pool` at call time, tests inject a `FakePool` (the `tests/agents/test_idempotency_store.py` pattern) by patching `agents.agent_api.app.db.get_pool`. No live database is needed for any stage's unit tests.
+
 ---
 
 ## Verification
 
-After each stage:
+The per-stage **Testing Policy** pytest gate above is the primary, automated verification layer. The checks below are the complementary manual/integration smoke layer — run after the relevant stage's gate is already green; they do not replace it.
+
+Gate command (run after every stage, repeated here for reference):
+
+```bash
+black --check agents/ tests/
+python3 -m pytest tests/agents/ -v
+python -c "from agents.agent_api.app.db import get_pool"
+```
+
+Manual smoke checks after each stage:
 1. `python -c "from agents.agent_api.app.db import get_pool"` — import doesn't crash without DSN
 2. `uvicorn agents.api:app --host 127.0.0.1 --port 8000` — server starts
 3. Send a test `/invoke` request via curl or Telegram — verify response + check Supabase tables for new rows

@@ -4,6 +4,7 @@
 // Intentionally stateless across restarts — counters reset on deploy.
 
 export type BotActivityType =
+  | 'command_start'
   | 'command_help'
   | 'command_status'
   | 'command_cancel'
