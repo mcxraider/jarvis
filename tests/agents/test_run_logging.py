@@ -230,7 +230,7 @@ class RunJarvisFileLoggingTests(TestCase):
         agent = _FakeAgentClientWithTracer({"role": "assistant", "content": "Done."})
         with mock.patch.object(run_logging, "run_file_log_enabled", return_value=enabled), \
             mock.patch.object(run_logging, "LOG_DIR", run_logging.Path(tmp)):
-            builder.run_jarvis(
+            result = builder.run_jarvis(
                 user_prompt="hello",
                 agent_client=agent,
                 todoist_client=_FakeTodoistClient(),
@@ -239,14 +239,15 @@ class RunJarvisFileLoggingTests(TestCase):
                 request_id="tg_log",
             )
         files = sorted(run_logging.Path(tmp).glob("*/*.log"))
-        return files
+        return files, result
 
     def test_run_writes_one_readable_file_capturing_client_events(self) -> None:
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
-            files = self._run(tmp, enabled=True)
+            files, result = self._run(tmp, enabled=True)
             self.assertEqual(len(files), 1)
+            self.assertEqual(result["run_log_path"], str(files[0].resolve()))
             content = files[0].read_text(encoding="utf-8")
 
         # Run boundaries plus node-level and redirected client-level events.
@@ -263,5 +264,6 @@ class RunJarvisFileLoggingTests(TestCase):
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
-            files = self._run(tmp, enabled=False)
+            files, result = self._run(tmp, enabled=False)
             self.assertEqual(files, [])
+            self.assertNotIn("run_log_path", result)

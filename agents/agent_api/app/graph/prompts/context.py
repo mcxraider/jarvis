@@ -12,7 +12,7 @@ from typing import Any, Dict, List
 from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 
 USER_PROMPTS: List[str] = [
-    # "set a dinner appointment with jerry anytime during dinner next week at earliest available date"
+    # "set a dinner appointment with zac anytime during dinner next week at earliest available date"
 
     # "add in go home with feebee later i just added"
 
@@ -23,7 +23,7 @@ USER_PROMPTS: List[str] = [
     # "can u add 24 tasks  today each one titled 'hehehehehehehehehe'",
     # "how many hehehe tasks do i have today"
     # "delete all my hehehe tasks today"
-    # "Add three tasks for my morning routine.",
+    "Add three tasks for my morning routine.",
     # "Clean up my list.",
     # "Delete all tasks on Tuesday."
 

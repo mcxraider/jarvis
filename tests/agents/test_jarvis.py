@@ -97,6 +97,27 @@ class FakeTodoistClient:
         return self._record("get_labels", arguments)
 
 
+class SeededTodoistClient(FakeTodoistClient):
+    """Fake client whose reads return tasks with real ids.
+
+    The base FakeTodoistClient's reads omit ``id``, so the prior-read ID validation
+    guard cannot verify any mutation against them. This subclass surfaces ids so
+    read -> mutate flows pass validation.
+    """
+
+    def get_tasks(self, arguments: Dict[str, Any]) -> Any:
+        self._record("get_tasks", arguments)
+        return {"results": [{"id": "t1", "content": "Submit report"}], "next_cursor": None}
+
+    def get_tasks_by_filter(self, arguments: Dict[str, Any]) -> Any:
+        self._record("get_tasks_by_filter", arguments)
+        return {"results": [{"id": "t1", "content": "Submit report"}], "next_cursor": None}
+
+    def get_todoist_task(self, arguments: Dict[str, Any]) -> Any:
+        self._record("get_todoist_task", arguments)
+        return {"id": arguments.get("task_id"), "content": "Submit report"}
+
+
 class ParallelTrackingTodoistClient(FakeTodoistClient):
     """Fake client that records overlapping tool execution."""
 
@@ -460,13 +481,13 @@ class ToolSelectionTests(unittest.TestCase):
             self.assertEqual(schemas, registry.openai_schemas())
             self.assertEqual(len(schemas), len(registry.specs))
 
-    def test_default_selector_is_a_static_selector(self) -> None:
+    def test_default_selector_is_keyword_selector(self) -> None:
         from agents.agent_api.app.tools.selection import (
             DEFAULT_TOOL_SELECTOR,
-            StaticToolSelector,
+            KeywordToolSelector,
         )
 
-        self.assertIsInstance(DEFAULT_TOOL_SELECTOR, StaticToolSelector)
+        self.assertIsInstance(DEFAULT_TOOL_SELECTOR, KeywordToolSelector)
 
     def test_run_jarvis_uses_default_selector_to_expose_all_tools(self) -> None:
         agent_client = FakeDeepSeekAgentClient([{"role": "assistant", "content": "Hi."}])
@@ -774,6 +795,42 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertTrue(args.allow_mutations)
         self.assertEqual(args.source, "test")
 
+    def test_json_summary_includes_run_log_path_when_available(self) -> None:
+        summary = jarvis.result_to_json_summary(
+            {
+                "thread_id": "thread-1",
+                "final_response": "Done.",
+                "run_log_path": "/tmp/jarvis-run.log",
+            },
+            "hello",
+            1,
+        )
+
+        self.assertEqual(summary["run_log_path"], "/tmp/jarvis-run.log")
+
+    def test_main_prints_each_run_log_path(self) -> None:
+        results = [
+            {"final_response": "First.", "run_log_path": "/tmp/first.log"},
+            {"final_response": "Second.", "run_log_path": "/tmp/second.log"},
+        ]
+        with patch("agents.agent_api.app.runner.run_jarvis_sequence", return_value=results), \
+            patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            exit_code = jarvis.main(["first", "second"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Run log: /tmp/first.log", stdout.getvalue())
+        self.assertIn("Run log: /tmp/second.log", stdout.getvalue())
+
+    def test_main_json_output_contains_log_path_and_remains_valid_json(self) -> None:
+        results = [{"final_response": "Done.", "run_log_path": "/tmp/run.log"}]
+        with patch("agents.agent_api.app.runner.run_jarvis_sequence", return_value=results), \
+            patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            exit_code = jarvis.main(["--json", "hello"])
+
+        self.assertEqual(exit_code, 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["results"][0]["run_log_path"], "/tmp/run.log")
+
     def test_local_clarification_wrapper_prompts_and_resumes(self) -> None:
         agent_client = FakeDeepSeekAgentClient(
             [
@@ -976,31 +1033,44 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertFalse(tool_result["mutation_blocked"])
 
     def test_update_tool_preserves_explicit_nulls_and_omits_missing_fields(self) -> None:
-        result = self.run_graph_with_fakes(
-            [
-                {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": [
-                        fake_tool_call(
-                            "call_1",
-                            "update_todoist_task",
-                            {
-                                "task_id": "task-1",
-                                "assignee_id": None,
-                                "duration": None,
-                                "duration_unit": None,
-                                "deadline_date": None,
-                            },
-                        )
-                    ],
-                },
-                {"role": "assistant", "content": "Cleared the scheduling fields."},
-            ],
+        # A read first surfaces task-1 so prior-read ID validation lets the update run.
+        result = jarvis.run_jarvis(
+            user_prompt="fake prompt",
             allow_mutations=True,
+            agent_client=FakeDeepSeekAgentClient(
+                [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            fake_tool_call("call_read", "get_todoist_task", {"task_id": "task-1"})
+                        ],
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            fake_tool_call(
+                                "call_1",
+                                "update_todoist_task",
+                                {
+                                    "task_id": "task-1",
+                                    "assignee_id": None,
+                                    "duration": None,
+                                    "duration_unit": None,
+                                    "deadline_date": None,
+                                },
+                            )
+                        ],
+                    },
+                    {"role": "assistant", "content": "Cleared the scheduling fields."},
+                ]
+            ),
+            todoist_client=SeededTodoistClient(),
+            tracer=jarvis.NULL_TRACE,
         )
 
-        arguments = result["tool_results"][0]["content"]["arguments"]
+        arguments = result["tool_results"][-1]["content"]["arguments"]
         self.assertEqual(
             arguments,
             {
@@ -1011,6 +1081,148 @@ class JarvisGraphTests(unittest.TestCase):
                 "deadline_date": None,
             },
         )
+
+    def test_prior_read_lets_mutation_on_seen_id_execute(self) -> None:
+        # Happy path: read surfaces t1, then completing t1 executes normally.
+        todoist_client = SeededTodoistClient()
+        result = jarvis.run_jarvis(
+            user_prompt="fake prompt",
+            allow_mutations=True,
+            agent_client=FakeDeepSeekAgentClient(
+                [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            fake_tool_call("call_read", "get_tasks_by_filter", {"query": "today"})
+                        ],
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [fake_tool_call("call_done", "complete_task", {"task_id": "t1"})],
+                    },
+                    {"role": "assistant", "content": "Done."},
+                ]
+            ),
+            todoist_client=todoist_client,
+            tracer=jarvis.NULL_TRACE,
+        )
+
+        self.assertEqual(result["final_response"], "Done.")
+        executed = [call["tool_name"] for call in todoist_client.calls]
+        self.assertIn("complete_task", executed)
+        self.assertTrue(result["tool_results"][-1]["success"])
+
+    def test_hallucinated_id_is_blocked_before_execution(self) -> None:
+        # complete_task targets an id no read ever returned -> never reaches the client.
+        todoist_client = FakeTodoistClient()
+        agent_client = FakeDeepSeekAgentClient(
+            [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [fake_tool_call("call_bad", "complete_task", {"task_id": "ghost"})],
+                },
+                {"role": "assistant", "content": "Let me look that up first."},
+            ]
+        )
+
+        result = jarvis.run_jarvis(
+            user_prompt="fake prompt",
+            allow_mutations=True,
+            agent_client=agent_client,
+            todoist_client=todoist_client,
+            tracer=jarvis.NULL_TRACE,
+        )
+
+        # No Todoist mutation happened.
+        self.assertEqual([c["tool_name"] for c in todoist_client.calls], [])
+        # A synthetic "unverified" tool result was fed back to the model.
+        blocked = [
+            json.loads(message["content"])
+            for message in result["messages"]
+            if message.get("role") == "tool" and message.get("tool_call_id") == "call_bad"
+        ]
+        self.assertEqual(len(blocked), 1)
+        self.assertTrue(blocked[0]["unverified_entity"])
+        self.assertFalse(blocked[0]["success"])
+        # The agent got another turn to recover.
+        self.assertEqual(len(agent_client.calls), 2)
+        self.assertEqual(result["final_response"], "Let me look that up first.")
+
+    def test_same_turn_read_and_mutation_blocks_the_mutation(self) -> None:
+        # Read + complete emitted together: the read hasn't executed yet, so t1 is
+        # unseen and the whole batch is deferred — nothing reaches the client.
+        todoist_client = SeededTodoistClient()
+        result = jarvis.run_jarvis(
+            user_prompt="fake prompt",
+            allow_mutations=True,
+            agent_client=FakeDeepSeekAgentClient(
+                [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            fake_tool_call("call_read", "get_tasks_by_filter", {"query": "today"}),
+                            fake_tool_call("call_mut", "complete_task", {"task_id": "t1"}),
+                        ],
+                    },
+                    {"role": "assistant", "content": "I'll read first next time."},
+                ]
+            ),
+            todoist_client=todoist_client,
+            tracer=jarvis.NULL_TRACE,
+        )
+
+        self.assertNotIn("complete_task", [c["tool_name"] for c in todoist_client.calls])
+        mutation_result = [
+            json.loads(message["content"])
+            for message in result["messages"]
+            if message.get("role") == "tool" and message.get("tool_call_id") == "call_mut"
+        ]
+        self.assertEqual(len(mutation_result), 1)
+        self.assertTrue(mutation_result[0]["unverified_entity"])
+
+    def test_agent_recovers_by_reading_then_mutating_across_turns(self) -> None:
+        # Same-turn batch is blocked; the agent then reads alone and completes on the
+        # next turn, which now passes validation and executes exactly once.
+        todoist_client = SeededTodoistClient()
+        result = jarvis.run_jarvis(
+            user_prompt="fake prompt",
+            allow_mutations=True,
+            agent_client=FakeDeepSeekAgentClient(
+                [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            fake_tool_call("call_read1", "get_tasks_by_filter", {"query": "today"}),
+                            fake_tool_call("call_mut1", "complete_task", {"task_id": "t1"}),
+                        ],
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            fake_tool_call("call_read2", "get_tasks_by_filter", {"query": "today"})
+                        ],
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [fake_tool_call("call_mut2", "complete_task", {"task_id": "t1"})],
+                    },
+                    {"role": "assistant", "content": "Completed."},
+                ]
+            ),
+            todoist_client=todoist_client,
+            tracer=jarvis.NULL_TRACE,
+        )
+
+        self.assertEqual(result["final_response"], "Completed.")
+        completes = [c for c in todoist_client.calls if c["tool_name"] == "complete_task"]
+        self.assertEqual(len(completes), 1)  # only the post-read completion executed
 
     def test_mixed_ask_user_and_mutating_tool_defers_mutation(self) -> None:
         thread_id = "test-hitl-mixed"

@@ -1,11 +1,14 @@
-"""Tests for the route_after_agent routing function."""
+"""Tests for the route_after_agent routing function.
+
+Since prior-read ID validation landed, ``route_after_agent`` no longer performs the
+risk split itself: any non-ask_user tool calls route to the ``validate_entities`` node,
+which verifies entity IDs and *then* decides tools-vs-confirm. The tools/confirm split
+is covered by ``test_validate_entities_node.py``.
+"""
 
 import json
 
-import pytest
-
 from agents.agent_api.app.graph.edges import route_after_agent
-from agents.agent_api.app.graph.risk import BULK_THRESHOLD
 
 
 def make_tool_call(name: str, args=None) -> dict:
@@ -34,27 +37,27 @@ class TestRouteAfterAgent:
         state = _state_with_tool_calls(tool_calls)
         assert route_after_agent(state) == "hitl"
 
-    def test_safe_only_routes_to_tools(self):
-        # "get_tasks" is a read-only tool, not in RISKY or MUTATING sets.
+    def test_safe_tool_calls_route_to_validate(self):
+        # Read-only tools still go through validation first (a fast no-op there).
         tool_calls = [make_tool_call("get_tasks")]
         state = _state_with_tool_calls(tool_calls)
-        assert route_after_agent(state) == "tools"
+        assert route_after_agent(state) == "validate"
 
-    def test_risky_routes_to_confirm(self):
+    def test_risky_tool_calls_route_to_validate(self):
         tool_calls = [make_tool_call("delete_todoist_task", {"task_id": "123"})]
         state = _state_with_tool_calls(tool_calls)
-        assert route_after_agent(state) == "confirm"
+        assert route_after_agent(state) == "validate"
 
-    def test_mixed_risky_and_safe_routes_to_confirm(self):
+    def test_mixed_tool_calls_route_to_validate(self):
         tool_calls = [
             make_tool_call("delete_todoist_task", {"task_id": "123"}),
             make_tool_call("get_tasks"),
         ]
         state = _state_with_tool_calls(tool_calls)
-        assert route_after_agent(state) == "confirm"
+        assert route_after_agent(state) == "validate"
 
-    def test_ask_user_priority_over_risky(self):
-        # ask_user check happens before partition_tool_calls, so it wins.
+    def test_ask_user_priority_over_other_calls(self):
+        # ask_user check happens before the validate branch, so it wins.
         tool_calls = [
             make_tool_call("ask_user", {"question": "Are you sure?"}),
             make_tool_call("delete_todoist_task", {"task_id": "456"}),
@@ -70,18 +73,3 @@ class TestRouteAfterAgent:
         # Message dict exists but lacks a tool_calls key entirely.
         state = {"messages": [{"role": "assistant", "content": "Done!"}]}
         assert route_after_agent(state) == "end"
-
-    def test_mutating_below_bulk_threshold_routes_to_tools(self):
-        # A single add_todoist_task with no prior mutations is "low" risk -> tools.
-        tool_calls = [make_tool_call("add_todoist_task", {"content": "Buy milk"})]
-        state = _state_with_tool_calls(tool_calls, tool_results=[])
-        assert route_after_agent(state) == "tools"
-
-    def test_mutating_at_bulk_threshold_routes_to_confirm(self):
-        # When prior mutation count meets the bulk threshold, mutating calls become risky.
-        prior_results = [
-            {"tool_name": "add_todoist_task"} for _ in range(BULK_THRESHOLD)
-        ]
-        tool_calls = [make_tool_call("add_todoist_task", {"content": "Another task"})]
-        state = _state_with_tool_calls(tool_calls, tool_results=prior_results)
-        assert route_after_agent(state) == "confirm"

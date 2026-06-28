@@ -254,7 +254,7 @@ def resolve_cli_telegram_user_id(args: argparse.Namespace) -> Optional[int]:
 def result_to_json_summary(result: JarvisState, prompt: str, index: int) -> Dict[str, Any]:
     """Create a compact serializable summary for bulk graph test runs."""
 
-    return {
+    summary = {
         "index": index,
         "prompt": prompt,
         "thread_id": result.get("thread_id", ""),
@@ -276,6 +276,9 @@ def result_to_json_summary(result: JarvisState, prompt: str, index: int) -> Dict
             for item in result.get("tool_results", [])
         ],
     }
+    if result.get("run_log_path"):
+        summary["run_log_path"] = result["run_log_path"]
+    return summary
 
 
 def _result_status(result: JarvisState) -> str:
@@ -432,6 +435,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                     run_label=f"{index}/{len(results)}",
                     allow_mutations=args.allow_mutations,
                 )
+                if result.get("run_log_path"):
+                    print(f"\nRun log: {result['run_log_path']}")
         has_error = any(result.get("error") for result in results)
         return 1 if has_error else 0
     except Exception as error:
