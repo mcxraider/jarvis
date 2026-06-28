@@ -70,7 +70,8 @@ def _log_identity_parts(identity: Optional[RunLogIdentity]) -> tuple[str, int]:
 
 
 def _thread_suffix(thread_id: str) -> str:
-    return thread_id[-5:] if thread_id else "norun"
+    compact = thread_id.replace("-", "")
+    return compact[-5:] if compact else "norun"
 
 
 def build_run_log_path(

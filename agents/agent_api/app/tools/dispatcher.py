@@ -6,14 +6,24 @@ It is driven entirely by a :class:`ToolRegistry`, so it works for any domain
 (Todoist today, Gmail/Calendar/Notion later) without changes here.
 """
 
+import contextvars
+import copy
 import json
-from typing import Any, Callable, Dict, List, Optional
+import logging
+import time
+from contextlib import contextmanager
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt import ToolNode
 from langsmith import traceable
 
+from agents.agent_api.app.config import settings
 from agents.agent_api.app.constants import ALLOW_MUTATIONS
+from agents.agent_api.app.graph.canonicalize import build_operation_idempotency_key
+from agents.agent_api.app.idempotency.store import ClaimResult, ClaimState, IdempotencyStore
 from agents.agent_api.app.tools.base import (
     ToolRegistry,
     parse_arguments,
@@ -22,6 +32,21 @@ from agents.agent_api.app.tools.base import (
 )
 from agents.agent_api.app.tools.todoist.client import TodoistApiError
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
+
+_IDEMPOTENCY_CONTEXT: contextvars.ContextVar[Optional[Tuple[str, int]]] = (
+    contextvars.ContextVar("jarvis_tool_idempotency_context", default=None)
+)
+
+
+@contextmanager
+def tool_idempotency_context(thread_id: str, turn_count: int) -> Iterator[None]:
+    """Scope direct ToolNode calls to one graph thread and turn."""
+
+    token = _IDEMPOTENCY_CONTEXT.set((thread_id, turn_count))
+    try:
+        yield
+    finally:
+        _IDEMPOTENCY_CONTEXT.reset(token)
 
 
 def build_tool_result(
@@ -54,10 +79,20 @@ class ToolDispatcher:
         registry: ToolRegistry,
         allow_mutations: bool = ALLOW_MUTATIONS,
         tracer: Optional[TracePrinter] = None,
+        idempotency_store: Optional[IdempotencyStore] = None,
+        idempotency_operation_ttl_seconds: int = settings.idempotency_operation_ttl_seconds,
+        idempotency_lease_seconds: int = settings.idempotency_lease_seconds,
+        idempotency_wait_seconds: float = settings.idempotency_wait_seconds,
+        idempotency_poll_interval_seconds: float = settings.idempotency_poll_interval_seconds,
     ):
         self.registry = registry
         self.allow_mutations = allow_mutations
         self.tracer = tracer or NULL_TRACE
+        self.idempotency_store = idempotency_store
+        self.idempotency_operation_ttl_seconds = idempotency_operation_ttl_seconds
+        self.idempotency_lease_seconds = idempotency_lease_seconds
+        self.idempotency_wait_seconds = idempotency_wait_seconds
+        self.idempotency_poll_interval_seconds = idempotency_poll_interval_seconds
         # Snapshot the registry's executable handlers and mutation policy so the
         # hot path is a dict lookup, not a registry walk per tool call.
         self.supported_tools: Dict[str, Callable[[Dict[str, Any]], Any]] = registry.handler_map()
@@ -94,9 +129,14 @@ class ToolDispatcher:
         tool_call_id: str,
         tool_name: str,
         arguments: Dict[str, Any],
+        idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute one parsed tool call and return the Jarvis result envelope."""
 
+        owner_token: Optional[str] = None
+        resolved_key: Optional[str] = None
+        ctx_thread_id: Optional[str] = None
+        ctx_turn_count: Optional[int] = None
         try:
             self.tracer.event(
                 "tool.start",
@@ -135,11 +175,79 @@ class ToolDispatcher:
                     mutation_blocked=True,
                 )
 
+            if tool_name in self._mutating_names:
+                context = _IDEMPOTENCY_CONTEXT.get()
+                if context is not None:
+                    ctx_thread_id, ctx_turn_count = context
+                resolved_key = idempotency_key or self._context_idempotency_key(
+                    tool_name,
+                    arguments,
+                )
+                if resolved_key and self.idempotency_store is not None:
+                    claim = self._claim_operation(resolved_key, tool_name)
+                    if claim.state is ClaimState.COMPLETED:
+                        self._trace_idempotency("cache_hit", tool_name, resolved_key, ctx_thread_id, ctx_turn_count)
+                        return self._rebind_cached_result(
+                            claim.result,
+                            tool_call_id,
+                            tool_name,
+                        )
+                    if claim.state is ClaimState.IN_PROGRESS:
+                        claim = self._wait_for_operation(resolved_key, tool_name, ctx_thread_id, ctx_turn_count)
+                        if claim.state is ClaimState.COMPLETED:
+                            return self._rebind_cached_result(
+                                claim.result,
+                                tool_call_id,
+                                tool_name,
+                            )
+                        if claim.state is ClaimState.IN_PROGRESS:
+                            self._trace_idempotency("timeout", tool_name, resolved_key, ctx_thread_id, ctx_turn_count)
+                            return build_tool_result(
+                                tool_call_id,
+                                tool_name,
+                                success=False,
+                                error=(
+                                    "An identical mutation is still in progress. "
+                                    "Retry after the current operation finishes."
+                                ),
+                            )
+                    if claim.state is ClaimState.ACQUIRED:
+                        owner_token = claim.owner_token
+                        self._trace_idempotency("claim_acquired", tool_name, resolved_key, ctx_thread_id, ctx_turn_count)
+                    elif claim.state is ClaimState.UNAVAILABLE:
+                        self._trace_idempotency("fail_open", tool_name, resolved_key, ctx_thread_id, ctx_turn_count)
+
             content = self.supported_tools[tool_name](arguments)
             self.tracer.event("tool.done", "Tool call completed.", name=tool_name)
             self.tracer.payload("tool.result", tool_name, content)
-            return build_tool_result(tool_call_id, tool_name, success=True, content=content)
+            result = build_tool_result(tool_call_id, tool_name, success=True, content=content)
+            if owner_token and resolved_key and self.idempotency_store:
+                completed = self._complete_operation(
+                    resolved_key,
+                    owner_token,
+                    result,
+                )
+                self._trace_idempotency(
+                    "completed" if completed else "completion_failed",
+                    tool_name,
+                    resolved_key,
+                    ctx_thread_id,
+                    ctx_turn_count,
+                )
+                if not completed:
+                    logger.warning(
+                        "Tool executed but claim was lost — possible duplicate.",
+                        extra={
+                            "tool_name": tool_name,
+                            "idempotency_key": resolved_key,
+                            "thread_id": ctx_thread_id,
+                            "turn_count": ctx_turn_count,
+                        },
+                    )
+                    self._abandon_operation(resolved_key, owner_token, tool_name, ctx_thread_id, ctx_turn_count)
+            return result
         except TodoistApiError as error:
+            self._abandon_operation(resolved_key, owner_token, tool_name, ctx_thread_id, ctx_turn_count)
             classified_error = error.to_classifier_payload()
             self.tracer.event(
                 "tool.error",
@@ -158,8 +266,152 @@ class ToolDispatcher:
                 classified_error=classified_error,
             )
         except Exception as error:
+            self._abandon_operation(resolved_key, owner_token, tool_name, ctx_thread_id, ctx_turn_count)
             self.tracer.event("tool.error", "Tool call failed.", name=tool_name, error=str(error))
             return build_tool_result(tool_call_id, tool_name, success=False, error=str(error))
+
+    def _context_idempotency_key(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+    ) -> Optional[str]:
+        context = _IDEMPOTENCY_CONTEXT.get()
+        if context is None:
+            return None
+        thread_id, turn_count = context
+        if not thread_id:
+            return None
+        return build_operation_idempotency_key(
+            tool_name,
+            arguments,
+            thread_id,
+            turn_count,
+        )
+
+    def _claim_operation(
+        self,
+        key: Optional[str],
+        tool_name: str,
+    ) -> ClaimResult:
+        if not key or self.idempotency_store is None:
+            return ClaimResult(ClaimState.UNAVAILABLE)
+        try:
+            return self.idempotency_store.claim(
+                key,
+                "operation",
+                self.idempotency_operation_ttl_seconds,
+                self.idempotency_lease_seconds,
+                tool_name=tool_name,
+            )
+        except Exception:
+            return ClaimResult(ClaimState.UNAVAILABLE)
+
+    def _wait_for_operation(
+        self,
+        key: Optional[str],
+        tool_name: str,
+        thread_id: Optional[str] = None,
+        turn_count: Optional[int] = None,
+    ) -> ClaimResult:
+        if not key or self.idempotency_store is None:
+            return ClaimResult(ClaimState.UNAVAILABLE)
+
+        self._trace_idempotency("wait", tool_name, key, thread_id, turn_count)
+        deadline = time.monotonic() + self.idempotency_wait_seconds
+        while time.monotonic() < deadline:
+            time.sleep(
+                min(
+                    self.idempotency_poll_interval_seconds,
+                    max(0.0, deadline - time.monotonic()),
+                )
+            )
+            claim = self._claim_operation(key, tool_name)
+            if claim.state is not ClaimState.IN_PROGRESS:
+                event = (
+                    "cache_hit"
+                    if claim.state is ClaimState.COMPLETED
+                    else "claim_takeover"
+                    if claim.state is ClaimState.ACQUIRED
+                    else "fail_open"
+                )
+                self._trace_idempotency(event, tool_name, key, thread_id, turn_count)
+                return claim
+        return ClaimResult(ClaimState.IN_PROGRESS)
+
+    def _abandon_operation(
+        self,
+        key: Optional[str],
+        owner_token: Optional[str],
+        tool_name: str,
+        thread_id: Optional[str] = None,
+        turn_count: Optional[int] = None,
+    ) -> None:
+        if not key or not owner_token or self.idempotency_store is None:
+            return
+        try:
+            abandoned = self.idempotency_store.abandon(key, owner_token)
+        except Exception:
+            abandoned = False
+        self._trace_idempotency(
+            "abandoned" if abandoned else "abandon_failed",
+            tool_name,
+            key,
+            thread_id,
+            turn_count,
+        )
+
+    def _complete_operation(
+        self,
+        key: str,
+        owner_token: str,
+        result: Dict[str, Any],
+    ) -> bool:
+        if self.idempotency_store is None:
+            return False
+        try:
+            return self.idempotency_store.complete(
+                key,
+                owner_token,
+                result,
+                self.idempotency_operation_ttl_seconds,
+            )
+        except Exception:
+            return False
+
+    def _trace_idempotency(
+        self,
+        action: str,
+        tool_name: str,
+        key: Optional[str],
+        thread_id: Optional[str] = None,
+        turn_count: Optional[int] = None,
+    ) -> None:
+        self.tracer.event(
+            f"idempotency.operation.{action}",
+            "Operation idempotency state changed.",
+            tool_name=tool_name,
+            key=key,
+            thread_id=thread_id,
+            turn_count=turn_count,
+        )
+
+    @staticmethod
+    def _rebind_cached_result(
+        cached: Optional[Dict[str, Any]],
+        tool_call_id: str,
+        tool_name: str,
+    ) -> Dict[str, Any]:
+        if not isinstance(cached, dict):
+            return build_tool_result(
+                tool_call_id,
+                tool_name,
+                success=False,
+                error="Cached operation result is invalid.",
+            )
+        result = copy.deepcopy(cached)
+        result["tool_call_id"] = tool_call_id
+        result["tool_name"] = tool_name
+        return result
 
     @staticmethod
     def _parse_arguments(arguments_json: Any) -> Dict[str, Any]:
@@ -301,5 +553,6 @@ __all__ = [
     "openai_tool_call_to_toolnode_call",
     "tool_message_to_result",
     "tool_result_to_message",
+    "tool_idempotency_context",
     "toolnode_output_messages",
 ]

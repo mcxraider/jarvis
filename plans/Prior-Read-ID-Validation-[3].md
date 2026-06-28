@@ -1,154 +1,179 @@
-# Prior-Read ID Validation — Refined Plan
+# Prior-Read ID Validation — Rewritten Plan (v4)
 
 ## Context
 
-The LLM (DeepSeek) can hallucinate Todoist task IDs when issuing mutations. The current risk/confirm gate catches *risky* mutations but doesn't verify that the target entity was actually seen in a prior read. This feature adds a domain-neutral preflight guard: if a mutation references an ID not previously returned by a read tool in that thread, it routes to `ask_user` instead of executing.
+DeepSeek can hallucinate Todoist task IDs when issuing mutations (`complete_task`,
+`delete_todoist_task`, …). The existing risk/confirm gate (`graph/risk.py` →
+`prepare_confirm` → `confirm` → `executor`) catches *irreversible / bulk* mutations,
+but it does **not** verify that the target task was ever returned by a prior read in
+the thread. A confident-but-wrong ID on a single `update`/`complete` sails straight
+through as "low" risk and mutates the wrong task.
 
-## Evaluation of Original Plan + Refinements
+This feature adds a preflight guard: a mutation whose `task_id` was never surfaced by
+a prior read tool in the thread is **blocked** before execution and the agent is told
+to fetch the task (or ask the user) first.
 
-### Decisions Made
-- **Topology:** New dedicated `validate_entities` node (not inlined in routing)
-- **Batch policy:** Block only invalid mutations; execute valid ones normally
-- **Default stance:** Fail-open (opt-in only — tools without `requires_seen_entities` skip validation)
-- **Scope:** Entire thread history (no sliding window or session reset)
+> This v4 supersedes the original `[3]` plan, which was written against an older
+> topology. The code has since moved to a declarative `NodeSpec`/`route_by_next`
+> graph with a separate `tools/metadata.py` registry, idempotency, and an executor. The
+> sections below reconcile the feature with that current code.
 
-### Issues Identified & Resolutions
+## What changed vs the original ([3]) plan
 
-| Issue | Resolution |
-|-------|-----------|
-| `hitl` node expects ask_user from LLM message | Validation node uses its own interrupt mechanism (like confirm node does), OR routes to a lightweight "validation_ask" path that injects a synthetic ask_user tool result and loops back to agent |
-| Create tools with optional parent refs (`project_id`, `section_id`) | Mark these as `required_if_present: true` in metadata — only validate when the arg is actually provided |
-| State growth over long threads | Acceptable per decision; use a set for O(1) lookup, not list scan |
-| `needs_task_context` overlap with entity validation | They serve different purposes: entity validation = "does this ID come from a prior read?"; needs_task_context = "show the user what they're about to delete". Both stay. |
-| Content extraction shape | Todoist returns raw API JSON. Extraction paths operate on `tool_results[].content` directly |
+| Original [3] assumption | Reality in current code | Decision in v4 |
+|---|---|---|
+| Put `emits_entities` / `requires_seen_entities` on `ToolSpec` (`tools/base.py`) | `ToolSpec` is deliberately domain-neutral; risk/display metadata lives in a separate `_REGISTRY` in `tools/metadata.py` (alongside `needs_task_context`) | Add entity requirements to `tools/metadata.py`, not `ToolSpec` |
+| Build a new `SeenEntityIndex` from scratch | `prepare_confirm.py:43` `_find_task_content()` + `_extract_task_items()` already scan prior `role:"tool"` messages for a task by ID | Consolidate: share one task-extraction helper; the index reuses it |
+| New interrupt / "hitl_synthetic" / `route_after_validation` router | Graph already has a generic `route_by_next` router and a synthetic-tool-message pattern (`deferred_tool_message`) used by hitl & executor | Reuse `route_by_next`; block via synthetic tool messages → loop to agent (no new interrupt) |
+| Same-turn protection needs `turn_count` gating | Validate runs **before** the `tools` node, so this turn's reads aren't in `state["tool_results"]` yet | No gating needed — ordering gives it for free |
+| Validate `project_id`/`section_id` on create tools (`required_if_present`) | **No `get_projects`/`get_sections` read tool exists** — those IDs are never emitted, so validating them fails-*closed* | Out of scope for v1 (task_id only) |
+| Table omitted `uncomplete_task`, `add_comment` | Both mutate and take `task_id` | Included below |
+
+## Decisions (confirmed)
+
+- **Scope:** `task_id` only. Skip `project_id`/`section_id`/`parent_id`.
+- **Batch policy:** if any call in the assistant turn references an unseen `task_id`,
+  **block the whole batch** (defer every call). Keeps the OpenAI message contract
+  trivially consistent (every `tool_call` gets exactly one tool result).
+- **Block mechanism:** append synthetic error tool-result messages and route back to
+  `agent` (which re-reads or calls `ask_user` itself). No new interrupt type.
 
 ---
 
 ## Architecture
 
-### New Metadata on ToolSpec
+### Current topology (unchanged nodes)
+```
+agent ─route_after_agent→ { hitl | tools | prepare_confirm(="confirm") | end }
+tools ─route_after_tools→ { agent | summarize }
+prepare_confirm → confirm ─route_after_confirm→ { executor | end }
+executor → agent
+```
 
-Extend `ToolSpec` (or create a sibling `ToolEntityMeta`) in `agents/agent_api/app/tools/base.py`:
+### New topology
+```
+agent ─route_after_agent→ { hitl | validate_entities(="validate") | end }
+validate_entities ─route_by_next→ { tools | prepare_confirm(="confirm") | agent }
+```
+Risk classification (`partition_tool_calls`) **moves out of `route_after_agent`** and
+into the validate node, so there is a single place that decides tools-vs-confirm.
+`ask_user` still wins and routes to `hitl` before validation (unchanged).
+
+### Entity metadata — `tools/metadata.py`
+Add a dedicated requirements map (sibling to `_REGISTRY`, not on `ToolSpec`):
 
 ```python
 @dataclass(frozen=True)
-class EntityEmission:
-    namespace: str          # "todoist"
-    entity_type: str        # "task"
-    paths: List[str]        # JSONPath-lite: "content[].id", "content.id", "content.items[].id"
+class EntityRef:
+    arg: str            # "task_id"
+    entity_type: str    # "task"
+    required: bool = True   # False = validate only when the arg is present
 
-@dataclass(frozen=True)
-class EntityRequirement:
-    arg_name: str           # "task_id"
-    namespace: str          # "todoist"
-    entity_type: str        # "task"
-    required_if_present: bool = False  # True for optional args like project_id on create tools
+_ENTITY_REQUIREMENTS: Dict[str, Tuple[EntityRef, ...]] = {
+    "complete_task":       (EntityRef("task_id", "task"),),
+    "uncomplete_task":     (EntityRef("task_id", "task"),),
+    "update_todoist_task": (EntityRef("task_id", "task"),),
+    "delete_todoist_task": (EntityRef("task_id", "task"),),
+    "add_comment":         (EntityRef("task_id", "task", required=False),),  # task_id OR project_id
+}
 
-@dataclass(frozen=True)
-class ToolSpec:
-    name: str
-    openai_schema: Dict[str, Any]
-    handler: Optional[Callable] = None
-    mutating: bool = False
-    emits_entities: Tuple[EntityEmission, ...] = ()
-    requires_seen_entities: Tuple[EntityRequirement, ...] = ()
+def entity_requirements(tool_name: str) -> Tuple[EntityRef, ...]:
+    return _ENTITY_REQUIREMENTS.get(tool_name, ())
 ```
+Tools absent from the map (reads, `add_todoist_task`, `bulk_add_todoist_tasks`, `ask_user`)
+have no requirements → **fail-open** pass-through.
 
-### Todoist Tool Metadata
+### Shared extraction — `graph/extractors.py`
+Promote `prepare_confirm`'s private `_extract_task_items()` to a shared
+`extract_task_items(content) -> list[dict]` here (it already handles list /
+`{"results":[…]}` / `{"content":{…}}` / single-task / completed `{"items":[…]}` shapes).
+Refactor `prepare_confirm._find_task_content` to import it (consolidation).
 
-| Tool | emits_entities | requires_seen_entities |
-|------|---------------|----------------------|
-| `get_tasks` | `todoist/task` from `content[].id` | — |
-| `get_todoist_task` | `todoist/task` from `content.id` | — |
-| `get_tasks_by_filter` | `todoist/task` from `content[].id` | — |
-| `get_completed_todoist_tasks_by_completion_date` | `todoist/task` from `content.items[].id` | — |
-| `complete_task` | — | `task_id` → `todoist/task` |
-| `update_todoist_task` | — | `task_id` → `todoist/task` |
-| `delete_todoist_task` | — | `task_id` → `todoist/task` |
-| `add_todoist_task` | — | `project_id` → `todoist/project` (required_if_present), `section_id` → `todoist/section` (required_if_present) |
-| `bulk_add_todoist_tasks` | — | `project_id` → `todoist/project` (required_if_present) |
-
-### SeenEntityIndex
-
-New file: `agents/agent_api/app/graph/entity_index.py`
-
+### Seen-entity index — `graph/entity_index.py` (new)
 ```python
 class SeenEntityIndex:
-    """Scans tool_results for emitted entity IDs. O(1) lookup after build."""
-    
-    def __init__(self, tool_results: List[Dict], registry: ToolRegistry):
-        self._seen: Set[Tuple[str, str, str]] = set()  # (namespace, type, id)
-        self._build(tool_results, registry)
-    
-    def has(self, namespace: str, entity_type: str, entity_id: str) -> bool: ...
-    
-    def validate_call(self, tool_call, registry) -> List[str]:
-        """Returns list of violation descriptions, empty = valid."""
+    """IDs surfaced by prior successful reads. O(1) lookup after build."""
+    def __init__(self, tool_results: list[dict]):
+        self._seen: set[tuple[str, str]] = set()   # (entity_type, id)
+        for r in tool_results:
+            if not r.get("success"):
+                continue
+            for task in extract_task_items(r.get("content")):
+                tid = task.get("id")
+                if tid:
+                    self._seen.add(("task", str(tid)))
+
+    def has(self, entity_type: str, entity_id: str) -> bool: ...
+
+    def violations(self, tool_calls: list[dict]) -> list[dict]:
+        """[{tool_call, arg, entity_type, value}, …] for unseen required IDs."""
 ```
+Builds from `state["tool_results"]` (structured envelopes — no JSON re-parse). `required=False`
+refs only count as violations when the arg is actually present and non-empty.
 
-### New Graph Node: `validate_entities`
+### Validate node — `graph/nodes/validate_entities.py` (new)
+`create_validate_entities_node(tracer)` returning `validate_entities_node(state)`:
+1. Read latest assistant `tool_calls` (ask_user already routed to hitl upstream).
+2. `index = SeenEntityIndex(state.get("tool_results", []))`; `violations = index.violations(tool_calls)`.
+3. **No violations →** set `next` via `partition_tool_calls(tool_calls, state)`:
+   `"confirm"` if any risky else `"tools"`. Return `{"next": …}` only (don't touch messages).
+4. **Violations →** append a synthetic tool-result message for **every** call in the turn:
+   - violating call → `success:false`, error: *"Task id `<x>` was not returned by any prior
+     read in this conversation. Fetch it first (e.g. get_tasks / get_tasks_by_filter) or ask
+     the user, then retry."*
+   - non-violating sibling → reuse `deferred_tool_message(tc, "Deferred — a sibling call
+     referenced an unverified id; retry after resolving.")`
+   Return `{"messages": messages + synthetic, "next": "agent"}`. (Append to `messages` only,
+   **not** `tool_results` — mirrors `hitl`; keeps blocked calls out of the seen-index.)
 
-New file: `agents/agent_api/app/graph/nodes/validate_entities.py`
+`max_agent_turns` already bounds any re-ask loop, so a stubborn hallucination terminates safely.
 
-**Position in graph:**
-```
-agent → validate_entities → route_after_validation → (tools | prepare_confirm | hitl_synthetic | end)
-```
-
-**Logic:**
-1. Extract tool_calls from latest assistant message
-2. If no tool_calls or none have `requires_seen_entities`: pass through (set `state["next"] = "continue"`)
-3. Build `SeenEntityIndex` from `state["tool_results"]` 
-4. For each tool_call with entity requirements, validate
-5. If ALL valid: pass through with original routing intact
-6. If SOME invalid:
-   - Partition into valid + invalid
-   - For invalid: generate synthetic tool result messages with error explaining the missing ID
-   - Inject an `ask_user`-style question into messages: "I can't verify that task ID X was returned by a prior read. Which task did you mean?"
-   - Route valid calls to their normal path (tools or prepare_confirm based on risk)
-   - Route back to agent (which will see the error messages and ask_user result, and should re-ask)
-
-**Same-turn protection:** Only scan `tool_results` entries that existed BEFORE the current agent turn (use `turn_count` or message index to gate). This prevents a read + mutation in the same assistant response from self-satisfying.
-
-### Graph Wiring Change
-
-In `builder.py`, insert `validate_entities` between `agent` and the existing routing:
-
-```python
-# Before:
-# agent → route_after_agent → (hitl | tools | prepare_confirm | end)
-
-# After:
-# agent → route_after_agent_pre → (hitl | validate_entities | end)
-#                                         ↓
-# validate_entities → route_after_validation → (tools | prepare_confirm | agent)
-```
-
-Note: `ask_user` calls from the LLM still route directly to `hitl` (priority unchanged). Validation only applies to tool calls that AREN'T ask_user.
+### Wiring — `graph/edges.py` + `graph/builder.py`
+- `route_after_agent`: replace the risky/safe split with a single branch — non-ask_user
+  `tool_calls` → `"validate"`; keep `hitl` / `end`. Drop the `partition_tool_calls` import here.
+- `builder.py` agent `route_map`: `{"hitl":"hitl", "validate":"validate_entities", "end":"end"}`.
+- New `NodeSpec(name="validate_entities", node=…, router=route_by_next,
+  route_map={"tools":"tools", "confirm":"prepare_confirm", "agent":"agent"})`.
 
 ---
 
-## Files to Modify
+## Files to modify
 
 | File | Change |
-|------|--------|
-| `agents/agent_api/app/tools/base.py` | Add `EntityEmission`, `EntityRequirement` dataclasses; extend `ToolSpec` |
-| `agents/agent_api/app/tools/todoist/tools.py` | Add entity metadata to each tool spec |
-| `agents/agent_api/app/graph/entity_index.py` | **New** — `SeenEntityIndex` class |
-| `agents/agent_api/app/graph/nodes/validate_entities.py` | **New** — validation node |
-| `agents/agent_api/app/graph/builder.py` | Wire new node into graph between agent and tools/confirm |
-| `agents/agent_api/app/graph/edges.py` | Add `route_after_validation` router |
-| `agents/agent_api/app/graph/assembly.py` | Add NodeSpec for validate_entities |
+|---|---|
+| `agents/agent_api/app/tools/metadata.py` | Add `EntityRef`, `_ENTITY_REQUIREMENTS`, `entity_requirements()` |
+| `agents/agent_api/app/graph/extractors.py` | Add shared `extract_task_items()` |
+| `agents/agent_api/app/graph/entity_index.py` | **New** — `SeenEntityIndex` |
+| `agents/agent_api/app/graph/nodes/validate_entities.py` | **New** — validate node |
+| `agents/agent_api/app/graph/edges.py` | `route_after_agent` → `"validate"` branch |
+| `agents/agent_api/app/graph/builder.py` | agent `route_map` + `validate_entities` NodeSpec |
+| `agents/agent_api/app/graph/nodes/prepare_confirm.py` | Reuse shared `extract_task_items` (consolidation) |
 
----
+## Tests
 
-## Verification Plan
+| File | Change |
+|---|---|
+| `tests/agents/test_edges_route_after_agent.py` | Tool-call cases (`tools`/`confirm`) now expect `"validate"`; remove now-moved risk-split asserts |
+| `tests/agents/test_edges_confirm.py` | Same: tool-call cases now expect `"validate"` |
+| `tests/agents/test_entity_index.py` | **New** — build from synthetic `tool_results`; `has()` + `violations()` for hits, misses, `required=False` absent vs present |
+| `tests/agents/test_validate_entities_node.py` | **New** — passthrough sets `next` `confirm`/`tools` (risk split); violation appends synthetic results + `next="agent"`; fail-open for tools without requirements; same-turn (read+mutation in one batch → blocked) |
+| `tests/agents/test_jarvis.py` | Extend: happy path (`get_tasks`→`complete_task` with returned id executes); hallucinated id blocked (no mutation); same-turn batch blocked |
 
-1. **Unit test: SeenEntityIndex** — Feed synthetic tool_results with known IDs, assert `has()` and `validate_call()` behave correctly for hits, misses, and `required_if_present` args
-2. **Unit test: validate_entities node** — Mock state with/without prior reads, assert routing decisions
-3. **Integration test: happy path** — `get_tasks` → `complete_task` with returned ID → executes normally
-4. **Integration test: hallucinated ID** — `complete_task` with unseen ID → routes to ask_user, does NOT execute
-5. **Integration test: same-turn protection** — Agent issues `get_tasks` + `complete_task` in same tool_call batch → blocks the mutation (read hasn't landed in state yet)
-6. **Integration test: partial batch** — 3 mutations, 1 with unseen ID → 2 execute, 1 blocked with error
-7. **Integration test: create tool optional refs** — `add_todoist_task` with `project_id` that was never read → asks; without `project_id` → passes
-8. **Future connector test** — Register fake `notion/page` emitter + mutator, validate without Todoist imports
+## Verification
+
+```bash
+# from repo root, in the project venv
+python -m pytest tests/agents/test_entity_index.py tests/agents/test_validate_entities_node.py \
+  tests/agents/test_edges_route_after_agent.py tests/agents/test_edges_confirm.py \
+  tests/agents/test_jarvis.py tests/agents/test_prepare_confirm_node.py -q
+```
+1. Full agent suite green (especially the unchanged `prepare_confirm` / `executor` / confirm-flow tests — proves the inserted node didn't disturb the risky path).
+2. Happy path: a thread that reads then mutates the returned id executes normally.
+3. Hallucinated id: mutation on an unseen id produces a synthetic "not found" tool message and **no** Todoist call (assert dispatcher/executor not invoked for it).
+4. Same-turn: `[get_tasks, complete_task]` in one assistant turn → whole batch deferred; agent re-issues `get_tasks` alone next turn, then `complete_task` passes.
+
+## Out of scope / future
+- `project_id` / `section_id` / `parent_id` validation (needs a projects/sections read tool,
+  or harvesting those nested fields from task reads into the index).
+- Multi-domain generalization: today `extract_task_items` + `entity_type="task"` are Todoist-specific.
+  Extending to Gmail/Calendar/Notion = register a per-`entity_type` extractor and add `EntityRef`s — no node changes.

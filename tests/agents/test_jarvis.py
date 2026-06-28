@@ -75,6 +75,9 @@ class FakeTodoistClient:
     def complete_task(self, arguments: Dict[str, Any]) -> Any:
         return self._record("complete_task", arguments)
 
+    def uncomplete_task(self, arguments: Dict[str, Any]) -> Any:
+        return self._record("uncomplete_task", arguments)
+
     def delete_todoist_task(self, arguments: Dict[str, Any]) -> Any:
         return self._record("delete_todoist_task", arguments)
 
@@ -83,6 +86,15 @@ class FakeTodoistClient:
 
     def bulk_add_todoist_tasks(self, arguments: Dict[str, Any]) -> Any:
         return self._record("bulk_add_todoist_tasks", arguments)
+
+    def get_comments(self, arguments: Dict[str, Any]) -> Any:
+        return self._record("get_comments", arguments)
+
+    def add_comment(self, arguments: Dict[str, Any]) -> Any:
+        return self._record("add_comment", arguments)
+
+    def get_labels(self, arguments: Dict[str, Any]) -> Any:
+        return self._record("get_labels", arguments)
 
 
 class ParallelTrackingTodoistClient(FakeTodoistClient):

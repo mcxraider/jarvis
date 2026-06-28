@@ -16,7 +16,9 @@ MUTATING_TOOL_NAMES = {
     "bulk_add_todoist_tasks",
     "update_todoist_task",
     "complete_task",
+    "uncomplete_task",
     "delete_todoist_task",
+    "add_comment",
 }
 
 
@@ -26,37 +28,93 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
     add_task_parameters = {
         "type": "object",
         "properties": {
-            "content": {"type": "string", "description": "Task title or content"},
-            "description": {"type": "string", "description": "Optional task details"},
-            "project_id": {"type": "string", "description": "Project ID"},
-            "section_id": {"type": "string", "description": "Section ID"},
-            "parent_id": {"type": "string", "description": "Parent task ID"},
-            "order": {"type": "integer", "description": "Task order"},
-            "labels": {"type": "array", "items": {"type": "string"}},
+            "content": {
+                "type": "string",
+                "description": (
+                    "Task name/title. Should be concise and actionable. Supports Markdown."
+                ),
+            },
+            "description": {
+                "type": "string",
+                "description": "Additional details or notes for the task. Supports Markdown.",
+            },
+            "project_id": {
+                "type": "string",
+                "description": "Project ID to add the task to. Omit to use the Inbox.",
+            },
+            "section_id": {
+                "type": "string",
+                "description": "Section ID within the project to place the task under.",
+            },
+            "parent_id": {
+                "type": "string",
+                "description": "Parent task ID. Set this to create the task as a subtask.",
+            },
+            "order": {
+                "type": "integer",
+                "description": "Position of the task among its siblings (lower appears first).",
+            },
+            "labels": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Label names to attach to the task.",
+            },
             "priority": {
                 "type": "integer",
                 "enum": [1, 2, 3, 4],
-                "description": "1 normal, 2 low, 3 medium, 4 high",
+                "description": (
+                    "Task priority as an integer 1-4. 4 = highest urgency (shown as P1 in "
+                    "the Todoist UI), 3 = P2, 2 = P3, 1 = normal/default (P4). Higher number "
+                    "means more urgent."
+                ),
             },
-            "due_string": {"type": "string", "description": "Natural due date"},
+            "due_string": {
+                "type": "string",
+                "description": (
+                    "Natural-language due date, e.g. 'tomorrow at 3pm', 'every Monday'. "
+                    "Use this for recurring tasks."
+                ),
+            },
             "due_date": {
                 "type": "string",
                 "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                "description": "YYYY-MM-DD due date",
+                "description": "All-day due date in YYYY-MM-DD format.",
             },
-            "due_datetime": {"type": "string", "description": "RFC3339 due datetime"},
-            "due_lang": {"type": "string", "description": "Due date language code"},
-            "assignee_id": {"type": "integer", "description": "Numeric assignee user ID"},
-            "duration": {"type": "integer", "minimum": 1, "description": "Task duration"},
+            "due_datetime": {
+                "type": "string",
+                "description": "Due date and time as an RFC3339 datetime (e.g. 2025-12-31T17:00:00Z).",
+            },
+            "due_lang": {
+                "type": "string",
+                "description": "Language code used to parse due_string (e.g. 'en').",
+            },
+            "assignee_id": {
+                "type": "integer",
+                "description": (
+                    "Numeric user ID to assign the task to. The user must be a collaborator "
+                    "on the target project."
+                ),
+            },
+            "duration": {
+                "type": "integer",
+                "minimum": 1,
+                "description": (
+                    "Amount of time the task takes, paired with duration_unit. Max 24 hours "
+                    "(1440 minutes). Requires duration_unit."
+                ),
+            },
             "duration_unit": {
                 "type": "string",
                 "enum": ["minute", "day"],
-                "description": "Duration unit; required with duration",
+                "description": "Unit for duration; required when duration is set.",
             },
             "deadline_date": {
                 "type": "string",
                 "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                "description": "YYYY-MM-DD deadline",
+                "description": (
+                    "Deadline date in YYYY-MM-DD format, e.g. '2025-12-31'. Distinct from "
+                    "the due date."
+                ),
             },
         },
         "required": ["content"],
@@ -88,11 +146,15 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
             "priority": {
                 "type": "integer",
                 "enum": [1, 2, 3, 4],
-                "description": "1 normal, 2 low, 3 medium, 4 high",
+                "description": (
+                    "Task priority as an integer 1-4. 4 = highest urgency (shown as P1 in "
+                    "the Todoist UI), 3 = P2, 2 = P3, 1 = normal/default (P4). Higher number "
+                    "means more urgent."
+                ),
             },
             "due_string": {
                 "type": "string",
-                "description": "Natural due date (same for all)",
+                "description": "Natural-language due date applied to all created tasks.",
             },
             "due_date": {
                 "type": "string",
@@ -118,14 +180,45 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
     update_task_parameters = {
         "type": "object",
         "properties": {
-            "task_id": {"type": "string", "description": "Todoist task ID"},
-            "content": {"type": "string", "description": "New task title"},
-            "description": {"type": "string", "description": "New task details"},
-            "labels": {"type": "array", "items": {"type": "string"}},
-            "priority": {"type": "integer", "enum": [1, 2, 3, 4]},
-            "due_string": {"type": "string", "description": "Natural due date"},
-            "due_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
-            "due_datetime": {"type": "string", "description": "RFC3339 due datetime"},
+            "task_id": {"type": "string", "description": "Todoist task ID to update"},
+            "content": {
+                "type": "string",
+                "description": "New task name/title. Concise and actionable; supports Markdown.",
+            },
+            "description": {
+                "type": "string",
+                "description": "New additional details or notes. Supports Markdown.",
+            },
+            "labels": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "New labels. Replaces all existing labels on the task.",
+            },
+            "priority": {
+                "type": "integer",
+                "enum": [1, 2, 3, 4],
+                "description": (
+                    "Task priority as an integer 1-4. 4 = highest urgency (shown as P1 in "
+                    "the Todoist UI), 3 = P2, 2 = P3, 1 = normal/default (P4). Higher number "
+                    "means more urgent."
+                ),
+            },
+            "due_string": {
+                "type": "string",
+                "description": (
+                    "New natural-language due date, e.g. 'tomorrow at 5pm'. Use for "
+                    "recurring schedules."
+                ),
+            },
+            "due_date": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "description": "New all-day due date in YYYY-MM-DD format.",
+            },
+            "due_datetime": {
+                "type": "string",
+                "description": "New due date and time as an RFC3339 datetime.",
+            },
             "due_lang": {"type": "string", "description": "Due date language code"},
             "assignee_id": {
                 "type": ["integer", "null"],
@@ -161,11 +254,27 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
     get_tasks_parameters = {
         "type": "object",
         "properties": {
-            "project_id": {"type": "string"},
-            "section_id": {"type": "string"},
-            "parent_id": {"type": "string"},
-            "label": {"type": "string"},
-            "ids": {"type": "array", "items": {"type": "string"}},
+            "project_id": {
+                "type": "string",
+                "description": "Only return active tasks in this project.",
+            },
+            "section_id": {
+                "type": "string",
+                "description": "Only return active tasks in this section.",
+            },
+            "parent_id": {
+                "type": "string",
+                "description": "Only return subtasks of this parent task.",
+            },
+            "label": {
+                "type": "string",
+                "description": "Only return tasks carrying this label name.",
+            },
+            "ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Fetch only these specific task IDs.",
+            },
             "goal_id": {"type": "string", "format": "uuid"},
             "cursor": {
                 "type": ["string", "null"],
@@ -188,8 +297,10 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
                 "minLength": 1,
                 "maxLength": 1024,
                 "description": (
-                    "Todoist filter expression; comma-separated multi-list filters "
-                    "are unsupported"
+                    "Todoist filter expression. Examples: 'today', 'overdue', 'p1', "
+                    "'##Work' (project), '@email' (label), '(today | overdue) & p1'. "
+                    "Operators: & (and), | (or), ! (not), () grouping. Comma-separated "
+                    "multi-list filters are not supported."
                 ),
             },
             "lang": {"type": "string", "description": "IETF filter language tag"},
@@ -209,10 +320,28 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
     completed_tasks_parameters = {
         "type": "object",
         "properties": {
-            "since": {"type": "string", "format": "date-time", "description": "RFC3339 start"},
-            "until": {"type": "string", "format": "date-time", "description": "RFC3339 end"},
+            "since": {
+                "type": "string",
+                "format": "date-time",
+                "description": (
+                    "Start of the completion window as a timezone-aware RFC3339 timestamp "
+                    "(e.g. 2025-12-01T00:00:00Z). Defaults to 30 days before 'until'. The "
+                    "range cannot exceed three months."
+                ),
+            },
+            "until": {
+                "type": "string",
+                "format": "date-time",
+                "description": (
+                    "End of the completion window as a timezone-aware RFC3339 timestamp. "
+                    "Defaults to now."
+                ),
+            },
             "workspace_id": {"type": "integer", "minimum": 1},
-            "project_id": {"type": "string"},
+            "project_id": {
+                "type": "string",
+                "description": "Only return completed tasks from this project.",
+            },
             "section_id": {"type": "string"},
             "parent_id": {"type": "string"},
             "filter_query": {
@@ -222,6 +351,80 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
             "filter_lang": {
                 "type": "string",
                 "description": "Language code used to parse filter_query",
+            },
+            "cursor": {
+                "type": ["string", "null"],
+                "description": (
+                    "Opaque pagination token from a previous response's next_cursor field. "
+                    "Omit or pass null for the first page. NEVER fabricate a cursor value."
+                ),
+            },
+            "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+        },
+        "required": [],
+        "additionalProperties": False,
+    }
+
+    get_comments_parameters = {
+        "type": "object",
+        "properties": {
+            "task_id": {
+                "type": "string",
+                "description": "Return comments on this task. Provide a task or a project.",
+            },
+            "project_id": {
+                "type": "string",
+                "description": "Return comments on this project. Provide a task or a project.",
+            },
+            "comment_id": {
+                "type": "string",
+                "description": "Fetch a single comment by its ID instead of listing comments.",
+            },
+            "cursor": {
+                "type": ["string", "null"],
+                "description": (
+                    "Opaque pagination token from a previous response's next_cursor field. "
+                    "Omit or pass null for the first page. NEVER fabricate a cursor value."
+                ),
+            },
+            "limit": {"type": "integer", "minimum": 1, "maximum": 10},
+        },
+        "required": [],
+        "additionalProperties": False,
+    }
+
+    add_comment_parameters = {
+        "type": "object",
+        "properties": {
+            "content": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Comment text. Supports Markdown.",
+            },
+            "task_id": {
+                "type": "string",
+                "description": "ID of the task to comment on. Provide exactly one of task or project.",
+            },
+            "project_id": {
+                "type": "string",
+                "description": (
+                    "ID of the project to comment on. Provide exactly one of task or project."
+                ),
+            },
+        },
+        "required": ["content"],
+        "additionalProperties": False,
+    }
+
+    get_labels_parameters = {
+        "type": "object",
+        "properties": {
+            "search": {
+                "type": "string",
+                "description": (
+                    "Optional case-insensitive substring to filter labels by name "
+                    "(e.g. 'work' matches 'work', 'homework'). Omit to return all labels."
+                ),
             },
             "cursor": {
                 "type": ["string", "null"],
@@ -293,7 +496,15 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "complete_task",
-                "description": "Mark a Todoist task complete.",
+                "description": "Mark (close) a Todoist task as complete by its ID.",
+                "parameters": task_id_parameters,
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "uncomplete_task",
+                "description": "Uncomplete (reopen) a previously completed Todoist task by its ID.",
                 "parameters": task_id_parameters,
             },
         },
@@ -301,7 +512,9 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "delete_todoist_task",
-                "description": "Delete a Todoist task permanently.",
+                "description": (
+                    "Permanently delete a Todoist task by its ID. This cannot be undone."
+                ),
                 "parameters": task_id_parameters,
             },
         },
@@ -311,6 +524,39 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
                 "name": "get_completed_todoist_tasks_by_completion_date",
                 "description": "List completed Todoist tasks by completion date.",
                 "parameters": completed_tasks_parameters,
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_comments",
+                "description": (
+                    "List comments on a task or project, or fetch a single comment by ID. "
+                    "Provide task_id or project_id to list, or comment_id to fetch one."
+                ),
+                "parameters": get_comments_parameters,
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "add_comment",
+                "description": (
+                    "Add a comment to a task or project. Provide exactly one of task_id "
+                    "or project_id."
+                ),
+                "parameters": add_comment_parameters,
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_labels",
+                "description": (
+                    "List the user's personal labels, optionally filtered by a name "
+                    "substring."
+                ),
+                "parameters": get_labels_parameters,
             },
         },
     ]

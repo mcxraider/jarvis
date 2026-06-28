@@ -7,7 +7,7 @@ reproducible and can be verified at execution time (hash-binding guard).
 import hashlib
 import json
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, Iterable
 
 from agents.agent_api.app.tools.base import parse_tool_call_arguments, tool_call_name
 
@@ -15,6 +15,49 @@ from agents.agent_api.app.tools.base import parse_tool_call_arguments, tool_call
 def canonicalize(args: Dict[str, Any]) -> bytes:
     """Stable JSON serialization: sorted keys, no whitespace."""
     return json.dumps(args, sort_keys=True, separators=(",", ":"), default=str).encode()
+
+
+def _hash_components(components: Iterable[bytes]) -> str:
+    """Hash unambiguously framed byte components."""
+
+    digest = hashlib.sha256()
+    for component in components:
+        digest.update(len(component).to_bytes(8, byteorder="big"))
+        digest.update(component)
+    return digest.hexdigest()
+
+
+def build_request_idempotency_key(
+    logical_route: str,
+    source: str,
+    user_id: str,
+    request_id: str,
+) -> str:
+    """Build a retry key scoped to one caller and logical API operation."""
+
+    return _hash_components(
+        component.encode()
+        for component in ("request:v1", logical_route, source, user_id, request_id)
+    )
+
+
+def build_operation_idempotency_key(
+    tool_name: str,
+    args: Dict[str, Any],
+    thread_id: str,
+    turn_count: int,
+) -> str:
+    """Build a replay key for one mutating operation in a graph turn."""
+
+    return _hash_components(
+        (
+            b"operation:v1",
+            tool_name.encode(),
+            canonicalize(args),
+            thread_id.encode(),
+            str(turn_count).encode(),
+        )
+    )
 
 
 def build_held_call(tool_call: Dict[str, Any], thread_id: str, turn_count: int) -> Dict[str, Any]:
@@ -28,9 +71,12 @@ def build_held_call(tool_call: Dict[str, Any], thread_id: str, turn_count: int) 
         "args": json.loads(canonical),
         "hash": call_hash,
         "origin_tool_call_id": tool_call.get("id", "missing_tool_call_id"),
-        "idempotency_key": hashlib.sha256(
-            canonical + thread_id.encode() + str(turn_count).encode()
-        ).hexdigest(),
+        "idempotency_key": build_operation_idempotency_key(
+            tool_call_name(tool_call),
+            args,
+            thread_id,
+            turn_count,
+        ),
     }
 
 
@@ -40,4 +86,10 @@ def verify_hash(held_call: Dict[str, Any]) -> bool:
     return hashlib.sha256(canonical).hexdigest() == held_call["hash"]
 
 
-__all__ = ["build_held_call", "canonicalize", "verify_hash"]
+__all__ = [
+    "build_held_call",
+    "build_operation_idempotency_key",
+    "build_request_idempotency_key",
+    "canonicalize",
+    "verify_hash",
+]

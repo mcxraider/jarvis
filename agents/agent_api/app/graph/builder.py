@@ -7,6 +7,7 @@ from typing import Any, Optional
 from langgraph.types import Command
 
 from agents.agent_api.app.checkpointing import DEFAULT_CHECKPOINTER
+from agents.agent_api.app.config import settings
 from agents.agent_api.app.constants import (
     ALLOW_MUTATIONS,
     DEEPSEEK_MODEL,
@@ -29,6 +30,7 @@ from agents.agent_api.app.graph.nodes.summarize import create_summarize_node
 from agents.agent_api.app.graph.nodes.tools import create_tools_node
 from agents.agent_api.app.graph.prompts import USER_PROMPT, build_initial_messages
 from agents.agent_api.app.graph.state import JarvisState, enrich_interrupt_status
+from agents.agent_api.app.idempotency import DEFAULT_IDEMPOTENCY_STORE, IdempotencyStore
 from agents.agent_api.app.run_logging import (
     FileLoggingTracer,
     RunLogIdentity,
@@ -158,6 +160,7 @@ def run_jarvis(
     checkpointer: Optional[Any] = None,
     request_id: Optional[str] = None,
     tool_selector: Optional[ToolSelector] = None,
+    idempotency_store: Optional[IdempotencyStore] = None,
 ) -> JarvisState:
     """Run the full Jarvis graph for one invocation.
 
@@ -172,6 +175,8 @@ def run_jarvis(
     request_id = request_id or str(uuid.uuid4())
     checkpointer = checkpointer or DEFAULT_CHECKPOINTER
     tool_selector = tool_selector or DEFAULT_TOOL_SELECTOR
+    if idempotency_store is None:
+        idempotency_store = DEFAULT_IDEMPOTENCY_STORE
 
     resuming = clarification_reply is not None
     invocation_type = "resume" if resuming else "invoke"
@@ -236,6 +241,11 @@ def run_jarvis(
         registry,
         allow_mutations=allow_mutations,
         tracer=tracer,
+        idempotency_store=idempotency_store,
+        idempotency_operation_ttl_seconds=settings.idempotency_operation_ttl_seconds,
+        idempotency_lease_seconds=settings.idempotency_lease_seconds,
+        idempotency_wait_seconds=settings.idempotency_wait_seconds,
+        idempotency_poll_interval_seconds=settings.idempotency_poll_interval_seconds,
     )
     app = create_jarvis_graph(
         agent_client,
