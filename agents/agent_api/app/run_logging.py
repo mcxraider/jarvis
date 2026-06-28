@@ -245,6 +245,16 @@ def _format_value(value: Any, indent: str = _INDENT) -> str:
             return "[]"
         if all(isinstance(item, (str, int, float, bool)) for item in value):
             return "[" + ", ".join(str(item) for item in value) + "]"
+        if all(isinstance(item, dict) for item in value):
+            nested_indent = indent + "      "
+            blocks = []
+            for item in value[:10]:
+                blocks.append(_format_dict_block(item, nested_indent))
+            header = f"\n{indent}({len(value)} items)"
+            result = header + "\n".join(blocks)
+            if len(value) > 10:
+                result += f"\n{indent}... and {len(value) - 10} more"
+            return result
         import json as _json
         return _json.dumps(value, ensure_ascii=False, default=str)
     return str(value)

@@ -4,24 +4,6 @@ Resilience around the correct agent loop. The goal is that transient failures ar
 
 > **Overall status (2026-06-24): PARTIAL.** LLM resilience (4.1) and Todoist retry (4.2) are done. Context-window management (4.3), batching (4.4), and error contract (4.5) are partial.
 
----
-
-## 4.1 LLM Call Resilience ✅
-
-**Status (2026-06-24):** Done. Merged. Retry config env-backed via `deepseek_max_retry_attempts`, `deepseek_retry_max_delay_seconds`.
-
-**Original:** Implemented on branch `fix/deepseek-llm-resilience` in commit `86c12b3`. `DeepSeekAgentClient.create_message` now has explicit timeout configuration, bounded retry with exponential backoff + jitter, retry classification for transient provider failures, and graceful graph termination through structured `JarvisState["error"]` JSON.
-
-**Implemented:**
-- Added `tenacity`-based retry with exponential backoff + jitter.
-- Set an explicit OpenAI request timeout via DeepSeek config.
-- Retry only on 429 / 5xx / timeout / connection failures; 4xx client/schema/auth errors fail fast.
-- On final failure, write structured DeepSeek error metadata into `JarvisState["error"]` so the graph ends gracefully instead of raising to the caller.
-- Covered retryable failures, non-retryable 4xx failures, and graph-level final failure behavior in `tests/agents/test_jarvis.py`.
-
-**Trade-off:** Retries add latency and cost on genuinely broken requests; attempts are capped at 3 and per-wait delay is capped at 8 seconds by default.
-
----
 
 ## 4.1b Duplicate and Clash Detection on Add ❌
 
@@ -56,26 +38,6 @@ Resilience around the correct agent loop. The goal is that transient failures ar
 - Check audio duration and file size before calling the transcription service.
 - Reject or warn on messages exceeding provider limits (e.g., Whisper's 25MB / ~2hr cap).
 - Surface a clear user-facing message ("Audio too long — please keep it under X minutes") rather than a raw API error.
-
----
-
-## 4.2 Todoist API Retry and Error Taxonomy ✅
-
-**Status (2026-06-24):** Done. Merged. Full error classification, exponential backoff with jitter, `Retry-After` support, env-backed tuning.
-
-**Original:** Done in branch `todoist-api-retry-taxonomy`.
-
-**Implemented:**
-- `TodoistApiClient._request` now classifies errors as rate-limit, transient, auth, validation, not-found, or deprecated.
-- Transient and rate-limit failures retry with bounded backoff and `Retry-After` support.
-- Auth, validation, missing config, not-found, and deprecated endpoint failures are never retried.
-- Todoist failures now surface safe structured `classified_error` metadata through tool results instead of raw provider bodies.
-- Retry tuning is environment-backed with defaults for max attempts, total retry budget, base delay, and max delay.
-
-**Validation:**
-- Added Python tests for retry success, retry exhaustion, `Retry-After`, non-retryable classifications, missing API key, `URLError`, and dispatcher/graph propagation.
-- Verified with `/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/venv/bin/python -m unittest tests.agents.test_jarvis`.
-- Verified with `/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/venv/bin/python -m compileall agents/agent_api/app tests/agents/test_jarvis.py`.
 
 ---
 

@@ -16,7 +16,12 @@ from agents.agent_api.app.constants import (
     USER_ID,
 )
 from agents.agent_api.app.graph.assembly import NodeSpec, build_graph
-from agents.agent_api.app.graph.edges import route_after_agent, route_after_confirm, route_after_tools
+from agents.agent_api.app.graph.edges import (
+    route_after_agent,
+    route_after_confirm,
+    route_after_tools,
+    route_by_next,
+)
 from agents.agent_api.app.graph.nodes.confirm import create_confirm_node
 from agents.agent_api.app.graph.nodes.executor import create_executor_node
 from agents.agent_api.app.graph.nodes.hitl import create_hitl_node
@@ -28,6 +33,7 @@ from agents.agent_api.app.graph.nodes.orchestrator import (
 from agents.agent_api.app.graph.nodes.prepare_confirm import create_prepare_confirm_node
 from agents.agent_api.app.graph.nodes.summarize import create_summarize_node
 from agents.agent_api.app.graph.nodes.tools import create_tools_node
+from agents.agent_api.app.graph.nodes.validate_entities import create_validate_entities_node
 from agents.agent_api.app.graph.prompts import USER_PROMPT, build_initial_messages
 from agents.agent_api.app.graph.state import JarvisState, enrich_interrupt_status
 from agents.agent_api.app.idempotency import DEFAULT_IDEMPOTENCY_STORE, IdempotencyStore
@@ -39,7 +45,7 @@ from agents.agent_api.app.run_logging import (
 )
 from agents.agent_api.app.tools.dispatcher import ToolDispatcher
 from agents.agent_api.app.tools.registry_factory import build_default_registry
-from agents.agent_api.app.tools.selection import DEFAULT_TOOL_SELECTOR, ToolSelector
+from agents.agent_api.app.tools.selection import ToolSelector, get_selector
 from agents.agent_api.app.tools.todoist.client import TodoistApiClient
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
@@ -78,9 +84,18 @@ def create_jarvis_graph(
             router=route_after_agent,
             route_map={
                 "hitl": "hitl",
+                "validate": "validate_entities",
+                "end": "end",
+            },
+        ),
+        NodeSpec(
+            name="validate_entities",
+            node=create_validate_entities_node(tracer),
+            router=route_by_next,
+            route_map={
                 "tools": "tools",
                 "confirm": "prepare_confirm",
-                "end": "end",
+                "agent": "agent",
             },
         ),
         NodeSpec(
@@ -174,7 +189,7 @@ def run_jarvis(
     thread_id = thread_id or str(uuid.uuid4())
     request_id = request_id or str(uuid.uuid4())
     checkpointer = checkpointer or DEFAULT_CHECKPOINTER
-    tool_selector = tool_selector or DEFAULT_TOOL_SELECTOR
+    tool_selector = tool_selector or get_selector("keyword", allow_mutations=allow_mutations)
     if idempotency_store is None:
         idempotency_store = DEFAULT_IDEMPOTENCY_STORE
 
@@ -273,7 +288,9 @@ def run_jarvis(
             "max_agent_turns": max_agent_turns,
         },
     }
-    tracer.event("runtime.graph", "Compiled graph.", nodes="agent, hitl, tools")
+    tracer.event(
+        "runtime.graph", "Compiled graph.", nodes="agent, validate_entities, hitl, tools"
+    )
     # Native LangSmith tracing (LangGraph node spans + @traceable / wrap_openai
     # child spans) is governed by the LANGSMITH_TRACING env var. Tracing is
     # best-effort: callback failures never propagate into the graph result.
@@ -325,6 +342,7 @@ def run_jarvis(
             cache_hit_rate=cache_hit_rate,
             reasoning_tokens=usage.reasoning_tokens,
         )
+        result["run_log_path"] = str(run_log.path.resolve())
     return result
 
 
