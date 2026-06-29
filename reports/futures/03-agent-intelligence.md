@@ -51,6 +51,8 @@ Making the agent correct on complex, multi-step tasks. Single-shot model discret
 3. Return closer matched candidates with selection reasons and confidence score.
 4. If confidence is low, just include all the tools.
 
+**App + connector specific query tool:** Each integration (Todoist, Calendar, etc.) should expose a lightweight query/search tool that the selection layer can invoke to disambiguate requests before committing to a full tool call. E.g., a Todoist "search tasks" connector tool helps the selector confirm intent before routing to mutating tools.
+
 **Success criteria:**
 - Obvious single-domain requests route without an extra model call.
 - Disabled or unhealthy tools are never selected.
@@ -146,6 +148,8 @@ The previous message must always be injected into the graph state so the model c
 - Reduces hallucinated parameters: the orchestrator might guess a task ID or malformat a date; the worker validates against actual state before execution.
 - Enables parameter-level retries without re-running the full orchestrator.
 
+**Per-integration worker architecture:** Each tool domain (Todoist, Calendar, etc.) gets its own dedicated worker node. The orchestrator only decides *what* to do and *which tool domain*; the domain-specific worker owns parameter definition, validation, and structuring. The Todoist worker knows Todoist's field constraints (priority 1-4, label formats, due string syntax) and is responsible for producing valid tool calls. This keeps orchestrator prompts lean and domain workers independently testable.
+
 **Rule:** The model should not blindly call the same mutating tool many times without a plan. First build a structured batch internally, then execute it through the proper tool layer.
 
 ---
@@ -171,3 +175,18 @@ The previous message must always be injected into the graph state so the model c
 - Mention exact task names, dates, priorities only when confirmed in tool results.
 - Never expose raw provider payloads, stack traces, private prompts, or internal reasoning.
 - Keep success messages short; include clear next steps on failure.
+
+---
+
+## 3.8 DeepSeek Prompt Engineering ❌
+
+**Status (2026-06-29):** Not started. Current prompts follow generic patterns; not tuned for DeepSeek-specific capabilities.
+
+**Reference:** https://deepseekai.guide/tutorials/deepseek-prompt-engineering/
+
+**Goal:** Audit and revise orchestrator/worker system prompts using DeepSeek-specific best practices (structured output formatting, chain-of-thought triggers, role-setting conventions) to improve tool-call accuracy and reduce unnecessary clarification requests.
+
+**Actions:**
+- Review the guide for techniques applicable to our system prompts (`prompts/orchestrator.py`, `prompts/worker.py`, `prompts/context.py`).
+- Test prompt variants on common multi-step queries to measure improvement in tool-call precision.
+- Document which DeepSeek-specific patterns we adopt and why in the prompt files themselves.

@@ -153,6 +153,193 @@ So: **more nodes, yes; multi-agent, only later; big architectural rewrite, no.**
 
 ---
 
+### 3.1 Elaboration — Why single-orchestrator wins today
+
+**The cost of coordination is real and underappreciated.** Every time you add an agent boundary you add: a serialization round-trip, a new failure mode (agent timeout, retry semantics, partial-result reconciliation), a new context window (duplicate facts or lossy handoff), and a new prompt to maintain. Multi-agent architectures look elegant in diagrams but in practice the coordination overhead often *exceeds* the complexity they were introduced to manage.
+
+Your current graph already has **8 nodes** (`agent → validate_entities → tools → summarize → hitl → prepare_confirm → confirm → executor`). These are *not* agents — they are deterministic processing stages with explicit contracts. That's the key distinction:
+
+| | Multi-node graph | Multi-agent system |
+|---|---|---|
+| Decision-making | One LLM (orchestrator), nodes are deterministic | Multiple LLMs, each with independent reasoning |
+| Failure surface | Tool fails → retry/classify at one point | Agent B fails → Agent A must interpret, retry, or compensate |
+| Context | Shared state object (`JarvisState`) | Lossy message-passing between separate context windows |
+| Cost per request | 1 LLM call per turn (+ summarize) | N LLM calls minimum, often 3-5× cost |
+| Latency | Sequential tool calls within one agent turn | Sequential agent hand-offs with their own ReAct loops |
+| Debugging | One trace, linear node transitions | N traces, cross-agent correlation required |
+
+**For Todoist-only (14 tools today):** the single orchestrator handles everything — tool selection is a solved problem at this scale (the `KeywordToolSelector` already narrows 14 tools to 1-3 per query). You gain nothing from a Todoist "worker agent" that the current `tools` → `executor` pipeline doesn't already provide.
+
+---
+
+### 3.2 When the inflection point hits — the signals
+
+You'll know it's time to split workers when you observe **multiple** of these simultaneously:
+
+1. **Tool confusion.** The orchestrator selects wrong tools ≥10% of the time despite keyword/retrieval selection being active. Symptom: user says "add to my calendar" and the model calls `add_todoist_task`. This means the tool catalogue is too large or too ambiguous for the selection layer alone to resolve.
+
+2. **Prompt bloat.** The system prompt exceeds ~3000 tokens of domain-specific guidance (Todoist field rules, Calendar booking constraints, Gmail safety rules) and you're seeing attention dilution — the model forgets rules from one domain while applying another. Today your orchestrator prompt is ~60 lines; the per-domain fragment approach (G10) buys you room, but eventually a single prompt cannot hold all domain knowledge.
+
+3. **Failure isolation need.** A flaky integration (e.g., Google Calendar API outage) causes the entire graph to enter error recovery, even for unrelated Todoist requests. With workers, a Calendar timeout only blocks the Calendar sub-goal while Todoist sub-goals complete independently.
+
+4. **Parallelism demand.** Cross-domain requests ("create task, send email, block calendar") could be 3× faster with parallel workers but your current serial ReAct loop processes them sequentially. LangGraph's `Send` API enables fan-out, but only with separate worker subgraphs.
+
+5. **Per-domain confirm semantics diverge.** Todoist deletions need confirmation; Gmail sends need richer confirmation (show the draft); Calendar invites need attendee verification. Cramming all these into one `prepare_confirm` node's risk logic becomes unwieldy.
+
+**Rule of thumb:** if you're at 2 integrations, more nodes suffice. At 4+ integrations with mutating tools in each, the supervisor/worker pattern pays for itself.
+
+---
+
+### 3.3 The evolution path in detail
+
+#### Stage 1 — Retrieval-based tool selection (you're almost here)
+
+**What it is:** Replace `StaticToolSelector` as the default with `KeywordToolSelector` (already implemented) or a future BM25/embedding selector. The agent node already calls `tool_selector.select_schemas(query, registry)` on every turn (`create_agent_node` receives `tool_selector` as a param) — the wiring is fully done.
+
+**What it buys you:**
+- At 40 tools, narrowing to 3-5 per turn saves ~2000 context tokens and reduces hallucinated tool calls.
+- `ask_user` always-include guarantee (`ALWAYS_INCLUDE` set) means clarification is never lost.
+- Fallback-to-all when no keywords match means the selector can only *help*, never degrade — a critical safety property.
+
+**What to do:**
+- Switch `get_selector("static")` → `get_selector("keyword")` in `run_jarvis` (line 285 of `builder.py`). The keyword selector already exists and handles `allow_mutations` gating.
+- As integrations grow, evolve from keyword matching to embedding similarity (the `ToolSelector` protocol makes this a drop-in swap — same `select_schemas(query, registry)` interface).
+
+**What you do NOT need:** No graph changes. No new nodes. No multi-agent. Just flip the selector.
+
+#### Stage 2 — Planner node for cross-domain decomposition
+
+**What it is:** A new node between entry and the orchestrator's first tool call that decomposes multi-step or cross-domain requests into an explicit sub-goal list with ordering and dependencies.
+
+**Example:**
+```
+User: "Schedule a 1:1 with Sarah next Thursday, add a prep task due Wednesday, and email her the agenda."
+```
+
+Without a planner, the orchestrator attempts this reactively — it might call Calendar first, succeed, then call Todoist, succeed, then realize it needs the calendar event link for the email but didn't capture it. With a planner:
+
+```json
+{
+  "sub_goals": [
+    {"id": 1, "domain": "calendar", "action": "create_event", "depends_on": []},
+    {"id": 2, "domain": "todoist", "action": "add_task", "depends_on": []},
+    {"id": 3, "domain": "gmail", "action": "send_email", "depends_on": [1, 2]}
+  ]
+}
+```
+
+**How it fits your architecture:**
+
+```python
+# In builder.py — add one NodeSpec, one edge:
+NodeSpec(
+    name="planner",
+    node=create_planner_node(agent_client, tracer),
+    router=route_by_next,  # Already exists! Reads state["next"]
+    route_map={"agent": "agent", "end": "end"},
+)
+```
+
+The planner node sets `state["next"] = "agent"` plus populates a new `state["plan"]` field. The orchestrator then executes against the plan rather than reasoning from scratch. `route_by_next` already handles this routing pattern generically.
+
+**When to build this:** When you have 2+ integration domains active and users start making cross-domain requests. Not needed for Todoist-only.
+
+#### Stage 3 — Supervisor/Router → Domain workers
+
+**What it is:** The orchestrator no longer directly calls tools. Instead, after the planner decomposes, a router dispatches each sub-goal to a domain-specific worker subgraph. Each worker has:
+- Its own narrowed tool set (only Todoist tools, only Calendar tools, etc.)
+- Its own system prompt fragment (Todoist field rules, Calendar booking rules, etc.)
+- Its own error handling and retry semantics
+- Access to the shared confirm/executor machinery
+
+**The architecture your code already supports:**
+
+```python
+# Each worker is just another compiled graph (build_graph is reusable):
+todoist_worker = build_graph(
+    WorkerState,
+    [
+        NodeSpec(name="worker_agent", node=create_worker_agent_node(todoist_client), ...),
+        NodeSpec(name="worker_tools", node=create_tools_node(todoist_dispatcher), ...),
+        NodeSpec(name="worker_confirm", node=create_confirm_node(), ...),
+        NodeSpec(name="worker_executor", node=create_executor_node(todoist_dispatcher), ...),
+    ],
+    entry="worker_agent",
+)
+
+# The supervisor graph routes sub-goals to workers:
+NodeSpec(
+    name="router",
+    node=create_router_node(workers={"todoist": todoist_worker, "calendar": calendar_worker}),
+    router=route_by_next,
+    route_map={"aggregate": "aggregate", "end": "end"},
+)
+```
+
+This is **not a multi-agent system** in the LLM sense — there's still only one LLM reasoning (the orchestrator). Workers are *scoped execution environments*, not independent agents making their own decisions. The orchestrator decides what to do; the worker knows how to do it safely within its domain.
+
+**Key design principle — workers don't reason, they execute:**
+- The orchestrator/planner owns *intent* (what the user wants).
+- The worker owns *execution* (valid parameters, field formatting, retries, domain-specific confirm UX).
+- This avoids the "multi-agent debate" failure mode where agents disagree or duplicate work.
+
+**When to build this:** Only when the single orchestrator's prompt exceeds ~4000 tokens of domain guidance AND you have 3+ active domains AND parallel execution would meaningfully reduce latency.
+
+---
+
+### 3.4 What "true multi-agent" would look like (and why to avoid it)
+
+For completeness, here's what a real multi-agent system adds beyond the supervisor/worker pattern:
+
+- **Independent reasoning per agent.** Each agent has its own ReAct loop, can decide to ask the user, can decide to call different tools than planned. This adds 3-5× LLM calls per request.
+- **Negotiation/handoff protocols.** Agent A says "I need Agent B to do X before I can continue." This requires a message bus, handoff state, timeout handling, and deadlock prevention.
+- **Agent-level retries.** Not just tool retries — if Agent B fails entirely, Agent A must compensate or retry the sub-goal.
+- **Context isolation.** Each agent has its own context window. Information from Agent A's tool results doesn't automatically appear in Agent B's context — you must explicitly pass it.
+
+**Why this is almost never worth it for a personal assistant:**
+- Your user waits for the response. Multi-agent adds 2-10× latency (multiple sequential LLM calls across agents).
+- Your user sends one message at a time. There's no concurrent user load that benefits from agent parallelism.
+- The failure modes are harder to debug. "Why did Jarvis not add the task?" now requires correlating traces across 3 agents.
+- Cost scales with agent count. 3 agents × 3 turns each = 9 LLM calls for what a single orchestrator handles in 2-3 turns.
+
+**The supervisor/worker pattern (Stage 3) gives you 90% of multi-agent's benefits — parallel execution, domain isolation, scoped prompts — without independent reasoning per agent.** The orchestrator stays the single brain; workers are just namespaced execution contexts.
+
+---
+
+### 3.5 Concrete signal → action mapping
+
+| Signal you observe | Action | Scope |
+|---|---|---|
+| Keyword selector covers all queries well | Stay on Stage 1 | No graph change |
+| Model picks wrong domain tool ≥10% | Upgrade selector to embedding-based | Swap selector impl, same interface |
+| Cross-domain requests fail or drop sub-goals | Add planner node (Stage 2) | +1 NodeSpec, +1 state field |
+| Prompt exceeds 4k tokens, attention dilutes | Per-domain prompt fragments (G10) | Prompt composition change only |
+| Domain-specific confirm UX needed | Confirm metadata in registry per-domain | Registry + prepare_confirm change |
+| 3+ domains, parallel execution needed | Worker subgraphs (Stage 3) | +N worker graphs, router node |
+| None of the above | **Do nothing** | Focus on verification (G1) and safety (G11) |
+
+---
+
+### 3.6 How your existing code makes Stage 3 cheap (when the time comes)
+
+Your architecture was unknowingly designed for this evolution:
+
+1. **`build_graph(state_type, node_specs, entry, checkpointer)`** is completely generic. A worker graph is just another `build_graph()` call with a narrower `WorkerState` and fewer nodes.
+
+2. **`ToolRegistry` + `registry.register()`** already supports per-domain separation. Today everything lands in one registry via `build_default_registry`; splitting into `build_todoist_registry()`, `build_calendar_registry()` is a trivial refactor.
+
+3. **`ToolDispatcher`** is registry-scoped. A Todoist worker gets a dispatcher with only Todoist tools. A Calendar worker gets a dispatcher with only Calendar tools. Same class, different registry.
+
+4. **`route_by_next`** is the universal router for decision nodes. A future router/supervisor node sets `state["next"] = "todoist_worker"` and the route_map handles dispatch.
+
+5. **`NodeSpec` is declarative.** Adding a worker is appending to a list, not editing control flow. The same `NodeSpec` pattern that added `validate_entities` (your most recent node addition) works for workers.
+
+6. **The confirm/executor pipeline is already domain-neutral.** `create_executor_node` takes a `ToolDispatcher` — give it a domain-scoped dispatcher and it executes only that domain's held calls. No changes needed.
+
+**Bottom line:** when you need workers, you're looking at 1-2 days of wiring, not a rewrite. The abstractions are already in place. Delay until the signals (§3.2) are clear — premature decomposition is more expensive than premature monolith.
+
+---
+
 ## 4. The layers of checks you're missing (pre / post processing)
 
 You asked specifically about pre/post-processing layers. Here's the target pipeline:
