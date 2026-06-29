@@ -157,9 +157,23 @@ const telegramConfig: TelegramConfig = {
 
 export const botService = new TelegramBotService(telegramConfig, handlers);
 
-conversationGate.setOnExpiry((_gateKey, chatId) => {
+// When a conversation gate times out, notify the user and actively mark the matching
+// pending clarification 'expired' (gateKey === pendingKey). Resumption is already blocked
+// by the store's expires_at filter; this keeps the persisted status accurate for reports.
+conversationGate.setOnExpiry((gateKey, chatId) => {
   botService.sendMessage(chatId, '⏱ Request timed out. Send a new message to try again.').catch(() => {});
+  pendingStore.clear(gateKey, 'expired').catch(() => {});
 });
+
+// Periodic safety net: in-process gate timers are lost on restart, so sweep any pending
+// rows whose expiry has passed and flip them to 'expired'. Cheap, bounded, and unref'd so
+// it never keeps the process alive.
+const PENDING_SWEEP_INTERVAL_MS = 60 * 1000;
+setInterval(() => {
+  pendingStore.sweepExpired().catch((error) => {
+    logger.warn('telegram.pending_store.sweep_failed', { error: (error as Error).message });
+  });
+}, PENDING_SWEEP_INTERVAL_MS).unref();
 
 logger.info('app.services.initialized', {
   telegramConfigured: true,

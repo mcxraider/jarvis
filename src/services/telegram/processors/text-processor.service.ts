@@ -24,7 +24,14 @@ export interface TextProcessorResult {
 export interface TextProcessorOptions {
   gatePreAcquired?: boolean;
   pendingClarificationPreReserved?: boolean;
+  // When set, abandon any pending clarify/confirm interrupt for this conversation and start
+  // a brand-new agent thread for `text`. Used by the /new command. If the agent is actively
+  // running (not just waiting on the user), the request is refused rather than started
+  // concurrently — see abandonIfWaiting().
+  forceFresh?: boolean;
 }
+
+export type AbandonOutcome = 'idle' | 'running' | 'abandoned';
 
 export class TextProcessorService {
   private readonly pendingClarificationTtlMs: number;
@@ -80,6 +87,19 @@ export class TextProcessorService {
           onProgress,
           { alreadyRunning: true },
         );
+      }
+
+      // /new: drop any pending clarify/confirm and fall through to the fresh acquire+invoke
+      // path below. Refuse if the agent is mid-flight so we never run two invokes on one gate.
+      if (options?.forceFresh && !gateAcquired) {
+        const outcome = await this.abandonIfWaiting(gateKey, logContext);
+        if (outcome === 'running') {
+          logger.info('conversation_gate.force_fresh_blocked', { ...logContext, gateKey });
+          return {
+            response: "I'm still finishing your previous request — try /new again in a moment, or /cancel.",
+            blocked: true,
+          };
+        }
       }
 
       if (!gateAcquired) {
@@ -179,6 +199,32 @@ export class TextProcessorService {
     }
   }
 
+  // Abandon a conversation that is waiting on the user (pending clarify/confirm) so the next
+  // request can start fresh. Returns:
+  //   'running'   — agent is mid-flight; caller should refuse rather than abandon
+  //   'abandoned' — gate released and pending marked 'superseded'
+  //   'idle'      — nothing to abandon
+  // Single source of truth for /new's abandon step (used by forceFresh and bare /new).
+  async abandonConversation(userId: number | undefined, logContext: LogContext = {}): Promise<AbandonOutcome> {
+    const internalUserId = mapTelegramUserId(userId);
+    const gateKey = buildConversationKey(userId, internalUserId, logContext.chatId);
+    return this.abandonIfWaiting(gateKey, logContext);
+  }
+
+  private async abandonIfWaiting(gateKey: string, logContext: LogContext): Promise<AbandonOutcome> {
+    const status = await this.safeGetGateStatus(gateKey);
+    if (status === 'running') {
+      return 'running';
+    }
+    if (status === 'waiting_for_clarification') {
+      await this.conversationGate.release(gateKey).catch(() => {});
+      await this.pendingClarificationStore.clear(gateKey, 'superseded').catch(() => {});
+      logger.info('conversation_gate.superseded', { ...logContext, gateKey });
+      return 'abandoned';
+    }
+    return 'idle';
+  }
+
   private async handlePendingClarification(
     text: string,
     pending: PendingClarificationRecord,
@@ -196,7 +242,7 @@ export class TextProcessorService {
         });
       }
       return {
-        response: 'You have a pending approval. Please tap ✓ Approve or ✗ Decline in the previous message, or reply *yes* or *no* to decide.',
+        response: 'You have a pending approval. Please tap ✓ Approve or ✗ Decline in the previous message, reply *yes* or *no* to decide, or send `/new <message>` to start over.',
       };
     }
 

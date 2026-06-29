@@ -57,4 +57,22 @@ describe('MemoryPendingClarificationStore', () => {
     expect(retrieved?.threadId).toBe('thread-new');
     expect(retrieved?.interruptType).toBe('confirm');
   });
+
+  it('clears a record as superseded (/new abandon)', async () => {
+    const store = new MemoryPendingClarificationStore();
+    await store.save(makeRecord());
+    await store.clear('telegram:abc123', 'superseded');
+    expect(await store.get('telegram:abc123')).toBeUndefined();
+  });
+
+  it('sweepExpired prunes only expired records', async () => {
+    const store = new MemoryPendingClarificationStore();
+    await store.save(makeRecord({ pendingKey: 'live', expiresAt: Date.now() + 60000 }));
+    await store.save(makeRecord({ pendingKey: 'stale', expiresAt: Date.now() - 1 }));
+
+    await store.sweepExpired();
+
+    expect(await store.get('live')).toBeDefined();
+    expect(await store.get('stale')).toBeUndefined();
+  });
 });

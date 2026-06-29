@@ -82,6 +82,12 @@ describe('CallbackHandler', () => {
       }),
       expect.any(Function),
     );
+
+    // The decision is delivered as its own new message, and the confirm message keeps
+    // its text (only its inline keyboard is stripped).
+    expect(ctx.editMessageReplyMarkup).toHaveBeenCalledWith(undefined);
+    expect(ctx.reply).toHaveBeenCalledWith('✅ Approved');
+    expect(ctx.editMessageText).not.toHaveBeenCalled();
   });
 
   it('calls resume with the threadId encoded in decline callback data', async () => {
@@ -107,6 +113,10 @@ describe('CallbackHandler', () => {
       expect.any(Object),
       expect.any(Function),
     );
+
+    expect(ctx.editMessageReplyMarkup).toHaveBeenCalledWith(undefined);
+    expect(ctx.reply).toHaveBeenCalledWith('❌ Declined');
+    expect(ctx.editMessageText).not.toHaveBeenCalled();
   });
 
   it('does nothing for non-confirm callback data', async () => {

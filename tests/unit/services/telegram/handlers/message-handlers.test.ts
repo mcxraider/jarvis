@@ -61,6 +61,7 @@ describe('MessageHandlers', () => {
         telegramFirstName: 'Test',
       }),
       expect.any(Function),
+      undefined,
     );
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_text');
     expect(ctx.reply).toHaveBeenCalledWith('processed text', { parse_mode: 'MarkdownV2' });
@@ -313,5 +314,79 @@ describe('MessageHandlers', () => {
       'Something went wrong processing your audio document. Please try again.',
     );
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_document');
+  });
+
+  describe('handleNew (/new)', () => {
+    it('strips the /new prefix and processes the remainder with forceFresh', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn().mockResolvedValue({ response: 'created' }),
+        abandonConversation: jest.fn(),
+      } as any;
+      const activityService = { recordActivity: jest.fn() } as any;
+      const { handlers } = createHandlers({ messageProcessor, activityService });
+      const ctx = createContext({ text: '/new buy milk', message_id: 5 });
+
+      await handlers.handleNew(ctx);
+
+      expect(messageProcessor.processTextMessage).toHaveBeenCalledWith(
+        'buy milk',
+        123,
+        expect.objectContaining({ messageType: 'text' }),
+        expect.any(Function),
+        { forceFresh: true },
+      );
+      expect(messageProcessor.abandonConversation).not.toHaveBeenCalled();
+      expect(activityService.recordActivity).toHaveBeenCalledWith('command_new');
+    });
+
+    it('handles /new@botname mention prefixes', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn().mockResolvedValue({ response: 'ok' }),
+        abandonConversation: jest.fn(),
+      } as any;
+      const { handlers } = createHandlers({ messageProcessor });
+      const ctx = createContext({ text: '/new@jarvisbot add eggs', message_id: 6 });
+
+      await handlers.handleNew(ctx);
+
+      expect(messageProcessor.processTextMessage).toHaveBeenCalledWith(
+        'add eggs',
+        123,
+        expect.any(Object),
+        expect.any(Function),
+        { forceFresh: true },
+      );
+    });
+
+    it('bare /new abandons and invites a fresh message', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn(),
+        abandonConversation: jest.fn().mockResolvedValue('abandoned'),
+      } as any;
+      const { handlers } = createHandlers({ messageProcessor });
+      const ctx = createContext({ text: '/new', message_id: 7 });
+
+      await handlers.handleNew(ctx);
+
+      expect(messageProcessor.abandonConversation).toHaveBeenCalledWith(123, expect.any(Object));
+      expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
+      expect(ctx.reply).toHaveBeenCalledWith('Starting fresh — send your next message.');
+    });
+
+    it('bare /new while the agent is running tells the user to wait', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn(),
+        abandonConversation: jest.fn().mockResolvedValue('running'),
+      } as any;
+      const { handlers } = createHandlers({ messageProcessor });
+      const ctx = createContext({ text: '/new', message_id: 8 });
+
+      await handlers.handleNew(ctx);
+
+      expect(ctx.reply).toHaveBeenCalledWith(
+        "I'm still finishing your previous request — try /new again in a moment, or /cancel.",
+      );
+      expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
+    });
   });
 });

@@ -1,6 +1,7 @@
 import { TextProcessorService } from '../../../../../src/services/telegram/processors/text-processor.service';
 import { MemoryPendingClarificationStore } from '../../../../../src/services/telegram/pending-clarification.store';
 import { MemoryConversationGateStore } from '../../../../../src/services/telegram/conversation-gate.store';
+import { buildConversationKey, mapTelegramUserId } from '../../../../../src/services/telegram/conversation-key';
 
 function createService(
   agentClient: unknown,
@@ -266,6 +267,106 @@ describe('TextProcessorService — conversation gate integration', () => {
       const result = await service.processTextMessage('hello', 42, { chatId: 100, messageId: 1 });
       expect(result.response).toBe('Done.');
       expect(agentClient.invoke).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('forceFresh (/new)', () => {
+    function keyFor(userId: number, chatId: number): string {
+      return buildConversationKey(userId, mapTelegramUserId(userId), chatId);
+    }
+
+    async function seedWaiting(
+      gateStore: MemoryConversationGateStore,
+      pendingStore: MemoryPendingClarificationStore,
+      key: string,
+    ): Promise<void> {
+      await gateStore.tryAcquire(key, 60000);
+      await gateStore.transitionToWaiting(key, 60000);
+      const now = Date.now();
+      await pendingStore.save({
+        pendingKey: key,
+        threadId: 'old-thread',
+        question: 'Confirm?',
+        userId: 'user-42',
+        interruptType: 'confirm',
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: now + 60000,
+      });
+    }
+
+    it('abandons a pending confirm and invokes a fresh thread', async () => {
+      const gateStore = new MemoryConversationGateStore();
+      const pendingStore = new MemoryPendingClarificationStore();
+      const key = keyFor(42, 100);
+      await seedWaiting(gateStore, pendingStore, key);
+
+      const agentClient = mockAgentClient();
+      const service = createService(agentClient, pendingStore, gateStore);
+
+      const result = await service.processTextMessage(
+        'do something else',
+        42,
+        { chatId: 100, messageId: 9 },
+        undefined,
+        { forceFresh: true },
+      );
+
+      expect(agentClient.invoke).toHaveBeenCalledTimes(1);
+      expect(agentClient.resume).not.toHaveBeenCalled();
+      expect(result.response).toBe('Done.');
+      // Pending record abandoned (memory store deletes on clear).
+      expect(await pendingStore.get(key)).toBeUndefined();
+    });
+
+    it('refuses to start fresh while the agent is running', async () => {
+      const gateStore = new MemoryConversationGateStore();
+      const key = keyFor(42, 100);
+      await gateStore.tryAcquire(key, 60000); // status: running
+
+      const agentClient = mockAgentClient();
+      const service = createService(agentClient, undefined, gateStore);
+
+      const result = await service.processTextMessage(
+        'new thing',
+        42,
+        { chatId: 100, messageId: 9 },
+        undefined,
+        { forceFresh: true },
+      );
+
+      expect(result.blocked).toBe(true);
+      expect(result.response).toMatch(/still finishing/i);
+      expect(agentClient.invoke).not.toHaveBeenCalled();
+    });
+
+    it('abandonConversation returns abandoned and supersedes the pending record', async () => {
+      const gateStore = new MemoryConversationGateStore();
+      const pendingStore = new MemoryPendingClarificationStore();
+      const key = keyFor(42, 100);
+      await seedWaiting(gateStore, pendingStore, key);
+
+      const service = createService(mockAgentClient(), pendingStore, gateStore);
+      const outcome = await service.abandonConversation(42, { chatId: 100 });
+
+      expect(outcome).toBe('abandoned');
+      expect(await gateStore.getStatus(key)).toBe('idle');
+      expect(await pendingStore.get(key)).toBeUndefined();
+    });
+
+    it('abandonConversation returns running when the agent is mid-flight', async () => {
+      const gateStore = new MemoryConversationGateStore();
+      const key = keyFor(42, 100);
+      await gateStore.tryAcquire(key, 60000);
+
+      const service = createService(mockAgentClient(), undefined, gateStore);
+      expect(await service.abandonConversation(42, { chatId: 100 })).toBe('running');
+    });
+
+    it('abandonConversation returns idle when nothing is pending', async () => {
+      const service = createService(mockAgentClient());
+      expect(await service.abandonConversation(42, { chatId: 100 })).toBe('idle');
     });
   });
 });

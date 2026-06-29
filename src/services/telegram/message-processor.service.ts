@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger';
-import { TextProcessorResult, TextProcessorService } from './processors/text-processor.service';
+import { AbandonOutcome, TextProcessorResult, TextProcessorService } from './processors/text-processor.service';
 import { AudioProcessingHooks, AudioProcessorService } from './processors/audio-processor.service';
 import { LogContext } from '../../utils/logger';
 import { LangGraphProgressCallback } from '../ai/langgraph-agent-client.service';
@@ -31,6 +31,7 @@ export class MessageProcessorService {
     userId?: number,
     logContext: LogContext = {},
     onProgress?: LangGraphProgressCallback,
+    options?: { forceFresh?: boolean },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
@@ -38,9 +39,16 @@ export class MessageProcessorService {
       messageLength: text.length,
       messageType: 'text',
       processor: 'TextProcessorService',
+      forceFresh: options?.forceFresh ?? false,
     });
 
-    return this.textProcessor.processTextMessage(text, userId, logContext, onProgress);
+    return this.textProcessor.processTextMessage(text, userId, logContext, onProgress, options);
+  }
+
+  // Abandons any pending clarify/confirm so the next message starts fresh. Delegates to the
+  // TextProcessor, which owns the gate/pending state machine. Used by the bare /new command.
+  async abandonConversation(userId?: number, logContext: LogContext = {}): Promise<AbandonOutcome> {
+    return this.textProcessor.abandonConversation(userId, logContext);
   }
 
   async processAudioMessage(
