@@ -1,5 +1,6 @@
 """LangGraph builder: graph factory, initial state, and the run entrypoint."""
 
+import logging
 import uuid
 from datetime import datetime
 from typing import Any, Optional
@@ -48,6 +49,97 @@ from agents.agent_api.app.tools.registry_factory import build_default_registry
 from agents.agent_api.app.tools.selection import ToolSelector, get_selector
 from agents.agent_api.app.tools.todoist.client import TodoistApiClient
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
+
+
+_builder_logger = logging.getLogger(__name__)
+
+
+def _register_thread(
+    thread_id: str,
+    telegram_user_id: Optional[int],
+    user_prompt: str,
+    status: str,
+    resuming: bool,
+) -> None:
+    """Upsert thread metadata. Fire-and-forget — never crashes the request."""
+    if telegram_user_id is None:
+        return
+    try:
+        from agents.agent_api.app.db import get_pool
+
+        pool = get_pool()
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                if resuming:
+                    cur.execute(
+                        """
+                        UPDATE threads
+                        SET message_count = message_count + 1,
+                            status = %s,
+                            updated_at = NOW()
+                        WHERE thread_id = %s
+                        """,
+                        (status, thread_id),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO threads (thread_id, user_id, title, status, message_count)
+                        SELECT %s, u.id, LEFT(%s, 100), %s, 1
+                        FROM users u
+                        WHERE u.telegram_user_id = %s
+                        ON CONFLICT (thread_id) DO UPDATE
+                        SET message_count = threads.message_count + 1,
+                            status = EXCLUDED.status,
+                            updated_at = NOW()
+                        """,
+                        (thread_id, user_prompt, status, str(telegram_user_id)),
+                    )
+    except Exception as exc:
+        _builder_logger.warning(
+            "Thread registration failed (non-fatal).",
+            extra={"thread_id": thread_id, "error": type(exc).__name__},
+        )
+
+
+def _log_usage(
+    telegram_user_id: Optional[int],
+    thread_id: str,
+    usage: "UsageSummary",
+    latency_ms: int,
+    model: str,
+) -> None:
+    """Write usage telemetry to Supabase. Fire-and-forget."""
+    if telegram_user_id is None or not usage.total_tokens:
+        return
+    try:
+        from agents.agent_api.app.db import get_pool
+
+        pool = get_pool()
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO usage_logs (user_id, thread_id, event_type, model,
+                                           input_tokens, output_tokens, latency_ms)
+                    SELECT u.id, %s, 'run', %s, %s, %s, %s
+                    FROM users u
+                    WHERE u.telegram_user_id = %s
+                    """,
+                    (
+                        thread_id,
+                        model,
+                        usage.prompt_tokens or 0,
+                        usage.completion_tokens or 0,
+                        latency_ms,
+                        str(telegram_user_id),
+                    ),
+                )
+    except Exception as exc:
+        _builder_logger.warning(
+            "Usage logging failed (non-fatal).",
+            extra={"thread_id": thread_id, "error": type(exc).__name__},
+        )
 
 
 def create_jarvis_graph(
@@ -132,12 +224,13 @@ def build_initial_state(
     user_id: str = USER_ID,
     thread_id: Optional[str] = None,
     request_source: str = "api",
+    timezone: Optional[str] = None,
 ) -> JarvisState:
     """Create a fresh state object for one Jarvis run."""
 
     thread_id = thread_id or str(uuid.uuid4())
     return {
-        "messages": build_initial_messages(user_prompt),
+        "messages": build_initial_messages(user_prompt, timezone=timezone),
         "user_prompt": user_prompt,
         "user_id": user_id,
         "request_source": request_source,
@@ -189,7 +282,7 @@ def run_jarvis(
     thread_id = thread_id or str(uuid.uuid4())
     request_id = request_id or str(uuid.uuid4())
     checkpointer = checkpointer or DEFAULT_CHECKPOINTER
-    tool_selector = tool_selector or get_selector("keyword", allow_mutations=allow_mutations)
+    tool_selector = tool_selector or get_selector("static", allow_mutations=allow_mutations)
     if idempotency_store is None:
         idempotency_store = DEFAULT_IDEMPOTENCY_STORE
 
@@ -245,6 +338,7 @@ def run_jarvis(
         tracer=tracer,
         telegram_user_id=telegram_user_id,
     )
+
     # Caller-provided clients (e.g. the CLI runner) are built before run_jarvis
     # wraps the tracer, so retarget them at this run's tracer to keep their
     # agent.* / todoist.* events flowing into the per-run file log.
@@ -297,16 +391,26 @@ def run_jarvis(
     if resuming:
         result = app.invoke(Command(resume=clarification_reply), config)
     else:
+        user_timezone: Optional[str] = None
+        if telegram_user_id is not None:
+            from agents.agent_api.app.credentials import get_user_preferences
+
+            prefs = get_user_preferences(telegram_user_id)
+            user_timezone = prefs.get("timezone")
         result = app.invoke(
             build_initial_state(
                 user_prompt,
                 user_id=user_id,
                 thread_id=thread_id,
                 request_source=request_source,
+                timezone=user_timezone,
             ),
             config,
         )
     result = enrich_interrupt_status(result, thread_id)
+
+    thread_status = "interrupted" if result.get("interrupted") else "completed"
+    _register_thread(thread_id, telegram_user_id, user_prompt, thread_status, resuming)
 
     usage: UsageSummary = getattr(agent_client, "usage", None) or UsageSummary()
     finished_at = datetime.now()
@@ -343,6 +447,10 @@ def run_jarvis(
             reasoning_tokens=usage.reasoning_tokens,
         )
         result["run_log_path"] = str(run_log.path.resolve())
+
+    duration_ms = int((finished_at - started_at).total_seconds() * 1000)
+    _log_usage(telegram_user_id, thread_id, usage, duration_ms, DEEPSEEK_MODEL)
+
     return result
 
 

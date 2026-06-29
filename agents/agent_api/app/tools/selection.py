@@ -48,7 +48,7 @@ def get_selector(name: str = "keyword", **kwargs: Any) -> ToolSelector:
     return cls(**kwargs)
 
 
-DEFAULT_TOOL_SELECTOR: ToolSelector = get_selector("keyword")
+DEFAULT_TOOL_SELECTOR: ToolSelector = get_selector("static")
 
 # Re-export concrete selectors for backward-compatible imports.
 from agents.agent_api.app.tools.selectors.keyword import KeywordToolSelector  # noqa: E402

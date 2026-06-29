@@ -297,10 +297,16 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
                 "minLength": 1,
                 "maxLength": 1024,
                 "description": (
-                    "Todoist filter expression. Examples: 'today', 'overdue', 'p1', "
-                    "'##Work' (project), '@email' (label), '(today | overdue) & p1'. "
-                    "Operators: & (and), | (or), ! (not), () grouping. Comma-separated "
-                    "multi-list filters are not supported."
+                    "Todoist filter expression. "
+                    "Date filters: 'today', 'tomorrow', 'overdue', 'next week', '7 days', "
+                    "'due: Jul 6', 'due before: tomorrow', "
+                    "'due after: Jul 5 & due before: Jul 13' (date range). "
+                    "Other: 'p1'-'p4' (priority), '#ProjectName' (project), '@label' (label), "
+                    "'search: keyword' (text search), 'no due date', 'recurring'. "
+                    "Operators: & (and), | (or), ! (not), () grouping. "
+                    "INVALID patterns that will 400: slash ranges 'X / Y', dash ranges 'X - Y', "
+                    "'between X and Y', >=/<= operators, 'this week'. "
+                    "For date ranges, always use 'due after: X & due before: Y'."
                 ),
             },
             "lang": {"type": "string", "description": "IETF filter language tag"},

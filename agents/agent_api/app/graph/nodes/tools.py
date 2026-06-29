@@ -38,9 +38,11 @@ def create_tools_node(
             accumulated_results=len(state.get("tool_results", [])),
         )
 
+        call_index_map = {tc.get("id", ""): i for i, tc in enumerate(tool_calls)}
         with tool_idempotency_context(
             str(state.get("thread_id") or ""),
             int(state.get("turn_count") or 0),
+            call_index_map,
         ):
             results = execute_tool_calls_with_toolnode(
                 tool_calls,

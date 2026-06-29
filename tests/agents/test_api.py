@@ -258,5 +258,98 @@ class JarvisApiTests(unittest.TestCase):
         self.assertIsInstance(checkpointer, InMemorySaver)
 
 
+class RouteGuardTests(unittest.TestCase):
+    """Tests that ownership/rate-limit guards propagate HTTP errors through routes."""
+
+    def setUp(self) -> None:
+        self.client = TestClient(app)
+
+    def test_resume_returns_403_on_ownership_violation(self) -> None:
+        from fastapi import HTTPException
+
+        with patch(
+            "agents.agent_api.app.api.thread_ownership.validate_thread_ownership",
+            side_effect=HTTPException(status_code=403, detail="Thread belongs to a different user."),
+        ):
+            response = self.client.post(
+                "/resume",
+                json={
+                    "message": "yes",
+                    "user_id": "jerry",
+                    "thread_id": "stolen-thread",
+                    "telegram_user_id": 999,
+                    "request_id": "req-1",
+                },
+            )
+        self.assertEqual(response.status_code, 403)
+
+    def test_resume_returns_429_on_rate_limit(self) -> None:
+        from fastapi import HTTPException
+
+        with patch(
+            "agents.agent_api.app.api.thread_ownership.validate_thread_ownership",
+        ), patch(
+            "agents.agent_api.app.api.rate_limit.check_rate_limit",
+            side_effect=HTTPException(
+                status_code=429,
+                detail="Daily request limit exceeded.",
+                headers={"Retry-After": "3600"},
+            ),
+        ):
+            response = self.client.post(
+                "/resume",
+                json={
+                    "message": "yes",
+                    "user_id": "jerry",
+                    "thread_id": "t-1",
+                    "telegram_user_id": 42,
+                    "request_id": "req-2",
+                },
+            )
+        self.assertEqual(response.status_code, 429)
+
+    def test_invoke_returns_429_on_rate_limit(self) -> None:
+        from fastapi import HTTPException
+
+        with patch(
+            "agents.agent_api.app.api.rate_limit.check_rate_limit",
+            side_effect=HTTPException(
+                status_code=429,
+                detail="Daily request limit exceeded.",
+                headers={"Retry-After": "3600"},
+            ),
+        ):
+            response = self.client.post(
+                "/invoke",
+                json={
+                    "message": "add milk",
+                    "user_id": "jerry",
+                    "telegram_user_id": 42,
+                    "request_id": "req-3",
+                },
+            )
+        self.assertEqual(response.status_code, 429)
+
+
+    def test_invoke_returns_403_on_ownership_violation_with_thread_id(self) -> None:
+        from fastapi import HTTPException
+
+        with patch(
+            "agents.agent_api.app.api.routes.invoke.validate_thread_ownership",
+            side_effect=HTTPException(status_code=403, detail="Thread belongs to a different user."),
+        ):
+            response = self.client.post(
+                "/invoke",
+                json={
+                    "message": "add milk",
+                    "user_id": "jerry",
+                    "thread_id": "stolen-thread",
+                    "telegram_user_id": 999,
+                    "request_id": "req-4",
+                },
+            )
+        self.assertEqual(response.status_code, 403)
+
+
 if __name__ == "__main__":
     unittest.main()

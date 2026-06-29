@@ -6,6 +6,7 @@ each get their own prompt file instead of growing a single module.
 
 import os
 from datetime import date, datetime, timezone
+from typing import Optional
 
 
 ORCHESTRATOR_PROMPT = """\
@@ -40,7 +41,7 @@ Deletions and bulk mutations (5+ changes in one turn) are automatically intercep
 - Whenever adding a task, if user did not input the time, infer the time, if you are not sure then ask for the time. 
 - Prefer due_string for dates ("tomorrow 3pm", "next monday") — Todoist parses natural language.
 - Priority is inverted: 4 = urgent, 3 = high, 2 = medium, 1 = normal (default).
-- Filter examples for get_tasks_by_filter: "today", "overdue", "p1".
+- Filter examples for get_tasks_by_filter: "today", "overdue", "p1", "next week", "7 days", "due after: Jul 5 & due before: Jul 13" (date range). Do NOT use slash/dash/between for ranges — always use "due after: X & due before: Y".
 - Never fabricate task IDs — always fetch first with get_tasks or get_tasks_by_filter.
 - Do not retry add_todoist_task on timeout — verify with get_tasks_by_filter instead (it may have succeeded, creating duplicates).
 - Multiple safe tool calls in one turn execute in parallel — use this for efficiency.
@@ -71,14 +72,16 @@ CURRENT_GRAPH_COMPATIBILITY_NOTE = (
 )
 
 
-def get_system_prompt() -> str:
+def get_system_prompt(timezone: Optional[str] = None) -> str:
     """Return the Jarvis system prompt used by the LangGraph agent node."""
 
-    return get_orchestrator_prompt()
+    return get_orchestrator_prompt(timezone)
 
 
-def _user_timezone() -> str:
-    """Return the configured user timezone or detect from system."""
+def _user_timezone(override: Optional[str] = None) -> str:
+    """Return timezone: override > env var > system detect."""
+    if override:
+        return override
     tz = os.getenv("JARVIS_USER_TIMEZONE")
     if tz:
         return tz
@@ -89,14 +92,14 @@ def _user_timezone() -> str:
         return "UTC"
 
 
-def get_orchestrator_prompt() -> str:
+def get_orchestrator_prompt(tz: Optional[str] = None) -> str:
     """Return the orchestrator policy plus current runtime context."""
 
     return (
         f"{ORCHESTRATOR_PROMPT}\n\n"
         "## Runtime context\n"
         f"Current date: {date.today().isoformat()}\n"
-        f"User timezone: {_user_timezone()}\n"
+        f"User timezone: {_user_timezone(tz)}\n"
         "Available tools: Todoist task tools only.\n"
     )
 

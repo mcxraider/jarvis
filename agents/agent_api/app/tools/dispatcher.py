@@ -12,7 +12,8 @@ import json
 import logging
 import time
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -33,16 +34,36 @@ from agents.agent_api.app.tools.base import (
 from agents.agent_api.app.tools.todoist.client import TodoistApiError
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
-_IDEMPOTENCY_CONTEXT: contextvars.ContextVar[Optional[Tuple[str, int]]] = (
+@dataclass
+class IdempotencyBatchContext:
+    """Per-batch context for the idempotency layer.
+
+    ``call_index_map`` maps each tool_call_id to its 0-based position in the
+    original assistant message. This allows the idempotency key to distinguish
+    intentional parallel duplicates (same args, different positions) from retries.
+    """
+
+    thread_id: str
+    turn_count: int
+    call_index_map: Dict[str, int] = field(default_factory=dict)
+
+
+_IDEMPOTENCY_CONTEXT: contextvars.ContextVar[Optional[IdempotencyBatchContext]] = (
     contextvars.ContextVar("jarvis_tool_idempotency_context", default=None)
 )
 
 
 @contextmanager
-def tool_idempotency_context(thread_id: str, turn_count: int) -> Iterator[None]:
+def tool_idempotency_context(
+    thread_id: str,
+    turn_count: int,
+    call_index_map: Optional[Dict[str, int]] = None,
+) -> Iterator[None]:
     """Scope direct ToolNode calls to one graph thread and turn."""
 
-    token = _IDEMPOTENCY_CONTEXT.set((thread_id, turn_count))
+    token = _IDEMPOTENCY_CONTEXT.set(
+        IdempotencyBatchContext(thread_id, turn_count, call_index_map or {})
+    )
     try:
         yield
     finally:
@@ -178,8 +199,9 @@ class ToolDispatcher:
             if tool_name in self._mutating_names:
                 context = _IDEMPOTENCY_CONTEXT.get()
                 if context is not None:
-                    ctx_thread_id, ctx_turn_count = context
+                    ctx_thread_id, ctx_turn_count = context.thread_id, context.turn_count
                 resolved_key = idempotency_key or self._context_idempotency_key(
+                    tool_call_id,
                     tool_name,
                     arguments,
                 )
@@ -272,20 +294,22 @@ class ToolDispatcher:
 
     def _context_idempotency_key(
         self,
+        tool_call_id: str,
         tool_name: str,
         arguments: Dict[str, Any],
     ) -> Optional[str]:
         context = _IDEMPOTENCY_CONTEXT.get()
         if context is None:
             return None
-        thread_id, turn_count = context
-        if not thread_id:
+        if not context.thread_id:
             return None
+        call_index = context.call_index_map.get(tool_call_id, 0)
         return build_operation_idempotency_key(
             tool_name,
             arguments,
-            thread_id,
-            turn_count,
+            context.thread_id,
+            context.turn_count,
+            call_index,
         )
 
     def _claim_operation(
@@ -411,6 +435,7 @@ class ToolDispatcher:
         result = copy.deepcopy(cached)
         result["tool_call_id"] = tool_call_id
         result["tool_name"] = tool_name
+        result["idempotency_deduplicated"] = True
         return result
 
     @staticmethod

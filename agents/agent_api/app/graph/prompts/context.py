@@ -7,7 +7,7 @@ its static wording for now; wire this in when more domains go live.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 
@@ -264,11 +264,14 @@ def build_user_prompt_with_request_datetime(user_prompt: str) -> str:
     )
 
 
-def build_initial_messages(user_prompt: str) -> List[Dict[str, Any]]:
+def build_initial_messages(
+    user_prompt: str,
+    timezone: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """Create the raw message list used by the DeepSeek API."""
 
     return [
-        {"role": "system", "content": get_system_prompt()},
+        {"role": "system", "content": get_system_prompt(timezone)},
         {"role": "user", "content": build_user_prompt_with_request_datetime(user_prompt)},
     ]
 

@@ -481,13 +481,13 @@ class ToolSelectionTests(unittest.TestCase):
             self.assertEqual(schemas, registry.openai_schemas())
             self.assertEqual(len(schemas), len(registry.specs))
 
-    def test_default_selector_is_keyword_selector(self) -> None:
+    def test_default_selector_is_static_selector(self) -> None:
         from agents.agent_api.app.tools.selection import (
             DEFAULT_TOOL_SELECTOR,
-            KeywordToolSelector,
+            StaticToolSelector,
         )
 
-        self.assertIsInstance(DEFAULT_TOOL_SELECTOR, KeywordToolSelector)
+        self.assertIsInstance(DEFAULT_TOOL_SELECTOR, StaticToolSelector)
 
     def test_run_jarvis_uses_default_selector_to_expose_all_tools(self) -> None:
         agent_client = FakeDeepSeekAgentClient([{"role": "assistant", "content": "Hi."}])
