@@ -89,20 +89,22 @@ export class CallbackHandler {
 
       const statusEmoji = decision === 'approve' ? '✅' : '❌';
       const statusText = decision === 'approve' ? 'Approved' : 'Declined';
+
+      // Strip the inline keyboard from the original confirm message so it can't be
+      // re-tapped, while leaving its text unchanged.
       if (ctx.callbackQuery?.message) {
         try {
-          const originalText =
-            'text' in ctx.callbackQuery.message ? ctx.callbackQuery.message.text || '' : '';
-          await ctx.editMessageText(`${originalText}\n\n${statusEmoji} ${statusText}`, {
-            reply_markup: undefined,
-          });
-        } catch (editError) {
-          logger.warn('telegram.callback.editMessage.failed', {
+          await ctx.editMessageReplyMarkup(undefined);
+        } catch (markupError) {
+          logger.warn('telegram.callback.editMarkup.failed', {
             requestId,
-            error: (editError as Error).message,
+            error: (markupError as Error).message,
           });
         }
       }
+
+      // Deliver the decision as its own new message instead of editing the confirm message.
+      await ctx.reply(`${statusEmoji} ${statusText}`);
 
       await progress.start();
 

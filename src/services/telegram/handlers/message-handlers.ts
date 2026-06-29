@@ -45,19 +45,61 @@ export class MessageHandlers {
     });
     this.activityService.recordActivity('message_text');
 
+    await this.runFreshText(ctx, messageText, logContext, startedAt);
+  }
+
+  // /new <message> — abandon any pending clarify/confirm interrupt and process <message> as
+  // a brand-new request in one step. Bare /new just abandons and invites a fresh message.
+  // The abandon + fresh-start logic lives in the processor (forceFresh); this only parses
+  // the command and routes.
+  async handleNew(ctx: Context): Promise<void> {
+    if (!ctx.message || !('text' in ctx.message)) return;
+
+    const userId = ctx.from?.id;
+    const logContext = this.createLogContext(ctx, 'text');
+    const startedAt = Date.now();
+    const remainder = this.stripCommandPrefix(ctx.message.text);
+
+    logger.info('telegram.command.new', { ...logContext, userId, hasMessage: remainder.length > 0 });
+    this.activityService.recordActivity('command_new');
+
+    if (!remainder) {
+      const outcome = await this.messageProcessor.abandonConversation(userId, logContext);
+      if (outcome === 'running') {
+        await ctx.reply("I'm still finishing your previous request — try /new again in a moment, or /cancel.");
+        return;
+      }
+      await ctx.reply('Starting fresh — send your next message.');
+      return;
+    }
+
+    await this.runFreshText(ctx, remainder, logContext, startedAt, { forceFresh: true });
+  }
+
+  // Shared fresh-text pipeline used by handleText (normal) and handleNew (forceFresh): show
+  // the rotating progress indicator, run the processor, then deliver the final response.
+  private async runFreshText(
+    ctx: Context,
+    text: string,
+    logContext: LogContext,
+    startedAt: number,
+    options?: { forceFresh?: boolean },
+  ): Promise<void> {
+    const userId = ctx.from?.id;
     const progressReporter = new TelegramProgressReporter(ctx, logContext);
     let lastProgressStage = '';
 
     try {
       await progressReporter.start();
       const result = await this.messageProcessor.processTextMessage(
-        messageText,
+        text,
         userId,
         logContext,
         async (event: LangGraphProgressEvent) => {
           lastProgressStage = event.stage;
           await progressReporter.record(event);
         },
+        options,
       );
       await progressReporter.complete(this.completionStatus(lastProgressStage));
       await this.sendResult(ctx, result, logContext);
@@ -76,6 +118,11 @@ export class MessageHandlers {
       await progressReporter.complete('Something went wrong');
       await ctx.reply('Something went wrong processing your message. Please try again.');
     }
+  }
+
+  // Strips the leading "/new" (or "/new@botname") token and returns the trimmed remainder.
+  private stripCommandPrefix(text: string): string {
+    return text.replace(/^\/new(?:@\w+)?\s*/i, '').trim();
   }
 
   async handleVoice(ctx: Context): Promise<void> {

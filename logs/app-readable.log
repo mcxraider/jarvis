@@ -15990,3 +15990,1391 @@
     {
       "signal": "SIGTERM"
     }
+[2026-06-29 09:51:16] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 6,
+      "nodeEnv": "development"
+    }
+[2026-06-29 09:51:16] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 178,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-29 09:51:16] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 09:51:16] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 09:51:16] INFO telegram.bot.initialized
+[2026-06-29 09:51:16] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-06-29 09:51:16] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 09:51:16] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-06-29 09:51:16] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-06-29 09:51:17] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:14:20] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 6,
+      "nodeEnv": "development"
+    }
+[2026-06-29 10:14:20] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 178,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-29 10:14:20] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:14:20] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:14:20] INFO telegram.bot.initialized
+[2026-06-29 10:14:20] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-06-29 10:14:20] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:14:20] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-06-29 10:14:20] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-06-29 10:14:21] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:14:48] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 6,
+      "nodeEnv": "development"
+    }
+[2026-06-29 10:14:48] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 178,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-29 10:14:48] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:14:48] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:14:48] INFO telegram.bot.initialized
+[2026-06-29 10:14:48] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-06-29 10:14:48] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:14:48] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-06-29 10:14:48] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-06-29 10:14:49] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:15:01] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 6,
+      "nodeEnv": "development"
+    }
+[2026-06-29 10:15:01] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 178,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-29 10:15:01] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:15:01] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:15:01] INFO telegram.bot.initialized
+[2026-06-29 10:15:01] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-06-29 10:15:01] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:15:01] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-06-29 10:15:01] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-06-29 10:15:04] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 6,
+      "nodeEnv": "development"
+    }
+[2026-06-29 10:15:04] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 178,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-29 10:15:04] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:15:04] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:15:04] INFO telegram.bot.initialized
+[2026-06-29 10:15:04] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-06-29 10:15:04] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:15:04] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-06-29 10:15:04] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-06-29 10:15:05] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:15:30] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 6,
+      "nodeEnv": "development"
+    }
+[2026-06-29 10:15:30] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 178,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-29 10:15:30] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:15:30] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:15:30] INFO telegram.bot.initialized
+[2026-06-29 10:15:30] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-06-29 10:15:30] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:15:30] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-06-29 10:15:30] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-06-29 10:15:31] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:15:56] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 6,
+      "nodeEnv": "development"
+    }
+[2026-06-29 10:15:56] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 178,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-29 10:15:56] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:15:56] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:15:56] INFO telegram.bot.initialized
+[2026-06-29 10:15:56] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-06-29 10:15:56] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:15:56] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-06-29 10:15:56] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-06-29 10:15:57] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:16:30] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 6,
+      "nodeEnv": "development"
+    }
+[2026-06-29 10:16:30] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 178,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-29 10:16:30] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:16:30] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:16:30] INFO telegram.bot.initialized
+[2026-06-29 10:16:30] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-06-29 10:16:30] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:16:30] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-06-29 10:16:30] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-06-29 10:16:32] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:16:38] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 6,
+      "nodeEnv": "development"
+    }
+[2026-06-29 10:16:38] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 178,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-29 10:16:38] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:16:38] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:16:38] INFO telegram.bot.initialized
+[2026-06-29 10:16:38] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-06-29 10:16:38] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:16:38] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-06-29 10:16:38] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-06-29 10:16:39] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:20:08] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 6,
+      "nodeEnv": "development"
+    }
+[2026-06-29 10:20:08] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 178,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-29 10:20:08] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:20:08] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:20:08] INFO telegram.bot.initialized
+[2026-06-29 10:20:08] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-06-29 10:20:08] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:20:08] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-06-29 10:20:08] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-06-29 10:20:09] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:20:17] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 6,
+      "nodeEnv": "development"
+    }
+[2026-06-29 10:20:17] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 178,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-29 10:20:17] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:20:17] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:20:17] INFO telegram.bot.initialized
+[2026-06-29 10:20:17] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-06-29 10:20:17] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:20:17] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-06-29 10:20:17] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-06-29 10:20:18] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:25:24] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 6,
+      "nodeEnv": "development"
+    }
+[2026-06-29 10:25:24] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 178,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-29 10:25:24] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:25:24] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:25:24] INFO telegram.bot.initialized
+[2026-06-29 10:25:24] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-06-29 10:25:24] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:25:24] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-06-29 10:25:24] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-06-29 10:25:25] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:25:41] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 6,
+      "nodeEnv": "development"
+    }
+[2026-06-29 10:25:41] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 178,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-29 10:25:41] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:25:41] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:25:41] INFO telegram.bot.initialized
+[2026-06-29 10:25:41] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-06-29 10:25:41] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:25:41] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-06-29 10:25:41] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-06-29 10:25:42] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://62ec-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:27:14] INFO server.shutdown.started
+  details:
+    {
+      "signal": "SIGTERM"
+    }
+[2026-06-29 10:27:19] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 6,
+      "nodeEnv": "development"
+    }
+[2026-06-29 10:27:19] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 178,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-06-29 10:27:19] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:27:19] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-06-29 10:27:19] INFO telegram.bot.initialized
+[2026-06-29 10:27:19] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-06-29 10:27:19] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://2b35-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:27:19] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-06-29 10:27:19] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-06-29 10:27:20] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://2b35-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-06-29 10:27:30] INFO telegram.webhook.received
+  requestId: tg_update_564452188
+  updateId: 564452188
+  messageType: text
+[2026-06-29 10:27:30] INFO telegram.update.handling_started
+  requestId: tg_update_564452188
+  updateId: 564452188
+[2026-06-29 10:27:31] INFO telegram.message.received
+  requestId: tg_update_564452188
+  updateId: 564452188
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 539
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 35,
+      "messagePreview": "add 6 “hello world” to my tasks tmr"
+    }
+[2026-06-29 10:27:31] INFO processor.route.selected
+  requestId: tg_update_564452188
+  updateId: 564452188
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 539
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 35,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-06-29 10:27:31] INFO text_processor.started
+  requestId: tg_update_564452188
+  updateId: 564452188
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 539
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 35
+    }
+[2026-06-29 10:27:31] INFO langgraph.stream.started
+  requestId: tg_update_564452188
+  updateId: 564452188
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 539
+  messageType: text
+  threadId: tg_tg_update_564452188
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-29 10:27:37] INFO langgraph.stream.completed
+  requestId: tg_update_564452188
+  updateId: 564452188
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 539
+  messageType: text
+  threadId: tg_tg_update_564452188
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "status": "interrupted",
+      "requestedThreadId": "tg_tg_update_564452188",
+      "durationMs": 5645
+    }
+[2026-06-29 10:27:37] INFO conversation_gate.transition_to_waiting
+  requestId: tg_update_564452188
+  updateId: 564452188
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 539
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "interruptType": "clarify"
+    }
+[2026-06-29 10:27:37] INFO text_processor.completed
+  requestId: tg_update_564452188
+  updateId: 564452188
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 539
+  messageType: text
+  threadId: tg_tg_update_564452188
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 35,
+      "responseLength": 294,
+      "agentStatus": "interrupted",
+      "requestedThreadId": "tg_tg_update_564452188",
+      "interruptType": "clarify",
+      "durationMs": 5810
+    }
+[2026-06-29 10:27:38] INFO telegram.reply.sent
+  requestId: tg_update_564452188
+  updateId: 564452188
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 539
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 294,
+      "totalDurationMs": 6903
+    }
+[2026-06-29 10:27:38] INFO telegram.update.handling_completed
+  requestId: tg_update_564452188
+  updateId: 564452188
+  details:
+    {
+      "durationMs": 7486
+    }
+[2026-06-29 10:27:44] INFO telegram.webhook.received
+  requestId: tg_update_564452189
+  updateId: 564452189
+  messageType: text
+[2026-06-29 10:27:44] INFO telegram.update.handling_started
+  requestId: tg_update_564452189
+  updateId: 564452189
+[2026-06-29 10:27:44] INFO telegram.message.received
+  requestId: tg_update_564452189
+  updateId: 564452189
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 541
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 9,
+      "messagePreview": "first one"
+    }
+[2026-06-29 10:27:44] INFO processor.route.selected
+  requestId: tg_update_564452189
+  updateId: 564452189
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 541
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 9,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-06-29 10:27:44] INFO text_processor.started
+  requestId: tg_update_564452189
+  updateId: 564452189
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 541
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 9
+    }
+[2026-06-29 10:27:44] INFO langgraph.stream.started
+  requestId: tg_update_564452189
+  updateId: 564452189
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 541
+  messageType: text
+  threadId: tg_tg_update_564452188
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/resume/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-29 10:27:57] INFO langgraph.stream.completed
+  requestId: tg_update_564452189
+  updateId: 564452189
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 541
+  messageType: text
+  threadId: tg_tg_update_564452188
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/resume/stream",
+      "status": "interrupted",
+      "requestedThreadId": "tg_tg_update_564452188",
+      "durationMs": 12489
+    }
+[2026-06-29 10:27:57] INFO conversation_gate.transition_to_waiting
+  requestId: tg_update_564452189
+  updateId: 564452189
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 541
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "interruptType": "confirm"
+    }
+[2026-06-29 10:27:57] INFO telegram.reply.sent
+  requestId: tg_update_564452189
+  updateId: 564452189
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 541
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 69,
+      "totalDurationMs": 13350
+    }
+[2026-06-29 10:27:57] INFO telegram.update.handling_completed
+  requestId: tg_update_564452189
+  updateId: 564452189
+  details:
+    {
+      "durationMs": 13352
+    }
+[2026-06-29 10:28:00] INFO telegram.webhook.received
+  requestId: tg_update_564452190
+  updateId: 564452190
+  messageType: unknown
+[2026-06-29 10:28:00] INFO telegram.update.handling_started
+  requestId: tg_update_564452190
+  updateId: 564452190
+[2026-06-29 10:28:01] INFO langgraph.stream.started
+  requestId: cb_mqylllav_vbrxbq
+  userId: [REDACTED_ID]
+  threadId: tg_tg_update_564452188
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/resume/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-29 10:28:07] INFO langgraph.stream.completed
+  requestId: cb_mqylllav_vbrxbq
+  userId: [REDACTED_ID]
+  threadId: tg_tg_update_564452188
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/resume/stream",
+      "status": "completed",
+      "requestedThreadId": "tg_tg_update_564452188",
+      "durationMs": 6156
+    }
+[2026-06-29 10:28:08] INFO telegram.callback.confirm.completed
+  requestId: cb_mqylllav_vbrxbq
+  userId: [REDACTED_ID]
+  threadId: tg_tg_update_564452188
+  details:
+    {
+      "decision": "approve",
+      "agentStatus": "completed"
+    }
+[2026-06-29 10:28:08] INFO telegram.update.handling_completed
+  requestId: tg_update_564452190
+  updateId: 564452190
+  details:
+    {
+      "durationMs": 8007
+    }
+[2026-06-29 10:29:01] INFO telegram.webhook.received
+  requestId: tg_update_564452191
+  updateId: 564452191
+  messageType: text
+[2026-06-29 10:29:01] INFO telegram.update.handling_started
+  requestId: tg_update_564452191
+  updateId: 564452191
+[2026-06-29 10:29:01] INFO telegram.message.received
+  requestId: tg_update_564452191
+  updateId: 564452191
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 545
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 41,
+      "messagePreview": "remove all the hello world from tmr tasks"
+    }
+[2026-06-29 10:29:01] INFO processor.route.selected
+  requestId: tg_update_564452191
+  updateId: 564452191
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 545
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 41,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-06-29 10:29:01] INFO text_processor.started
+  requestId: tg_update_564452191
+  updateId: 564452191
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 545
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 41
+    }
+[2026-06-29 10:29:01] INFO langgraph.stream.started
+  requestId: tg_update_564452191
+  updateId: 564452191
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 545
+  messageType: text
+  threadId: tg_tg_update_564452191
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-29 10:29:09] INFO langgraph.stream.completed
+  requestId: tg_update_564452191
+  updateId: 564452191
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 545
+  messageType: text
+  threadId: tg_tg_update_564452191
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "status": "interrupted",
+      "requestedThreadId": "tg_tg_update_564452191",
+      "durationMs": 7649
+    }
+[2026-06-29 10:29:09] INFO conversation_gate.transition_to_waiting
+  requestId: tg_update_564452191
+  updateId: 564452191
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 545
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "interruptType": "confirm"
+    }
+[2026-06-29 10:29:09] INFO text_processor.completed
+  requestId: tg_update_564452191
+  updateId: 564452191
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 545
+  messageType: text
+  threadId: tg_tg_update_564452191
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 41,
+      "responseLength": 133,
+      "agentStatus": "interrupted",
+      "requestedThreadId": "tg_tg_update_564452191",
+      "interruptType": "confirm",
+      "durationMs": 7843
+    }
+[2026-06-29 10:29:09] INFO telegram.reply.sent
+  requestId: tg_update_564452191
+  updateId: 564452191
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 545
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 133,
+      "totalDurationMs": 8550
+    }
+[2026-06-29 10:29:09] INFO telegram.update.handling_completed
+  requestId: tg_update_564452191
+  updateId: 564452191
+  details:
+    {
+      "durationMs": 8553
+    }
+[2026-06-29 10:29:44] INFO telegram.webhook.received
+  requestId: tg_update_564452192
+  updateId: 564452192
+  messageType: unknown
+[2026-06-29 10:29:44] INFO telegram.update.handling_started
+  requestId: tg_update_564452192
+  updateId: 564452192
+[2026-06-29 10:29:45] INFO langgraph.stream.started
+  requestId: cb_mqylntkq_5jsrh0
+  userId: [REDACTED_ID]
+  threadId: tg_tg_update_564452191
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/resume/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-06-29 10:29:47] INFO langgraph.stream.completed
+  requestId: cb_mqylntkq_5jsrh0
+  userId: [REDACTED_ID]
+  threadId: tg_tg_update_564452191
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/resume/stream",
+      "status": "completed",
+      "requestedThreadId": "tg_tg_update_564452191",
+      "durationMs": 2086
+    }
+[2026-06-29 10:29:48] INFO telegram.callback.confirm.completed
+  requestId: cb_mqylntkq_5jsrh0
+  userId: [REDACTED_ID]
+  threadId: tg_tg_update_564452191
+  details:
+    {
+      "decision": "approve",
+      "agentStatus": "completed"
+    }
+[2026-06-29 10:29:48] INFO telegram.update.handling_completed
+  requestId: tg_update_564452192
+  updateId: 564452192
+  details:
+    {
+      "durationMs": 3995
+    }
+[2026-06-29 10:30:18] INFO server.shutdown.started
+  details:
+    {
+      "signal": "SIGTERM"
+    }

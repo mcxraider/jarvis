@@ -27,6 +27,7 @@ export class TelegramHandlers {
     bot.command('help', this.commandHandlers.handleHelp.bind(this.commandHandlers));
     bot.command('status', this.commandHandlers.handleStatus.bind(this.commandHandlers));
     bot.command('cancel', this.commandHandlers.handleCancel.bind(this.commandHandlers));
+    bot.command('new', this.messageHandlers.handleNew.bind(this.messageHandlers));
   }
 
   // Inline keyboard button presses (e.g. Approve/Decline on confirm interrupts).

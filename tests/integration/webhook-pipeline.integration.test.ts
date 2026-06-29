@@ -74,6 +74,7 @@ describe('Webhook pipeline integration', () => {
       123456,
       expect.objectContaining({ messageType: 'text' }),
       expect.any(Function),
+      undefined,
     );
     expect(reply).toHaveBeenCalledWith('Mocked Jarvis reply', { parse_mode: 'MarkdownV2' });
   });

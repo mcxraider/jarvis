@@ -44,3 +44,5 @@
 {"chatId":"[REDACTED_ID]","contentType":"application/octet-stream","level":"warn","message":"whisper.download.unexpected_content_type","messageId":522,"messageType":"voice","requestId":"tg_update_564452178","telegramFirstName":"jerry","telegramUsername":"jer_jerryyy","timestamp":"2026-06-29 24:15:46","updateId":564452178,"userId":"[REDACTED_ID]"}
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-06-29 24:25:18"}
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-06-29 24:34:48"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-06-29 10:27:14"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-06-29 10:30:18"}

@@ -38,6 +38,7 @@ export class CommandHandlers {
       `/help — this message\n` +
       `/status — system health\n` +
       `/cancel — cancel the current operation\n` +
+      `/new <message> — abandon the current step and start a new request\n` +
       `\n` +
       `**Capabilities**\n` +
       `• Text — send a message and I'll handle it (task management via Todoist)\n` +
