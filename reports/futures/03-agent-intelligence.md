@@ -176,6 +176,14 @@ The previous message must always be injected into the graph state so the model c
 - Never expose raw provider payloads, stack traces, private prompts, or internal reasoning.
 - Keep success messages short; include clear next steps on failure.
 
+**Context passed to the return-to-user node:**
+- Only append the model's **final stage output** to this node's input — specifically:
+  1. The tool calls that were executed (names, parameters, results/status).
+  2. Any user replies during the interaction (e.g., HITL confirmations, clarifications).
+- Do NOT pass the full conversation history or intermediate reasoning steps.
+- This scoping ensures the return-to-user node can independently verify whether the requested tasks were actually completed, without being anchored by the model's own narration of success.
+- **Open question (requires testing):** Determine the optimal context engineering for this node — what minimal subset of prior state allows reliable completion-checking without inflating token cost or introducing confirmation bias from the model's earlier turns.
+
 ---
 
 ## 3.8 DeepSeek Prompt Engineering ❌
