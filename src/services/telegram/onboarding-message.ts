@@ -20,4 +20,6 @@ Tell me what you need in plain English. I handle Todoist tasks, scheduling, and 
 
 ---
 
+_🎙️ You can also send voice messages — I'll transcribe and handle them the same way._
+
 _🔒 I'll ask before making risky or bulk changes._`;
