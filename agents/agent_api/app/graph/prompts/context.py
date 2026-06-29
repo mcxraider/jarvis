@@ -52,11 +52,11 @@ USER_PROMPTS: List[str] = [
     # "Clear my Friday afternoon and drop a 2-hour strategy block in its place.",  # decline→END kills the whole turn incl. the unobjectionable create
 
     # ── 2 · control_flow / missing_confirm_to_hitl ──
-    # "Add the quarterly board call this Thursday 10am to 12pm.",
-    # "Add a 1:1 with Sarah my COO this Thursday 10:30am to 11am.",
-    # "Add an analyst briefing this Thursday 11am to 11:30am.",
-    # "Add a recruiter intro call this Thursday 11:30am to 12pm.",
-    # "Cancel the meetings that clash with Thursday's board call, but not the ones with my direct reports.",  # no confirm→hitl path; agent guesses (destructive) or dies after prepare_confirm
+    "Add the quarterly board call this Thursday 10am to 12pm.",
+    "Add a 1:1 with Sarah my COO this Thursday 10:30am to 11am.",
+    "Add an analyst briefing this Thursday 11am to 11:30am.",
+    "Add a recruiter intro call this Thursday 11:30am to 12pm.",
+    "Cancel the meetings that clash with Thursday's board call, but not the ones with my direct reports.",  # no confirm→hitl path; agent guesses (destructive) or dies after prepare_confirm
 
     # ── 4 · confirm_semantics / deferred_sibling_prerequisite ──
     # "Add Partnerships sync (tentative) tomorrow 2pm.",
