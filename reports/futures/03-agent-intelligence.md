@@ -187,6 +187,6 @@ The previous message must always be injected into the graph state so the model c
 **Goal:** Audit and revise orchestrator/worker system prompts using DeepSeek-specific best practices (structured output formatting, chain-of-thought triggers, role-setting conventions) to improve tool-call accuracy and reduce unnecessary clarification requests.
 
 **Actions:**
-- Review the guide for techniques applicable to our system prompts (`prompts/orchestrator.py`, `prompts/worker.py`, `prompts/context.py`).
+- Review the guide for techniques applicable to our system prompts (`prompts/orchestrator.py`.
 - Test prompt variants on common multi-step queries to measure improvement in tool-call precision.
 - Document which DeepSeek-specific patterns we adopt and why in the prompt files themselves.

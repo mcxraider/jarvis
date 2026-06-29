@@ -187,7 +187,7 @@ class DeepSeekAgentClient:
                 messages=messages,
                 tools=tools,
                 tool_choice="auto",
-                max_tokens=10000,
+                max_tokens=13000,
                 reasoning_effort=self.reasoning_effort,
                 extra_body={"thinking": {"type": "enabled"}},
             )
