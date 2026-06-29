@@ -59,10 +59,3 @@ Unresolved questions that require a product choice before the relevant feature c
 
 - Should reference resolution be deterministic only, or include a small ranking model after deterministic filters?
 - How many candidates should trigger a "choose one" clarification vs. an automatic selection?
-
----
-
-## Progress Messages ✅ RESOLVED
-
-- ~~How often should progress messages be sent or edited for long-running graph runs?~~ → 2s minimum between edits (debounced). 8s heartbeat for liveness.
-- ~~Should progress updates be a separate Telegram message, or always edit-in-place on a single message?~~ → Edit-in-place on a single ephemeral rich draft (or plain message fallback). Deleted on completion.

@@ -8,7 +8,7 @@ Last updated: 2026-06-29
 FastAPI (/invoke, /resume)
     └── run_jarvis (builder.py)
             ├── DeepSeekAgentClient       openai SDK + wrap_openai + @traceable
-            ├── TodoistApiClient           Todoist REST v1 API
+            ├── TodoistApiClient          Todoist REST v1 API
             ├── ToolRegistry              catalogue of ToolSpecs + handlers
             ├── ToolDispatcher            mutation guard, idempotency, error envelope, tracing
             ├── ToolSelector              KeywordToolSelector or StaticToolSelector (config-driven)
