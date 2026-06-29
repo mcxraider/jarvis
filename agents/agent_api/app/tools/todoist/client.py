@@ -101,9 +101,16 @@ def _parse_todoist_token_map(raw_value: Optional[str]) -> Dict[str, str]:
 
 
 def todoist_api_key_for_telegram_user(telegram_user_id: Optional[int]) -> Optional[str]:
+    from agents.agent_api.app.credentials import get_credential
+
+    db_key = get_credential(telegram_user_id, service="todoist")
+    if db_key:
+        return db_key
+
     token_map = _parse_todoist_token_map(os.getenv(TODOIST_TOKEN_MAP_ENV))
     if telegram_user_id is not None and token_map:
         return token_map.get(str(telegram_user_id))
+
     return os.getenv("TODOIST_API_KEY")
 
 

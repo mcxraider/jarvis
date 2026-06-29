@@ -142,3 +142,42 @@ class TestIdempotencyKeys:
         first = build_request_idempotency_key("ab", "c", "d", "e")
         second = build_request_idempotency_key("a", "bc", "d", "e")
         assert first != second
+
+    def test_operation_key_varies_with_call_index(self):
+        """Intentional parallel duplicates (same args, different positions) get distinct keys."""
+        keys = [
+            build_operation_idempotency_key(
+                "add_todoist_task",
+                {"content": "hello world", "due_date": "2026-06-30"},
+                "thread-1",
+                2,
+                call_index=i,
+            )
+            for i in range(6)
+        ]
+        assert len(set(keys)) == 6
+
+    def test_operation_key_same_index_is_stable(self):
+        """Retries of the same call (same position) produce the same key."""
+        first = build_operation_idempotency_key(
+            "add_todoist_task",
+            {"content": "hello world"},
+            "thread-1",
+            2,
+            call_index=3,
+        )
+        second = build_operation_idempotency_key(
+            "add_todoist_task",
+            {"content": "hello world"},
+            "thread-1",
+            2,
+            call_index=3,
+        )
+        assert first == second
+
+    def test_held_call_varies_with_call_index(self):
+        """Held calls at different positions get different idempotency keys."""
+        tc = {"id": "call_0", "function": {"name": "add_todoist_task", "arguments": '{"content":"x"}'}}
+        h0 = build_held_call(tc, "thread-1", 2, call_index=0)
+        h1 = build_held_call(tc, "thread-1", 2, call_index=1)
+        assert h0["idempotency_key"] != h1["idempotency_key"]

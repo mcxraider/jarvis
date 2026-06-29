@@ -52,8 +52,9 @@ def create_prepare_confirm_node(tracer: Optional[TracePrinter] = None):
             tracer.event("graph.prepare_confirm", "No risky calls found.", error=error)
             return {"error": error, "final_response": error, "next": "end"}
 
+        full_index = {id(tc): i for i, tc in enumerate(tool_calls)}
         held_calls = [
-            build_held_call(tc, state.get("thread_id", ""), state.get("turn_count", 0))
+            build_held_call(tc, state.get("thread_id", ""), state.get("turn_count", 0), call_index=full_index[id(tc)])
             for tc in risky
         ]
 

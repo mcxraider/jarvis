@@ -56,6 +56,9 @@ async def lifespan(_app: FastAPI):
         cleanup_task.cancel()
         with suppress(asyncio.CancelledError):
             await cleanup_task
+        from agents.agent_api.app.db import close_pool
+
+        close_pool()
 
 
 def create_app() -> FastAPI:

@@ -34,7 +34,7 @@ Jarvis uses a Supabase-hosted PostgreSQL instance. The database currently stores
 
 | # | Item | Status |
 |---|------|--------|
-| 5 | `usage_logs` table + instrumentation | ❌ Not started |
+| 5 | `usage_logs` table + instrumentation | ✅ Done (table live + Stage 6 code) |
 
 ### Phase 3: Hardening
 
@@ -510,6 +510,67 @@ Verify `prepare_threshold=None` is set (already done in your psycopg config) —
 
 ---
 
+## Implementation Progress
+
+### Code Integration (Stages 1–7)
+
+Implementation follows `plans/supabase_code_integration-[4].md`. Each stage has a strict test gate (full pytest suite + import safety).
+
+| Stage | Description | Status | Tests | Notes |
+|-------|-------------|--------|-------|-------|
+| **1** | Shared DB Pool (`db.py`) | ✅ Done | 6 tests (`test_db_pool.py`) | Lazy singleton, double-checked locking, `get_pool()` |
+| **2** | Credential Lookup + Todoist Wiring | ✅ Done | 11 tests (`test_credentials.py`) | DB → token map → env fallback; preserves map-authoritative semantics |
+| **3** | Thread Registration | ✅ Done | 6 tests (`test_thread_register.py`) | Fire-and-forget upsert after each `run_jarvis()` |
+| **4** | Thread Ownership + Rate Limiting | ✅ Done | 20 tests (`test_thread_ownership.py` 7, `test_rate_limit.py` 10, `test_api.py` +3) | Atomic UPDATE w/ CASE/RETURNING; guards fire before idempotency |
+| **5** | Per-User Timezone (Preferences) | ✅ Done | 13 tests (`test_preferences_timezone.py`) | DB prefs → `_user_timezone()` override → system prompt |
+| **6** | Usage Logging | ✅ Done | 7 tests (`test_usage_logging.py`) | Fire-and-forget INSERT into `usage_logs`; `event_type='run'` |
+| **7** | RLS Policies (SQL only) | ❌ Not started | — | Service role bypasses; protects future client-side access |
+
+### Files Created/Modified
+
+| File | Stage | Action |
+|------|-------|--------|
+| `agents/agent_api/app/db.py` | 1 | **Created** — lazy `get_pool()` singleton |
+| `agents/agent_api/app/credentials.py` | 2, 5 | **Created** — `get_credential()` + `get_user_preferences()` |
+| `agents/agent_api/app/tools/todoist/client.py` | 2 | **Edited** — 3-tier priority in `todoist_api_key_for_telegram_user()` |
+| `agents/agent_api/app/graph/builder.py` | 3, 5, 6 | **Edited** — `_register_thread()`, `_log_usage()`, timezone threading |
+| `agents/agent_api/app/api/thread_ownership.py` | 4 | **Created** — `validate_thread_ownership()` raises 403 |
+| `agents/agent_api/app/api/rate_limit.py` | 4 | **Created** — atomic `check_rate_limit()` raises 429 |
+| `agents/agent_api/app/api/routes/invoke.py` | 4 | **Edited** — `check_rate_limit` guard on all 3 handlers |
+| `agents/agent_api/app/api/routes/resume.py` | 4 | **Edited** — ownership + rate limit guards on both handlers |
+| `agents/agent_api/app/graph/prompts/orchestrator.py` | 5 | **Edited** — `_user_timezone(override)`, param threading |
+| `agents/agent_api/app/graph/prompts/context.py` | 5 | **Edited** — `build_initial_messages(…, timezone=)` |
+| `tests/agents/test_db_pool.py` | 1 | **Created** |
+| `tests/agents/test_credentials.py` | 2 | **Created** |
+| `tests/agents/test_thread_register.py` | 3 | **Created** |
+| `tests/agents/test_thread_ownership.py` | 4 | **Created** |
+| `tests/agents/test_rate_limit.py` | 4 | **Created** |
+| `tests/agents/test_preferences_timezone.py` | 5 | **Created** |
+| `tests/agents/test_usage_logging.py` | 6 | **Created** |
+| `tests/agents/test_api.py` | 4 | **Edited** — added `RouteGuardTests` class (3 tests) |
+
+### Key Architectural Decisions Implemented
+
+1. **Separate shared pool** — `db.py` is distinct from checkpointer and idempotency pools (no DDL, pure DML)
+2. **Import-time safety** — all DB imports deferred inside function bodies; service starts without DSN
+3. **Fail-open for telemetry, fail-closed for auth** — credentials/threads/usage log warnings; ownership/rate-limit raise HTTP exceptions (re-raise pattern)
+4. **FakePool test pattern** — consistent with `test_idempotency_store.py`; no live DB needed
+5. **Token map semantics preserved** — when env var map is configured, absent users still get `None` (no global fallback)
+6. **Atomic rate limiting** — single UPDATE with CASE/RETURNING handles reset + increment + check in one statement (no TOCTOU race)
+7. **Guards fire before idempotency** — ownership + rate limit checks run before `begin_idempotent_request()` to avoid consuming idempotency slots on rejected requests
+8. **Timezone threading** — override → env var → system detect → UTC, threaded from `run_jarvis()` through `build_initial_state()` → `build_initial_messages()` → `get_system_prompt()` → orchestrator prompt
+9. **Usage event_type = 'run'** — one row per full graph invocation (not per-LLM-call), keeps table compact while enabling cost dashboards
+
+### Test Gate Status
+
+```
+548 passed, 0 failed (as of Stage 6 completion)
+All imports safe without JARVIS_POSTGRES_DSN
+Test progression: 491 → 502 (S1) → 508 (S2) → 528 (S4) → 541 (S5) → 548 (S6)
+```
+
+---
+
 ## Summary: What's Done vs. What's Left
 
 ```
@@ -518,14 +579,16 @@ Verify `prepare_threshold=None` is set (already done in your psycopg config) —
 ✅ Phase 2 #6: rate_limits table
 ✅ Phase 3 #8: user_id FK columns on existing stores
 
-❌ Code: Todoist client reads credentials from Supabase (Step B)
-❌ Code: Thread registration on /invoke (Step C)
-❌ Code: Thread ownership validation on /resume (Step D)
-❌ Code: Rate limit enforcement on /invoke (Step E)
-❌ Code: User preferences loaded per-request (Step F)
-❌ Code: Usage logging to Supabase (Step G)
-❌ Table: usage_logs (create in Supabase)
-❌ RLS policies
+✅ Code: Shared DB pool (Step A) — agents/agent_api/app/db.py
+✅ Code: Todoist client reads credentials from Supabase (Step B)
+✅ Code: Thread registration on /invoke (Step C)
+✅ Code: Thread ownership validation on /resume (Step D)
+✅ Code: Rate limit enforcement on /invoke + /resume (Step E)
+✅ Code: User preferences loaded per-request (Step F)
+✅ Code: Usage logging to Supabase (Step G)
+
+✅ Table: usage_logs (live in Supabase)
+❌ RLS policies (Stage 7 — SQL only, service role bypasses)
 ❌ Checkpoint cleanup job
 ❌ Connection pooler tuning
 ```

@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from agents.agent_api.app.graph.canonicalize import build_operation_idempotency_key
 from agents.agent_api.app.graph.nodes.prepare_confirm import create_prepare_confirm_node
 from agents.agent_api.app.graph.risk import BULK_THRESHOLD
 
@@ -153,3 +154,33 @@ class TestPrepareConfirmNode:
         assert result["held_calls"][0]["context"] == {
             "task_content": "Cancel duplicate reminder"
         }
+
+    def test_call_index_uses_full_array_position_not_subset(self):
+        """Risky calls get call_index from their full-array position, not subset position."""
+        calls = [
+            _make_tool_call("get_tasks_by_filter", "c0", {"filter": "today"}),
+            _make_tool_call("add_todoist_task", "c1", {"content": "new task"}),
+            _make_tool_call("delete_todoist_task", "c2", {"task_id": "t1"}),
+        ]
+        # Prior mutations push add_todoist_task over bulk threshold → risky
+        prior_mutations = [
+            {"tool_name": "add_todoist_task"} for _ in range(BULK_THRESHOLD)
+        ]
+        state = _make_state(calls, tool_results=prior_mutations)
+        node = create_prepare_confirm_node()
+        result = node(state)
+
+        # risky = [c1(add, full idx=1), c2(delete, full idx=2)]; safe = [c0(read)]
+        assert len(result["held_calls"]) == 2
+
+        held_add = result["held_calls"][0]
+        assert held_add["tool_name"] == "add_todoist_task"
+        assert held_add["idempotency_key"] == build_operation_idempotency_key(
+            "add_todoist_task", {"content": "new task"}, "thread_test", 3, call_index=1,
+        )
+
+        held_delete = result["held_calls"][1]
+        assert held_delete["tool_name"] == "delete_todoist_task"
+        assert held_delete["idempotency_key"] == build_operation_idempotency_key(
+            "delete_todoist_task", {"task_id": "t1"}, "thread_test", 3, call_index=2,
+        )

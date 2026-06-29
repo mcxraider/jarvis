@@ -46,21 +46,28 @@ def build_operation_idempotency_key(
     args: Dict[str, Any],
     thread_id: str,
     turn_count: int,
+    call_index: int = 0,
 ) -> str:
-    """Build a replay key for one mutating operation in a graph turn."""
+    """Build a replay key for one mutating operation in a graph turn.
+
+    ``call_index`` is the 0-based position of the tool call within the
+    assistant message's tool_calls array — it distinguishes intentional
+    parallel duplicates (same args, different positions) from retries.
+    """
 
     return _hash_components(
         (
-            b"operation:v1",
+            b"operation:v2",
             tool_name.encode(),
             canonicalize(args),
             thread_id.encode(),
             str(turn_count).encode(),
+            str(call_index).encode(),
         )
     )
 
 
-def build_held_call(tool_call: Dict[str, Any], thread_id: str, turn_count: int) -> Dict[str, Any]:
+def build_held_call(tool_call: Dict[str, Any], thread_id: str, turn_count: int, call_index: int = 0) -> Dict[str, Any]:
     """Freeze a risky tool call into a held_call artifact."""
     args = parse_tool_call_arguments(tool_call)
     canonical = canonicalize(args)
@@ -76,6 +83,7 @@ def build_held_call(tool_call: Dict[str, Any], thread_id: str, turn_count: int) 
             args,
             thread_id,
             turn_count,
+            call_index,
         ),
     }
 
