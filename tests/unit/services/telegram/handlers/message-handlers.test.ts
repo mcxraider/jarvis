@@ -1,9 +1,10 @@
 import { MessageHandlers } from '../../../../../src/services/telegram/handlers/message-handlers';
+import { TELEGRAM_ONBOARDING_MESSAGE } from '../../../../../src/services/telegram/onboarding-message';
 
 describe('MessageHandlers', () => {
   function createContext(message: Record<string, unknown>) {
     return {
-      from: { id: 123, username: 'tester' },
+      from: { id: 123, username: 'tester', first_name: 'Test' },
       chat: { id: 456 },
       message,
       reply: jest.fn().mockResolvedValue({ message_id: 77 }),
@@ -14,6 +15,80 @@ describe('MessageHandlers', () => {
     } as any;
   }
 
+  function createHandlers(options: {
+    fileService?: any;
+    messageProcessor?: any;
+    activityService?: any;
+  } = {}) {
+    const fileService = options.fileService || {
+      isAudioFile: jest.fn(),
+      getFileUrl: jest.fn(),
+    };
+    const messageProcessor = options.messageProcessor || {
+      processTextMessage: jest.fn().mockResolvedValue({ response: 'processed text' }),
+    };
+    const activityService = options.activityService || { recordActivity: jest.fn() };
+    const handlers = new MessageHandlers(
+      fileService,
+      messageProcessor,
+      activityService,
+    );
+
+    return { handlers, fileService, messageProcessor, activityService };
+  }
+
+  it('routes text messages with Telegram identity metadata', async () => {
+    const fileService = {
+      isAudioFile: jest.fn(),
+      getFileUrl: jest.fn(),
+    } as any;
+    const messageProcessor = {
+      processTextMessage: jest.fn().mockResolvedValue({ response: 'processed text' }),
+    } as any;
+    const activityService = { recordActivity: jest.fn() } as any;
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService);
+    const ctx = createContext({ text: 'hello', message_id: 99 });
+
+    await handlers.handleText(ctx);
+
+    expect(messageProcessor.processTextMessage).toHaveBeenCalledWith(
+      'hello',
+      123,
+      expect.objectContaining({
+        messageId: 99,
+        messageType: 'text',
+        telegramUsername: 'tester',
+        telegramFirstName: 'Test',
+      }),
+      expect.any(Function),
+      undefined,
+    );
+    expect(activityService.recordActivity).toHaveBeenCalledWith('message_text');
+    expect(ctx.reply).toHaveBeenCalledWith('processed text', { parse_mode: 'MarkdownV2' });
+  });
+
+  it('does not send onboarding on a regular text message', async () => {
+    const { handlers, messageProcessor } = createHandlers();
+    const ctx = createContext({ text: 'hello', message_id: 99 });
+
+    await handlers.handleText(ctx);
+
+    expect(messageProcessor.processTextMessage).toHaveBeenCalled();
+    expect(ctx.reply).not.toHaveBeenCalledWith(
+      expect.stringContaining('Jarvis'),
+      expect.any(Object),
+    );
+    expect(ctx.reply).toHaveBeenCalledWith('processed text', { parse_mode: 'MarkdownV2' });
+  });
+
+  it('keeps the onboarding copy compact and task-focused', () => {
+    expect(TELEGRAM_ONBOARDING_MESSAGE).toContain('**Jarvis**');
+    expect(TELEGRAM_ONBOARDING_MESSAGE).toContain('Simple:');
+    expect(TELEGRAM_ONBOARDING_MESSAGE).toContain('Tougher:');
+    expect(TELEGRAM_ONBOARDING_MESSAGE).toContain('Set a dinner appointment with <friend>');
+    expect(TELEGRAM_ONBOARDING_MESSAGE).toContain("I'll ask before risky or bulk changes.");
+  });
+
   it('routes audio documents through processAudioDocument', async () => {
     const fileService = {
       isAudioFile: jest.fn().mockReturnValue(true),
@@ -22,6 +97,7 @@ describe('MessageHandlers', () => {
     const messageProcessor = {
       processAudioDocument: jest.fn().mockImplementation(async (...args: any[]) => {
         const hooks = args[5];
+        await hooks.onTranscription('transcribed text');
         await hooks.onTranscribed();
         await hooks.onProgress({ stage: 'completed', message: 'Done' });
         return { response: 'processed document' };
@@ -52,6 +128,7 @@ describe('MessageHandlers', () => {
       123,
       expect.objectContaining({ messageType: 'document' }),
       expect.objectContaining({
+        onTranscription: expect.any(Function),
         onTranscribed: expect.any(Function),
         onProgress: expect.any(Function),
       }),
@@ -61,13 +138,14 @@ describe('MessageHandlers', () => {
     expect(ctx.reply).toHaveBeenCalledWith('Transcribing\\.\\.\\.', {
       parse_mode: 'MarkdownV2',
     });
-    expect(ctx.telegram.editMessageText).toHaveBeenCalledWith(
-      456,
-      77,
-      undefined,
-      'Thinking\\.\\.\\.',
-      { parse_mode: 'MarkdownV2' },
-    );
+    // The transcription is delivered as its own message, above the thinking block.
+    expect(ctx.reply).toHaveBeenCalledWith('🗣️: transcribed text', {
+      parse_mode: 'MarkdownV2',
+    });
+    // Thinking block starts fresh below the transcription (new message, not an edit).
+    expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.\\.\\.', {
+      parse_mode: 'MarkdownV2',
+    });
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
     expect(ctx.reply).toHaveBeenCalledWith('processed document', { parse_mode: 'MarkdownV2' });
   });
@@ -82,6 +160,7 @@ describe('MessageHandlers', () => {
     const messageProcessor = {
       processAudioMessage: jest.fn().mockImplementation(async (...args: any[]) => {
         const hooks = args[3];
+        await hooks.onTranscription('transcribed text');
         await hooks.onTranscribed();
         await hooks.onProgress({ stage: 'completed', message: 'Done' });
         return { response: 'processed audio' };
@@ -103,11 +182,15 @@ describe('MessageHandlers', () => {
       123,
       expect.any(Object),
       expect.objectContaining({
+        onTranscription: expect.any(Function),
         onTranscribed: expect.any(Function),
         onProgress: expect.any(Function),
       }),
     );
-    expect(ctx.telegram.editMessageText).toHaveBeenCalled();
+    expect(ctx.reply).toHaveBeenCalledWith('🗣️: transcribed text', {
+      parse_mode: 'MarkdownV2',
+    });
+    expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.\\.\\.', { parse_mode: 'MarkdownV2' });
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
   });
 
@@ -231,5 +314,79 @@ describe('MessageHandlers', () => {
       'Something went wrong processing your audio document. Please try again.',
     );
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_document');
+  });
+
+  describe('handleNew (/new)', () => {
+    it('strips the /new prefix and processes the remainder with forceFresh', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn().mockResolvedValue({ response: 'created' }),
+        abandonConversation: jest.fn(),
+      } as any;
+      const activityService = { recordActivity: jest.fn() } as any;
+      const { handlers } = createHandlers({ messageProcessor, activityService });
+      const ctx = createContext({ text: '/new buy milk', message_id: 5 });
+
+      await handlers.handleNew(ctx);
+
+      expect(messageProcessor.processTextMessage).toHaveBeenCalledWith(
+        'buy milk',
+        123,
+        expect.objectContaining({ messageType: 'text' }),
+        expect.any(Function),
+        { forceFresh: true },
+      );
+      expect(messageProcessor.abandonConversation).not.toHaveBeenCalled();
+      expect(activityService.recordActivity).toHaveBeenCalledWith('command_new');
+    });
+
+    it('handles /new@botname mention prefixes', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn().mockResolvedValue({ response: 'ok' }),
+        abandonConversation: jest.fn(),
+      } as any;
+      const { handlers } = createHandlers({ messageProcessor });
+      const ctx = createContext({ text: '/new@jarvisbot add eggs', message_id: 6 });
+
+      await handlers.handleNew(ctx);
+
+      expect(messageProcessor.processTextMessage).toHaveBeenCalledWith(
+        'add eggs',
+        123,
+        expect.any(Object),
+        expect.any(Function),
+        { forceFresh: true },
+      );
+    });
+
+    it('bare /new abandons and invites a fresh message', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn(),
+        abandonConversation: jest.fn().mockResolvedValue('abandoned'),
+      } as any;
+      const { handlers } = createHandlers({ messageProcessor });
+      const ctx = createContext({ text: '/new', message_id: 7 });
+
+      await handlers.handleNew(ctx);
+
+      expect(messageProcessor.abandonConversation).toHaveBeenCalledWith(123, expect.any(Object));
+      expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
+      expect(ctx.reply).toHaveBeenCalledWith('Starting fresh — send your next message.');
+    });
+
+    it('bare /new while the agent is running tells the user to wait', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn(),
+        abandonConversation: jest.fn().mockResolvedValue('running'),
+      } as any;
+      const { handlers } = createHandlers({ messageProcessor });
+      const ctx = createContext({ text: '/new', message_id: 8 });
+
+      await handlers.handleNew(ctx);
+
+      expect(ctx.reply).toHaveBeenCalledWith(
+        "I'm still finishing your previous request — try /new again in a moment, or /cancel.",
+      );
+      expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
+    });
   });
 });

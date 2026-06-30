@@ -2,13 +2,17 @@
 
 from agents.agent_api.app.constants import SUMMARIZE_THRESHOLD
 from agents.agent_api.app.graph.extractors import extract_list_from_content
-from agents.agent_api.app.graph.risk import partition_tool_calls
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.control import is_ask_user_tool_call
 
 
 def route_after_agent(state: JarvisState) -> str:
-    """Route from the agent node based on the latest assistant output."""
+    """Route from the agent node based on the latest assistant output.
+
+    Clarification requests win and go to HITL. All other tool calls go to the
+    ``validate_entities`` node, which verifies prior-read entity IDs and then performs
+    the risk split (``tools`` vs ``confirm``) itself.
+    """
 
     if state.get("error"):
         return "end"
@@ -21,10 +25,7 @@ def route_after_agent(state: JarvisState) -> str:
         return "hitl"
 
     if tool_calls:
-        risky, _safe = partition_tool_calls(tool_calls, state)
-        if risky:
-            return "confirm"
-        return "tools"
+        return "validate"
 
     return "end"
 

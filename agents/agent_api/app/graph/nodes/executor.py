@@ -101,6 +101,7 @@ def create_executor_node(
             held["origin_tool_call_id"],
             held["tool_name"],
             held["args"],
+            idempotency_key=held.get("idempotency_key"),
         )
 
         classified = result.get("classified_error")

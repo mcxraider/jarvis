@@ -21,6 +21,7 @@ class JarvisState(TypedDict, total=False):
     interrupt_payload: Dict[str, Any]
     final_response: str
     error: str
+    run_log_path: str
     next: str
 
     # Confirm gate fields — freeze risky actions for human approval.

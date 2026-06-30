@@ -12,14 +12,18 @@ jest.mock('../../../../src/services/telegram/processors/audio-processor.service'
 }));
 
 import { MessageProcessorService } from '../../../../src/services/telegram/message-processor.service';
+import { MemoryConversationGateStore } from '../../../../src/services/telegram/conversation-gate.store';
+import { buildConversationKey } from '../../../../src/services/telegram/conversation-key';
 
 describe('MessageProcessorService', () => {
   let service: MessageProcessorService;
+  let gateStore: MemoryConversationGateStore;
 
   beforeEach(() => {
     const { TextProcessorService } = require('../../../../src/services/telegram/processors/text-processor.service');
     const { AudioProcessorService } = require('../../../../src/services/telegram/processors/audio-processor.service');
-    service = new MessageProcessorService(new TextProcessorService(), new AudioProcessorService());
+    gateStore = new MemoryConversationGateStore();
+    service = new MessageProcessorService(new TextProcessorService(), new AudioProcessorService(), gateStore);
   });
 
   it('routes text messages to the text processor', async () => {
@@ -54,7 +58,79 @@ describe('MessageProcessorService', () => {
       7,
       {},
       hooks,
+      { gatePreAcquired: true },
     );
+  });
+
+  it('blocks audio while another request is running', async () => {
+    const audioProcessor = (service as any).audioProcessor;
+    const gateKey = buildConversationKey(7, 'telegram:7', 100);
+    await gateStore.tryAcquire(gateKey, 60000, 100);
+
+    const result = await service.processAudioMessage(
+      'https://example.com/audio.ogg',
+      7,
+      { chatId: 100, messageId: 1 },
+    );
+
+    expect(result.blocked).toBe(true);
+    expect(result.response).toMatch(/still working/i);
+    expect(audioProcessor.processAudioMessage).not.toHaveBeenCalled();
+  });
+
+  it('routes waiting-for-clarification audio as a reserved clarification resume', async () => {
+    const audioProcessor = (service as any).audioProcessor;
+    audioProcessor.processAudioMessage.mockResolvedValueOnce({ response: 'Done.', threadId: 'thread-hitl' });
+    const gateKey = buildConversationKey(7, 'telegram:7', 100);
+    await gateStore.tryAcquire(gateKey, 60000, 100);
+    await gateStore.transitionToWaiting(gateKey, 60000);
+
+    const result = await service.processAudioMessage(
+      'https://example.com/audio.ogg',
+      7,
+      { chatId: 100, messageId: 2 },
+    );
+
+    expect(result.response).toBe('Done.');
+    expect(audioProcessor.processAudioMessage).toHaveBeenCalledWith(
+      'https://example.com/audio.ogg',
+      7,
+      { chatId: 100, messageId: 2 },
+      undefined,
+      { pendingClarificationPreReserved: true },
+    );
+  });
+
+  it('releases an idle pre-acquired audio gate when transcription never reaches text processing', async () => {
+    const audioProcessor = (service as any).audioProcessor;
+    audioProcessor.processAudioMessage.mockResolvedValueOnce({ response: 'No speech detected in the audio.' });
+    const gateKey = buildConversationKey(7, 'telegram:7', 100);
+
+    const result = await service.processAudioMessage(
+      'https://example.com/audio.ogg',
+      7,
+      { chatId: 100, messageId: 3 },
+    );
+
+    expect(result.response).toMatch(/No speech/i);
+    expect(await gateStore.getStatus(gateKey)).toBe('idle');
+  });
+
+  it('restores waiting state when clarification audio is not transcribed into text processing', async () => {
+    const audioProcessor = (service as any).audioProcessor;
+    audioProcessor.processAudioMessage.mockResolvedValueOnce({ response: 'No speech detected in the audio.' });
+    const gateKey = buildConversationKey(7, 'telegram:7', 100);
+    await gateStore.tryAcquire(gateKey, 60000, 100);
+    await gateStore.transitionToWaiting(gateKey, 60000);
+
+    const result = await service.processAudioMessage(
+      'https://example.com/audio.ogg',
+      7,
+      { chatId: 100, messageId: 4 },
+    );
+
+    expect(result.response).toMatch(/No speech/i);
+    expect(await gateStore.getStatus(gateKey)).toBe('waiting_for_clarification');
   });
 
   it('routes photo messages through the text processor with image context', async () => {
@@ -133,6 +209,7 @@ describe('MessageProcessorService', () => {
       7,
       {},
       hooks,
+      { gatePreAcquired: true },
     );
   });
 

@@ -9,6 +9,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from agents.agent_api.app.graph.canonicalize import build_held_call
+from agents.agent_api.app.graph.extractors import extract_task_items
 from agents.agent_api.app.graph.nodes.hitl import deferred_tool_message
 from agents.agent_api.app.graph.risk import partition_tool_calls
 from agents.agent_api.app.graph.state import JarvisState
@@ -26,15 +27,8 @@ def _find_task_content(messages: List[Dict[str, Any]], task_id: str) -> Optional
             continue
         try:
             data = json.loads(content_str)
-            if not isinstance(data, dict):
-                continue
-            results = data.get("results")
-            if not results and isinstance(data.get("content"), dict):
-                results = data["content"].get("results")
-            if not results:
-                continue
-            for task in results:
-                if isinstance(task, dict) and task.get("id") == task_id:
+            for task in extract_task_items(data):
+                if task.get("id") == task_id:
                     return task.get("content")
         except (json.JSONDecodeError, TypeError):
             continue
@@ -58,8 +52,9 @@ def create_prepare_confirm_node(tracer: Optional[TracePrinter] = None):
             tracer.event("graph.prepare_confirm", "No risky calls found.", error=error)
             return {"error": error, "final_response": error, "next": "end"}
 
+        full_index = {id(tc): i for i, tc in enumerate(tool_calls)}
         held_calls = [
-            build_held_call(tc, state.get("thread_id", ""), state.get("turn_count", 0))
+            build_held_call(tc, state.get("thread_id", ""), state.get("turn_count", 0), call_index=full_index[id(tc)])
             for tc in risky
         ]
 

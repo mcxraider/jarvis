@@ -49,6 +49,16 @@ class TestRenderActionSummary:
         assert "id=1" in result
         assert "content" in result
 
+    def test_update_tool_with_task_context(self):
+        held = {
+            "tool_name": "update_todoist_task",
+            "args": {"task_id": "1", "due_string": "tomorrow 9am"},
+            "context": {"task_content": "Submit expense report"},
+        }
+        result = render_action_summary(held)
+        assert result == 'Update task "Submit expense report": due_string.'
+        assert "id=1" not in result
+
     def test_truly_generic_tool(self):
         held = {"tool_name": "some_unknown_tool", "args": {"foo": "bar", "baz": 42}}
         result = render_action_summary(held)
@@ -176,11 +186,21 @@ class TestRenderBatchSummary:
 
     def test_update_batch_uses_updating_verb(self):
         held_calls = [
-            {"tool_name": "update_todoist_task", "args": {"task_id": "1", "content": "X"}},
-            {"tool_name": "update_todoist_task", "args": {"task_id": "2", "priority": 4}},
+            {
+                "tool_name": "update_todoist_task",
+                "args": {"task_id": "1", "content": "X"},
+                "context": {"task_content": "First task"},
+            },
+            {
+                "tool_name": "update_todoist_task",
+                "args": {"task_id": "2", "priority": 4},
+                "context": {"task_content": "Second task"},
+            },
         ]
         summary = render_batch_summary(held_calls)
         assert "I'm updating 2 items:" in summary
+        assert 'Update task "First task": content.' in summary
+        assert 'Update task "Second task": priority.' in summary
         assert "Please confirm to proceed." in summary
 
     def test_mixed_batch_uses_modifying(self):

@@ -1,7 +1,7 @@
 """Tests for per-run readable file logging of Jarvis agent invocations."""
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from unittest import TestCase, mock
 
@@ -11,22 +11,82 @@ from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 
 class BuildRunLogPathTests(TestCase):
-    def test_filename_sorts_chronologically_and_tags_thread(self) -> None:
-        earlier = run_logging.build_run_log_path(
-            "abcdef12-3456", now=datetime(2026, 6, 21, 9, 0, 0, 1)
-        )
-        later = run_logging.build_run_log_path(
-            "abcdef12-3456", now=datetime(2026, 6, 21, 9, 0, 0, 2)
+    def test_telegram_username_and_thread_suffix_build_filename(self) -> None:
+        path = run_logging.build_run_log_path(
+            "abcdef12-3456",
+            now=datetime(2026, 6, 21, 1, 2, 3, 4, tzinfo=timezone.utc),
+            identity=run_logging.RunLogIdentity(
+                request_source="telegram",
+                telegram_user_id=701122767,
+                telegram_username="Jerry",
+            ),
         )
 
-        self.assertTrue(earlier.name.startswith("jarvis_run_2026"))
-        self.assertTrue(earlier.name.endswith("_abcdef12.log"))
-        # Lexical filename order matches chronological run order.
-        self.assertLess(earlier.name, later.name)
+        self.assertEqual(path.parent.name, "jerry-701122767")
+        self.assertEqual(path.name, "jerry_23456.log")
+
+    def test_filename_is_stable_for_same_user_and_thread_suffix(self) -> None:
+        identity = run_logging.RunLogIdentity(
+            request_source="telegram",
+            telegram_user_id=701122767,
+            telegram_username="Jerry",
+        )
+        earlier = run_logging.build_run_log_path(
+            "abcdef12-3456",
+            now=datetime(2026, 6, 21, 9, 0, 0, 1),
+            identity=identity,
+        )
+        later = run_logging.build_run_log_path(
+            "abcdef12-3456",
+            now=datetime(2026, 6, 21, 9, 0, 0, 2),
+            identity=identity,
+        )
+
+        self.assertEqual(earlier.name, "jerry_23456.log")
+        self.assertEqual(later.name, "jerry_23456.log")
 
     def test_missing_thread_id_falls_back_to_placeholder(self) -> None:
         path = run_logging.build_run_log_path("", now=datetime(2026, 6, 21, 9, 0, 0))
-        self.assertTrue(path.name.endswith("_norun.log"))
+        self.assertEqual(path.parent.name, "jer_jerryyy-701122767")
+        self.assertEqual(path.name, "jer_jerryyy_norun.log")
+
+    def test_missing_username_falls_back_to_first_name(self) -> None:
+        path = run_logging.build_run_log_path(
+            "tg_fd1ed82cbdaeabbc92afb8b0c57dd28c_385",
+            now=datetime(2026, 6, 21, 9, 0, 0),
+            identity=run_logging.RunLogIdentity(
+                request_source="telegram",
+                telegram_user_id=222,
+                telegram_first_name="Alex Friend",
+            ),
+        )
+
+        self.assertEqual(path.parent.name, "alex_friend-222")
+        self.assertEqual(path.name, "alex_friend_c_385.log")
+
+    def test_sanitizes_username_for_folder_and_filename(self) -> None:
+        path = run_logging.build_run_log_path(
+            "thread-12345",
+            now=datetime(2026, 6, 21, 9, 0, 0),
+            identity=run_logging.RunLogIdentity(
+                request_source="telegram",
+                telegram_user_id=333,
+                telegram_username="  @Bad Name!!  ",
+            ),
+        )
+
+        self.assertEqual(path.parent.name, "bad_name-333")
+        self.assertEqual(path.name, "bad_name_12345.log")
+
+    def test_non_telegram_sources_use_cli_dev_folder(self) -> None:
+        path = run_logging.build_run_log_path(
+            "local-thread",
+            now=datetime(2026, 6, 21, 9, 0, 0),
+            identity=run_logging.RunLogIdentity(request_source="cli"),
+        )
+
+        self.assertEqual(path.parent.name, "jer_jerryyy-701122767")
+        self.assertEqual(path.name, "jer_jerryyy_hread.log")
 
 
 class RunFileLogEnabledTests(TestCase):
@@ -50,6 +110,17 @@ class RunFileLogEnabledTests(TestCase):
 
 
 class RunFileLogWritingTests(TestCase):
+    def test_singapore_timestamp_formatter_converts_aware_datetime(self) -> None:
+        timestamp = run_logging.format_singapore_log_timestamp(
+            datetime(2026, 6, 21, 1, 2, 3, 456000, tzinfo=timezone.utc)
+        )
+        iso_timestamp = run_logging.format_singapore_log_iso(
+            datetime(2026, 6, 21, 1, 2, 3, 456000, tzinfo=timezone.utc)
+        )
+
+        self.assertEqual(timestamp, "2026-06-21 09:02:03.456")
+        self.assertEqual(iso_timestamp, "2026-06-21T09:02:03+08:00")
+
     def test_header_lines_and_footer_are_human_readable(self) -> None:
         import tempfile
 
@@ -68,6 +139,19 @@ class RunFileLogWritingTests(TestCase):
         self.assertIn("Calling DeepSeek.", content)
         self.assertIn("Run finished", content)
         self.assertIn("turns: 2", content)
+
+    def test_write_line_uses_singapore_log_timestamp_formatter(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            run_logging, "format_singapore_log_timestamp", return_value="2026-06-21 09:02:03.456"
+        ):
+            path = run_logging.Path(tmp) / "run.log"
+            log = run_logging.RunFileLog(path)
+            log.write_line("agent.request", "Calling DeepSeek.")
+            content = path.read_text(encoding="utf-8")
+
+        self.assertIn("2026-06-21 09:02:03.456 | agent.request", content)
 
 
 class FileLoggingTracerTests(TestCase):
@@ -123,8 +207,12 @@ _TODOIST_METHODS = (
     "get_tasks_by_filter",
     "update_todoist_task",
     "complete_task",
+    "uncomplete_task",
     "delete_todoist_task",
     "get_completed_todoist_tasks_by_completion_date",
+    "get_comments",
+    "add_comment",
+    "get_labels",
 )
 
 
@@ -142,7 +230,7 @@ class RunJarvisFileLoggingTests(TestCase):
         agent = _FakeAgentClientWithTracer({"role": "assistant", "content": "Done."})
         with mock.patch.object(run_logging, "run_file_log_enabled", return_value=enabled), \
             mock.patch.object(run_logging, "LOG_DIR", run_logging.Path(tmp)):
-            builder.run_jarvis(
+            result = builder.run_jarvis(
                 user_prompt="hello",
                 agent_client=agent,
                 todoist_client=_FakeTodoistClient(),
@@ -150,15 +238,16 @@ class RunJarvisFileLoggingTests(TestCase):
                 thread_id="feedface-0000",
                 request_id="tg_log",
             )
-        files = sorted(run_logging.Path(tmp).glob("jarvis_run_*.log"))
-        return files
+        files = sorted(run_logging.Path(tmp).glob("*/*.log"))
+        return files, result
 
     def test_run_writes_one_readable_file_capturing_client_events(self) -> None:
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
-            files = self._run(tmp, enabled=True)
+            files, result = self._run(tmp, enabled=True)
             self.assertEqual(len(files), 1)
+            self.assertEqual(result["run_log_path"], str(files[0].resolve()))
             content = files[0].read_text(encoding="utf-8")
 
         # Run boundaries plus node-level and redirected client-level events.
@@ -175,5 +264,6 @@ class RunJarvisFileLoggingTests(TestCase):
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
-            files = self._run(tmp, enabled=False)
+            files, result = self._run(tmp, enabled=False)
             self.assertEqual(files, [])
+            self.assertNotIn("run_log_path", result)

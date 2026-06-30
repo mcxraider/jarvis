@@ -1,25 +1,37 @@
-// src/services/telegram/message-processor.service.ts — Unified message routing layer.
-// Takes incoming messages of any supported type (text, audio, photo, document) and
-// dispatches to the appropriate processor. Acts as a facade so callers (MessageHandlers)
-// don't need to know which processor handles which media type.
-
 import { logger } from '../../utils/logger';
-import { TextProcessorResult, TextProcessorService } from './processors/text-processor.service';
+import { AbandonOutcome, TextProcessorResult, TextProcessorService } from './processors/text-processor.service';
 import { AudioProcessingHooks, AudioProcessorService } from './processors/audio-processor.service';
 import { LogContext } from '../../utils/logger';
 import { LangGraphProgressCallback } from '../ai/langgraph-agent-client.service';
+import { ConversationGateStatus, ConversationGateStore } from './conversation-gate.store';
+import { buildConversationKey, mapTelegramUserId } from './conversation-key';
+
+const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_WAITING_TTL_MS = 30 * 60 * 1000;
 
 export class MessageProcessorService {
+  private readonly runningTtlMs: number;
+  private readonly waitingTtlMs: number;
+
   constructor(
     private readonly textProcessor: TextProcessorService,
     private readonly audioProcessor: AudioProcessorService,
-  ) {}
+    private readonly conversationGate: ConversationGateStore,
+  ) {
+    const configured = Number(process.env.TELEGRAM_GATE_RUNNING_TTL_MS);
+    this.runningTtlMs = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_RUNNING_TTL_MS;
+    const configuredWaiting = Number(process.env.TELEGRAM_GATE_WAITING_TTL_MS);
+    this.waitingTtlMs = Number.isFinite(configuredWaiting) && configuredWaiting > 0
+      ? configuredWaiting
+      : DEFAULT_WAITING_TTL_MS;
+  }
 
   async processTextMessage(
     text: string,
     userId?: number,
     logContext: LogContext = {},
     onProgress?: LangGraphProgressCallback,
+    options?: { forceFresh?: boolean },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
@@ -27,9 +39,16 @@ export class MessageProcessorService {
       messageLength: text.length,
       messageType: 'text',
       processor: 'TextProcessorService',
+      forceFresh: options?.forceFresh ?? false,
     });
 
-    return this.textProcessor.processTextMessage(text, userId, logContext, onProgress);
+    return this.textProcessor.processTextMessage(text, userId, logContext, onProgress, options);
+  }
+
+  // Abandons any pending clarify/confirm so the next message starts fresh. Delegates to the
+  // TextProcessor, which owns the gate/pending state machine. Used by the bare /new command.
+  async abandonConversation(userId?: number, logContext: LogContext = {}): Promise<AbandonOutcome> {
+    return this.textProcessor.abandonConversation(userId, logContext);
   }
 
   async processAudioMessage(
@@ -46,7 +65,43 @@ export class MessageProcessorService {
       fileUrl: fileUrl.substring(0, 50) + '...',
     });
 
-    return this.audioProcessor.processAudioMessage(fileUrl, userId, logContext, hooks);
+    const internalUserId = mapTelegramUserId(userId);
+    const gateKey = buildConversationKey(userId, internalUserId, logContext.chatId);
+    const gateStatus = await this.safeGetGateStatus(gateKey);
+
+    if (gateStatus === 'running') {
+      logger.info('conversation_gate.audio_blocked', { ...logContext, gateKey, gateStatus });
+      return {
+        response: "I'm still working on your previous request. Please wait.",
+        blocked: true,
+      };
+    }
+
+    const reservation = await this.reserveAudioGate(gateKey, gateStatus, logContext);
+    if (!reservation.reserved) {
+      logger.info('conversation_gate.audio_blocked', { ...logContext, gateKey, gateStatus: reservation.gateStatus });
+      return {
+        response: "I'm still working on your previous request. Please wait.",
+        blocked: true,
+      };
+    }
+
+    try {
+      const result = await this.audioProcessor.processAudioMessage(
+        fileUrl,
+        userId,
+        logContext,
+        hooks,
+        reservation.kind === 'clarification'
+          ? { pendingClarificationPreReserved: true }
+          : { gatePreAcquired: true },
+      );
+      await this.restoreAudioGateIfUnprocessed(gateKey, reservation.kind, result);
+      return result;
+    } catch (error) {
+      await this.restoreAudioGateAfterFailure(gateKey, reservation.kind);
+      throw error;
+    }
   }
 
   async processAudioDocument(
@@ -66,19 +121,47 @@ export class MessageProcessorService {
       processor: 'AudioProcessorService',
     });
 
-    return this.audioProcessor.processAudioDocument(
-      fileUrl,
-      fileName,
-      mimeType,
-      userId,
-      logContext,
-      hooks,
-    );
+    const internalUserId = mapTelegramUserId(userId);
+    const gateKey = buildConversationKey(userId, internalUserId, logContext.chatId);
+    const gateStatus = await this.safeGetGateStatus(gateKey);
+
+    if (gateStatus === 'running') {
+      logger.info('conversation_gate.audio_blocked', { ...logContext, gateKey, gateStatus });
+      return {
+        response: "I'm still working on your previous request. Please wait.",
+        blocked: true,
+      };
+    }
+
+    const reservation = await this.reserveAudioGate(gateKey, gateStatus, logContext);
+    if (!reservation.reserved) {
+      logger.info('conversation_gate.audio_blocked', { ...logContext, gateKey, gateStatus: reservation.gateStatus });
+      return {
+        response: "I'm still working on your previous request. Please wait.",
+        blocked: true,
+      };
+    }
+
+    try {
+      const result = await this.audioProcessor.processAudioDocument(
+        fileUrl,
+        fileName,
+        mimeType,
+        userId,
+        logContext,
+        hooks,
+        reservation.kind === 'clarification'
+          ? { pendingClarificationPreReserved: true }
+          : { gatePreAcquired: true },
+      );
+      await this.restoreAudioGateIfUnprocessed(gateKey, reservation.kind, result);
+      return result;
+    } catch (error) {
+      await this.restoreAudioGateAfterFailure(gateKey, reservation.kind);
+      throw error;
+    }
   }
 
-  // Photos are handled as contextual text: we build a structured description from the
-  // photo metadata and caption, then send that as a text message to the LangGraph agent.
-  // The agent cannot see the image pixels, but can reason about the provided context.
   async processPhotoMessage(
     photoContext: {
       fileId: string;
@@ -115,8 +198,6 @@ export class MessageProcessorService {
     return this.textProcessor.processTextMessage(contextualMessage, userId, logContext);
   }
 
-  // Generic dispatch method that routes based on a type discriminator. Useful for
-  // programmatic callers that build message descriptors dynamically.
   async processMessage(
     messageData: {
       type: 'text' | 'audio' | 'audio_document' | 'photo';
@@ -178,4 +259,69 @@ export class MessageProcessorService {
         return { response: 'Unsupported message type. I can handle text, audio, and images.' };
     }
   }
+
+  private async safeGetGateStatus(gateKey: string): Promise<ConversationGateStatus> {
+    try {
+      return await this.conversationGate.getStatus(gateKey);
+    } catch {
+      return 'idle';
+    }
+  }
+
+  private async reserveAudioGate(
+    gateKey: string,
+    gateStatus: ConversationGateStatus,
+    logContext: LogContext,
+  ): Promise<
+    | { reserved: true; kind: 'fresh' | 'clarification' }
+    | { reserved: false; gateStatus: ConversationGateStatus }
+  > {
+    if (gateStatus === 'waiting_for_clarification') {
+      const transitioned = await this.conversationGate.transitionToRunning(gateKey, this.runningTtlMs);
+      if (!transitioned) {
+        const currentStatus = await this.safeGetGateStatus(gateKey);
+        return { reserved: false, gateStatus: currentStatus };
+      }
+      logger.info('conversation_gate.audio_resume_reserved', { ...logContext, gateKey });
+      return { reserved: true, kind: 'clarification' };
+    }
+
+    try {
+      const chatIdNum = typeof logContext.chatId === 'number' ? logContext.chatId : undefined;
+      const acquired = await this.conversationGate.tryAcquire(gateKey, this.runningTtlMs, chatIdNum);
+      if (!acquired) {
+        const currentStatus = await this.safeGetGateStatus(gateKey);
+        return { reserved: false, gateStatus: currentStatus };
+      }
+      return { reserved: true, kind: 'fresh' };
+    } catch {
+      return { reserved: true, kind: 'fresh' };
+    }
+  }
+
+  private async restoreAudioGateIfUnprocessed(
+    gateKey: string,
+    kind: 'fresh' | 'clarification',
+    result: TextProcessorResult,
+  ): Promise<void> {
+    if (result.threadId || result.interruptType || result.blocked) {
+      return;
+    }
+    await this.restoreAudioGateAfterFailure(gateKey, kind);
+  }
+
+  private async restoreAudioGateAfterFailure(
+    gateKey: string,
+    kind: 'fresh' | 'clarification',
+  ): Promise<void> {
+    if (kind === 'clarification') {
+      await this.conversationGate.transitionToWaiting(gateKey, this.waitingTtlMs).catch(() => {
+        this.conversationGate.release(gateKey).catch(() => {});
+      });
+      return;
+    }
+
+    await this.conversationGate.release(gateKey).catch(() => {});
+  }
+
 }

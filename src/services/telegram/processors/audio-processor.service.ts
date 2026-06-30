@@ -1,21 +1,20 @@
 // src/services/telegram/processors/audio-processor.service.ts — Two-stage audio pipeline:
 //   1. Transcribes audio via WhisperService (Groq-hosted Whisper large-v3).
 //   2. Forwards the transcribed text through TextProcessorService → LangGraph agent.
-// The final reply includes both the transcription (prefixed with 🗣️) and the agent
-// response, separated by a horizontal rule so the user can see what was understood.
+// The transcription is sent to the user as its own message via the onTranscription hook;
+// the final reply contains only the agent's response.
 
 import { LogContext, logger } from '../../../utils/logger';
 import { WhisperService } from '../../ai/whisper.service';
 import { LangGraphProgressCallback } from '../../ai/langgraph-agent-client.service';
-import { TextProcessorResult, TextProcessorService } from './text-processor.service';
+import { TextProcessorOptions, TextProcessorResult, TextProcessorService } from './text-processor.service';
 import { classifyError } from '../errors/classified-error';
 
-// Visual separator between the transcription echo and the agent's response.
-const TRANSCRIPTION_SEPARATOR = '\n\n---\n\n';
-
-// Lifecycle hooks for audio processing — used by MessageHandlers to update the
-// Telegram progress indicator between the transcription and agent-processing phases.
+// Lifecycle hooks for audio processing — used by MessageHandlers to send the
+// transcription as its own message and update the Telegram progress indicator
+// between the transcription and agent-processing phases.
 export interface AudioProcessingHooks {
+  onTranscription?: (text: string) => void | Promise<void>;
   onTranscribed?: () => void | Promise<void>;
   onProgress?: LangGraphProgressCallback;
 }
@@ -33,6 +32,7 @@ export class AudioProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
+    options?: TextProcessorOptions,
   ): Promise<TextProcessorResult> {
     const startTime = Date.now();
 
@@ -52,12 +52,22 @@ export class AudioProcessorService {
       }
 
       try {
+        try {
+          await hooks?.onTranscription?.(text);
+        } catch (sendError) {
+          logger.warn('audio_processor.transcription_send_failed', {
+            ...logContext,
+            userId,
+            error: (sendError as Error).message,
+          });
+        }
         await hooks?.onTranscribed?.();
         const result = await this.textProcessor.processTextMessage(
           text,
           userId,
           logContext,
           hooks?.onProgress,
+          options,
         );
 
         logger.info('audio_processor.completed', {
@@ -69,9 +79,11 @@ export class AudioProcessorService {
         });
 
         return {
-          response: `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}${result.response}`,
+          response: result.response,
           interruptType: result.interruptType,
           threadId: result.threadId,
+          blocked: result.blocked,
+          bufferedMessage: result.bufferedMessage,
         };
       } catch (processingError) {
         logger.warn('audio_processor.text_processing_failed', {
@@ -83,9 +95,7 @@ export class AudioProcessorService {
         });
 
         return {
-          response:
-            `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}` +
-            `_Could not process the request. Please try again._`,
+          response: '_Could not process the request. Please try again._',
         };
       }
     } catch (error) {
@@ -109,6 +119,7 @@ export class AudioProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
+    options?: TextProcessorOptions,
   ): Promise<TextProcessorResult> {
     const startTime = Date.now();
 
@@ -129,12 +140,23 @@ export class AudioProcessorService {
       }
 
       try {
+        try {
+          await hooks?.onTranscription?.(text);
+        } catch (sendError) {
+          logger.warn('audio_processor.transcription_send_failed', {
+            ...logContext,
+            userId,
+            fileName,
+            error: (sendError as Error).message,
+          });
+        }
         await hooks?.onTranscribed?.();
         const result = await this.textProcessor.processTextMessage(
           text,
           userId,
           logContext,
           hooks?.onProgress,
+          options,
         );
 
         logger.info('audio_processor.document_completed', {
@@ -147,9 +169,11 @@ export class AudioProcessorService {
         });
 
         return {
-          response: `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}${result.response}`,
+          response: result.response,
           interruptType: result.interruptType,
           threadId: result.threadId,
+          blocked: result.blocked,
+          bufferedMessage: result.bufferedMessage,
         };
       } catch (processingError) {
         logger.warn('audio_processor.document_text_processing_failed', {
@@ -162,9 +186,7 @@ export class AudioProcessorService {
         });
 
         return {
-          response:
-            `🗣️: ${text}${TRANSCRIPTION_SEPARATOR}` +
-            `_Could not process the request. Please try again._`,
+          response: '_Could not process the request. Please try again._',
         };
       }
     } catch (error) {

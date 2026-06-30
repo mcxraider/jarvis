@@ -9,7 +9,16 @@ graph nodes or risk classification logic.
 """
 
 from dataclasses import dataclass
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, Optional, Tuple
+
+
+@dataclass(frozen=True)
+class EntityRef:
+    """One entity-ID argument a tool needs verified against prior reads."""
+
+    arg: str                 # the tool argument carrying the id, e.g. "task_id"
+    entity_type: str         # the entity it references, e.g. "task"
+    required: bool = True    # documents whether the arg is mandatory for the tool
 
 
 @dataclass(frozen=True)
@@ -51,9 +60,12 @@ def _render_update(held_call: dict) -> str:
     changed = [k for k in args if k != "task_id"]
     meta = _REGISTRY["update_todoist_task"]
     fields = ", ".join(changed[:3])
+    context = held_call.get("context", {})
+    task_content = context.get("task_content")
+    target = f'"{task_content}"' if task_content else f"(id={task_id})"
     if fields:
-        return f"{meta.label} (id={task_id}): {fields}."
-    return f"{meta.label} (id={task_id})."
+        return f"{meta.label} {target}: {fields}."
+    return f"{meta.label} {target}."
 
 
 _REGISTRY: Dict[str, ToolDisplayMeta] = {
@@ -79,6 +91,7 @@ _REGISTRY: Dict[str, ToolDisplayMeta] = {
     "update_todoist_task": ToolDisplayMeta(
         verb="updating",
         label="Update task",
+        needs_task_context=True,
         render_fn=_render_update,
     ),
     "complete_task": ToolDisplayMeta(
@@ -123,10 +136,30 @@ def needs_task_context_tools() -> frozenset:
     return _NEEDS_TASK_CONTEXT
 
 
+# Prior-read ID validation: entity-ID args that must have been surfaced by a prior
+# read before a mutation runs. Tools absent from this map skip validation (fail-open).
+# v1 validates `task_id` only; project/section/parent ids have no read tool to emit them.
+_ENTITY_REQUIREMENTS: Dict[str, Tuple[EntityRef, ...]] = {
+    "complete_task": (EntityRef("task_id", "task"),),
+    "uncomplete_task": (EntityRef("task_id", "task"),),
+    "update_todoist_task": (EntityRef("task_id", "task"),),
+    "delete_todoist_task": (EntityRef("task_id", "task"),),
+    # add_comment targets a task OR a project, so task_id is only validated when present.
+    "add_comment": (EntityRef("task_id", "task", required=False),),
+}
+
+
+def entity_requirements(tool_name: str) -> Tuple[EntityRef, ...]:
+    """Entity-ID args a tool needs verified against prior reads. ``()`` = no validation."""
+    return _ENTITY_REQUIREMENTS.get(tool_name, ())
+
+
 __all__ = [
     "DEFAULT_META",
+    "EntityRef",
     "ToolDisplayMeta",
     "always_risky_tools",
+    "entity_requirements",
     "get_meta",
     "get_verb",
     "irreversible_tools",
