@@ -1,6 +1,7 @@
 import { TextProcessorService } from '../../../../../src/services/telegram/processors/text-processor.service';
 import { CallbackHandler } from '../../../../../src/services/telegram/handlers/callback-handler';
 import { MemoryPendingClarificationStore } from '../../../../../src/services/telegram/pending-clarification.store';
+import { MemoryConversationGateStore } from '../../../../../src/services/telegram/conversation-gate.store';
 import { LangGraphAgentResponse } from '../../../../../src/services/ai/langgraph-agent-client.service';
 
 // ---------------------------------------------------------------------------
@@ -31,6 +32,7 @@ export interface FakeContext {
   reply: jest.Mock;
   answerCbQuery: jest.Mock;
   editMessageText: jest.Mock;
+  editMessageReplyMarkup?: jest.Mock;
   telegram: { editMessageText: jest.Mock; deleteMessage: jest.Mock };
 }
 
@@ -92,6 +94,7 @@ export function createCallbackCtx(data: string, opts: CtxOpts & { originalText?:
     reply: jest.fn().mockResolvedValue({ message_id: 88 }),
     answerCbQuery: jest.fn().mockResolvedValue(undefined),
     editMessageText: jest.fn().mockResolvedValue(undefined),
+    editMessageReplyMarkup: jest.fn().mockResolvedValue(undefined),
     telegram: {
       editMessageText: jest.fn().mockResolvedValue(true),
       deleteMessage: jest.fn().mockResolvedValue(true),
@@ -101,8 +104,9 @@ export function createCallbackCtx(data: string, opts: CtxOpts & { originalText?:
 
 export function createFlowHarness(agentClient: MockAgentClient): FlowHarness {
   const store = new MemoryPendingClarificationStore();
-  const textProcessor = new TextProcessorService(agentClient as any, store);
-  const callbackHandler = new CallbackHandler(agentClient as any, store);
+  const gateStore = new MemoryConversationGateStore();
+  const textProcessor = new TextProcessorService(agentClient as any, store, gateStore);
+  const callbackHandler = new CallbackHandler(agentClient as any, store, gateStore);
 
   return {
     agentClient,

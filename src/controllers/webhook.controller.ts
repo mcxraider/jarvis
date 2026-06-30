@@ -1,7 +1,8 @@
 // src/controllers/webhook.controller.ts — Express route that receives Telegram
 // webhook updates. Validates the secret token path parameter against the configured
 // secret, then delegates the parsed update body to TelegramBotService.handleUpdate().
-// Each incoming request is tagged with a unique requestId for end-to-end log tracing.
+// Telegram update IDs are stable across redelivery, so they also serve as the
+// request idempotency identity passed through to the Python agent.
 
 import express from 'express';
 import type { TelegramBotService } from '../services/telegram/telegram-bot.service';
@@ -21,7 +22,7 @@ export function createWebhookRouter(botService: TelegramBotService) {
 
   router.post('/webhook/:secret', express.json(), async (req, res): Promise<void> => {
     const startedAt = Date.now();
-    const requestId = createRequestId('tg');
+    const requestId = telegramRequestId(req.body?.update_id);
 
     // Validate the webhook secret before processing — reject early if mismatched.
     const secret = req.params.secret;
@@ -62,6 +63,13 @@ export function createWebhookRouter(botService: TelegramBotService) {
   });
 
   return router;
+}
+
+function telegramRequestId(updateId: unknown): string {
+  if (typeof updateId === 'number' && Number.isSafeInteger(updateId)) {
+    return `tg_update_${updateId}`;
+  }
+  return createRequestId('tg');
 }
 
 // Inspects the raw Telegram update body to determine the message media type for logging.

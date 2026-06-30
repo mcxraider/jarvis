@@ -32,6 +32,7 @@ EXECUTOR_THROTTLE_ENABLED = settings.executor_throttle_enabled
 
 DEEPSEEK_MODEL = settings.deepseek_model
 DEEPSEEK_BASE_URL = settings.deepseek_base_url
+DEEPSEEK_REASONING_EFFORT = settings.deepseek_reasoning_effort
 DEEPSEEK_REQUEST_TIMEOUT_SECONDS = settings.deepseek_request_timeout_seconds
 DEEPSEEK_MAX_RETRY_ATTEMPTS = settings.deepseek_max_retry_attempts
 DEEPSEEK_RETRY_MAX_DELAY_SECONDS = settings.deepseek_retry_max_delay_seconds
@@ -62,6 +63,7 @@ __all__ = [
     "EXECUTOR_THROTTLE_ENABLED",
     "DEEPSEEK_MODEL",
     "DEEPSEEK_BASE_URL",
+    "DEEPSEEK_REASONING_EFFORT",
     "DEEPSEEK_REQUEST_TIMEOUT_SECONDS",
     "DEEPSEEK_MAX_RETRY_ATTEMPTS",
     "DEEPSEEK_RETRY_MAX_DELAY_SECONDS",

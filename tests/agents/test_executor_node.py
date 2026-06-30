@@ -108,6 +108,7 @@ class TestSuccessfulExecution:
             held["origin_tool_call_id"],
             held["tool_name"],
             held["args"],
+            idempotency_key=held["idempotency_key"],
         )
         assert result["held_calls"] is None
         assert result["confirm_decision"] is None
@@ -142,7 +143,7 @@ class TestConcurrentExecution:
 
         dispatcher = MagicMock()
         dispatcher.allow_mutations = True
-        dispatcher.execute_tool.side_effect = lambda call_id, name, args: {
+        dispatcher.execute_tool.side_effect = lambda call_id, name, args, **_kwargs: {
             "tool_call_id": call_id,
             "tool_name": name,
             "success": True,
@@ -249,7 +250,7 @@ class TestBatchTimeout:
 
         call_count = {"n": 0}
 
-        def execute_side_effect(call_id, name, args):
+        def execute_side_effect(call_id, name, args, **_kwargs):
             call_count["n"] += 1
             idx = int(call_id.split("_")[1])
             if idx == 2:
@@ -297,7 +298,7 @@ class TestCircuitBreakerIntegration:
             tc = {"id": f"call_{i}", "function": {"name": "add_todoist_task", "arguments": json.dumps({"content": f"task {i}"})}}
             held_calls.append(build_held_call(tc, "thread_1", 1))
 
-        def execute_side_effect(call_id, name, args):
+        def execute_side_effect(call_id, name, args, **_kwargs):
             return {
                 "tool_call_id": call_id,
                 "tool_name": name,
@@ -351,7 +352,7 @@ class TestThrottleIntegration:
 
         call_times = []
 
-        def execute_side_effect(call_id, name, args):
+        def execute_side_effect(call_id, name, args, **_kwargs):
             call_times.append(time.monotonic())
             idx = int(call_id.split("_")[1])
             if idx == 0:

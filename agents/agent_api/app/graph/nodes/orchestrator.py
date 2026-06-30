@@ -18,6 +18,7 @@ from agents.agent_api.app.constants import (
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MAX_RETRY_ATTEMPTS,
     DEEPSEEK_MODEL,
+    DEEPSEEK_REASONING_EFFORT,
     DEEPSEEK_REQUEST_TIMEOUT_SECONDS,
     DEEPSEEK_RETRY_MAX_DELAY_SECONDS,
 )
@@ -131,6 +132,7 @@ class DeepSeekAgentClient:
         api_key: Optional[str] = None,
         model: str = DEEPSEEK_MODEL,
         base_url: str = DEEPSEEK_BASE_URL,
+        reasoning_effort: str = DEEPSEEK_REASONING_EFFORT,
         tracer: Optional[TracePrinter] = None,
         request_timeout_seconds: float = DEEPSEEK_REQUEST_TIMEOUT_SECONDS,
         max_retry_attempts: int = DEEPSEEK_MAX_RETRY_ATTEMPTS,
@@ -139,6 +141,7 @@ class DeepSeekAgentClient:
     ):
         self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
         self.model = model
+        self.reasoning_effort = reasoning_effort
         self.tracer = tracer or NULL_TRACE
         # Token usage accumulated across every turn/retry of one Jarvis run, read
         # by run_jarvis for the per-run log footer. LangSmith gets per-call usage
@@ -170,6 +173,7 @@ class DeepSeekAgentClient:
             "agent.request",
             "Calling DeepSeek chat completions.",
             model=self.model,
+            reasoning_effort=self.reasoning_effort,
             messages=len(messages),
             tools=len(tools),
         )
@@ -183,8 +187,9 @@ class DeepSeekAgentClient:
                 messages=messages,
                 tools=tools,
                 tool_choice="auto",
-                temperature=0,
-                max_tokens=10000,
+                max_tokens=13000,
+                reasoning_effort=self.reasoning_effort,
+                extra_body={"thinking": {"type": "enabled"}},
             )
 
         try:

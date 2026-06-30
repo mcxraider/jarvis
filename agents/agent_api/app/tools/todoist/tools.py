@@ -12,6 +12,7 @@ from langchain_core.tools import InjectedToolCallId, tool
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from agents.agent_api.app.constants import ALLOW_MUTATIONS
+from agents.agent_api.app.idempotency.store import IdempotencyStore
 from agents.agent_api.app.tools.base import (
     DispatchFn,
     ToolRegistry,
@@ -93,10 +94,14 @@ def get_todoist_tool_specs(todoist_client: Any) -> List[ToolSpec]:
         "get_tasks_by_filter": todoist_client.get_tasks_by_filter,
         "update_todoist_task": todoist_client.update_todoist_task,
         "complete_task": todoist_client.complete_task,
+        "uncomplete_task": todoist_client.uncomplete_task,
         "delete_todoist_task": todoist_client.delete_todoist_task,
         "get_completed_todoist_tasks_by_completion_date": (
             todoist_client.get_completed_todoist_tasks_by_completion_date
         ),
+        "get_comments": todoist_client.get_comments,
+        "add_comment": todoist_client.add_comment,
+        "get_labels": todoist_client.get_labels,
     }
     return [
         ToolSpec(
@@ -269,6 +274,15 @@ def build_todoist_langchain_tools(dispatch: DispatchFn) -> List[Any]:
         return dispatch(tool_call_id, "complete_task", {"task_id": task_id})
 
     @tool
+    def uncomplete_task(
+        task_id: str,
+        tool_call_id: Annotated[str, InjectedToolCallId],
+    ) -> Dict[str, Any]:
+        """Uncomplete (reopen) a completed Todoist task."""
+
+        return dispatch(tool_call_id, "uncomplete_task", {"task_id": task_id})
+
+    @tool
     def delete_todoist_task(
         task_id: str,
         tool_call_id: Annotated[str, InjectedToolCallId],
@@ -310,6 +324,59 @@ def build_todoist_langchain_tools(dispatch: DispatchFn) -> List[Any]:
             },
         )
 
+    @tool
+    def get_comments(
+        tool_call_id: Annotated[str, InjectedToolCallId],
+        task_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+        comment_id: Optional[str] = None,
+        cursor: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """List comments on a task or project, or fetch a single comment by ID."""
+
+        return dispatch(
+            tool_call_id,
+            "get_comments",
+            {
+                "task_id": task_id,
+                "project_id": project_id,
+                "comment_id": comment_id,
+                "cursor": cursor,
+                "limit": limit,
+            },
+        )
+
+    @tool
+    def add_comment(
+        content: str,
+        tool_call_id: Annotated[str, InjectedToolCallId],
+        task_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Add a comment to a task or project."""
+
+        return dispatch(
+            tool_call_id,
+            "add_comment",
+            {"content": content, "task_id": task_id, "project_id": project_id},
+        )
+
+    @tool
+    def get_labels(
+        tool_call_id: Annotated[str, InjectedToolCallId],
+        search: Optional[str] = None,
+        cursor: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """List the user's personal labels, optionally filtered by name."""
+
+        return dispatch(
+            tool_call_id,
+            "get_labels",
+            {"search": search, "cursor": cursor, "limit": limit},
+        )
+
     return [
         add_todoist_task,
         bulk_add_todoist_tasks,
@@ -318,8 +385,12 @@ def build_todoist_langchain_tools(dispatch: DispatchFn) -> List[Any]:
         get_tasks_by_filter,
         update_todoist_task,
         complete_task,
+        uncomplete_task,
         delete_todoist_task,
         get_completed_todoist_tasks_by_completion_date,
+        get_comments,
+        add_comment,
+        get_labels,
     ]
 
 
@@ -336,6 +407,8 @@ class TodoistToolDispatcher(ToolDispatcher):
         todoist_client: Any,
         allow_mutations: bool = ALLOW_MUTATIONS,
         tracer: Optional[TracePrinter] = None,
+        idempotency_store: Optional[IdempotencyStore] = None,
+        **idempotency_options: Any,
     ):
         self.todoist_client = todoist_client
         registry = ToolRegistry()
@@ -344,7 +417,13 @@ class TodoistToolDispatcher(ToolDispatcher):
             get_todoist_tool_specs(todoist_client),
             langchain_builder=build_todoist_langchain_tools,
         )
-        super().__init__(registry, allow_mutations=allow_mutations, tracer=tracer)
+        super().__init__(
+            registry,
+            allow_mutations=allow_mutations,
+            tracer=tracer,
+            idempotency_store=idempotency_store,
+            **idempotency_options,
+        )
 
 
 __all__ = [
