@@ -7,12 +7,15 @@ its static wording for now; wire this in when more domains go live.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 
 USER_PROMPTS: List[str] = [
-    "add in go home with feebee later"
+    "set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of priority based on when im most free"
+
+    #"when am i free next week?"
+
     # "meeting zac at night on friday, add it in" # always add it in first, then check for conflicts and report back if conflict else end.
     # "i alr did romans 7 in the train this morning uhm but not romans 8 yet, shift romans 8 to tonight"
     # "Go through my tasks, check everything that does not have a time, that is also not a birthday. Tell me first and then I will ask you to make edits",
@@ -49,11 +52,11 @@ USER_PROMPTS: List[str] = [
     # "Clear my Friday afternoon and drop a 2-hour strategy block in its place.",  # decline→END kills the whole turn incl. the unobjectionable create
 
     # ── 2 · control_flow / missing_confirm_to_hitl ──
-    # "Add the quarterly board call this Thursday 10am to 12pm.",
-    # "Add a 1:1 with Sarah my COO this Thursday 10:30am to 11am.",
-    # "Add an analyst briefing this Thursday 11am to 11:30am.",
-    # "Add a recruiter intro call this Thursday 11:30am to 12pm.",
-    # "Cancel the meetings that clash with Thursday's board call, but not the ones with my direct reports.",  # no confirm→hitl path; agent guesses (destructive) or dies after prepare_confirm
+    "Add the quarterly board call this Thursday 10am to 12pm.",
+    "Add a 1:1 with Sarah my COO this Thursday 10:30am to 11am.",
+    "Add an analyst briefing this Thursday 11am to 11:30am.",
+    "Add a recruiter intro call this Thursday 11:30am to 12pm.",
+    "Cancel the meetings that clash with Thursday's board call, but not the ones with my direct reports.",  # no confirm→hitl path; agent guesses (destructive) or dies after prepare_confirm
 
     # ── 4 · confirm_semantics / deferred_sibling_prerequisite ──
     # "Add Partnerships sync (tentative) tomorrow 2pm.",
@@ -261,11 +264,14 @@ def build_user_prompt_with_request_datetime(user_prompt: str) -> str:
     )
 
 
-def build_initial_messages(user_prompt: str) -> List[Dict[str, Any]]:
+def build_initial_messages(
+    user_prompt: str,
+    timezone: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """Create the raw message list used by the DeepSeek API."""
 
     return [
-        {"role": "system", "content": get_system_prompt()},
+        {"role": "system", "content": get_system_prompt(timezone)},
         {"role": "user", "content": build_user_prompt_with_request_datetime(user_prompt)},
     ]
 

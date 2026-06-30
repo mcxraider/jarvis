@@ -9,7 +9,7 @@
 import { Pool } from 'pg';
 import { logger } from '../../utils/logger';
 
-export type PendingClarificationStatus = 'pending' | 'completed' | 'failed' | 'expired';
+export type PendingClarificationStatus = 'pending' | 'completed' | 'failed' | 'expired' | 'superseded';
 
 // Two interrupt flavors from the LangGraph agent:
 //   - 'clarify': agent needs more information before proceeding
@@ -35,6 +35,10 @@ export interface PendingClarificationStore {
   get(pendingKey: string): Promise<PendingClarificationRecord | undefined>;
   save(record: PendingClarificationRecord): Promise<void>;
   clear(pendingKey: string, status: Exclude<PendingClarificationStatus, 'pending'>): Promise<void>;
+  // Marks all still-'pending' records whose expiresAt has passed as 'expired'. Intended to
+  // be called on a timer / gate-timeout — NOT on the read path, which already filters on
+  // expiresAt so resumption is impossible regardless of the stored status.
+  sweepExpired(): Promise<void>;
 }
 
 // In-memory implementation: fast but volatile. State is lost on process restart.
@@ -65,6 +69,16 @@ export class MemoryPendingClarificationStore implements PendingClarificationStor
   async clear(pendingKey: string, _status: Exclude<PendingClarificationStatus, 'pending'>): Promise<void> {
     this.records.delete(pendingKey);
   }
+
+  // Memory store has no durable status to flip; pruning expired entries keeps the Map small.
+  async sweepExpired(): Promise<void> {
+    const now = Date.now();
+    for (const [key, record] of this.records) {
+      if (record.expiresAt <= now) {
+        this.records.delete(key);
+      }
+    }
+  }
 }
 
 // Postgres-backed implementation: durable across restarts and horizontally scalable.
@@ -80,8 +94,10 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
 
   async get(pendingKey: string): Promise<PendingClarificationRecord | undefined> {
     await this.ensureTable();
-    await this.expireOldRecords();
 
+    // No status sweep on the read path: the `expires_at > NOW()` filter below already makes
+    // an expired record unresumable. Status is flipped to 'expired' out-of-band by
+    // sweepExpired() (gate-timeout callback + periodic sweep), keeping reads SELECT-only.
     const result = await this.pool.query(
       `
         SELECT pending_key, thread_id, question, telegram_user_id, chat_id, user_id,
@@ -193,7 +209,8 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
     return this.setupPromise;
   }
 
-  private async expireOldRecords(): Promise<void> {
+  async sweepExpired(): Promise<void> {
+    await this.ensureTable();
     await this.pool.query(
       `
         UPDATE telegram_pending_clarifications

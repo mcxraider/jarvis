@@ -66,7 +66,44 @@ describe('createWebhookRouter', () => {
     );
 
     expect(response.sendStatus).toHaveBeenCalledWith(200);
-    expect(handleUpdate).toHaveBeenCalledWith(expect.objectContaining(update));
+    expect(handleUpdate).toHaveBeenCalledWith({
+      ...update,
+      __requestId: 'tg_update_42',
+    });
+  });
+
+  it('reuses the update id when Telegram redelivers an update', async () => {
+    process.env.TELEGRAM_SECRET_TOKEN = 'expected-secret';
+    const { handler, handleUpdate } = getHandler();
+
+    for (let delivery = 0; delivery < 2; delivery += 1) {
+      await handler(
+        {
+          params: { secret: 'expected-secret' },
+          body: { update_id: 77 },
+          ip: '127.0.0.1',
+        },
+        createResponse(),
+      );
+    }
+
+    expect(handleUpdate).toHaveBeenCalledTimes(2);
+    expect(handleUpdate.mock.calls.map(([update]) => update.__requestId)).toEqual([
+      'tg_update_77',
+      'tg_update_77',
+    ]);
+  });
+
+  it('falls back to a generated id when update_id is unavailable', async () => {
+    process.env.TELEGRAM_SECRET_TOKEN = 'expected-secret';
+    const { handler, handleUpdate } = getHandler();
+
+    await handler(
+      { params: { secret: 'expected-secret' }, body: {}, ip: '127.0.0.1' },
+      createResponse(),
+    );
+
+    expect(handleUpdate.mock.calls[0][0].__requestId).toMatch(/^tg_/);
   });
 
   it('returns 200 even when bot update handling fails (fire-and-forget)', async () => {

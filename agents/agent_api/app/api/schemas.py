@@ -10,6 +10,8 @@ class InvokeRequest(BaseModel):
     user_id: str = Field(..., min_length=1)
     source: Optional[str] = None
     telegram_user_id: Optional[int] = None
+    telegram_username: Optional[str] = None
+    telegram_first_name: Optional[str] = None
     request_id: Optional[str] = None
     thread_id: Optional[str] = None
     allow_mutations: Optional[bool] = None
@@ -21,6 +23,8 @@ class ResumeRequest(BaseModel):
     user_id: str = Field(..., min_length=1)
     source: Optional[str] = None
     telegram_user_id: Optional[int] = None
+    telegram_username: Optional[str] = None
+    telegram_first_name: Optional[str] = None
     request_id: Optional[str] = None
     allow_mutations: Optional[bool] = None
 
@@ -30,6 +34,8 @@ class BulkInvokeRequest(BaseModel):
     user_id: str = Field(..., min_length=1)
     source: Optional[str] = None
     telegram_user_id: Optional[int] = None
+    telegram_username: Optional[str] = None
+    telegram_first_name: Optional[str] = None
     request_id: Optional[str] = None
     allow_mutations: Optional[bool] = None
     max_agent_turns: Optional[int] = None

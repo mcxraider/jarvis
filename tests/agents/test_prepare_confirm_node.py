@@ -4,7 +4,9 @@ import json
 
 import pytest
 
+from agents.agent_api.app.graph.canonicalize import build_operation_idempotency_key
 from agents.agent_api.app.graph.nodes.prepare_confirm import create_prepare_confirm_node
+from agents.agent_api.app.graph.risk import BULK_THRESHOLD
 
 
 def _make_tool_call(name: str, call_id: str = "call_1", args=None) -> dict:
@@ -14,9 +16,28 @@ def _make_tool_call(name: str, call_id: str = "call_1", args=None) -> dict:
     }
 
 
-def _make_state(tool_calls, tool_results=None) -> dict:
+def _make_tool_result(content, tool_name: str = "get_tasks_by_filter") -> dict:
     return {
-        "messages": [{"role": "assistant", "tool_calls": tool_calls}],
+        "role": "tool",
+        "tool_call_id": "read_call",
+        "name": tool_name,
+        "content": json.dumps(
+            {
+                "tool_call_id": "read_call",
+                "tool_name": tool_name,
+                "success": True,
+                "content": content,
+                "error": None,
+                "mutation_blocked": False,
+                "classified_error": None,
+            }
+        ),
+    }
+
+
+def _make_state(tool_calls, tool_results=None, prior_messages=None) -> dict:
+    return {
+        "messages": (prior_messages or []) + [{"role": "assistant", "tool_calls": tool_calls}],
         "tool_results": tool_results or [],
         "thread_id": "thread_test",
         "turn_count": 3,
@@ -84,3 +105,82 @@ class TestPrepareConfirmNode:
         node = create_prepare_confirm_node()
         result = node(state)
         assert result.get("error")
+
+    def test_enriches_update_with_task_content_from_prior_results(self):
+        calls = [
+            _make_tool_call(
+                "update_todoist_task",
+                "c1",
+                {"task_id": "task_1", "due_string": "tomorrow 9am"},
+            )
+        ]
+        prior_messages = [
+            _make_tool_result(
+                {
+                    "results": [
+                        {"id": "task_1", "content": "Submit expense report"},
+                        {"id": "task_2", "content": "Book flights"},
+                    ],
+                    "next_cursor": None,
+                }
+            )
+        ]
+        prior_mutations = [
+            {"tool_name": "add_todoist_task"}
+            for _ in range(BULK_THRESHOLD)
+        ]
+        state = _make_state(
+            calls,
+            tool_results=prior_mutations,
+            prior_messages=prior_messages,
+        )
+        node = create_prepare_confirm_node()
+        result = node(state)
+        assert result["held_calls"][0]["context"] == {
+            "task_content": "Submit expense report"
+        }
+
+    def test_enriches_delete_with_task_content_from_single_task_result(self):
+        calls = [_make_tool_call("delete_todoist_task", "c1", {"task_id": "task_1"})]
+        prior_messages = [
+            _make_tool_result(
+                {"id": "task_1", "content": "Cancel duplicate reminder"},
+                tool_name="get_todoist_task",
+            )
+        ]
+        state = _make_state(calls, prior_messages=prior_messages)
+        node = create_prepare_confirm_node()
+        result = node(state)
+        assert result["held_calls"][0]["context"] == {
+            "task_content": "Cancel duplicate reminder"
+        }
+
+    def test_call_index_uses_full_array_position_not_subset(self):
+        """Risky calls get call_index from their full-array position, not subset position."""
+        calls = [
+            _make_tool_call("get_tasks_by_filter", "c0", {"filter": "today"}),
+            _make_tool_call("add_todoist_task", "c1", {"content": "new task"}),
+            _make_tool_call("delete_todoist_task", "c2", {"task_id": "t1"}),
+        ]
+        # Prior mutations push add_todoist_task over bulk threshold → risky
+        prior_mutations = [
+            {"tool_name": "add_todoist_task"} for _ in range(BULK_THRESHOLD)
+        ]
+        state = _make_state(calls, tool_results=prior_mutations)
+        node = create_prepare_confirm_node()
+        result = node(state)
+
+        # risky = [c1(add, full idx=1), c2(delete, full idx=2)]; safe = [c0(read)]
+        assert len(result["held_calls"]) == 2
+
+        held_add = result["held_calls"][0]
+        assert held_add["tool_name"] == "add_todoist_task"
+        assert held_add["idempotency_key"] == build_operation_idempotency_key(
+            "add_todoist_task", {"content": "new task"}, "thread_test", 3, call_index=1,
+        )
+
+        held_delete = result["held_calls"][1]
+        assert held_delete["tool_name"] == "delete_todoist_task"
+        assert held_delete["idempotency_key"] == build_operation_idempotency_key(
+            "delete_todoist_task", {"task_id": "t1"}, "thread_test", 3, call_index=2,
+        )

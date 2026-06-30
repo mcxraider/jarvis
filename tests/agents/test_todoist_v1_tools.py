@@ -1,0 +1,153 @@
+"""Tests for the v1 Todoist tools added/enriched from todoist_tools_complete.md.
+
+Covers the four new REST-backed tools (uncomplete_task, get_comments, add_comment,
+get_labels), the schema/handler/langchain consistency invariant, and the corrected
+priority description.
+"""
+
+from unittest.mock import patch
+
+import pytest
+
+from agents.agent_api.app.tools.todoist.client import TODOIST_REST_BASE_URL, TodoistApiClient
+from agents.agent_api.app.tools.todoist.schemas import (
+    MUTATING_TOOL_NAMES,
+    get_todoist_tool_schemas,
+)
+from agents.agent_api.app.tools.todoist.tools import (
+    build_todoist_langchain_tools,
+    get_todoist_tool_specs,
+)
+
+NEW_TOOLS = {"uncomplete_task", "get_comments", "add_comment", "get_labels"}
+
+
+def _schema(name):
+    return next(s for s in get_todoist_tool_schemas() if s["function"]["name"] == name)
+
+
+class TestSchemaRegistration:
+    def test_new_tools_registered(self):
+        names = {s["function"]["name"] for s in get_todoist_tool_schemas()}
+        assert NEW_TOOLS <= names
+
+    def test_mutating_membership(self):
+        # New writers must be guarded; new readers must not be.
+        assert "uncomplete_task" in MUTATING_TOOL_NAMES
+        assert "add_comment" in MUTATING_TOOL_NAMES
+        assert "get_comments" not in MUTATING_TOOL_NAMES
+        assert "get_labels" not in MUTATING_TOOL_NAMES
+
+    def test_add_comment_requires_content(self):
+        params = _schema("add_comment")["function"]["parameters"]
+        assert params["required"] == ["content"]
+        assert "task_id" in params["properties"]
+        assert "project_id" in params["properties"]
+
+    def test_priority_description_corrected(self):
+        # The old text ("1 normal, 2 low, 3 medium, 4 high") was inconsistent.
+        desc = _schema("add_todoist_task")["function"]["parameters"]["properties"]["priority"][
+            "description"
+        ]
+        assert "highest urgency" in desc
+        assert "1 normal, 2 low" not in desc
+
+
+class TestLayerConsistency:
+    """schema names == handler-map names == langchain tool names (no silent drift)."""
+
+    def test_three_layers_agree(self):
+        client = TodoistApiClient(api_key="test-key")
+        schema_names = {s["function"]["name"] for s in get_todoist_tool_schemas()}
+        spec_names = {spec.name for spec in get_todoist_tool_specs(client)}
+        lc_names = {t.name for t in build_todoist_langchain_tools(lambda *a, **k: {})}
+        assert schema_names == spec_names == lc_names
+
+
+class TestUncompleteTask:
+    @patch.object(TodoistApiClient, "_request")
+    def test_posts_reopen(self, mock_request):
+        mock_request.return_value = None
+        client = TodoistApiClient(api_key="test-key")
+
+        result = client.uncomplete_task({"task_id": "42"})
+
+        url, method = mock_request.call_args[0][0], mock_request.call_args[0][1]
+        assert url == f"{TODOIST_REST_BASE_URL}/tasks/42/reopen"
+        assert method == "POST"
+        assert result["success"] is True
+
+
+class TestGetComments:
+    @patch.object(TodoistApiClient, "_request")
+    def test_single_comment_by_id(self, mock_request):
+        mock_request.return_value = {"id": "c1"}
+        client = TodoistApiClient(api_key="test-key")
+
+        client.get_comments({"comment_id": "c1"})
+
+        assert mock_request.call_args[0][0] == f"{TODOIST_REST_BASE_URL}/comments/c1"
+
+    @patch.object(TodoistApiClient, "_request")
+    def test_list_by_task(self, mock_request):
+        mock_request.return_value = {"results": []}
+        client = TodoistApiClient(api_key="test-key")
+
+        client.get_comments({"task_id": "99"})
+
+        assert "task_id=99" in mock_request.call_args[0][0]
+
+    def test_requires_a_target(self):
+        client = TodoistApiClient(api_key="test-key")
+        with pytest.raises(ValueError):
+            client.get_comments({})
+
+
+class TestAddComment:
+    @patch.object(TodoistApiClient, "_request")
+    def test_posts_payload(self, mock_request):
+        mock_request.return_value = {"id": "c2"}
+        client = TodoistApiClient(api_key="test-key")
+
+        client.add_comment({"content": "hi", "task_id": "7"})
+
+        url, method, payload = mock_request.call_args[0][:3]
+        assert url == f"{TODOIST_REST_BASE_URL}/comments"
+        assert method == "POST"
+        assert payload == {"content": "hi", "task_id": "7"}
+
+    def test_rejects_both_targets(self):
+        client = TodoistApiClient(api_key="test-key")
+        with pytest.raises(ValueError):
+            client.add_comment({"content": "hi", "task_id": "7", "project_id": "8"})
+
+    def test_rejects_no_target(self):
+        client = TodoistApiClient(api_key="test-key")
+        with pytest.raises(ValueError):
+            client.add_comment({"content": "hi"})
+
+
+class TestGetLabels:
+    @patch.object(TodoistApiClient, "_request")
+    def test_no_search_returns_raw(self, mock_request):
+        payload = {"results": [{"name": "work"}, {"name": "home"}], "next_cursor": None}
+        mock_request.return_value = payload
+        client = TodoistApiClient(api_key="test-key")
+
+        assert client.get_labels({}) == payload
+
+    @patch.object(TodoistApiClient, "_request")
+    def test_search_filters_client_side(self, mock_request):
+        mock_request.return_value = {
+            "results": [{"name": "Work"}, {"name": "homework"}, {"name": "home"}],
+            "next_cursor": "x",
+        }
+        client = TodoistApiClient(api_key="test-key")
+
+        result = client.get_labels({"search": "work"})
+
+        names = [label["name"] for label in result["results"]]
+        assert names == ["Work", "homework"]  # case-insensitive substring
+        assert result["next_cursor"] == "x"  # preserves other response fields
+        # search must not be forwarded to the API as a query param
+        assert "search" not in mock_request.call_args[0][0]

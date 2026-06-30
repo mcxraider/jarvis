@@ -24,6 +24,11 @@ sys.path = [p for p in sys.path if Path(p).resolve() != _SCRIPT_DIR]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+# Local CLI runs are short-lived test sessions. Default them to the in-memory
+# checkpointer so a developer .env with Postgres configured for the API does not
+# make simple runner invocations depend on the database/pooler.
+os.environ.setdefault("JARVIS_CHECKPOINT_BACKEND", "memory")
+
 from agents.agent_api.app.checkpointing import DEFAULT_CHECKPOINTER  # noqa: E402
 from agents.agent_api.app.constants import ALLOW_MUTATIONS, MAX_AGENT_TURNS
 from agents.agent_api.app.graph.builder import run_jarvis
@@ -32,6 +37,11 @@ from agents.agent_api.app.graph.prompts import USER_PROMPT, USER_PROMPTS
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.todoist.client import TodoistApiClient
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
+
+CLI_USER_ALIAS_ENV = {
+    "user_1": "JARVIS_CLI_USER_1_TELEGRAM_ID",
+    "user_2": "JARVIS_CLI_USER_2_TELEGRAM_ID",
+}
 
 
 def send_clarification_message_to_user(payload: Dict[str, Any]) -> None:
@@ -65,6 +75,7 @@ def run_jarvis_with_local_clarifications(
     user_prompt: str = USER_PROMPT,
     allow_mutations: bool = True,
     request_source: str = "cli",
+    telegram_user_id: Optional[int] = None,
     agent_client: Optional[Any] = None,
     todoist_client: Optional[Any] = None,
     max_agent_turns: int = MAX_AGENT_TURNS,
@@ -77,7 +88,10 @@ def run_jarvis_with_local_clarifications(
     checkpointer = checkpointer or DEFAULT_CHECKPOINTER
     thread_id = str(uuid.uuid4())
     agent_client = agent_client or DeepSeekAgentClient(tracer=tracer)
-    todoist_client = todoist_client or TodoistApiClient(tracer=tracer)
+    todoist_client = todoist_client or TodoistApiClient(
+        tracer=tracer,
+        telegram_user_id=telegram_user_id,
+    )
 
     result = run_jarvis(
         user_prompt=user_prompt,
@@ -88,6 +102,7 @@ def run_jarvis_with_local_clarifications(
         max_agent_turns=max_agent_turns,
         tracer=tracer,
         thread_id=thread_id,
+        telegram_user_id=telegram_user_id,
         checkpointer=checkpointer,
     )
     while result.get("interrupted"):
@@ -103,6 +118,7 @@ def run_jarvis_with_local_clarifications(
             max_agent_turns=max_agent_turns,
             tracer=tracer,
             thread_id=thread_id,
+            telegram_user_id=telegram_user_id,
             clarification_reply=clarification_reply,
             checkpointer=checkpointer,
         )
@@ -114,6 +130,7 @@ def run_jarvis_sequence(
     user_prompts: List[str],
     allow_mutations: bool = True,
     request_source: str = "cli",
+    telegram_user_id: Optional[int] = None,
     agent_client: Optional[Any] = None,
     todoist_client: Optional[Any] = None,
     max_agent_turns: int = MAX_AGENT_TURNS,
@@ -128,7 +145,10 @@ def run_jarvis_sequence(
 
     tracer = tracer if tracer is not None else TracePrinter()
     agent_client = agent_client or DeepSeekAgentClient(tracer=tracer)
-    todoist_client = todoist_client or TodoistApiClient(tracer=tracer)
+    todoist_client = todoist_client or TodoistApiClient(
+        tracer=tracer,
+        telegram_user_id=telegram_user_id,
+    )
     results: List[JarvisState] = []
 
     for index, prompt in enumerate(prompts, start=1):
@@ -139,6 +159,7 @@ def run_jarvis_sequence(
                 user_prompt=prompt,
                 allow_mutations=allow_mutations,
                 request_source=request_source,
+                telegram_user_id=telegram_user_id,
                 agent_client=agent_client,
                 todoist_client=todoist_client,
                 max_agent_turns=max_agent_turns,
@@ -199,10 +220,41 @@ def collect_cli_prompts(args: argparse.Namespace) -> List[str]:
     return [prompt for prompt in prompts if prompt.strip()] or USER_PROMPTS
 
 
+def resolve_cli_telegram_user_id(args: argparse.Namespace) -> Optional[int]:
+    """Resolve temporary CLI user aliases to Telegram IDs for Todoist routing."""
+
+    selected_aliases = [
+        alias
+        for alias, selected in (("user_1", args.user_1), ("user_2", args.user_2))
+        if selected
+    ]
+    if len(selected_aliases) > 1:
+        raise ValueError("Choose only one CLI user alias.")
+    if args.telegram_user_id is not None and selected_aliases:
+        raise ValueError("Use either --telegram-user-id or a --user-* alias, not both.")
+    if args.telegram_user_id is not None:
+        return args.telegram_user_id
+    if not selected_aliases:
+        return None
+
+    alias = selected_aliases[0]
+    env_var = CLI_USER_ALIAS_ENV[alias]
+    raw_value = os.getenv(env_var, "").strip()
+    if not raw_value:
+        raise ValueError(f"{env_var} must be set to use --{alias.replace('_', '-')}.")
+    try:
+        telegram_user_id = int(raw_value)
+    except ValueError as error:
+        raise ValueError(f"{env_var} must be a numeric Telegram user ID.") from error
+    if telegram_user_id <= 0:
+        raise ValueError(f"{env_var} must be a positive Telegram user ID.")
+    return telegram_user_id
+
+
 def result_to_json_summary(result: JarvisState, prompt: str, index: int) -> Dict[str, Any]:
     """Create a compact serializable summary for bulk graph test runs."""
 
-    return {
+    summary = {
         "index": index,
         "prompt": prompt,
         "thread_id": result.get("thread_id", ""),
@@ -224,6 +276,9 @@ def result_to_json_summary(result: JarvisState, prompt: str, index: int) -> Dict
             for item in result.get("tool_results", [])
         ],
     }
+    if result.get("run_log_path"):
+        summary["run_log_path"] = result["run_log_path"]
+    return summary
 
 
 def _result_status(result: JarvisState) -> str:
@@ -292,6 +347,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="cli",
         help="Invocation source metadata to store in graph state. Defaults to cli.",
     )
+    parser.add_argument(
+        "--telegram-user-id",
+        type=int,
+        help=(
+            "Run as this Telegram user ID so Todoist uses "
+            "TODOIST_API_KEYS_BY_TELEGRAM_USER_ID."
+        ),
+    )
+    parser.add_argument(
+        "--user-1",
+        action="store_true",
+        help="Temporary shortcut for JARVIS_CLI_USER_1_TELEGRAM_ID.",
+    )
+    parser.add_argument(
+        "--user-2",
+        action="store_true",
+        help="Temporary shortcut for JARVIS_CLI_USER_2_TELEGRAM_ID.",
+    )
     return parser
 
 
@@ -338,11 +411,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         args = build_arg_parser().parse_args(argv)
         prompts = collect_cli_prompts(args)
+        telegram_user_id = resolve_cli_telegram_user_id(args)
         tracer = NULL_TRACE if args.json or args.quiet else TracePrinter()
         results = run_jarvis_sequence(
             prompts,
             allow_mutations=args.allow_mutations,
             request_source=args.source,
+            telegram_user_id=telegram_user_id,
             max_agent_turns=args.max_agent_turns,
             tracer=tracer,
         )
@@ -360,6 +435,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                     run_label=f"{index}/{len(results)}",
                     allow_mutations=args.allow_mutations,
                 )
+                if result.get("run_log_path"):
+                    print(f"\nRun log: {result['run_log_path']}")
         has_error = any(result.get("error") for result in results)
         return 1 if has_error else 0
     except Exception as error:
@@ -376,6 +453,7 @@ __all__ = [
     "run_jarvis_sequence",
     "load_user_prompts_from_file",
     "collect_cli_prompts",
+    "resolve_cli_telegram_user_id",
     "result_to_json_summary",
     "build_arg_parser",
     "print_run_summary",

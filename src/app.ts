@@ -9,6 +9,7 @@ import { TelegramConfig } from './types/telegram.types';
 import { LangGraphAgentClient } from './services/ai/langgraph-agent-client.service';
 import { WhisperService } from './services/ai/whisper.service';
 import { createPendingClarificationStore } from './services/telegram/pending-clarification.store';
+import { createConversationGateStore } from './services/telegram/conversation-gate.store';
 import { FileService } from './services/telegram/file.service';
 import { BotActivityService } from './services/telegram/bot-activity.service';
 import { BotStatusService } from './services/telegram/bot-status.service';
@@ -69,6 +70,35 @@ if (
   process.exit(1);
 }
 
+const TODOIST_API_KEYS_BY_TELEGRAM_USER_ID = process.env.TODOIST_API_KEYS_BY_TELEGRAM_USER_ID;
+if (TODOIST_API_KEYS_BY_TELEGRAM_USER_ID) {
+  const todoistTokenUserIds = new Set<string>();
+  const invalidEntries = TODOIST_API_KEYS_BY_TELEGRAM_USER_ID
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .filter((entry) => {
+      const [telegramUserId, token, extra] = entry.split(':');
+      const valid = telegramUserId?.trim() && token?.trim() && extra === undefined;
+      if (valid) {
+        todoistTokenUserIds.add(telegramUserId.trim());
+      }
+      return !valid;
+    });
+  const missingTodoistTokens = ALLOWED_TELEGRAM_USER_IDS
+    .map(String)
+    .filter((telegramUserId) => !todoistTokenUserIds.has(telegramUserId));
+
+  if (invalidEntries.length > 0 || missingTodoistTokens.length > 0) {
+    logger.error('app.startup.validation_failed', {
+      invalidEnvVar: 'TODOIST_API_KEYS_BY_TELEGRAM_USER_ID',
+      invalidEntries: invalidEntries.length,
+      missingAllowedTelegramUsers: missingTodoistTokens.length,
+    });
+    process.exit(1);
+  }
+}
+
 // Rich messages use Telegram Bot API 10.1's sendRichMessage/sendRichMessageDraft
 // for animated progress indicators. Falls back to MarkdownV2 if disabled or on error.
 const RICH_MESSAGES_ENABLED = process.env.TELEGRAM_RICH_MESSAGES === 'true';
@@ -93,6 +123,10 @@ const whisperService = new WhisperService({
 // between messages. Backed by Postgres in production, in-memory for local dev.
 const pendingStore = createPendingClarificationStore();
 
+// Conversation gate serializes access to the agent — prevents concurrent invocations
+// from rapid messages, and coordinates resume paths (text reply vs callback button).
+const conversationGate = createConversationGateStore();
+
 // Telegram infrastructure: file downloads, activity metrics, and health reporting.
 const fileService = new FileService(BOT_TOKEN, bot.telegram);
 const activityService = new BotActivityService();
@@ -100,14 +134,14 @@ const statusService = new BotStatusService(activityService);
 
 // Message processors: text goes to LangGraph, audio gets transcribed first then
 // forwarded through the same text pipeline — so voice and typed share the same path.
-const textProcessor = new TextProcessorService(agentClient, pendingStore);
+const textProcessor = new TextProcessorService(agentClient, pendingStore, conversationGate);
 const audioProcessor = new AudioProcessorService(whisperService, textProcessor);
-const messageProcessor = new MessageProcessorService(textProcessor, audioProcessor);
+const messageProcessor = new MessageProcessorService(textProcessor, audioProcessor, conversationGate);
 
-// Telegram handlers: commands (/help, /status), message types, and inline callbacks.
+// Telegram handlers: commands (/help, /status, /cancel), message types, and inline callbacks.
 const messageHandlers = new MessageHandlers(fileService, messageProcessor, activityService);
-const commandHandlers = new CommandHandlers(activityService, statusService);
-const callbackHandler = new CallbackHandler(agentClient, pendingStore);
+const commandHandlers = new CommandHandlers(activityService, statusService, conversationGate, pendingStore);
+const callbackHandler = new CallbackHandler(agentClient, pendingStore, conversationGate);
 
 const handlers = new TelegramHandlers(commandHandlers, messageHandlers, callbackHandler);
 
@@ -122,6 +156,24 @@ const telegramConfig: TelegramConfig = {
 };
 
 export const botService = new TelegramBotService(telegramConfig, handlers);
+
+// When a conversation gate times out, notify the user and actively mark the matching
+// pending clarification 'expired' (gateKey === pendingKey). Resumption is already blocked
+// by the store's expires_at filter; this keeps the persisted status accurate for reports.
+conversationGate.setOnExpiry((gateKey, chatId) => {
+  botService.sendMessage(chatId, '⏱ Request timed out. Send a new message to try again.').catch(() => {});
+  pendingStore.clear(gateKey, 'expired').catch(() => {});
+});
+
+// Periodic safety net: in-process gate timers are lost on restart, so sweep any pending
+// rows whose expiry has passed and flip them to 'expired'. Cheap, bounded, and unref'd so
+// it never keeps the process alive.
+const PENDING_SWEEP_INTERVAL_MS = 60 * 1000;
+setInterval(() => {
+  pendingStore.sweepExpired().catch((error) => {
+    logger.warn('telegram.pending_store.sweep_failed', { error: (error as Error).message });
+  });
+}, PENDING_SWEEP_INTERVAL_MS).unref();
 
 logger.info('app.services.initialized', {
   telegramConfigured: true,

@@ -45,19 +45,61 @@ export class MessageHandlers {
     });
     this.activityService.recordActivity('message_text');
 
+    await this.runFreshText(ctx, messageText, logContext, startedAt);
+  }
+
+  // /new <message> — abandon any pending clarify/confirm interrupt and process <message> as
+  // a brand-new request in one step. Bare /new just abandons and invites a fresh message.
+  // The abandon + fresh-start logic lives in the processor (forceFresh); this only parses
+  // the command and routes.
+  async handleNew(ctx: Context): Promise<void> {
+    if (!ctx.message || !('text' in ctx.message)) return;
+
+    const userId = ctx.from?.id;
+    const logContext = this.createLogContext(ctx, 'text');
+    const startedAt = Date.now();
+    const remainder = this.stripCommandPrefix(ctx.message.text);
+
+    logger.info('telegram.command.new', { ...logContext, userId, hasMessage: remainder.length > 0 });
+    this.activityService.recordActivity('command_new');
+
+    if (!remainder) {
+      const outcome = await this.messageProcessor.abandonConversation(userId, logContext);
+      if (outcome === 'running') {
+        await ctx.reply("I'm still finishing your previous request — try /new again in a moment, or /cancel.");
+        return;
+      }
+      await ctx.reply('Starting fresh — send your next message.');
+      return;
+    }
+
+    await this.runFreshText(ctx, remainder, logContext, startedAt, { forceFresh: true });
+  }
+
+  // Shared fresh-text pipeline used by handleText (normal) and handleNew (forceFresh): show
+  // the rotating progress indicator, run the processor, then deliver the final response.
+  private async runFreshText(
+    ctx: Context,
+    text: string,
+    logContext: LogContext,
+    startedAt: number,
+    options?: { forceFresh?: boolean },
+  ): Promise<void> {
+    const userId = ctx.from?.id;
     const progressReporter = new TelegramProgressReporter(ctx, logContext);
     let lastProgressStage = '';
 
     try {
       await progressReporter.start();
       const result = await this.messageProcessor.processTextMessage(
-        messageText,
+        text,
         userId,
         logContext,
         async (event: LangGraphProgressEvent) => {
           lastProgressStage = event.stage;
           await progressReporter.record(event);
         },
+        options,
       );
       await progressReporter.complete(this.completionStatus(lastProgressStage));
       await this.sendResult(ctx, result, logContext);
@@ -76,6 +118,11 @@ export class MessageHandlers {
       await progressReporter.complete('Something went wrong');
       await ctx.reply('Something went wrong processing your message. Please try again.');
     }
+  }
+
+  // Strips the leading "/new" (or "/new@botname") token and returns the trimmed remainder.
+  private stripCommandPrefix(text: string): string {
+    return text.replace(/^\/new(?:@\w+)?\s*/i, '').trim();
   }
 
   async handleVoice(ctx: Context): Promise<void> {
@@ -206,6 +253,7 @@ export class MessageHandlers {
     await this.runWithAudioProgress(ctx, logContext, userId, startedAt, async (reporter, onTranscribed, onProgress) => {
       const fileUrl = await this.fileService.getFileUrl(document.file_id);
       return this.messageProcessor.processAudioDocument(fileUrl, fileName, mimeType, userId, logContext, {
+        onTranscription: (text) => this.sendTranscription(ctx, reporter, text, logContext),
         onTranscribed,
         onProgress,
       });
@@ -256,9 +304,10 @@ export class MessageHandlers {
       duration: audioFile.duration,
     });
 
-    await this.runWithAudioProgress(ctx, logContext, userId, startedAt, async (_reporter, onTranscribed, onProgress) => {
+    await this.runWithAudioProgress(ctx, logContext, userId, startedAt, async (reporter, onTranscribed, onProgress) => {
       const fileUrl = await this.fileService.getFileUrl(audioFile.file_id);
       return this.messageProcessor.processAudioMessage(fileUrl, userId, logContext, {
+        onTranscription: (text) => this.sendTranscription(ctx, reporter, text, logContext),
         onTranscribed,
         onProgress,
       });
@@ -312,6 +361,20 @@ export class MessageHandlers {
     }
   }
 
+  // Sends the transcription as its own message once Whisper finishes, decoupled
+  // from the agent's eventual reply. First tears down the "Transcribing..." block
+  // so this message lands above the subsequent thinking block (transcription on
+  // top), matching the desired top-to-bottom chat flow.
+  private async sendTranscription(
+    ctx: Context,
+    reporter: TelegramProgressReporter,
+    text: string,
+    logContext: LogContext,
+  ): Promise<void> {
+    await reporter.endTranscribing();
+    await sendFinalReply(ctx, `🗣️: ${text}`, logContext);
+  }
+
   // Routes the final response to the appropriate reply method. Confirm-type interrupts
   // get inline Approve/Decline buttons; everything else goes as a plain rich/markdown reply.
   private async sendResult(ctx: Context, result: TextProcessorResult, logContext: LogContext): Promise<void> {
@@ -343,6 +406,8 @@ export class MessageHandlers {
       chatId: ctx.chat?.id || message?.chat?.id,
       messageId: message?.message_id,
       messageType,
+      telegramUsername: ctx.from?.username,
+      telegramFirstName: ctx.from?.first_name,
     };
   }
 

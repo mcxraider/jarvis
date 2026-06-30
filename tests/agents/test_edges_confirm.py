@@ -33,7 +33,7 @@ class TestRouteAfterAgent:
         }
         assert route_after_agent(state) == "hitl"
 
-    def test_safe_mutation_returns_tools(self):
+    def test_safe_mutation_routes_to_validate(self):
         state = {
             "messages": [
                 {
@@ -43,9 +43,9 @@ class TestRouteAfterAgent:
             ],
             "tool_results": [],
         }
-        assert route_after_agent(state) == "tools"
+        assert route_after_agent(state) == "validate"
 
-    def test_read_tool_returns_tools(self):
+    def test_read_tool_routes_to_validate(self):
         state = {
             "messages": [
                 {
@@ -55,9 +55,9 @@ class TestRouteAfterAgent:
             ],
             "tool_results": [],
         }
-        assert route_after_agent(state) == "tools"
+        assert route_after_agent(state) == "validate"
 
-    def test_risky_tool_returns_confirm(self):
+    def test_risky_tool_routes_to_validate(self):
         state = {
             "messages": [
                 {
@@ -67,9 +67,9 @@ class TestRouteAfterAgent:
             ],
             "tool_results": [],
         }
-        assert route_after_agent(state) == "confirm"
+        assert route_after_agent(state) == "validate"
 
-    def test_mixed_risky_and_safe_returns_confirm(self):
+    def test_mixed_risky_and_safe_routes_to_validate(self):
         state = {
             "messages": [
                 {
@@ -82,7 +82,7 @@ class TestRouteAfterAgent:
             ],
             "tool_results": [],
         }
-        assert route_after_agent(state) == "confirm"
+        assert route_after_agent(state) == "validate"
 
 
 class TestRouteAfterConfirm:
