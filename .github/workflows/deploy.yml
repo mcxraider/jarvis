@@ -1,0 +1,19 @@
+name: deploy
+on:
+  push:
+    branches: [mvp]        # deploy branch — change to main when you cut over
+  workflow_dispatch: {}    # manual "Run workflow" button in the Actions tab
+
+concurrency:
+  group: deploy-ec2        # never let two deploys overlap
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, ec2]   # label set when registering the runner
+    steps:
+      # Deliberately no actions/checkout — deploy runs against the stable
+      # ~/jarvis-mcp clone (which holds .env + named volumes), and the script
+      # does its own `git pull`.
+      - name: Redeploy on the instance
+        run: ~/jarvis-mcp/scripts/deploy.sh

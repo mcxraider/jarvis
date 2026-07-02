@@ -54,6 +54,46 @@ from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 _builder_logger = logging.getLogger(__name__)
 
 
+def _ensure_user(
+    telegram_user_id: Optional[int],
+    telegram_username: Optional[str] = None,
+    telegram_first_name: Optional[str] = None,
+) -> None:
+    """Ensure FK-dependent writes have a users row. Fire-and-forget."""
+    if telegram_user_id is None:
+        return
+    try:
+        from agents.agent_api.app.db import get_pool
+
+        pool = get_pool()
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO users (
+                        telegram_user_id,
+                        telegram_username,
+                        telegram_first_name
+                    )
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (telegram_user_id) DO NOTHING
+                    """,
+                    (
+                        str(telegram_user_id),
+                        telegram_username,
+                        telegram_first_name,
+                    ),
+                )
+    except Exception as exc:
+        _builder_logger.warning(
+            "User provisioning failed (non-fatal).",
+            extra={
+                "telegram_user_id": telegram_user_id,
+                "error": type(exc).__name__,
+            },
+        )
+
+
 def _register_thread(
     thread_id: str,
     telegram_user_id: Optional[int],
@@ -290,6 +330,8 @@ def run_jarvis(
     invocation_type = "resume" if resuming else "invoke"
     run_name = f"jarvis.{invocation_type}"
     started_at = datetime.now()
+
+    _ensure_user(telegram_user_id, telegram_username, telegram_first_name)
 
     base_tracer = tracer if tracer is not None else TracePrinter()
     run_log_identity = RunLogIdentity(
