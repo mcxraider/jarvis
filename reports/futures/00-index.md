@@ -11,6 +11,7 @@ The original `FUTURE_ENHANCEMENTS.md` has been broken into focused files. Each f
 | [05-ux.md](05-ux.md) | Progress messages, conversation gating, NL features | Medium | 🟡 Partial |
 | [06-observability.md](06-observability.md) | Metrics, eval harness, testing strategy | Medium | 🟡 Partial |
 | [07-future-scope.md](07-future-scope.md) | Scheduled jobs, calendar, voice, parallel fan-out, user onboarding | Later | ❌ Not started |
+| [dynamic-connector-onboarding.md](dynamic-connector-onboarding.md) | Self-service multi-user onboarding, connector registry, dynamic tool resolution | Later | ❌ Not started |
 | [08-open-decisions.md](08-open-decisions.md) | Unresolved product questions | Ongoing | — |
 
 ## Progress Summary (as of 2026-06-24)

@@ -1,0 +1,15 @@
+node_modules
+dist
+venv
+logs
+coverage
+reports
+data
+.git
+.env
+.env.*
+!.env.sample
+*.log
+.DS_Store
+tests
+plans
