@@ -27,6 +27,7 @@ class ToolDisplayMeta:
 
     verb: str
     label: str
+    service: str = ""  # human-facing service name, e.g. "todoist", "google calendar"
     irreversible: bool = False
     always_risky: bool = False
     needs_task_context: bool = False
@@ -96,6 +97,7 @@ _REGISTRY: Dict[str, ToolDisplayMeta] = {
     "delete_todoist_task": ToolDisplayMeta(
         verb="deleting",
         label="Delete task",
+        service="todoist",
         irreversible=True,
         always_risky=True,
         needs_task_context=True,
@@ -104,23 +106,27 @@ _REGISTRY: Dict[str, ToolDisplayMeta] = {
     "bulk_add_todoist_tasks": ToolDisplayMeta(
         verb="adding",
         label="Bulk-add tasks",
+        service="todoist",
         always_risky=True,
         render_fn=_render_bulk_add,
     ),
     "add_todoist_task": ToolDisplayMeta(
         verb="adding",
         label="Add task",
+        service="todoist",
         highlight_arg="content",
     ),
     "update_todoist_task": ToolDisplayMeta(
         verb="updating",
         label="Update task",
+        service="todoist",
         needs_task_context=True,
         render_fn=_render_update,
     ),
     "complete_task": ToolDisplayMeta(
         verb="completing",
         label="Complete task",
+        service="todoist",
         needs_task_context=True,
         render_fn=_render_task_with_context,
     ),
@@ -130,6 +136,7 @@ _REGISTRY: Dict[str, ToolDisplayMeta] = {
     "delete_calendar_event": ToolDisplayMeta(
         verb="deleting",
         label="Delete event",
+        service="google calendar",
         irreversible=True,
         always_risky=True,
         needs_event_context=True,
@@ -138,11 +145,13 @@ _REGISTRY: Dict[str, ToolDisplayMeta] = {
     "create_calendar_event": ToolDisplayMeta(
         verb="adding",
         label="Add event",
+        service="google calendar",
         highlight_arg="summary",
     ),
     "update_calendar_event": ToolDisplayMeta(
         verb="updating",
         label="Update event",
+        service="google calendar",
         needs_event_context=True,
         render_fn=_render_calendar_update,
     ),
@@ -168,6 +177,15 @@ def get_meta(tool_name: str) -> ToolDisplayMeta:
 def get_verb(tool_name: str) -> str:
     """Present-participle verb for a tool (e.g. 'deleting', 'adding')."""
     return get_meta(tool_name).verb
+
+
+def get_service(tool_name: str) -> str:
+    """Human-facing service label for a tool ('todoist', 'google calendar').
+
+    Returns '' for tools with no declared service (e.g. DEFAULT_META), so the
+    confirm gate can skip the '(service)' suffix rather than render '(unknown)'.
+    """
+    return get_meta(tool_name).service
 
 
 def irreversible_tools() -> frozenset:
@@ -215,6 +233,7 @@ __all__ = [
     "always_risky_tools",
     "entity_requirements",
     "get_meta",
+    "get_service",
     "get_verb",
     "irreversible_tools",
     "needs_event_context_tools",
