@@ -65,6 +65,27 @@ describe('MemoryPendingClarificationStore', () => {
     expect(await store.get('telegram:abc123')).toBeUndefined();
   });
 
+  it('round-trips an awaitingMessageId', async () => {
+    const store = new MemoryPendingClarificationStore();
+    await store.save(makeRecord({ awaitingMessageId: 4242 }));
+    const retrieved = await store.get('telegram:abc123');
+    expect(retrieved?.awaitingMessageId).toBe(4242);
+  });
+
+  it('attachAwaitingMessageId sets the id on an existing pending record', async () => {
+    const store = new MemoryPendingClarificationStore();
+    await store.save(makeRecord());
+    await store.attachAwaitingMessageId('telegram:abc123', 909);
+    const retrieved = await store.get('telegram:abc123');
+    expect(retrieved?.awaitingMessageId).toBe(909);
+  });
+
+  it('attachAwaitingMessageId is a no-op for a missing record', async () => {
+    const store = new MemoryPendingClarificationStore();
+    await expect(store.attachAwaitingMessageId('telegram:missing', 909)).resolves.toBeUndefined();
+    expect(await store.get('telegram:missing')).toBeUndefined();
+  });
+
   it('sweepExpired prunes only expired records', async () => {
     const store = new MemoryPendingClarificationStore();
     await store.save(makeRecord({ pendingKey: 'live', expiresAt: Date.now() + 60000 }));

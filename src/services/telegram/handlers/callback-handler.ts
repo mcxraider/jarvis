@@ -7,6 +7,7 @@ import { PendingClarificationRecord, PendingClarificationStore } from '../pendin
 import { ConversationGateStore } from '../conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
+import { deleteAwaitingIndicator, sendAwaitingIndicator } from '../awaiting-indicator';
 
 const CONFIRM_PREFIX = 'confirm:';
 const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
@@ -87,6 +88,12 @@ export class CallbackHandler {
 
       await ctx.answerCbQuery(decision === 'approve' ? 'Approved!' : 'Declined.');
 
+      // The button tap resolves the pause: remove its "Awaiting confirmation" indicator now, before
+      // the resume's new thinking block appears.
+      if (pending.awaitingMessageId && chatId !== undefined && 'deleteMessage' in ctx.telegram) {
+        await deleteAwaitingIndicator(ctx.telegram, chatId, pending.awaitingMessageId, logContext);
+      }
+
       const statusEmoji = decision === 'approve' ? '✅' : '❌';
       const statusText = decision === 'approve' ? 'Approved' : 'Declined';
 
@@ -140,6 +147,11 @@ export class CallbackHandler {
           await sendFinalReply(ctx, formatInterruptReply(agentResponse.response, interruptType), {
             requestId,
           });
+        }
+        // The resume produced a fresh pause — show a new "Awaiting…" indicator and record its id.
+        const awaitingMessageId = await sendAwaitingIndicator(ctx, interruptType, logContext);
+        if (awaitingMessageId !== undefined) {
+          await this.pendingStore.attachAwaitingMessageId(gateKey, awaitingMessageId).catch(() => {});
         }
       } else {
         const buffered = await this.conversationGate.getAndClearBufferedMessage(gateKey).catch(() => undefined);

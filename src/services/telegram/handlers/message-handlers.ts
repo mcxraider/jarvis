@@ -14,12 +14,18 @@ import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
 import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service';
 import { TextProcessorResult } from '../processors/text-processor.service';
+import { PendingClarificationStore } from '../pending-clarification.store';
+import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
+import { deleteAwaitingIndicator, sendAwaitingIndicator } from '../awaiting-indicator';
 
 export class MessageHandlers {
   constructor(
     private readonly fileService: FileService,
     private readonly messageProcessor: MessageProcessorService,
     private readonly activityService: BotActivityService,
+    // Used only to attach the "Awaiting…" indicator's message_id onto the pending record the
+    // processor already saved, so the resolving turn (a different request) can delete it.
+    private readonly pendingStore: PendingClarificationStore,
   ) {}
 
   // Primary text message handler. Shows a rotating progress indicator while the
@@ -64,10 +70,17 @@ export class MessageHandlers {
     this.activityService.recordActivity('command_new');
 
     if (!remainder) {
+      // Read the pending record before abandoning so we can delete its "Awaiting…" indicator once
+      // the record is superseded (bare /new resolves the pause outside the processTextMessage path).
+      const gateKey = buildConversationKey(userId, mapTelegramUserId(userId), ctx.chat?.id);
+      const pending = await this.pendingStore.get(gateKey).catch(() => undefined);
       const outcome = await this.messageProcessor.abandonConversation(userId, logContext);
       if (outcome === 'running') {
         await ctx.reply("I'm still finishing your previous request — try /new again in a moment, or /cancel.");
         return;
+      }
+      if (outcome === 'abandoned' && pending?.awaitingMessageId && ctx.chat && 'deleteMessage' in ctx.telegram) {
+        await deleteAwaitingIndicator(ctx.telegram, ctx.chat.id, pending.awaitingMessageId, logContext);
       }
       await ctx.reply('Starting fresh — send your next message.');
       return;
@@ -377,12 +390,49 @@ export class MessageHandlers {
 
   // Routes the final response to the appropriate reply method. Confirm-type interrupts
   // get inline Approve/Decline buttons; everything else goes as a plain rich/markdown reply.
+  //
+  // Also owns the "Awaiting…" indicator lifecycle for the text/audio paths:
+  //   1. Tear down any indicator this turn consumed (a resolved/superseded prior pause).
+  //   2. If this turn *created* a new pause, send a fresh indicator below the confirm/clarify
+  //      message and record its id on the pending record for the next turn to delete.
   private async sendResult(ctx: Context, result: TextProcessorResult, logContext: LogContext): Promise<void> {
+    if (result.consumedAwaitingMessageId && ctx.chat && 'deleteMessage' in ctx.telegram) {
+      await deleteAwaitingIndicator(ctx.telegram, ctx.chat.id, result.consumedAwaitingMessageId, logContext);
+    }
+
     if (result.interruptType === 'confirm' && result.threadId) {
       await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
     } else {
       await sendFinalReply(ctx, formatInterruptReply(result.response, result.interruptType), logContext);
     }
+
+    // Only confirm/clarify interrupts (which carry a threadId) leave the conversation waiting on the
+    // user; final answers do not, so no indicator is shown for them.
+    if (result.interruptType && result.threadId) {
+      await this.showAwaitingIndicator(ctx, result.interruptType, logContext);
+    }
+  }
+
+  // Sends the persistent "Awaiting…" indicator below the just-sent confirm/clarify message and
+  // attaches its message_id to the pending record (keyed by the same conversation gate key the
+  // processor used). Best-effort: a failure here only means the resolving turn has nothing to
+  // delete, so it must never break the confirm/clarify flow.
+  private async showAwaitingIndicator(
+    ctx: Context,
+    interruptType: NonNullable<TextProcessorResult['interruptType']>,
+    logContext: LogContext,
+  ): Promise<void> {
+    const messageId = await sendAwaitingIndicator(ctx, interruptType, logContext);
+    if (messageId === undefined) return;
+
+    const userId = ctx.from?.id;
+    const gateKey = buildConversationKey(userId, mapTelegramUserId(userId), ctx.chat?.id);
+    await this.pendingStore.attachAwaitingMessageId(gateKey, messageId).catch((error) => {
+      logger.warn('telegram.awaiting.attach_failed', {
+        ...logContext,
+        error: (error as Error).message,
+      });
+    });
   }
 
   private async rejectUnsupportedMedia(ctx: Context, messageType: string, replyText: string): Promise<void> {

@@ -49,6 +49,24 @@ export function newDraftId(): number {
 /** Header prepended to `clarify` interrupts so the user sees the reply is a question, not a final answer. */
 export const CLARIFICATION_HEADER = '⚠️ Clarification required:';
 
+// Custom animated "thinking" emoji (Telegram premium emoji id) with a plain fallback for clients
+// that can't render it. Shared by the transient progress block and the persistent "Awaiting…"
+// indicator so both look identical.
+const THINKING_CUSTOM_EMOJI_ID = '5573333417954639880';
+const THINKING_CUSTOM_EMOJI_FALLBACK = '😀';
+
+/**
+ * Renders a label inside Telegram's `<tg-thinking>` widget with the shared custom emoji. Single
+ * source of truth for the thinking-style markup, reused by {@link TelegramProgressReporter} (as an
+ * ephemeral draft) and the persistent "Awaiting…" indicator (as a real rich message).
+ */
+export function renderThinkingLabel(label: string): string {
+  const emoji =
+    `<tg-emoji emoji-id="${THINKING_CUSTOM_EMOJI_ID}">` +
+    `${THINKING_CUSTOM_EMOJI_FALLBACK}</tg-emoji>`;
+  return `<tg-thinking>${emoji} ${label}</tg-thinking>`;
+}
+
 /**
  * Prefixes a `clarify` interrupt with {@link CLARIFICATION_HEADER}; leaves any other
  * reply (final answers, `confirm` text) untouched. Shared by the message and callback

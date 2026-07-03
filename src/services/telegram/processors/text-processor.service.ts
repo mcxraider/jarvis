@@ -19,6 +19,10 @@ export interface TextProcessorResult {
   threadId?: string;
   blocked?: boolean;
   bufferedMessage?: string;
+  // message_id of an "Awaiting…" indicator that this turn consumed (i.e. the pending record it
+  // resolved or superseded carried one). The handler deletes it — the processor stays
+  // Telegram-agnostic. Undefined when no pending record was consumed or it had no indicator.
+  consumedAwaitingMessageId?: number;
 }
 
 export interface TextProcessorOptions {
@@ -32,6 +36,13 @@ export interface TextProcessorOptions {
 }
 
 export type AbandonOutcome = 'idle' | 'running' | 'abandoned';
+
+// Internal result of abandonIfWaiting: the outcome plus the awaiting-indicator message_id of the
+// record that was superseded (if any), so callers can tear the indicator down.
+interface AbandonResult {
+  outcome: AbandonOutcome;
+  awaitingMessageId?: number;
+}
 
 export class TextProcessorService {
   private readonly pendingClarificationTtlMs: number;
@@ -91,15 +102,18 @@ export class TextProcessorService {
 
       // /new: drop any pending clarify/confirm and fall through to the fresh acquire+invoke
       // path below. Refuse if the agent is mid-flight so we never run two invokes on one gate.
+      // Remember the superseded record's awaiting-indicator id so it can be torn down on the result.
+      let supersededAwaitingMessageId: number | undefined;
       if (options?.forceFresh && !gateAcquired) {
-        const outcome = await this.abandonIfWaiting(gateKey, logContext);
-        if (outcome === 'running') {
+        const abandon = await this.abandonIfWaiting(gateKey, logContext);
+        if (abandon.outcome === 'running') {
           logger.info('conversation_gate.force_fresh_blocked', { ...logContext, gateKey });
           return {
             response: "I'm still finishing your previous request — try /new again in a moment, or /cancel.",
             blocked: true,
           };
         }
+        supersededAwaitingMessageId = abandon.awaitingMessageId;
       }
 
       if (!gateAcquired) {
@@ -179,7 +193,13 @@ export class TextProcessorService {
         durationMs: Date.now() - startedAt,
       });
 
-      return { response, interruptType: resultInterruptType, threadId: agentResponse.threadId, bufferedMessage: buffered };
+      return {
+        response,
+        interruptType: resultInterruptType,
+        threadId: agentResponse.threadId,
+        bufferedMessage: buffered,
+        consumedAwaitingMessageId: supersededAwaitingMessageId,
+      };
     } catch (error) {
       if (gateAcquired) {
         await this.conversationGate.release(gateKey).catch(e =>
@@ -208,21 +228,23 @@ export class TextProcessorService {
   async abandonConversation(userId: number | undefined, logContext: LogContext = {}): Promise<AbandonOutcome> {
     const internalUserId = mapTelegramUserId(userId);
     const gateKey = buildConversationKey(userId, internalUserId, logContext.chatId);
-    return this.abandonIfWaiting(gateKey, logContext);
+    return (await this.abandonIfWaiting(gateKey, logContext)).outcome;
   }
 
-  private async abandonIfWaiting(gateKey: string, logContext: LogContext): Promise<AbandonOutcome> {
+  private async abandonIfWaiting(gateKey: string, logContext: LogContext): Promise<AbandonResult> {
     const status = await this.safeGetGateStatus(gateKey);
     if (status === 'running') {
-      return 'running';
+      return { outcome: 'running' };
     }
     if (status === 'waiting_for_clarification') {
+      // Read the record before clearing so we can surface its awaiting-indicator id for teardown.
+      const pending = await this.pendingClarificationStore.get(gateKey).catch(() => undefined);
       await this.conversationGate.release(gateKey).catch(() => {});
       await this.pendingClarificationStore.clear(gateKey, 'superseded').catch(() => {});
       logger.info('conversation_gate.superseded', { ...logContext, gateKey });
-      return 'abandoned';
+      return { outcome: 'abandoned', awaitingMessageId: pending?.awaitingMessageId };
     }
-    return 'idle';
+    return { outcome: 'idle' };
   }
 
   private async handlePendingClarification(
@@ -293,6 +315,9 @@ export class TextProcessorService {
         interruptType: resultInterruptType,
         threadId: agentResponse.threadId,
         bufferedMessage: buffered,
+        // Consumed the pending record above (clear '…completed'), so its indicator must be torn down
+        // — whether this turn ended or re-interrupted (a fresh indicator is sent for the new pause).
+        consumedAwaitingMessageId: pending.awaitingMessageId,
       };
     } catch (error) {
       await this.conversationGate.transitionToWaiting(gateKey, this.waitingTtlMs).catch(() => {

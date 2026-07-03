@@ -6,6 +6,7 @@ import { editMessageTextWithMarkdown, replyWithMarkdown } from './formatters/tel
 import {
   isRichMessagesEnabled,
   newDraftId,
+  renderThinkingLabel,
   sendRichDraft,
 } from './formatters/telegram-rich';
 
@@ -41,8 +42,6 @@ const TRANSCRIBING_LABEL = 'Transcribing...';
 
 const MIN_UPDATE_INTERVAL_MS = 2_000;
 const HEARTBEAT_INTERVAL_MS = 8_000;
-const THINKING_CUSTOM_EMOJI_ID = '5573333417954639880';
-const THINKING_CUSTOM_EMOJI_FALLBACK = '😀';
 
 export class TelegramProgressReporter {
   private statusMessage?: Message.TextMessage;
@@ -334,9 +333,6 @@ export class TelegramProgressReporter {
   }
 
   private renderRichLabel(label: string): string {
-    const emoji =
-      `<tg-emoji emoji-id="${THINKING_CUSTOM_EMOJI_ID}">` +
-      `${THINKING_CUSTOM_EMOJI_FALLBACK}</tg-emoji>`;
-    return `<tg-thinking>${emoji} ${label}</tg-thinking>`;
+    return renderThinkingLabel(label);
   }
 }
