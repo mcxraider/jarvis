@@ -29,6 +29,7 @@ _ROLE_LINE = _build_role_line("Jerry")
 # above and the closing policy (data safety, failure, formatting, limits) below.
 # Both services are always live in this single-user MVP, so nothing is injected at
 # runtime — the body is a single static document.
+
 _POLICY_BODY = """\
 ## Operating loop
 Each time control returns to you, choose exactly one of:
