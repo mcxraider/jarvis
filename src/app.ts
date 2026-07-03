@@ -130,7 +130,11 @@ const conversationGate = createConversationGateStore();
 // Telegram infrastructure: file downloads, activity metrics, and health reporting.
 const fileService = new FileService(BOT_TOKEN, bot.telegram);
 const activityService = new BotActivityService();
-const statusService = new BotStatusService(activityService);
+// Delegate dependency probing to the Python agent (it owns DeepSeek + per-user
+// Todoist), so /status reflects real downstream health rather than a phantom check.
+const statusService = new BotStatusService(activityService, {
+  agentHealth: (telegramUserId) => agentClient.fetchDependencyHealth(telegramUserId),
+});
 
 // Message processors: text goes to LangGraph, audio gets transcribed first then
 // forwarded through the same text pipeline — so voice and typed share the same path.
@@ -161,7 +165,9 @@ export const botService = new TelegramBotService(telegramConfig, handlers);
 // pending clarification 'expired' (gateKey === pendingKey). Resumption is already blocked
 // by the store's expires_at filter; this keeps the persisted status accurate for reports.
 conversationGate.setOnExpiry((gateKey, chatId) => {
-  botService.sendMessage(chatId, '⏱ Request timed out. Send a new message to try again.').catch(() => {});
+  botService
+    .sendRichMessage(chatId, '⏱ Request timed out. Send a new message to try again.', { chatId, gateKey })
+    .catch(() => {});
   pendingStore.clear(gateKey, 'expired').catch(() => {});
 });
 

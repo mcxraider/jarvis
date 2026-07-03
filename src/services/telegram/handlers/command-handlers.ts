@@ -55,7 +55,7 @@ export class CommandHandlers {
     logger.info('User requested status', { userId });
     this.activityService.recordActivity('command_status');
 
-    const statusMessage = await this.statusService.getFormattedStatus();
+    const statusMessage = await this.statusService.getFormattedStatus(userId);
     await replyWithMarkdown(ctx.reply.bind(ctx), statusMessage, { userId });
   }
 

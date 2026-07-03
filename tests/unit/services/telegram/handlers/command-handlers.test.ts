@@ -64,7 +64,9 @@ describe('CommandHandlers', () => {
     await handlers.handleStatus(ctx);
 
     expect(activityService.recordActivity).toHaveBeenCalledWith('command_status');
-    expect(statusService.getFormattedStatus).toHaveBeenCalled();
+    // The requesting user's Telegram id must be threaded through so the backend
+    // can check that user's Todoist token.
+    expect(statusService.getFormattedStatus).toHaveBeenCalledWith(123);
     expect(ctx.reply).toHaveBeenCalledWith('healthy status', { parse_mode: 'MarkdownV2' });
   });
 

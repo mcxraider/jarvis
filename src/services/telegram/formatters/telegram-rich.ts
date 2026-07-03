@@ -1,7 +1,7 @@
-import { Context } from 'telegraf';
+import { Context, Telegram } from 'telegraf';
 import { Message } from 'telegraf/typings/core/types/typegram';
 import { logger } from '../../../utils/logger';
-import { replyWithMarkdown } from './telegram-markdown';
+import { replyWithMarkdown, sendMessageWithMarkdown } from './telegram-markdown';
 import { splitMessage } from './message-splitter';
 
 /**
@@ -27,7 +27,10 @@ export function isRichMessagesEnabled(): boolean {
   return richEnabled;
 }
 
-type RawTelegram = { callApi: (method: string, payload: Record<string, unknown>) => Promise<unknown> };
+type RawTelegram = {
+  callApi: (method: string, payload: Record<string, unknown>) => Promise<unknown>;
+  sendMessage: (chatId: number | string, text: string, options?: unknown) => Promise<Message.TextMessage>;
+};
 
 function rawCallApi(
   ctx: Context,
@@ -90,6 +93,48 @@ export async function sendFinalReply(
 
     await replyWithMarkdown(ctx.reply.bind(ctx), chunk, logContext);
   }
+}
+
+/**
+ * Context-free twin of {@link sendFinalReply}: sends a message to a chat by id when no
+ * Telegraf `Context` is available (e.g. from a timer callback such as the conversation
+ * gate expiry notice). Rich mode persists via `sendRichMessage`; otherwise, or on any
+ * failure, falls back to the MarkdownV2 `sendMessage` path so delivery never regresses.
+ */
+export async function sendRichMessageToChat(
+  telegram: Telegram,
+  chatId: number,
+  text: string,
+  logContext: object = {},
+): Promise<void> {
+  // Telegraf's Telegram.callApi is generically constrained to known method names, so
+  // reach Bot API 10.1's untyped `sendRichMessage` through the loosened RawTelegram
+  // shape — same cast as rawCallApi() above.
+  const raw = telegram as unknown as RawTelegram;
+
+  if (richEnabled) {
+    try {
+      await raw.callApi('sendRichMessage', {
+        chat_id: chatId,
+        rich_message: { markdown: text },
+      });
+      return;
+    } catch (error) {
+      logger.warn('telegram.rich.fallback', {
+        ...logContext,
+        method: 'sendRichMessage',
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  await sendMessageWithMarkdown(
+    raw.sendMessage.bind(raw),
+    chatId,
+    text,
+    {},
+    logContext,
+  );
 }
 
 /**
