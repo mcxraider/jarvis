@@ -10,7 +10,7 @@ from typing import List, Optional
 from langgraph.types import interrupt
 
 from agents.agent_api.app.graph.state import JarvisState
-from agents.agent_api.app.tools.metadata import get_meta, get_verb, irreversible_tools
+from agents.agent_api.app.tools.metadata import get_meta, get_service, get_verb, irreversible_tools
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 APPROVE_TOKENS = frozenset({"approve", "yes", "confirm", "ok", "y"})
@@ -24,22 +24,34 @@ def parse_decision(reply: str) -> str:
     return "decline"
 
 
+def _with_service(text: str, service: str) -> str:
+    """Append a ' (service)' label to an action line, before any trailing period."""
+    if not service:
+        return text
+    if text.endswith("."):
+        return f"{text[:-1]} ({service})."
+    return f"{text} ({service})"
+
+
 def render_action_summary(held_call: dict) -> str:
-    """Produce a human-readable summary of a single frozen action."""
+    """Produce a human-readable summary of a single frozen action.
+
+    The tool's service (todoist / google calendar) is appended as a ' (service)'
+    suffix so the user sees which system the action targets before confirming.
+    """
     tool_name = held_call.get("tool_name", "unknown")
     args = held_call.get("args", {})
     meta = get_meta(tool_name)
 
     if meta.render_fn:
-        return meta.render_fn(held_call)
+        base_summary = meta.render_fn(held_call)
+    elif meta.highlight_arg and args.get(meta.highlight_arg, ""):
+        base_summary = f'{meta.label} "{args[meta.highlight_arg]}".'
+    else:
+        arg_summary = ", ".join(f"{k}={v!r}" for k, v in list(args.items())[:4])
+        base_summary = f"{tool_name}({arg_summary})"
 
-    if meta.highlight_arg:
-        value = args.get(meta.highlight_arg, "")
-        if value:
-            return f'{meta.label} "{value}".'
-
-    arg_summary = ", ".join(f"{k}={v!r}" for k, v in list(args.items())[:4])
-    return f"{tool_name}({arg_summary})"
+    return _with_service(base_summary, get_service(tool_name))
 
 
 def _batch_suffix(tool_names: set) -> str:
@@ -101,6 +113,7 @@ def create_confirm_node(tracer: Optional[TracePrinter] = None):
             "summary": summary,
             "count": len(held_calls),
             "tool_names": list({h["tool_name"] for h in held_calls}),
+            "services": sorted({get_service(h["tool_name"]) for h in held_calls} - {""}),
         }
 
         tracer.event(

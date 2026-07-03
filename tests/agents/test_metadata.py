@@ -7,6 +7,7 @@ from agents.agent_api.app.tools.metadata import (
     ToolDisplayMeta,
     always_risky_tools,
     get_meta,
+    get_service,
     get_verb,
     irreversible_tools,
 )
@@ -30,6 +31,28 @@ class TestGetMeta:
         assert get_meta("delete_todoist_task").label == "Delete task"
         assert get_meta("add_todoist_task").label == "Add task"
         assert get_meta("complete_task").label == "Complete task"
+
+
+class TestGetService:
+    @pytest.mark.parametrize(
+        "tool_name,expected",
+        [
+            ("delete_todoist_task", "todoist"),
+            ("bulk_add_todoist_tasks", "todoist"),
+            ("add_todoist_task", "todoist"),
+            ("update_todoist_task", "todoist"),
+            ("complete_task", "todoist"),
+            ("delete_calendar_event", "google calendar"),
+            ("create_calendar_event", "google calendar"),
+            ("update_calendar_event", "google calendar"),
+        ],
+    )
+    def test_service_mapping(self, tool_name, expected):
+        assert get_service(tool_name) == expected
+
+    def test_unknown_tool_has_no_service(self):
+        assert get_service("totally_unknown_tool") == ""
+        assert DEFAULT_META.service == ""
 
 
 class TestGetVerb:
