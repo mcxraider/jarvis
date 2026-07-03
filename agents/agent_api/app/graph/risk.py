@@ -9,12 +9,16 @@ from typing import Any, Dict, List, Tuple
 
 from agents.agent_api.app.constants import CONFIRM_BULK_THRESHOLD
 from agents.agent_api.app.tools.base import tool_call_name
+from agents.agent_api.app.tools.calendar.schemas import MUTATING_CALENDAR_TOOLS
 from agents.agent_api.app.tools.metadata import always_risky_tools
 from agents.agent_api.app.tools.todoist.schemas import MUTATING_TOOL_NAMES
 
 RISKY_TOOLS = always_risky_tools()
 
-MUTATING_TOOLS = frozenset(MUTATING_TOOL_NAMES)
+# Every domain's mutating tools share one gate: a single mutation is "low"
+# (executes normally), but crossing the bulk threshold in a turn — or being
+# individually always-risky, like a delete — routes to the confirm gate.
+MUTATING_TOOLS = frozenset(MUTATING_TOOL_NAMES | MUTATING_CALENDAR_TOOLS)
 
 BULK_THRESHOLD = CONFIRM_BULK_THRESHOLD
 
