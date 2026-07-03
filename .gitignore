@@ -19,6 +19,14 @@ venv/
 __pycache__/
 *.py[cod]
 
+# google calendar oauth (single-user, never commit)
+token.json
+# per-user calendar tokens (multi-user MVP)
+tokens/
+!tokens/.gitkeep
+credentials.json
+google_client_secret*.json
+
 # next.js
 /.next/
 /out/

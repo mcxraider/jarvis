@@ -44,6 +44,11 @@ from agents.agent_api.app.run_logging import (
     format_singapore_log_iso,
     open_run_log,
 )
+from agents.agent_api.app.tools.calendar.auth import (
+    get_token_path_for_user,
+    is_calendar_configured_for_user,
+)
+from agents.agent_api.app.tools.calendar.client import GoogleCalendarClient
 from agents.agent_api.app.tools.dispatcher import ToolDispatcher
 from agents.agent_api.app.tools.registry_factory import build_default_registry
 from agents.agent_api.app.tools.selection import ToolSelector, get_selector
@@ -265,12 +270,16 @@ def build_initial_state(
     thread_id: Optional[str] = None,
     request_source: str = "api",
     timezone: Optional[str] = None,
+    user_name: Optional[str] = None,
+    calendar_enabled: bool = True,
 ) -> JarvisState:
     """Create a fresh state object for one Jarvis run."""
 
     thread_id = thread_id or str(uuid.uuid4())
     return {
-        "messages": build_initial_messages(user_prompt, timezone=timezone),
+        "messages": build_initial_messages(
+            user_prompt, timezone=timezone, user_name=user_name, calendar_enabled=calendar_enabled
+        ),
         "user_prompt": user_prompt,
         "user_id": user_id,
         "request_source": request_source,
@@ -381,13 +390,23 @@ def run_jarvis(
         telegram_user_id=telegram_user_id,
     )
 
+    calendar_enabled = is_calendar_configured_for_user(telegram_user_id)
+    calendar_client = (
+        GoogleCalendarClient(
+            tracer=tracer,
+            token_path=get_token_path_for_user(telegram_user_id),
+        )
+        if calendar_enabled
+        else None
+    )
+
     # Caller-provided clients (e.g. the CLI runner) are built before run_jarvis
     # wraps the tracer, so retarget them at this run's tracer to keep their
-    # agent.* / todoist.* events flowing into the per-run file log.
-    for client in (agent_client, todoist_client):
-        if getattr(client, "tracer", None) is not None:
+    # agent.* / todoist.* / calendar.* events flowing into the per-run file log.
+    for client in (agent_client, todoist_client, calendar_client):
+        if client is not None and getattr(client, "tracer", None) is not None:
             client.tracer = tracer
-    registry = build_default_registry(todoist_client)
+    registry = build_default_registry(todoist_client, calendar_client=calendar_client)
     dispatcher = ToolDispatcher(
         registry,
         allow_mutations=allow_mutations,
@@ -446,6 +465,8 @@ def run_jarvis(
                 thread_id=thread_id,
                 request_source=request_source,
                 timezone=user_timezone,
+                user_name=telegram_first_name,
+                calendar_enabled=calendar_enabled,
             ),
             config,
         )
