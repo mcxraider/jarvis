@@ -308,4 +308,33 @@ describe('CallbackHandler', () => {
     expect(pending!.threadId).toBe('tg_abc_msg123');
     expect(await gateStore.getStatus(gateKey)).toBe('waiting_for_clarification');
   });
+
+  // Regression: a clarify raised straight after a confirm-button tap flows through this
+  // callback path, which previously sent the question verbatim and dropped the
+  // "Clarification required" header the typed-message path always adds.
+  it('prefixes the clarification header when resume returns a clarify interrupt', async () => {
+    const agentClient = {
+      resume: jest.fn().mockResolvedValue({
+        status: 'interrupted',
+        threadId: 'tg_abc_msg123',
+        response: 'Which project do you mean?',
+        interrupt: { type: 'clarify' },
+        toolResults: [],
+      }),
+    };
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateStore = new MemoryConversationGateStore();
+    await setupWaitingGate(gateStore, pendingStore);
+
+    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
+    const ctx = makeCtx('confirm:approve:tg_abc_msg123');
+
+    await handler.handleCallbackQuery(ctx);
+
+    const clarifyReply = (ctx.reply as jest.Mock).mock.calls
+      .map((call) => String(call[0]))
+      .find((text) => text.includes('Which project do you mean?'));
+    expect(clarifyReply).toBeDefined();
+    expect(clarifyReply).toContain('Clarification required');
+  });
 });

@@ -43,6 +43,23 @@ export function newDraftId(): number {
   return id === 0 ? 1 : id;
 }
 
+/** Header prepended to `clarify` interrupts so the user sees the reply is a question, not a final answer. */
+export const CLARIFICATION_HEADER = '⚠️ Clarification required:';
+
+/**
+ * Prefixes a `clarify` interrupt with {@link CLARIFICATION_HEADER}; leaves any other
+ * reply (final answers, `confirm` text) untouched. Shared by the message and callback
+ * resume paths so both render clarifications identically — a clarify raised after a
+ * confirm-button tap flows through the callback path and must look the same as one
+ * raised after a typed reply.
+ */
+export function formatInterruptReply(text: string, interruptType?: string): string {
+  if (interruptType === 'clarify') {
+    return `${CLARIFICATION_HEADER}\n\n${text}`;
+  }
+  return text;
+}
+
 /**
  * Sends the agent's final answer. Rich mode persists it via `sendRichMessage`;
  * otherwise (or on failure) falls back to the MarkdownV2 reply path.

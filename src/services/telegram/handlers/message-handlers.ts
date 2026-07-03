@@ -9,7 +9,7 @@ import { createRequestId, LogContext, logger, truncateForLog } from '../../../ut
 import { FileService } from '../file.service';
 import { MessageProcessorService } from '../message-processor.service';
 import { BotActivityService, BotActivityType } from '../bot-activity.service';
-import { sendFinalReply } from '../formatters/telegram-rich';
+import { formatInterruptReply, sendFinalReply } from '../formatters/telegram-rich';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
 import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service';
@@ -381,7 +381,7 @@ export class MessageHandlers {
     if (result.interruptType === 'confirm' && result.threadId) {
       await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
     } else {
-      await sendFinalReply(ctx, this.formatResponse(result.response, result.interruptType), logContext);
+      await sendFinalReply(ctx, formatInterruptReply(result.response, result.interruptType), logContext);
     }
   }
 
@@ -446,12 +446,5 @@ export class MessageHandlers {
       return 'Paused for clarification';
     }
     return 'Done';
-  }
-
-  private formatResponse(text: string, interruptType?: string): string {
-    if (interruptType === 'clarify') {
-      return `⚠️ Clarification required:\n\n${text}`;
-    }
-    return text;
   }
 }

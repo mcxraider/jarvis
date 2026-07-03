@@ -2,7 +2,7 @@ import { Context } from 'telegraf';
 import { createRequestId, logger, LogContext } from '../../../utils/logger';
 import { LangGraphAgentClient, LangGraphAgentResponse } from '../../ai/langgraph-agent-client.service';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
-import { sendFinalReply } from '../formatters/telegram-rich';
+import { formatInterruptReply, sendFinalReply } from '../formatters/telegram-rich';
 import { PendingClarificationRecord, PendingClarificationStore } from '../pending-clarification.store';
 import { ConversationGateStore } from '../conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
@@ -137,7 +137,9 @@ export class CallbackHandler {
         if (interruptType === 'confirm') {
           await this.sendConfirmReply(ctx, agentResponse.response, agentResponse.threadId, requestId);
         } else {
-          await sendFinalReply(ctx, agentResponse.response, { requestId });
+          await sendFinalReply(ctx, formatInterruptReply(agentResponse.response, interruptType), {
+            requestId,
+          });
         }
       } else {
         const buffered = await this.conversationGate.getAndClearBufferedMessage(gateKey).catch(() => undefined);
