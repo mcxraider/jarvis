@@ -20,6 +20,40 @@ class JarvisApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
 
+    def test_health_detail_ok(self) -> None:
+        with patch(
+            "agents.agent_api.app.api.routes.health._check_deepseek",
+            return_value={"ok": True, "detail": "reachable"},
+        ), patch(
+            "agents.agent_api.app.api.routes.health._check_todoist",
+            return_value={"ok": True, "detail": "5 project(s)"},
+        ) as todoist:
+            response = self.client.get("/health/detail", params={"telegram_user_id": 123})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["status"], "ok")
+        self.assertIn("model", body)
+        self.assertEqual(body["checks"]["deepseek"], {"ok": True, "detail": "reachable"})
+        self.assertEqual(body["checks"]["todoist"], {"ok": True, "detail": "5 project(s)"})
+        # The requesting user's id is forwarded so the Todoist token can be resolved.
+        todoist.assert_called_once_with(123)
+
+    def test_health_detail_degraded_when_a_check_fails(self) -> None:
+        with patch(
+            "agents.agent_api.app.api.routes.health._check_deepseek",
+            return_value={"ok": True, "detail": "reachable"},
+        ), patch(
+            "agents.agent_api.app.api.routes.health._check_todoist",
+            return_value={"ok": False, "detail": "no token for user"},
+        ):
+            response = self.client.get("/health/detail")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["status"], "degraded")
+        self.assertFalse(body["checks"]["todoist"]["ok"])
+
     def test_invoke_completed(self) -> None:
         with patch(
             "agents.agent_api.app.api.routes.invoke.run_jarvis",

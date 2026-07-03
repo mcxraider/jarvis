@@ -8,6 +8,7 @@ import { Message } from 'telegraf/typings/core/types/typegram';
 import { TelegramHandlers } from './handlers/telegram-handlers';
 import { TelegramConfig } from '../../types/telegram.types';
 import { sendMessageWithMarkdown } from './formatters/telegram-markdown';
+import { sendRichMessageToChat } from './formatters/telegram-rich';
 
 export class TelegramBotService {
   public readonly bot: Telegraf<Context>;
@@ -202,6 +203,14 @@ export class TelegramBotService {
       });
       throw error;
     }
+  }
+
+  // Sends a message to a chat via the Rich Messages transport (Bot API 10.1) when
+  // enabled, degrading to the MarkdownV2 sendMessage path otherwise or on failure.
+  // Used for proactive notifications that have no Telegraf Context — e.g. the
+  // conversation-gate timeout notice fired from a timer callback.
+  async sendRichMessage(chatId: number, text: string, logContext?: object): Promise<void> {
+    await sendRichMessageToChat(this.bot.telegram, chatId, text, logContext);
   }
 
   async getBotInfo(): Promise<any> {
