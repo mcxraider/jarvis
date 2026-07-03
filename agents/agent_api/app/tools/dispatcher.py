@@ -31,7 +31,7 @@ from agents.agent_api.app.tools.base import (
     parse_tool_call_arguments,
     tool_call_name,
 )
-from agents.agent_api.app.tools.todoist.client import TodoistApiError
+from agents.agent_api.app.tools.errors import ClassifiedApiError
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 @dataclass
@@ -268,7 +268,7 @@ class ToolDispatcher:
                     )
                     self._abandon_operation(resolved_key, owner_token, tool_name, ctx_thread_id, ctx_turn_count)
             return result
-        except TodoistApiError as error:
+        except ClassifiedApiError as error:
             self._abandon_operation(resolved_key, owner_token, tool_name, ctx_thread_id, ctx_turn_count)
             classified_error = error.to_classifier_payload()
             self.tracer.event(

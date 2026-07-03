@@ -30,6 +30,7 @@ class ToolDisplayMeta:
     irreversible: bool = False
     always_risky: bool = False
     needs_task_context: bool = False
+    needs_event_context: bool = False
     highlight_arg: Optional[str] = None
     render_fn: Optional[Callable[[dict], str]] = None
 
@@ -68,6 +69,29 @@ def _render_update(held_call: dict) -> str:
     return f"{meta.label} {target}."
 
 
+def _render_calendar_delete(held_call: dict) -> str:
+    args = held_call.get("args", {})
+    event_id = args.get("event_id", "unknown")
+    meta = _REGISTRY["delete_calendar_event"]
+    summary = held_call.get("context", {}).get("event_summary")
+    if summary:
+        return f'{meta.label} "{summary}".'
+    return f"{meta.label} (id={event_id})."
+
+
+def _render_calendar_update(held_call: dict) -> str:
+    args = held_call.get("args", {})
+    event_id = args.get("event_id", "unknown")
+    changed = [k for k in args if k not in ("event_id", "calendar_id")]
+    meta = _REGISTRY["update_calendar_event"]
+    fields = ", ".join(changed[:3])
+    summary = held_call.get("context", {}).get("event_summary")
+    target = f'"{summary}"' if summary else f"(id={event_id})"
+    if fields:
+        return f"{meta.label} {target}: {fields}."
+    return f"{meta.label} {target}."
+
+
 _REGISTRY: Dict[str, ToolDisplayMeta] = {
     "delete_todoist_task": ToolDisplayMeta(
         verb="deleting",
@@ -100,6 +124,28 @@ _REGISTRY: Dict[str, ToolDisplayMeta] = {
         needs_task_context=True,
         render_fn=_render_task_with_context,
     ),
+    # Google Calendar mutations. delete is irreversible + always gated; create
+    # and update fall through the shared "single mutation = low, bulk = risky"
+    # path via risk.MUTATING_TOOLS.
+    "delete_calendar_event": ToolDisplayMeta(
+        verb="deleting",
+        label="Delete event",
+        irreversible=True,
+        always_risky=True,
+        needs_event_context=True,
+        render_fn=_render_calendar_delete,
+    ),
+    "create_calendar_event": ToolDisplayMeta(
+        verb="adding",
+        label="Add event",
+        highlight_arg="summary",
+    ),
+    "update_calendar_event": ToolDisplayMeta(
+        verb="updating",
+        label="Update event",
+        needs_event_context=True,
+        render_fn=_render_calendar_update,
+    ),
 }
 
 DEFAULT_META = ToolDisplayMeta(verb="modifying", label="Modify item")
@@ -108,6 +154,9 @@ _IRREVERSIBLE_TOOLS = frozenset(name for name, m in _REGISTRY.items() if m.irrev
 _ALWAYS_RISKY_TOOLS = frozenset(name for name, m in _REGISTRY.items() if m.always_risky)
 _NEEDS_TASK_CONTEXT = frozenset(
     name for name, m in _REGISTRY.items() if m.needs_task_context
+)
+_NEEDS_EVENT_CONTEXT = frozenset(
+    name for name, m in _REGISTRY.items() if m.needs_event_context
 )
 
 
@@ -134,6 +183,11 @@ def always_risky_tools() -> frozenset:
 def needs_task_context_tools() -> frozenset:
     """Tools that benefit from task-content enrichment before confirmation."""
     return _NEEDS_TASK_CONTEXT
+
+
+def needs_event_context_tools() -> frozenset:
+    """Tools that benefit from calendar event-summary enrichment before confirmation."""
+    return _NEEDS_EVENT_CONTEXT
 
 
 # Prior-read ID validation: entity-ID args that must have been surfaced by a prior
@@ -163,5 +217,6 @@ __all__ = [
     "get_meta",
     "get_verb",
     "irreversible_tools",
+    "needs_event_context_tools",
     "needs_task_context_tools",
 ]

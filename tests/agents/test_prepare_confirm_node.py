@@ -155,6 +155,80 @@ class TestPrepareConfirmNode:
             "task_content": "Cancel duplicate reminder"
         }
 
+    def test_enriches_calendar_delete_with_event_summary_from_list_result(self):
+        calls = [
+            _make_tool_call("delete_calendar_event", "c1", {"event_id": "evt_1"})
+        ]
+        prior_messages = [
+            _make_tool_result(
+                {
+                    "events": [
+                        {"event_id": "evt_1", "summary": "Team sync"},
+                        {"event_id": "evt_2", "summary": "1:1 with Sam"},
+                    ]
+                },
+                tool_name="list_calendar_events",
+            )
+        ]
+        state = _make_state(calls, prior_messages=prior_messages)
+        node = create_prepare_confirm_node()
+        result = node(state)
+        assert result["held_calls"][0]["context"] == {"event_summary": "Team sync"}
+
+    def test_enriches_calendar_delete_from_single_event_result(self):
+        calls = [
+            _make_tool_call("delete_calendar_event", "c1", {"event_id": "evt_9"})
+        ]
+        prior_messages = [
+            _make_tool_result(
+                {"event_id": "evt_9", "summary": "Dentist appointment"},
+                tool_name="get_calendar_event",
+            )
+        ]
+        state = _make_state(calls, prior_messages=prior_messages)
+        node = create_prepare_confirm_node()
+        result = node(state)
+        assert result["held_calls"][0]["context"] == {
+            "event_summary": "Dentist appointment"
+        }
+
+    def test_enriches_calendar_update_with_event_summary_from_prior_results(self):
+        calls = [
+            _make_tool_call(
+                "update_calendar_event",
+                "c1",
+                {"event_id": "evt_1", "location": "Room 4"},
+            )
+        ]
+        prior_messages = [
+            _make_tool_result(
+                {"events": [{"event_id": "evt_1", "summary": "Team sync"}]},
+                tool_name="list_calendar_events",
+            )
+        ]
+        # update_calendar_event is not always-risky; it only gates once the turn
+        # crosses the bulk mutation threshold.
+        prior_mutations = [
+            {"tool_name": "update_calendar_event"} for _ in range(BULK_THRESHOLD)
+        ]
+        state = _make_state(
+            calls,
+            tool_results=prior_mutations,
+            prior_messages=prior_messages,
+        )
+        node = create_prepare_confirm_node()
+        result = node(state)
+        assert result["held_calls"][0]["context"] == {"event_summary": "Team sync"}
+
+    def test_calendar_delete_without_prior_read_has_no_context(self):
+        calls = [
+            _make_tool_call("delete_calendar_event", "c1", {"event_id": "evt_x"})
+        ]
+        state = _make_state(calls)
+        node = create_prepare_confirm_node()
+        result = node(state)
+        assert "context" not in result["held_calls"][0]
+
     def test_call_index_uses_full_array_position_not_subset(self):
         """Risky calls get call_index from their full-array position, not subset position."""
         calls = [

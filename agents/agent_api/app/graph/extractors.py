@@ -44,4 +44,38 @@ def extract_task_items(content: Any) -> List[Dict[str, Any]]:
     return []
 
 
-__all__ = ["extract_list_from_content", "extract_task_items"]
+def extract_event_items(content: Any) -> List[Dict[str, Any]]:
+    """Return Google Calendar event dicts from any read-result shape OR envelope.
+
+    Calendar counterpart to :func:`extract_task_items`. Handles: a bare list; a
+    ``{"events": [...]}`` payload (from ``list_calendar_events``); a single
+    normalized event dict (from ``get_calendar_event``, identified by
+    ``event_id``); and a full tool-result envelope (recurses into its
+    ``"content"``). Shared by the prepare_confirm event-summary enrichment.
+    """
+    # Unwrap Jarvis tool-result envelopes only. Envelopes are identified by
+    # "tool_call_id" — a key event dicts never carry — so an event whose value
+    # happens to be a dict or list is never incorrectly recursed into.
+    if (
+        isinstance(content, dict)
+        and "tool_call_id" in content
+        and isinstance(content.get("content"), (list, dict))
+    ):
+        inner = extract_event_items(content["content"])
+        if inner:
+            return inner
+
+    if isinstance(content, list):
+        return [item for item in content if isinstance(item, dict)]
+
+    if isinstance(content, dict):
+        events = content.get("events")
+        if isinstance(events, list):
+            return [item for item in events if isinstance(item, dict)]
+        if content.get("event_id"):
+            return [content]
+
+    return []
+
+
+__all__ = ["extract_event_items", "extract_list_from_content", "extract_task_items"]
