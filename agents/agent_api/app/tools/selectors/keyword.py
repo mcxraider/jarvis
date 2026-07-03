@@ -1,8 +1,10 @@
 """Keyword-based tool selector.
 
-Matches user queries against a keyword routing table to narrow the tool set
-from 14 to typically 1-3 tools. Falls back to all tools when no keyword
-matches — so the selector can only improve routing, never degrade it.
+Matches user queries against a keyword routing table to narrow the registered
+tool set (Todoist, plus Google Calendar when connected) to typically 1-3 tools.
+Falls back to all tools when no keyword matches — so the selector can only
+improve routing, never degrade it. Routes may name tools from a domain that is
+not registered this run; those names are dropped when schemas are selected.
 """
 
 import logging
@@ -50,6 +52,23 @@ KEYWORD_ROUTES: Dict[str, List[str]] = {
     "comment": ["get_comments", "add_comment"],
     # Labels
     "label": ["get_labels"],
+    # Google Calendar. These names are silently dropped when the calendar domain
+    # is unregistered (select_schemas filters to registry membership), so the
+    # routes are harmless on a Todoist-only run. Longest-first scan lets the
+    # multi-word phrases win over their single-word substrings.
+    "cancel meeting": ["list_calendar_events", "delete_calendar_event"],
+    "cancel event": ["list_calendar_events", "delete_calendar_event"],
+    "reschedule meeting": ["list_calendar_events", "update_calendar_event"],
+    "move meeting": ["list_calendar_events", "update_calendar_event"],
+    "calendar": ["list_calendar_events", "get_freebusy"],
+    "schedule": ["list_calendar_events", "create_calendar_event", "get_freebusy"],
+    "meeting": ["list_calendar_events", "create_calendar_event", "get_freebusy"],
+    "appointment": ["list_calendar_events", "create_calendar_event", "get_freebusy"],
+    "event": ["list_calendar_events", "create_calendar_event"],
+    "free": ["get_freebusy"],
+    "busy": ["get_freebusy"],
+    "available": ["get_freebusy"],
+    "availability": ["get_freebusy"],
 }
 
 # Tools that must always be available regardless of selection.

@@ -9,11 +9,14 @@ import json
 from typing import Any, Dict, List, Optional
 
 from agents.agent_api.app.graph.canonicalize import build_held_call
-from agents.agent_api.app.graph.extractors import extract_task_items
+from agents.agent_api.app.graph.extractors import extract_event_items, extract_task_items
 from agents.agent_api.app.graph.nodes.hitl import deferred_tool_message
 from agents.agent_api.app.graph.risk import partition_tool_calls
 from agents.agent_api.app.graph.state import JarvisState
-from agents.agent_api.app.tools.metadata import needs_task_context_tools
+from agents.agent_api.app.tools.metadata import (
+    needs_event_context_tools,
+    needs_task_context_tools,
+)
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 
@@ -30,6 +33,26 @@ def _find_task_content(messages: List[Dict[str, Any]], task_id: str) -> Optional
             for task in extract_task_items(data):
                 if task.get("id") == task_id:
                     return task.get("content")
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return None
+
+
+def _find_event_summary(messages: List[Dict[str, Any]], event_id: str) -> Optional[str]:
+    """Search prior tool results for the summary/title of a Calendar event by id."""
+    if not event_id:
+        return None
+    for msg in messages:
+        if msg.get("role") != "tool":
+            continue
+        content_str = msg.get("content", "")
+        if event_id not in content_str:
+            continue
+        try:
+            data = json.loads(content_str)
+            for event in extract_event_items(data):
+                if event.get("event_id") == event_id:
+                    return event.get("summary")
         except (json.JSONDecodeError, TypeError):
             continue
     return None
@@ -64,6 +87,11 @@ def create_prepare_confirm_node(tracer: Optional[TracePrinter] = None):
                 task_content = _find_task_content(messages, task_id)
                 if task_content:
                     held["context"] = {"task_content": task_content}
+            elif held["tool_name"] in needs_event_context_tools():
+                event_id = held["args"].get("event_id", "")
+                event_summary = _find_event_summary(messages, event_id)
+                if event_summary:
+                    held["context"] = {"event_summary": event_summary}
 
         deferred_messages = [
             deferred_tool_message(tc, "Deferred pending batch confirmation.")

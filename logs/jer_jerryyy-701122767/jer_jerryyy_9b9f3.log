@@ -1,0 +1,249 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-03T11:51:46+08:00
+request_id: 73b91bf7-138c-4727-9bdc-4c5924461e4f
+thread_id: 7b6bc810-3328-4ec4-af1c-5eee5859b9f3
+user_id: local-user
+telegram_user_id: None
+telegram_username: None
+telegram_first_name: None
+request_source: cli
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-03 11:51:46.808 | section              | === Jarvis LangGraph Run ===
+2026-07-03 11:51:46.808 | runtime.start        | Starting graph invocation.
+      request_id: 73b91bf7-138c-4727-9bdc-4c5924461e4f
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: 7b6bc810-3328-4ec4-af1c-5eee5859b9f3
+      request_source: cli
+      resuming: false
+2026-07-03 11:51:46.808 | runtime.prompt       | [payload] user_prompt:
+      set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of priority based on when im most free...
+2026-07-03 11:51:46.909 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-03 11:51:46.979 | graph.agent          | Entering agent node.
+      turn: 1
+      max_turns: 20
+      messages: 2
+2026-07-03 11:51:46.979 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-03 11:51:46.981 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 2
+      tools: 21
+2026-07-03 11:51:57.392 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 5
+      has_content: false
+      has_reasoning: true
+      prompt_tokens: 7679
+      completion_tokens: 1296
+      total_tokens: 8975
+2026-07-03 11:51:57.392 | graph.route          | Agent node completed.
+      next: tools
+      turn: 1
+2026-07-03 11:51:57.395 | graph.validate       | All entity references verified.
+      tool_calls: 5
+      next: tools
+2026-07-03 11:51:57.397 | graph.tools          | Entering tools node.
+      tool_calls: 5
+      accumulated_results: 0
+2026-07-03 11:51:57.399 | tool.start           | Preparing tool call.
+      id: call_00_dIvJgui69IcY1aiXL7Tt7544
+      name: get_freebusy
+      mutating: false
+2026-07-03 11:51:57.402 | tool.start           | Preparing tool call.
+      id: call_01_2Q2cTP40iRdh0oWFCfx95415
+      name: get_freebusy
+      mutating: false
+2026-07-03 11:51:57.403 | tool.start           | Preparing tool call.
+      id: call_02_STqH0BkG5oFrG4fmsCEu1710
+      name: get_freebusy
+      mutating: false
+2026-07-03 11:51:57.403 | tool.args            | [payload] get_freebusy:
+      time_min: 2026-07-06T17:00:00+08:00
+      time_max: 2026-07-06T22:00:00+08:00
+      calendar_ids: [primary]
+2026-07-03 11:51:57.404 | tool.start           | Preparing tool call.
+      id: call_03_cVtjsZDjijmaXHXMUQDW5652
+      name: get_freebusy
+      mutating: false
+2026-07-03 11:51:57.404 | tool.args            | [payload] get_freebusy:
+      time_min: 2026-07-07T17:00:00+08:00
+      time_max: 2026-07-07T22:00:00+08:00
+      calendar_ids: [primary]
+2026-07-03 11:51:57.404 | tool.start           | Preparing tool call.
+      id: call_04_EXYCbEZBvtb02niuIxhc4682
+      name: get_freebusy
+      mutating: false
+2026-07-03 11:51:57.404 | tool.args            | [payload] get_freebusy:
+      time_min: 2026-07-08T17:00:00+08:00
+      time_max: 2026-07-08T22:00:00+08:00
+      calendar_ids: [primary]
+2026-07-03 11:51:57.404 | tool.args            | [payload] get_freebusy:
+      time_min: 2026-07-09T17:00:00+08:00
+      time_max: 2026-07-09T22:00:00+08:00
+      calendar_ids: [primary]
+2026-07-03 11:51:57.404 | tool.args            | [payload] get_freebusy:
+      time_min: 2026-07-10T17:00:00+08:00
+      time_max: 2026-07-10T22:00:00+08:00
+      calendar_ids: [primary]
+2026-07-03 11:51:57.550 | calendar.request     | Sending Calendar API request.
+      operation: calendar.freebusy.query
+      attempt: 1
+      max_attempts: 3
+2026-07-03 11:51:57.553 | calendar.request     | Sending Calendar API request.
+      operation: calendar.freebusy.query
+      attempt: 1
+      max_attempts: 3
+2026-07-03 11:51:57.553 | calendar.request     | Sending Calendar API request.
+      operation: calendar.freebusy.query
+      attempt: 1
+      max_attempts: 3
+2026-07-03 11:51:57.553 | calendar.request     | Sending Calendar API request.
+      operation: calendar.freebusy.query
+      attempt: 1
+      max_attempts: 3
+2026-07-03 11:51:57.553 | calendar.request     | Sending Calendar API request.
+      operation: calendar.freebusy.query
+      attempt: 1
+      max_attempts: 3
+2026-07-03 11:51:57.920 | calendar.response    | Received Calendar API response.
+      operation: calendar.freebusy.query
+      attempt: 1
+2026-07-03 11:51:57.921 | tool.done            | Tool call completed.
+      name: get_freebusy
+2026-07-03 11:51:57.922 | tool.result          | [payload] get_freebusy:
+      calendars:
+            primary:  (empty)
+2026-07-03 11:51:57.924 | calendar.response    | Received Calendar API response.
+      operation: calendar.freebusy.query
+      attempt: 1
+2026-07-03 11:51:57.924 | tool.done            | Tool call completed.
+      name: get_freebusy
+2026-07-03 11:51:57.925 | tool.result          | [payload] get_freebusy:
+      calendars:
+            primary:  (empty)
+2026-07-03 11:51:57.926 | calendar.response    | Received Calendar API response.
+      operation: calendar.freebusy.query
+      attempt: 1
+2026-07-03 11:51:57.926 | tool.done            | Tool call completed.
+      name: get_freebusy
+2026-07-03 11:51:57.926 | tool.result          | [payload] get_freebusy:
+      calendars:
+            primary:  (empty)
+2026-07-03 11:51:57.938 | calendar.response    | Received Calendar API response.
+      operation: calendar.freebusy.query
+      attempt: 1
+2026-07-03 11:51:57.939 | tool.done            | Tool call completed.
+      name: get_freebusy
+2026-07-03 11:51:57.939 | tool.result          | [payload] get_freebusy:
+      calendars:
+            primary:  (empty)
+2026-07-03 11:51:57.945 | calendar.response    | Received Calendar API response.
+      operation: calendar.freebusy.query
+      attempt: 1
+2026-07-03 11:51:57.946 | tool.done            | Tool call completed.
+      name: get_freebusy
+2026-07-03 11:51:57.946 | tool.result          | [payload] get_freebusy:
+      calendars:
+            primary:  (empty)
+2026-07-03 11:51:57.947 | graph.route          | Tools node completed.
+      next: agent
+      successes: 5
+      failures: 0
+2026-07-03 11:51:57.951 | graph.agent          | Entering agent node.
+      turn: 2
+      max_turns: 20
+      messages: 8
+2026-07-03 11:51:57.952 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-03 11:51:57.953 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 8
+      tools: 21
+2026-07-03 11:52:02.272 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 5
+      has_content: false
+      has_reasoning: true
+      prompt_tokens: 9404
+      completion_tokens: 552
+      total_tokens: 9956
+      cached_tokens: 8960
+      cache_hit_rate: 95.3
+2026-07-03 11:52:02.273 | graph.route          | Agent node completed.
+      next: tools
+      turn: 2
+2026-07-03 11:52:02.277 | graph.validate       | All entity references verified.
+      tool_calls: 5
+      next: tools
+2026-07-03 11:52:02.279 | graph.tools          | Entering tools node.
+      tool_calls: 5
+      accumulated_results: 5
+2026-07-03 11:52:02.282 | tool.start           | Preparing tool call.
+      id: call_00_GBdnQya4fK0vPMvh9JKB3124
+      name: list_calendar_events
+      mutating: false
+2026-07-03 11:52:02.286 | tool.start           | Preparing tool call.
+      id: call_01_BMltSvkYr7u1FqSEXERz5884
+      name: list_calendar_events
+      mutating: false
+2026-07-03 11:52:02.287 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-06T00:00:00+08:00
+      time_max: 2026-07-07T00:00:00+08:00
+2026-07-03 11:52:02.287 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-07T00:00:00+08:00
+      time_max: 2026-07-08T00:00:00+08:00
+2026-07-03 11:52:02.299 | tool.start           | Preparing tool call.
+      id: call_02_GVkguq1D8xrDXzRuyE3G9571
+      name: list_calendar_events
+      mutating: false
+2026-07-03 11:52:02.298 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-03 11:52:02.300 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-03 11:52:02.300 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-08T00:00:00+08:00
+      time_max: 2026-07-09T00:00:00+08:00
+2026-07-03 11:52:02.303 | tool.start           | Preparing tool call.
+      id: call_03_yOUL1m2AkLQulxhMkvNH3512
+      name: list_calendar_events
+      mutating: false
+2026-07-03 11:52:02.303 | tool.start           | Preparing tool call.
+      id: call_04_nBasOyjtwkloW2ebYAgY3536
+      name: list_calendar_events
+      mutating: false
+2026-07-03 11:52:02.303 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-03 11:52:02.303 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-09T00:00:00+08:00
+      time_max: 2026-07-10T00:00:00+08:00
+2026-07-03 11:52:02.303 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-10T00:00:00+08:00
+      time_max: 2026-07-11T00:00:00+08:00
+2026-07-03 11:52:02.305 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-03 11:52:02.306 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3

@@ -1,0 +1,571 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-03T14:27:07+08:00
+request_id: eb0a7fc5-7234-4195-88e2-102b0878d46b
+thread_id: 90149882-27de-47d4-825b-372b69196b15
+user_id: local-user
+telegram_user_id: None
+telegram_username: None
+telegram_first_name: None
+request_source: cli
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-03 14:27:07.453 | section              | === Jarvis LangGraph Run ===
+2026-07-03 14:27:07.453 | runtime.start        | Starting graph invocation.
+      request_id: eb0a7fc5-7234-4195-88e2-102b0878d46b
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: 90149882-27de-47d4-825b-372b69196b15
+      request_source: cli
+      resuming: false
+2026-07-03 14:27:07.453 | runtime.prompt       | [payload] user_prompt: delete my dinner with zac in my cal monday 8pm
+2026-07-03 14:27:07.507 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-03 14:27:07.551 | graph.agent          | Entering agent node.
+      turn: 1
+      max_turns: 20
+      messages: 2
+2026-07-03 14:27:07.551 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-03 14:27:07.553 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 2
+      tools: 21
+2026-07-03 14:27:10.467 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: false
+      has_reasoning: true
+      prompt_tokens: 7655
+      completion_tokens: 201
+      total_tokens: 7856
+2026-07-03 14:27:10.469 | graph.route          | Agent node completed.
+      next: tools
+      turn: 1
+2026-07-03 14:27:10.473 | graph.validate       | All entity references verified.
+      tool_calls: 1
+      next: tools
+2026-07-03 14:27:10.475 | graph.tools          | Entering tools node.
+      tool_calls: 1
+      accumulated_results: 0
+2026-07-03 14:27:10.477 | tool.start           | Preparing tool call.
+      id: call_00_UgtDjsmpNNB47PWaxDM67287
+      name: list_calendar_events
+      mutating: false
+2026-07-03 14:27:10.478 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-06T00:00:00+08:00
+      time_max: 2026-07-06T23:59:00+08:00
+      q: dinner with zac
+2026-07-03 14:27:10.767 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-03 14:27:11.251 | calendar.response    | Received Calendar API response.
+      operation: calendar.events.list
+      attempt: 1
+2026-07-03 14:27:11.252 | tool.done            | Tool call completed.
+      name: list_calendar_events
+2026-07-03 14:27:11.252 | tool.result          | [payload] list_calendar_events:
+      (empty)
+2026-07-03 14:27:11.254 | graph.route          | Tools node completed.
+      next: agent
+      successes: 1
+      failures: 0
+2026-07-03 14:27:11.258 | graph.agent          | Entering agent node.
+      turn: 2
+      max_turns: 20
+      messages: 4
+2026-07-03 14:27:11.259 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-03 14:27:11.260 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 4
+      tools: 21
+2026-07-03 14:27:13.548 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 7940
+      completion_tokens: 166
+      total_tokens: 8106
+      cached_tokens: 7808
+      cache_hit_rate: 98.3
+2026-07-03 14:27:13.549 | graph.route          | Agent node completed.
+      next: tools
+      turn: 2
+2026-07-03 14:27:13.552 | graph.validate       | All entity references verified.
+      tool_calls: 1
+      next: tools
+2026-07-03 14:27:13.554 | graph.tools          | Entering tools node.
+      tool_calls: 1
+      accumulated_results: 1
+2026-07-03 14:27:13.556 | tool.start           | Preparing tool call.
+      id: call_00_rBIlH1jni70jkwntQSlt6039
+      name: list_calendar_events
+      mutating: false
+2026-07-03 14:27:13.557 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-06T00:00:00+08:00
+      time_max: 2026-07-06T23:59:00+08:00
+      single_events: true
+2026-07-03 14:27:13.559 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-03 14:27:13.871 | calendar.response    | Received Calendar API response.
+      operation: calendar.events.list
+      attempt: 1
+2026-07-03 14:27:13.872 | tool.done            | Tool call completed.
+      name: list_calendar_events
+2026-07-03 14:27:13.873 | tool.result          | [payload] list_calendar_events:
+      (empty)
+2026-07-03 14:27:13.874 | graph.route          | Tools node completed.
+      next: agent
+      successes: 1
+      failures: 0
+2026-07-03 14:27:13.876 | graph.agent          | Entering agent node.
+      turn: 3
+      max_turns: 20
+      messages: 6
+2026-07-03 14:27:13.876 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-03 14:27:13.877 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 6
+      tools: 21
+2026-07-03 14:27:19.426 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 2
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 8192
+      completion_tokens: 513
+      total_tokens: 8705
+      cached_tokens: 8064
+      cache_hit_rate: 98.4
+2026-07-03 14:27:19.427 | graph.route          | Agent node completed.
+      next: tools
+      turn: 3
+2026-07-03 14:27:19.431 | graph.validate       | All entity references verified.
+      tool_calls: 2
+      next: tools
+2026-07-03 14:27:19.434 | graph.tools          | Entering tools node.
+      tool_calls: 2
+      accumulated_results: 2
+2026-07-03 14:27:19.438 | tool.start           | Preparing tool call.
+      id: call_00_wRfB7qD9ba69WvAl70GL8584
+      name: list_calendar_events
+      mutating: false
+2026-07-03 14:27:19.439 | tool.start           | Preparing tool call.
+      id: call_01_KuyGrt1349MpVcX843ed1990
+      name: list_calendar_events
+      mutating: false
+2026-07-03 14:27:19.439 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-06T00:00:00+08:00
+      time_max: 2026-07-13T23:59:00+08:00
+      q: dinner
+      single_events: true
+2026-07-03 14:27:19.440 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-06T00:00:00+08:00
+      time_max: 2026-07-13T23:59:00+08:00
+      q: zac
+      single_events: true
+2026-07-03 14:27:19.443 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-03 14:27:19.445 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-03 14:27:19.733 | calendar.response    | Received Calendar API response.
+      operation: calendar.events.list
+      attempt: 1
+2026-07-03 14:27:19.734 | tool.done            | Tool call completed.
+      name: list_calendar_events
+2026-07-03 14:27:19.734 | tool.result          | [payload] list_calendar_events:
+      (empty)
+2026-07-03 14:27:20.041 | calendar.response    | Received Calendar API response.
+      operation: calendar.events.list
+      attempt: 1
+2026-07-03 14:27:20.042 | tool.done            | Tool call completed.
+      name: list_calendar_events
+2026-07-03 14:27:20.043 | tool.result          | [payload] list_calendar_events:
+      (empty)
+2026-07-03 14:27:20.044 | graph.route          | Tools node completed.
+      next: agent
+      successes: 2
+      failures: 0
+2026-07-03 14:27:20.047 | graph.agent          | Entering agent node.
+      turn: 4
+      max_turns: 20
+      messages: 9
+2026-07-03 14:27:20.047 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-03 14:27:20.048 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 9
+      tools: 21
+2026-07-03 14:27:23.727 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 8875
+      completion_tokens: 268
+      total_tokens: 9143
+      cached_tokens: 8704
+      cache_hit_rate: 98.1
+2026-07-03 14:27:23.728 | graph.route          | Agent node completed.
+      next: tools
+      turn: 4
+2026-07-03 14:27:23.731 | graph.validate       | All entity references verified.
+      tool_calls: 1
+      next: tools
+2026-07-03 14:27:23.733 | graph.tools          | Entering tools node.
+      tool_calls: 1
+      accumulated_results: 4
+2026-07-03 14:27:23.739 | tool.start           | Preparing tool call.
+      id: call_00_j91h6ngHv28ft8ZEOTeL2635
+      name: list_calendar_events
+      mutating: false
+2026-07-03 14:27:23.739 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-06-29T00:00:00+08:00
+      time_max: 2026-06-29T23:59:00+08:00
+      single_events: true
+2026-07-03 14:27:23.744 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-03 14:27:24.042 | calendar.response    | Received Calendar API response.
+      operation: calendar.events.list
+      attempt: 1
+2026-07-03 14:27:24.043 | tool.done            | Tool call completed.
+      name: list_calendar_events
+2026-07-03 14:27:24.043 | tool.result          | [payload] list_calendar_events:
+      (empty)
+2026-07-03 14:27:24.045 | graph.route          | Tools node completed.
+      next: agent
+      successes: 1
+      failures: 0
+2026-07-03 14:27:24.047 | graph.agent          | Entering agent node.
+      turn: 5
+      max_turns: 20
+      messages: 11
+2026-07-03 14:27:24.048 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-03 14:27:24.049 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 11
+      tools: 21
+2026-07-03 14:27:26.437 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 9230
+      completion_tokens: 118
+      total_tokens: 9348
+      cached_tokens: 9088
+      cache_hit_rate: 98.5
+2026-07-03 14:27:26.438 | graph.route          | Agent node completed.
+      next: tools
+      turn: 5
+2026-07-03 14:27:26.441 | graph.validate       | All entity references verified.
+      tool_calls: 1
+      next: tools
+2026-07-03 14:27:26.443 | graph.tools          | Entering tools node.
+      tool_calls: 1
+      accumulated_results: 5
+2026-07-03 14:27:26.445 | tool.start           | Preparing tool call.
+      id: call_00_xws2LxLpI07DbsPmOImm6141
+      name: list_calendars
+      mutating: false
+2026-07-03 14:27:26.445 | tool.args            | [payload] list_calendars:
+      (empty)
+2026-07-03 14:27:26.447 | calendar.request     | Sending Calendar API request.
+      operation: calendar.calendars.list
+      attempt: 1
+      max_attempts: 3
+2026-07-03 14:27:26.896 | calendar.response    | Received Calendar API response.
+      operation: calendar.calendars.list
+      attempt: 1
+2026-07-03 14:27:26.897 | tool.done            | Tool call completed.
+      name: list_calendars
+2026-07-03 14:27:26.898 | tool.result          | [payload] list_calendars:
+      calendars:
+      (6 items)
+            calendar_id: en.singapore#holiday@group.v.calendar.google.com
+            summary: Holidays in Singapore
+            time_zone: Asia/Singapore
+
+            calendar_id: 168029798689ef2a90278467f019d7da811ca466984a2d4422e5e3dfde2c930c@group.calendar.google.com
+            summary: Todoist
+            time_zone: Asia/Singapore
+
+            calendar_id: jerry.yang.from.tp@gt.tech.gov.sg
+            summary: jerry.yang.from.tp@gt.tech.gov.sg
+            time_zone: Asia/Singapore
+
+            calendar_id: bqk5fkrdcebc0sl6preudrm7ic@group.calendar.google.com
+            summary: Todoist
+            time_zone: Asia/Singapore
+
+            calendar_id: jerryyangshaoern@gmail.com
+            summary: Jerry
+            primary: true
+            time_zone: Asia/Singapore
+
+            calendar_id: 74cd0333de0a3a47fcf6fa36924697172037f39ec2c3229030d57c79ef02b961@group.calendar.google.com
+            summary: phoebe
+            time_zone: Asia/Singapore
+2026-07-03 14:27:26.899 | graph.route          | Tools node completed.
+      next: agent
+      successes: 1
+      failures: 0
+2026-07-03 14:27:26.902 | graph.agent          | Entering agent node.
+      turn: 6
+      max_turns: 20
+      messages: 13
+2026-07-03 14:27:26.903 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-03 14:27:26.904 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 13
+      tools: 21
+2026-07-03 14:27:32.155 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 4
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 9765
+      completion_tokens: 668
+      total_tokens: 10433
+      cached_tokens: 9216
+      cache_hit_rate: 94.4
+2026-07-03 14:27:32.155 | graph.route          | Agent node completed.
+      next: tools
+      turn: 6
+2026-07-03 14:27:32.157 | graph.validate       | All entity references verified.
+      tool_calls: 4
+      next: tools
+2026-07-03 14:27:32.160 | graph.tools          | Entering tools node.
+      tool_calls: 4
+      accumulated_results: 6
+2026-07-03 14:27:32.167 | tool.start           | Preparing tool call.
+      id: call_00_82igmoZJW6km8C3wCQ1T0738
+      name: list_calendar_events
+      mutating: false
+2026-07-03 14:27:32.170 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-06T00:00:00+08:00
+      time_max: 2026-07-06T23:59:00+08:00
+      calendar_id: jerry.yang.from.tp@gt.tech.gov.sg
+      single_events: true
+2026-07-03 14:27:32.170 | tool.start           | Preparing tool call.
+      id: call_01_hEYFsqadCgqmiee93ZGE8542
+      name: list_calendar_events
+      mutating: false
+2026-07-03 14:27:32.171 | tool.start           | Preparing tool call.
+      id: call_02_7AjNqHOnSgJl1uLERmmI5238
+      name: list_calendar_events
+      mutating: false
+2026-07-03 14:27:32.172 | tool.start           | Preparing tool call.
+      id: call_03_F7iYnXurfbaHPKpbVqfS1810
+      name: list_calendar_events
+      mutating: false
+2026-07-03 14:27:32.172 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-03 14:27:32.173 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-06T00:00:00+08:00
+      time_max: 2026-07-06T23:59:00+08:00
+      calendar_id: bqk5fkrdcebc0sl6preudrm7ic@group.calendar.google.com
+      single_events: true
+2026-07-03 14:27:32.172 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-06T00:00:00+08:00
+      time_max: 2026-07-06T23:59:00+08:00
+      calendar_id: 168029798689ef2a90278467f019d7da811ca466984a2d4422e5e3dfde2c930c@group.calendar.google.com
+      single_events: true
+2026-07-03 14:27:32.173 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-06T00:00:00+08:00
+      time_max: 2026-07-06T23:59:00+08:00
+      calendar_id: 74cd0333de0a3a47fcf6fa36924697172037f39ec2c3229030d57c79ef02b961@group.calendar.google.com
+      single_events: true
+2026-07-03 14:27:32.175 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-03 14:27:32.176 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-03 14:27:32.177 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-03 14:27:32.587 | calendar.response    | Received Calendar API response.
+      operation: calendar.events.list
+      attempt: 1
+2026-07-03 14:27:32.587 | tool.done            | Tool call completed.
+      name: list_calendar_events
+2026-07-03 14:27:32.588 | tool.result          | [payload] list_calendar_events:
+      events:
+      (2 items)
+            event_id: 0n7agqhoijr33402q4jgdlp0ir
+            summary: Liying OOO
+            start: 2026-07-06
+            end: 2026-07-08
+            attendees: [jerry.yang.from.tp@gt.tech.gov.sg, lavanya.muthiah.intern@gt.tech.gov.sg, li.ying.choo.from.tp@gt.tech.gov.sg, risa.fheng@gt.tech.gov.sg, singpass-data-science-ai@gt.tech.gov.sg]
+            status: confirmed
+
+            event_id: 2e88qdpb4kqkm8q6q19tup7a17
+            summary: Gilbert OOO
+            start: 2026-07-06
+            end: 2026-07-15
+            attendees: [gilbert.sebastiano@gt.tech.gov.sg, singpass-data-science-ai@gt.tech.gov.sg, data-platform@singpass.gov.sg, classify@singpass.gov.sg, jerry.yang.from.tp@gt.tech.gov.sg]
+            status: confirmed
+2026-07-03 14:27:32.895 | calendar.response    | Received Calendar API response.
+      operation: calendar.events.list
+      attempt: 1
+2026-07-03 14:27:32.896 | tool.done            | Tool call completed.
+      name: list_calendar_events
+2026-07-03 14:27:32.896 | tool.result          | [payload] list_calendar_events:
+      (empty)
+2026-07-03 14:27:33.274 | calendar.response    | Received Calendar API response.
+      operation: calendar.events.list
+      attempt: 1
+2026-07-03 14:27:33.274 | tool.done            | Tool call completed.
+      name: list_calendar_events
+2026-07-03 14:27:33.275 | tool.result          | [payload] list_calendar_events:
+      events:
+      (2 items)
+            event_id: 75ahntp5lbchild3d0e8ed9dns
+            summary: ✓ Finish LangGraph checkpointing notes
+            start: 2026-07-06T14:00:00+08:00
+            end: 2026-07-06T14:30:00+08:00
+            status: confirmed
+
+            event_id: 755vbv0lm4e2mqa1jhpvc0fpng
+            summary: ✓ dinner w zac
+            start: 2026-07-06T19:00:00+08:00
+            end: 2026-07-06T19:30:00+08:00
+            status: confirmed
+2026-07-03 14:27:33.690 | calendar.response    | Received Calendar API response.
+      operation: calendar.events.list
+      attempt: 1
+2026-07-03 14:27:33.691 | tool.done            | Tool call completed.
+      name: list_calendar_events
+2026-07-03 14:27:33.692 | tool.result          | [payload] list_calendar_events:
+      events:
+      (4 items)
+            event_id: _68r3gd1mckqjgp34c8r30e1i6pgmcdhgckq38pj2ccs3epj468og
+            summary: EM posting to SGH
+            start: 2026-07-05
+            end: 2026-07-08
+            location: To Be Announced
+            status: confirmed
+
+            event_id: _6dgmcdj36cqm8dpn71gmce9m6sp64phi6lh34dhh60omcp9n6hhg
+            summary: EM posting to Singapore General H
+            start: 2026-07-05
+            end: 2026-07-08
+            location: To Be Announced
+            status: confirmed
+
+            event_id: _6orjgd9l68qm6db6c8r30d1i65gmcdhj6cr62cj56csj4e9j69i0
+            summary: Posting to SGH
+            start: 2026-07-05
+            end: 2026-07-09
+            location: Singapore General Hospital-Others
+            status: confirmed
+
+            event_id: _chgm8c1g6os64e9hc5i3gc34c4qjedplc8o3icpg75im2oj361i0
+            summary: Supp Exam - MEQ
+            start: 2026-07-06T08:00:00+08:00
+            end: 2026-07-06T12:00:00+08:00
+            location: To Be Announced
+            status: confirmed
+2026-07-03 14:27:33.694 | graph.route          | Tools node completed.
+      next: agent
+      successes: 4
+      failures: 0
+2026-07-03 14:27:33.698 | graph.agent          | Entering agent node.
+      turn: 7
+      max_turns: 20
+      messages: 18
+2026-07-03 14:27:33.698 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-03 14:27:33.700 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 18
+      tools: 21
+2026-07-03 14:27:42.742 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 11587
+      completion_tokens: 820
+      total_tokens: 12407
+      cached_tokens: 10368
+      cache_hit_rate: 89.5
+2026-07-03 14:27:42.743 | graph.route          | Agent node completed.
+      next: tools
+      turn: 7
+2026-07-03 14:27:42.746 | graph.validate       | All entity references verified.
+      tool_calls: 1
+      next: confirm
+2026-07-03 14:27:42.748 | graph.prepare_confirm | Froze risky actions into held_calls.
+      held_call_count: 1
+      tool_names: [delete_calendar_event]
+      deferred_count: 0
+2026-07-03 14:27:42.750 | graph.confirm        | Interrupting for user confirmation.
+      count: 1
+      tool_names: [delete_calendar_event]
+      summary:Delete event "✓ dinner w zac".
+This action is irreversible.
+2026-07-03 14:27:42.757 | runtime.done         | Graph invocation completed.
+      request_id: eb0a7fc5-7234-4195-88e2-102b0878d46b
+      turns: 7
+      tool_results: 10
+      has_error: false
+      interrupted: true
+      interrupt_type: confirm
+      total_tokens: 65998
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-07-03T14:27:42+08:00
+duration_seconds: 35.304
+request_id: eb0a7fc5-7234-4195-88e2-102b0878d46b
+turns: 7
+tool_results: 10
+has_error: False
+interrupted: True
+prompt_tokens: 63244
+completion_tokens: 2754
+total_tokens: 65998
+cached_tokens: 53248
+cache_hit_rate: 84.2
+reasoning_tokens: 1250
+==============================================================================
