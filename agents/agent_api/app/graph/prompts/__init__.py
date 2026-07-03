@@ -17,6 +17,7 @@ from agents.agent_api.app.graph.prompts.orchestrator import (
     ORCHESTRATOR_PROMPT,
     get_orchestrator_prompt,
     get_system_prompt,
+    resolve_user_name,
 )
 from agents.agent_api.app.graph.prompts.worker import WORKER_PROMPT, get_worker_prompt
 
@@ -32,4 +33,5 @@ __all__ = [
     "get_orchestrator_prompt",
     "get_system_prompt",
     "get_worker_prompt",
+    "resolve_user_name",
 ]

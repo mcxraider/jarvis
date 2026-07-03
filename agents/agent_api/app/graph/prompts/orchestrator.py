@@ -9,10 +9,59 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 
-def _build_role_line(user_name: str = "the user") -> str:
-    """Build the role sentence with the requesting user's name."""
+# Telegram user id -> canonical first name. This is the AUTHORITATIVE identity for
+# the role line: it does not depend on the user's editable Telegram profile name,
+# so the role can never desync from who the numeric id actually is. Anyone not
+# listed falls back to the Telegram-provided first name (see resolve_user_name).
+# The numeric access gate itself lives in the TypeScript layer
+# (ALLOWED_TELEGRAM_USER_IDS); this map only assigns names/roles to allowed users.
+_TELEGRAM_USER_NAMES = {
+    701122767: "Jerry",
+    387244560: "Zachary",
+}
 
-    return (
+
+def resolve_user_name(
+    telegram_user_id: Optional[int] = None,
+    telegram_first_name: Optional[str] = None,
+) -> Optional[str]:
+    """Resolve the canonical name for a request from its Telegram user id.
+
+    Prefers the id->name pairing (stable, not user-editable); falls back to the
+    Telegram-provided first name for anyone not in the map.
+    """
+
+    if telegram_user_id is not None and telegram_user_id in _TELEGRAM_USER_NAMES:
+        return _TELEGRAM_USER_NAMES[telegram_user_id]
+    return telegram_first_name
+
+
+# Per-user service emphasis. Jarvis exposes the same tools to everyone; these
+# lines only steer which service is the DEFAULT for a given person. Keyed on the
+# canonical name (from _TELEGRAM_USER_NAMES) lowercased. Unknown users get the
+# neutral two-service description.
+_ROLE_EMPHASIS = {
+    "jerry": (
+        " Todoist is Jerry's primary store for BOTH tasks and scheduling — treat it as "
+        "the default place to create, read, and manage anything task- or time-related. "
+        "Use Google Calendar only when Jerry explicitly asks you to work in his calendar."
+    ),
+    "zachary": (
+        " Google Calendar is Zachary's primary calendar — default there for events, "
+        "meetings, and anything time-related. Todoist is Zachary's task manager: use it "
+        "for tasks, to-dos, and reminders."
+    ),
+}
+
+
+def _build_role_line(user_name: str = "the user") -> str:
+    """Build the role sentence with the requesting user's name.
+
+    When the name matches a known role (Jerry, Zac) an extra sentence sets which
+    service is that person's default; unknown users keep the neutral description.
+    """
+
+    base = (
         f"You are Jarvis, {user_name}'s personal assistant agent. You manage two services for "
         "them: Google Calendar for their events and meetings, and Todoist for their tasks, "
         "to-dos, and reminders. You resolve each request by calling tools, observing "
@@ -20,6 +69,7 @@ def _build_role_line(user_name: str = "the user") -> str:
         "reply. A request may span both services (e.g. 'add a meeting and a prep task') — "
         "use whichever tools it needs."
     )
+    return base + _ROLE_EMPHASIS.get(user_name.strip().lower(), "")
 
 
 _ROLE_LINE = _build_role_line("Jerry")
@@ -186,4 +236,5 @@ __all__ = [
     "_build_role_line",
     "get_orchestrator_prompt",
     "get_system_prompt",
+    "resolve_user_name",
 ]
