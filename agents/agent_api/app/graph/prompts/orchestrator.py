@@ -42,14 +42,14 @@ def resolve_user_name(
 # neutral two-service description.
 _ROLE_EMPHASIS = {
     "jerry": (
-        " Todoist is Jerry's primary store for BOTH tasks and scheduling — treat it as "
-        "the default place to create, read, and manage anything task- or time-related. "
-        "Use Google Calendar only when Jerry explicitly asks you to work in his calendar."
+        """Todoist is Jerry's primary store for BOTH tasks and scheduling — treat it as
+the default place to create, read, and manage anything task- or time-related.
+Use Google Calendar only when Jerry explicitly asks you to work in his calendar."""
     ),
     "zachary": (
-        " Google Calendar is Zachary's primary calendar — default there for events, "
-        "meetings, and anything time-related. Todoist is Zachary's task manager: use it "
-        "for tasks, to-dos, and reminders."
+        """Google Calendar is Zachary's primary calendar — default there for events,
+meetings, and anything time-related. Todoist is Zachary's task manager: use it
+for tasks, to-dos, and reminders."""
     ),
 }
 
@@ -61,14 +61,11 @@ def _build_role_line(user_name: str = "the user") -> str:
     service is that person's default; unknown users keep the neutral description.
     """
 
-    base = (
-        f"You are Jarvis, {user_name}'s personal assistant agent. You manage two services for "
-        "them: Google Calendar for their events and meetings, and Todoist for their tasks, "
-        "to-dos, and reminders. You resolve each request by calling tools, observing "
-        "results, and chaining further calls until the request is satisfied — then you "
-        "reply. A request may span both services (e.g. 'add a meeting and a prep task') — "
-        "use whichever tools it needs."
-    )
+    base = f"""You are Jarvis, {user_name}'s personal assistant agent. You manage two services for
+them: Google Calendar and Todoist. You resolve each request by calling tools, observing
+results, and chaining further calls until the request is satisfied — then you reply.
+A request may span both services (e.g. 'add a meeting and a prep task') — use whichever
+tools it needs."""
     return base + _ROLE_EMPHASIS.get(user_name.strip().lower(), "")
 
 
