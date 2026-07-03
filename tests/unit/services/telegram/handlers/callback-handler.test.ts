@@ -14,7 +14,10 @@ function makeCtx(callbackData: string, userId = 42, chatId = 100) {
     answerCbQuery: jest.fn().mockResolvedValue(undefined),
     editMessageText: jest.fn().mockResolvedValue(undefined),
     editMessageReplyMarkup: jest.fn().mockResolvedValue(undefined),
-    reply: jest.fn().mockResolvedValue(undefined),
+    reply: jest.fn().mockResolvedValue({ message_id: 88 }),
+    telegram: {
+      deleteMessage: jest.fn().mockResolvedValue(true),
+    },
   } as any;
 }
 
@@ -29,6 +32,7 @@ async function setupWaitingGate(
   userId = 42,
   chatId = 100,
   threadId = 'tg_abc_msg123',
+  awaitingMessageId?: number,
 ) {
   const gateKey = getGateKey(userId, chatId);
   await gateStore.tryAcquire(gateKey, 60000);
@@ -42,6 +46,7 @@ async function setupWaitingGate(
     chatId,
     userId: `telegram:${userId}`,
     interruptType: 'confirm',
+    awaitingMessageId,
     status: 'pending',
     createdAt: now,
     updatedAt: now,
@@ -336,5 +341,76 @@ describe('CallbackHandler', () => {
       .find((text) => text.includes('Which project do you mean?'));
     expect(clarifyReply).toBeDefined();
     expect(clarifyReply).toContain('Clarification required');
+  });
+
+  it.each(['approve', 'decline'])(
+    'deletes the Awaiting confirmation indicator on %s',
+    async (decision) => {
+      const agentClient = {
+        resume: jest.fn().mockResolvedValue({
+          status: 'completed',
+          threadId: 'tg_abc_msg123',
+          response: 'Done.',
+          toolResults: [],
+        }),
+      };
+      const pendingStore = new MemoryPendingClarificationStore();
+      const gateStore = new MemoryConversationGateStore();
+      await setupWaitingGate(gateStore, pendingStore, 42, 100, 'tg_abc_msg123', 777);
+
+      const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
+      const ctx = makeCtx(`confirm:${decision}:tg_abc_msg123`);
+
+      await handler.handleCallbackQuery(ctx);
+
+      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(100, 777);
+    },
+  );
+
+  it('does not delete an indicator when the pending record has none', async () => {
+    const agentClient = {
+      resume: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'tg_abc_msg123',
+        response: 'Done.',
+        toolResults: [],
+      }),
+    };
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateStore = new MemoryConversationGateStore();
+    await setupWaitingGate(gateStore, pendingStore); // no awaitingMessageId
+
+    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
+    const ctx = makeCtx('confirm:approve:tg_abc_msg123');
+
+    await handler.handleCallbackQuery(ctx);
+
+    // The 777 indicator id was never stored, so it must never be deleted.
+    expect(ctx.telegram.deleteMessage).not.toHaveBeenCalledWith(100, 777);
+  });
+
+  it('shows a fresh indicator and records its id when the resume re-interrupts', async () => {
+    const agentClient = {
+      resume: jest.fn().mockResolvedValue({
+        status: 'interrupted',
+        threadId: 'tg_abc_msg123',
+        response: 'Also delete the project?',
+        interrupt: { type: 'confirm' },
+        toolResults: [],
+      }),
+    };
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateStore = new MemoryConversationGateStore();
+    await setupWaitingGate(gateStore, pendingStore, 42, 100, 'tg_abc_msg123', 777);
+
+    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
+    const ctx = makeCtx('confirm:approve:tg_abc_msg123');
+
+    await handler.handleCallbackQuery(ctx);
+
+    // Old indicator torn down, new one's id (88 from the reply mock) recorded on the fresh record.
+    expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(100, 777);
+    const pending = await pendingStore.get(getGateKey());
+    expect(pending?.awaitingMessageId).toBe(88);
   });
 });

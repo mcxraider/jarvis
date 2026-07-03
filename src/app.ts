@@ -143,7 +143,7 @@ const audioProcessor = new AudioProcessorService(whisperService, textProcessor);
 const messageProcessor = new MessageProcessorService(textProcessor, audioProcessor, conversationGate);
 
 // Telegram handlers: commands (/help, /status, /cancel), message types, and inline callbacks.
-const messageHandlers = new MessageHandlers(fileService, messageProcessor, activityService);
+const messageHandlers = new MessageHandlers(fileService, messageProcessor, activityService, pendingStore);
 const commandHandlers = new CommandHandlers(activityService, statusService, conversationGate, pendingStore);
 const callbackHandler = new CallbackHandler(agentClient, pendingStore, conversationGate);
 
@@ -161,14 +161,25 @@ const telegramConfig: TelegramConfig = {
 
 export const botService = new TelegramBotService(telegramConfig, handlers);
 
-// When a conversation gate times out, notify the user and actively mark the matching
-// pending clarification 'expired' (gateKey === pendingKey). Resumption is already blocked
-// by the store's expires_at filter; this keeps the persisted status accurate for reports.
+// When a conversation gate times out, notify the user, remove any lingering "Awaiting…" indicator,
+// and mark the matching pending clarification 'expired' (gateKey === pendingKey). Resumption is
+// already blocked by the store's expires_at filter; this keeps the persisted status accurate and the
+// chat clean. Read the record before clearing so we still have its indicator message_id.
 conversationGate.setOnExpiry((gateKey, chatId) => {
   botService
     .sendRichMessage(chatId, '⏱ Request timed out. Send a new message to try again.', { chatId, gateKey })
     .catch(() => {});
-  pendingStore.clear(gateKey, 'expired').catch(() => {});
+  pendingStore
+    .get(gateKey)
+    .then((pending) => {
+      if (pending?.awaitingMessageId !== undefined) {
+        return botService.deleteMessage(chatId, pending.awaitingMessageId);
+      }
+    })
+    .catch(() => {})
+    .finally(() => {
+      pendingStore.clear(gateKey, 'expired').catch(() => {});
+    });
 });
 
 // Periodic safety net: in-process gate timers are lost on restart, so sweep any pending

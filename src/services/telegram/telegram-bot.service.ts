@@ -213,6 +213,20 @@ export class TelegramBotService {
     await sendRichMessageToChat(this.bot.telegram, chatId, text, logContext);
   }
 
+  // Deletes a message by id. Used for context-less cleanup — e.g. removing a lingering "Awaiting…"
+  // indicator when a conversation gate times out. Best-effort: the message may already be gone.
+  async deleteMessage(chatId: number, messageId: number): Promise<void> {
+    try {
+      await this.bot.telegram.deleteMessage(chatId, messageId);
+    } catch (error) {
+      logger.warn('telegram.delete_message.failed', {
+        chatId,
+        messageId,
+        error: (error as Error).message,
+      });
+    }
+  }
+
   async getBotInfo(): Promise<any> {
     try {
       const botInfo = await this.bot.telegram.getMe();

@@ -1,6 +1,20 @@
 import { MessageHandlers } from '../../../../../src/services/telegram/handlers/message-handlers';
 import { TELEGRAM_ONBOARDING_MESSAGE } from '../../../../../src/services/telegram/onboarding-message';
 
+// Minimal PendingClarificationStore mock. `get` defaults to "no pending record"; tests that exercise
+// teardown override it. `attachAwaitingMessageId` is the signal that an "Awaiting…" indicator was
+// sent and its id recorded.
+function makePendingStore(overrides: Record<string, any> = {}) {
+  return {
+    get: jest.fn().mockResolvedValue(undefined),
+    save: jest.fn().mockResolvedValue(undefined),
+    attachAwaitingMessageId: jest.fn().mockResolvedValue(undefined),
+    clear: jest.fn().mockResolvedValue(undefined),
+    sweepExpired: jest.fn().mockResolvedValue(undefined),
+    ...overrides,
+  } as any;
+}
+
 describe('MessageHandlers', () => {
   function createContext(message: Record<string, unknown>) {
     return {
@@ -19,6 +33,7 @@ describe('MessageHandlers', () => {
     fileService?: any;
     messageProcessor?: any;
     activityService?: any;
+    pendingStore?: any;
   } = {}) {
     const fileService = options.fileService || {
       isAudioFile: jest.fn(),
@@ -28,13 +43,15 @@ describe('MessageHandlers', () => {
       processTextMessage: jest.fn().mockResolvedValue({ response: 'processed text' }),
     };
     const activityService = options.activityService || { recordActivity: jest.fn() };
+    const pendingStore = options.pendingStore || makePendingStore();
     const handlers = new MessageHandlers(
       fileService,
       messageProcessor,
       activityService,
+      pendingStore,
     );
 
-    return { handlers, fileService, messageProcessor, activityService };
+    return { handlers, fileService, messageProcessor, activityService, pendingStore };
   }
 
   it('routes text messages with Telegram identity metadata', async () => {
@@ -46,7 +63,7 @@ describe('MessageHandlers', () => {
       processTextMessage: jest.fn().mockResolvedValue({ response: 'processed text' }),
     } as any;
     const activityService = { recordActivity: jest.fn() } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService);
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore());
     const ctx = createContext({ text: 'hello', message_id: 99 });
 
     await handlers.handleText(ctx);
@@ -107,7 +124,7 @@ describe('MessageHandlers', () => {
     const activityService = {
       recordActivity: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService);
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore());
     const ctx = createContext({
       document: {
         file_id: 'file-1',
@@ -167,7 +184,7 @@ describe('MessageHandlers', () => {
       }),
     } as any;
     const activityService = { recordActivity: jest.fn() } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService);
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore());
     const ctx = createContext(message);
 
     if (kind === 'voice') {
@@ -207,7 +224,7 @@ describe('MessageHandlers', () => {
     const activityService = {
       recordActivity: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService);
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore());
     const ctx = createContext({
       photo: [
         { file_id: 'small', width: 320, height: 240, file_size: 1000 },
@@ -245,7 +262,7 @@ describe('MessageHandlers', () => {
     const activityService = {
       recordActivity: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService);
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore());
     const ctx = createContext({
       sticker: { file_id: 'sticker-1' },
     });
@@ -269,7 +286,7 @@ describe('MessageHandlers', () => {
     const activityService = {
       recordActivity: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService);
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore());
     const ctx = createContext({
       document: {
         file_id: 'file-1',
@@ -299,7 +316,7 @@ describe('MessageHandlers', () => {
     const activityService = {
       recordActivity: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService);
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore());
     const ctx = createContext({
       document: {
         file_id: 'file-1',
@@ -387,6 +404,109 @@ describe('MessageHandlers', () => {
         "I'm still finishing your previous request — try /new again in a moment, or /cancel.",
       );
       expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
+    });
+
+    it('bare /new deletes a lingering Awaiting indicator when it abandons a pause', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn(),
+        abandonConversation: jest.fn().mockResolvedValue('abandoned'),
+      } as any;
+      const pendingStore = makePendingStore({
+        get: jest.fn().mockResolvedValue({ awaitingMessageId: 555 }),
+      });
+      const { handlers } = createHandlers({ messageProcessor, pendingStore });
+      const ctx = createContext({ text: '/new', message_id: 9 });
+
+      await handlers.handleNew(ctx);
+
+      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 555);
+    });
+
+    it('bare /new does not delete anything when the agent is still running', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn(),
+        abandonConversation: jest.fn().mockResolvedValue('running'),
+      } as any;
+      const pendingStore = makePendingStore({
+        get: jest.fn().mockResolvedValue({ awaitingMessageId: 555 }),
+      });
+      const { handlers } = createHandlers({ messageProcessor, pendingStore });
+      const ctx = createContext({ text: '/new', message_id: 10 });
+
+      await handlers.handleNew(ctx);
+
+      expect(ctx.telegram.deleteMessage).not.toHaveBeenCalledWith(456, 555);
+    });
+  });
+
+  describe('Awaiting… indicator lifecycle', () => {
+    it('sends an Awaiting indicator and records its id when a confirm pause is raised', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn().mockResolvedValue({
+          response: 'Delete 5 tasks?',
+          interruptType: 'confirm',
+          threadId: 'tg_x',
+        }),
+      } as any;
+      const pendingStore = makePendingStore();
+      const { handlers } = createHandlers({ messageProcessor, pendingStore });
+      const ctx = createContext({ text: 'delete everything', message_id: 11 });
+
+      await handlers.handleText(ctx);
+
+      // Confirm message carries the inline keyboard...
+      expect(ctx.reply).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ reply_markup: expect.objectContaining({ inline_keyboard: expect.anything() }) }),
+      );
+      // ...and the indicator's id (77 from the reply mock) is attached to the pending record.
+      expect(pendingStore.attachAwaitingMessageId).toHaveBeenCalledWith(expect.any(String), 77);
+    });
+
+    it('sends an Awaiting indicator when a clarify pause is raised', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn().mockResolvedValue({
+          response: 'Which project?',
+          interruptType: 'clarify',
+          threadId: 'tg_y',
+        }),
+      } as any;
+      const pendingStore = makePendingStore();
+      const { handlers } = createHandlers({ messageProcessor, pendingStore });
+      const ctx = createContext({ text: 'add a task', message_id: 12 });
+
+      await handlers.handleText(ctx);
+
+      expect(pendingStore.attachAwaitingMessageId).toHaveBeenCalledWith(expect.any(String), 77);
+    });
+
+    it('does not send an indicator for a plain final answer', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn().mockResolvedValue({ response: 'Done.' }),
+      } as any;
+      const pendingStore = makePendingStore();
+      const { handlers } = createHandlers({ messageProcessor, pendingStore });
+      const ctx = createContext({ text: 'list tasks', message_id: 13 });
+
+      await handlers.handleText(ctx);
+
+      expect(pendingStore.attachAwaitingMessageId).not.toHaveBeenCalled();
+    });
+
+    it('deletes the consumed Awaiting indicator surfaced by the processor', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn().mockResolvedValue({
+          response: 'Done.',
+          consumedAwaitingMessageId: 555,
+        }),
+      } as any;
+      const pendingStore = makePendingStore();
+      const { handlers } = createHandlers({ messageProcessor, pendingStore });
+      const ctx = createContext({ text: 'yes', message_id: 14 });
+
+      await handlers.handleText(ctx);
+
+      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 555);
     });
   });
 });
