@@ -35,7 +35,11 @@ from agents.agent_api.app.graph.nodes.prepare_confirm import create_prepare_conf
 from agents.agent_api.app.graph.nodes.summarize import create_summarize_node
 from agents.agent_api.app.graph.nodes.tools import create_tools_node
 from agents.agent_api.app.graph.nodes.validate_entities import create_validate_entities_node
-from agents.agent_api.app.graph.prompts import USER_PROMPT, build_initial_messages
+from agents.agent_api.app.graph.prompts import (
+    USER_PROMPT,
+    build_initial_messages,
+    resolve_user_name,
+)
 from agents.agent_api.app.graph.state import JarvisState, enrich_interrupt_status
 from agents.agent_api.app.idempotency import DEFAULT_IDEMPOTENCY_STORE, IdempotencyStore
 from agents.agent_api.app.run_logging import (
@@ -465,7 +469,7 @@ def run_jarvis(
                 thread_id=thread_id,
                 request_source=request_source,
                 timezone=user_timezone,
-                user_name=telegram_first_name,
+                user_name=resolve_user_name(telegram_user_id, telegram_first_name),
                 calendar_enabled=calendar_enabled,
             ),
             config,
