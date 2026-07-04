@@ -83,7 +83,7 @@ export class MessageHandlers {
       if (outcome === 'abandoned') {
         await this.collapsePendingClarification(ctx, pending, logContext);
       }
-      await ctx.reply('Starting fresh — send your next message.');
+      await ctx.reply('We\'re in a new conversation — send your next message.');
       return;
     }
 
@@ -162,7 +162,7 @@ export class MessageHandlers {
     await this.rejectUnsupportedMedia(
       ctx,
       'photo',
-      "I don't process images — please send a text message, a voice note, or an audio file.",
+      "Images are currently not supported - please send a text message, a voice note, or an audio file.",
     );
   }
 
@@ -171,7 +171,7 @@ export class MessageHandlers {
     await this.rejectUnsupportedMedia(
       ctx,
       'sticker',
-      'Stickers are not supported. Please send text, audio, or voice.',
+      "Stickers are currently not supported. Please send text, audio, or voice.",
     );
   }
 
@@ -180,7 +180,7 @@ export class MessageHandlers {
     await this.rejectUnsupportedMedia(
       ctx,
       'video_note',
-      'Round video notes are not supported. Please send text, audio, or voice.',
+      "Telebubbles are currently not supported. Please send text, audio, or voice.",
     );
   }
 
@@ -189,7 +189,7 @@ export class MessageHandlers {
     await this.rejectUnsupportedMedia(
       ctx,
       'animation',
-      'GIFs and animations are not supported. Please send text, audio, or voice.',
+      "GIFs are currently not supported. Please send text, audio, or voice.",
     );
   }
 
