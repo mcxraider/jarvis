@@ -761,7 +761,7 @@ describe('TextProcessorService', () => {
       const result = await service.processTextMessage('the dentist task', 42, { chatId: 100, messageId: 11 });
 
       expect(result.consumedAwaitingMessageId).toBe(321);
-      // The flag drives rich-mode keepalive teardown (which has no message_id).
+      // The flag confirms that the pending pause—not unrelated result data—was consumed.
       expect(result.resolvedPendingPause).toBe(true);
     });
 
@@ -790,8 +790,7 @@ describe('TextProcessorService', () => {
 
       const result = await service.processTextMessage('maybe later', 42, { chatId: 100, messageId: 11 });
 
-      // The pause is still open, so the indicator must stay — nothing to tear down. The keepalive
-      // must keep animating, so resolvedPendingPause must be falsy too.
+      // The pause is still open, so the persistent fallback indicator must stay.
       expect(result.consumedAwaitingMessageId).toBeUndefined();
       expect(result.resolvedPendingPause).toBeFalsy();
       expect(agentClient.resume).not.toHaveBeenCalled();

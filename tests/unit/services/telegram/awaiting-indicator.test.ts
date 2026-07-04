@@ -2,20 +2,12 @@ import {
   AWAITING_LABELS,
   deleteAwaitingIndicator,
   showAwaitingIndicator,
-  stopAwaitingIndicator,
-  __resetAwaitingIndicatorsForTest,
 } from '../../../../src/services/telegram/awaiting-indicator';
 import { setRichMessagesEnabled } from '../../../../src/services/telegram/formatters/telegram-rich';
 import { logger } from '../../../../src/utils/logger';
 
-// Must match the module constants (kept in sync deliberately — the module doesn't export them).
-const KEEPALIVE_MS = 15_000;
-const MAX_MS = 30 * 60 * 1000;
-const MAX_FAILURES = 3;
-
 describe('awaiting-indicator', () => {
   afterEach(() => {
-    __resetAwaitingIndicatorsForTest();
     setRichMessagesEnabled(false);
     jest.useRealTimers();
     jest.restoreAllMocks();
@@ -29,8 +21,7 @@ describe('awaiting-indicator', () => {
   });
 
   describe('showAwaitingIndicator (plain mode)', () => {
-    it('returns the message_id and registers no keepalive timer', async () => {
-      jest.useFakeTimers();
+    it('returns the persistent message_id', async () => {
       setRichMessagesEnabled(false);
       const ctx = {
         chat: { id: 1 },
@@ -40,9 +31,6 @@ describe('awaiting-indicator', () => {
       const id = await showAwaitingIndicator(ctx, 'gate-plain', 'confirm');
 
       expect(id).toBe(77);
-      expect(ctx.reply).toHaveBeenCalledTimes(1);
-      // No keepalive registered → advancing time triggers no further sends.
-      await jest.advanceTimersByTimeAsync(KEEPALIVE_MS * 3);
       expect(ctx.reply).toHaveBeenCalledTimes(1);
     });
 
@@ -57,7 +45,7 @@ describe('awaiting-indicator', () => {
     });
   });
 
-  describe('showAwaitingIndicator (rich mode, animated keepalive)', () => {
+  describe('showAwaitingIndicator (rich mode, one-shot preview)', () => {
     function richCtx() {
       return {
         chat: { id: 1 },
@@ -66,7 +54,7 @@ describe('awaiting-indicator', () => {
       } as any;
     }
 
-    it('sends the initial draft and returns undefined (drafts have no message_id)', async () => {
+    it('sends one draft and returns undefined (drafts have no message_id)', async () => {
       jest.useFakeTimers();
       setRichMessagesEnabled(true);
       const ctx = richCtx();
@@ -76,114 +64,17 @@ describe('awaiting-indicator', () => {
       expect(id).toBeUndefined();
       expect(ctx.telegram.callApi).toHaveBeenCalledTimes(1);
       expect(ctx.telegram.callApi).toHaveBeenCalledWith('sendRichMessageDraft', expect.any(Object));
-    });
-
-    it('re-sends the draft on the keepalive interval', async () => {
-      jest.useFakeTimers();
-      setRichMessagesEnabled(true);
-      const ctx = richCtx();
-
-      await showAwaitingIndicator(ctx, 'gate-rich', 'clarify');
+      await jest.advanceTimersByTimeAsync(60_000);
       expect(ctx.telegram.callApi).toHaveBeenCalledTimes(1);
-
-      await jest.advanceTimersByTimeAsync(KEEPALIVE_MS);
-      expect(ctx.telegram.callApi).toHaveBeenCalledTimes(2);
-
-      await jest.advanceTimersByTimeAsync(KEEPALIVE_MS);
-      expect(ctx.telegram.callApi).toHaveBeenCalledTimes(3);
+      expect(jest.getTimerCount()).toBe(0);
     });
 
-    it('handles a non-Error keepalive rejection without leaking an unhandled rejection', async () => {
-      jest.useFakeTimers();
+    it('falls back safely on a non-Error rich rejection and returns the plain message id', async () => {
       setRichMessagesEnabled(true);
-      const ctx = richCtx();
       const warn = jest.spyOn(logger, 'warn').mockImplementation();
-      ctx.telegram.callApi
-        .mockResolvedValueOnce(undefined)
-        .mockRejectedValueOnce(undefined);
-
-      await showAwaitingIndicator(ctx, 'gate-rich', 'clarify');
-      await expect(jest.advanceTimersByTimeAsync(KEEPALIVE_MS)).resolves.toBeUndefined();
-
-      expect(warn).toHaveBeenCalledWith(
-        'telegram.awaiting.keepalive_failed',
-        expect.objectContaining({
-          gateKey: 'gate-rich',
-          failures: 1,
-          error: 'undefined',
-        }),
-      );
-    });
-
-    it('stops refreshing after the maximum consecutive keepalive failures', async () => {
-      jest.useFakeTimers();
-      setRichMessagesEnabled(true);
-      const ctx = richCtx();
-      jest.spyOn(logger, 'warn').mockImplementation();
-      ctx.telegram.callApi
-        .mockResolvedValueOnce(undefined)
-        .mockRejectedValue(new Error('transport down'));
-
-      await showAwaitingIndicator(ctx, 'gate-rich', 'confirm');
-      await jest.advanceTimersByTimeAsync(KEEPALIVE_MS * (MAX_FAILURES + 2));
-
-      expect(ctx.telegram.callApi).toHaveBeenCalledTimes(1 + MAX_FAILURES);
-    });
-
-    it('resets the consecutive failure count after a successful refresh', async () => {
-      jest.useFakeTimers();
-      setRichMessagesEnabled(true);
-      const ctx = richCtx();
-      jest.spyOn(logger, 'warn').mockImplementation();
-      ctx.telegram.callApi
-        .mockResolvedValueOnce(undefined)
-        .mockRejectedValueOnce(new Error('failure 1'))
-        .mockRejectedValueOnce(new Error('failure 2'))
-        .mockResolvedValueOnce(undefined)
-        .mockRejectedValueOnce(new Error('failure 3'))
-        .mockRejectedValueOnce(new Error('failure 4'))
-        .mockResolvedValueOnce(undefined);
-
-      await showAwaitingIndicator(ctx, 'gate-rich', 'confirm');
-      await jest.advanceTimersByTimeAsync(KEEPALIVE_MS * 5);
-
-      expect(ctx.telegram.callApi).toHaveBeenCalledTimes(6);
-    });
-
-    it('stopAwaitingIndicator halts further keepalive sends', async () => {
-      jest.useFakeTimers();
-      setRichMessagesEnabled(true);
-      const ctx = richCtx();
-
-      await showAwaitingIndicator(ctx, 'gate-rich', 'confirm');
-      await jest.advanceTimersByTimeAsync(KEEPALIVE_MS);
-      expect(ctx.telegram.callApi).toHaveBeenCalledTimes(2);
-
-      stopAwaitingIndicator('gate-rich');
-      await jest.advanceTimersByTimeAsync(KEEPALIVE_MS * 3);
-      expect(ctx.telegram.callApi).toHaveBeenCalledTimes(2);
-    });
-
-    it('auto-stops the keepalive once AWAITING_MAX_MS elapses', async () => {
-      jest.useFakeTimers();
-      setRichMessagesEnabled(true);
-      const ctx = richCtx();
-
-      await showAwaitingIndicator(ctx, 'gate-rich', 'confirm');
-      // Advance past the cap; the tick that crosses AWAITING_MAX_MS stops the timer.
-      await jest.advanceTimersByTimeAsync(MAX_MS + KEEPALIVE_MS);
-      const countAtCap = ctx.telegram.callApi.mock.calls.length;
-      expect(countAtCap).toBeGreaterThan(1);
-
-      await jest.advanceTimersByTimeAsync(KEEPALIVE_MS * 5);
-      expect(ctx.telegram.callApi).toHaveBeenCalledTimes(countAtCap);
-    });
-
-    it('falls back to a plain persistent message when the initial rich send fails', async () => {
-      setRichMessagesEnabled(true);
       const ctx = {
         chat: { id: 1 },
-        telegram: { callApi: jest.fn().mockRejectedValue(new Error('rich down')) },
+        telegram: { callApi: jest.fn().mockRejectedValue(undefined) },
         reply: jest.fn().mockResolvedValue({ message_id: 55 }),
       } as any;
 
@@ -191,12 +82,10 @@ describe('awaiting-indicator', () => {
 
       expect(id).toBe(55);
       expect(ctx.reply).toHaveBeenCalled();
-    });
-  });
-
-  describe('stopAwaitingIndicator', () => {
-    it('is a no-op when no keepalive is registered', () => {
-      expect(() => stopAwaitingIndicator('unknown-gate')).not.toThrow();
+      expect(warn).toHaveBeenCalledWith(
+        'telegram.awaiting.rich_fallback',
+        expect.objectContaining({ error: 'undefined' }),
+      );
     });
   });
 
