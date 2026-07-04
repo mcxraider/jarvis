@@ -274,6 +274,9 @@ export class TelegramBotService {
   // Publishes the bot's command menu to Telegram so users see autocomplete hints.
   private async syncCommands(): Promise<void> {
     await this.bot.telegram.setMyCommands([
+      { command: 'start', description: 'Start Jarvis and show onboarding' },
+      { command: 'new', description: 'Abandon the current step and start a new request' },
+      { command: 'cancel', description: 'Cancel the current operation' },
       { command: 'help', description: 'Show available commands and supported inputs' },
       { command: 'status', description: 'Show bot health, uptime, and dependency status' },
     ]);

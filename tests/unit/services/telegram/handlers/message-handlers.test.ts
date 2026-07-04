@@ -2,14 +2,11 @@ import { MessageHandlers } from '../../../../../src/services/telegram/handlers/m
 import { TELEGRAM_ONBOARDING_MESSAGE } from '../../../../../src/services/telegram/onboarding-message';
 import { setRichMessagesEnabled } from '../../../../../src/services/telegram/formatters/telegram-rich';
 
-// Minimal PendingClarificationStore mock. `get` defaults to "no pending record"; tests that exercise
-// teardown override it. `attachAwaitingMessageId` is the signal that an "Awaiting…" indicator was
-// sent and its id recorded.
+// Minimal PendingClarificationStore mock. `get` defaults to "no pending record".
 function makePendingStore(overrides: Record<string, any> = {}) {
   return {
     get: jest.fn().mockResolvedValue(undefined),
     save: jest.fn().mockResolvedValue(undefined),
-    attachAwaitingMessageId: jest.fn().mockResolvedValue(undefined),
     attachClarificationMessageId: jest.fn().mockResolvedValue(undefined),
     clear: jest.fn().mockResolvedValue(undefined),
     sweepExpired: jest.fn().mockResolvedValue(undefined),
@@ -221,13 +218,13 @@ describe('MessageHandlers', () => {
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
   });
 
-  it('routes photos through processPhotoMessage with metadata', async () => {
+  it('rejects photos with a helpful reply', async () => {
     const fileService = {
       isAudioFile: jest.fn(),
       getFileUrl: jest.fn(),
     } as any;
     const messageProcessor = {
-      processPhotoMessage: jest.fn().mockResolvedValue({ response: 'processed photo' }),
+      processPhotoMessage: jest.fn(),
       processAudioDocument: jest.fn(),
       processAudioMessage: jest.fn(),
     } as any;
@@ -245,20 +242,11 @@ describe('MessageHandlers', () => {
 
     await handlers.handlePhoto(ctx);
 
-    expect(messageProcessor.processPhotoMessage).toHaveBeenCalledWith(
-      {
-        fileId: 'large',
-        caption: 'Whiteboard photo',
-        width: 1280,
-        height: 720,
-        fileSize: 9000,
-      },
-      123,
-      expect.objectContaining({ messageType: 'photo' }),
-      expect.objectContaining({ onPendingPauseAccepted: expect.any(Function) }),
+    expect(messageProcessor.processPhotoMessage).not.toHaveBeenCalled();
+    expect(activityService.recordActivity).toHaveBeenCalledWith('message_unknown');
+    expect(ctx.reply).toHaveBeenCalledWith(
+      "I don't process images — please send a text message, a voice note, or an audio file.",
     );
-    expect(activityService.recordActivity).toHaveBeenCalledWith('message_photo');
-    expect(ctx.reply).toHaveBeenCalledWith('processed photo', { parse_mode: 'MarkdownV2' });
   });
 
   it('rejects stickers with a helpful reply', async () => {
@@ -282,7 +270,7 @@ describe('MessageHandlers', () => {
 
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_unknown');
     expect(ctx.reply).toHaveBeenCalledWith(
-      'Stickers are not supported yet. Please send text, audio, voice, or an image with a caption.',
+      'Stickers are not supported. Please send text, audio, or voice.',
     );
   });
 
@@ -312,7 +300,7 @@ describe('MessageHandlers', () => {
     expect(messageProcessor.processAudioDocument).not.toHaveBeenCalled();
     expect(activityService.recordActivity).not.toHaveBeenCalled();
     expect(ctx.reply).toHaveBeenCalledWith(
-      'I only process audio files, images, voice notes, and text messages. Please send one of those.',
+      'I only process audio files, voice notes, and text messages. Please send one of those.',
     );
   });
 
@@ -423,20 +411,29 @@ describe('MessageHandlers', () => {
       expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
     });
 
-    it('bare /new deletes a lingering Awaiting indicator when it abandons a pause', async () => {
+    it('bare /new collapses the clarification when it abandons a pause', async () => {
       const messageProcessor = {
         processTextMessage: jest.fn(),
         abandonConversation: jest.fn().mockResolvedValue('abandoned'),
       } as any;
       const pendingStore = makePendingStore({
-        get: jest.fn().mockResolvedValue({ awaitingMessageId: 555 }),
+        get: jest.fn().mockResolvedValue({
+          clarificationMessageId: 556,
+          question: 'Which task?',
+        }),
       });
       const { handlers } = createHandlers({ messageProcessor, pendingStore });
       const ctx = createContext({ text: '/new', message_id: 9 });
 
       await handlers.handleNew(ctx);
 
-      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 555);
+      expect(ctx.telegram.callApi).toHaveBeenCalledWith('editMessageText', {
+        chat_id: 456,
+        message_id: 556,
+        rich_message: {
+          markdown: '<details><summary>Clarification</summary>\n\nWhich task?\n\n</details>',
+        },
+      });
     });
 
     it('bare /new does not delete anything when the agent is still running', async () => {
@@ -445,19 +442,25 @@ describe('MessageHandlers', () => {
         abandonConversation: jest.fn().mockResolvedValue('running'),
       } as any;
       const pendingStore = makePendingStore({
-        get: jest.fn().mockResolvedValue({ awaitingMessageId: 555 }),
+        get: jest.fn().mockResolvedValue({
+          clarificationMessageId: 556,
+          question: 'Which task?',
+        }),
       });
       const { handlers } = createHandlers({ messageProcessor, pendingStore });
       const ctx = createContext({ text: '/new', message_id: 10 });
 
       await handlers.handleNew(ctx);
 
-      expect(ctx.telegram.deleteMessage).not.toHaveBeenCalledWith(456, 555);
+      expect(ctx.telegram.callApi).not.toHaveBeenCalledWith(
+        'editMessageText',
+        expect.objectContaining({ message_id: 556 }),
+      );
     });
   });
 
-  describe('Awaiting… indicator lifecycle', () => {
-    it('does not send or record an Awaiting indicator when a confirm pause is raised', async () => {
+  describe('clarification presentation lifecycle', () => {
+    it('leaves confirmation prompts unchanged', async () => {
       const messageProcessor = {
         processTextMessage: jest.fn().mockResolvedValue({
           response: 'Delete 5 tasks?',
@@ -465,8 +468,7 @@ describe('MessageHandlers', () => {
           threadId: 'tg_x',
         }),
       } as any;
-      const pendingStore = makePendingStore();
-      const { handlers } = createHandlers({ messageProcessor, pendingStore });
+      const { handlers } = createHandlers({ messageProcessor });
       const ctx = createContext({ text: 'delete everything', message_id: 11 });
 
       await handlers.handleText(ctx);
@@ -475,31 +477,9 @@ describe('MessageHandlers', () => {
         expect.any(String),
         expect.objectContaining({ reply_markup: expect.objectContaining({ inline_keyboard: expect.anything() }) }),
       );
-      expect(pendingStore.attachAwaitingMessageId).not.toHaveBeenCalled();
-      expect(ctx.reply).not.toHaveBeenCalledWith(
-        expect.stringContaining('Awaiting confirmation'),
-        expect.anything(),
-      );
     });
 
-    it('sends an Awaiting indicator when a clarify pause is raised', async () => {
-      const messageProcessor = {
-        processTextMessage: jest.fn().mockResolvedValue({
-          response: 'Which project?',
-          interruptType: 'clarify',
-          threadId: 'tg_y',
-        }),
-      } as any;
-      const pendingStore = makePendingStore();
-      const { handlers } = createHandlers({ messageProcessor, pendingStore });
-      const ctx = createContext({ text: 'add a task', message_id: 12 });
-
-      await handlers.handleText(ctx);
-
-      expect(pendingStore.attachAwaitingMessageId).toHaveBeenCalledWith(expect.any(String), 77);
-    });
-
-    it('sends the clarification prompt before a persistent rich Awaiting message', async () => {
+    it('sends exactly one rich clarification block and persists its id', async () => {
       setRichMessagesEnabled(true);
       const messageProcessor = {
         processTextMessage: jest.fn().mockResolvedValue({
@@ -518,68 +498,15 @@ describe('MessageHandlers', () => {
       expect(ctx.telegram.callApi.mock.calls.map((call: unknown[]) => call[0])).toEqual([
         'sendRichMessageDraft',
         'sendRichMessage',
-        'sendRichMessage',
       ]);
       const promptCall = ctx.telegram.callApi.mock.calls[1][1];
-      const awaitingCall = ctx.telegram.callApi.mock.calls[2][1];
       expect(promptCall.rich_message.markdown).toBe(
         '<details open><summary>Clarification</summary>\n\nWhich project?\n\n</details>',
       );
-      expect(awaitingCall.rich_message.markdown).toBe('⏳ _Awaiting clarification…_');
-      expect(ctx.telegram.callApi.mock.invocationCallOrder[1]).toBeLessThan(
-        ctx.telegram.callApi.mock.invocationCallOrder[2],
-      );
-      expect(pendingStore.attachAwaitingMessageId).toHaveBeenCalledWith(expect.any(String), 701);
       expect(pendingStore.attachClarificationMessageId).toHaveBeenCalledWith(expect.any(String), 701);
     });
 
-    it('sends a confirmation prompt with buttons without a rich Awaiting message', async () => {
-      setRichMessagesEnabled(true);
-      const messageProcessor = {
-        processTextMessage: jest.fn().mockResolvedValue({
-          response: 'Delete 5 tasks?',
-          interruptType: 'confirm',
-          threadId: 'tg_order_confirm',
-        }),
-      } as any;
-      const { handlers } = createHandlers({ messageProcessor });
-      const ctx = createContext({ text: 'delete everything', message_id: 13 });
-      ctx.telegram.callApi = jest.fn().mockResolvedValue({ message_id: 702 });
-
-      await handlers.handleText(ctx);
-
-      const confirmCall = ctx.reply.mock.calls.findIndex(
-        (call: unknown[]) => Boolean((call[1] as any)?.reply_markup?.inline_keyboard),
-      );
-      expect(confirmCall).toBeGreaterThanOrEqual(0);
-      expect(ctx.telegram.callApi.mock.calls).not.toContainEqual([
-        'sendRichMessage',
-        expect.objectContaining({
-          rich_message: expect.objectContaining({
-            markdown: expect.stringContaining('Awaiting'),
-          }),
-        }),
-      ]);
-      expect(ctx.reply).not.toHaveBeenCalledWith(
-        expect.stringContaining('Awaiting confirmation'),
-        expect.anything(),
-      );
-    });
-
-    it('does not send an indicator for a plain final answer', async () => {
-      const messageProcessor = {
-        processTextMessage: jest.fn().mockResolvedValue({ response: 'Done.' }),
-      } as any;
-      const pendingStore = makePendingStore();
-      const { handlers } = createHandlers({ messageProcessor, pendingStore });
-      const ctx = createContext({ text: 'list tasks', message_id: 13 });
-
-      await handlers.handleText(ctx);
-
-      expect(pendingStore.attachAwaitingMessageId).not.toHaveBeenCalled();
-    });
-
-    it('deletes the indicator immediately when an accepted reply invokes the lifecycle hook', async () => {
+    it('collapses the clarification immediately when an accepted reply invokes the lifecycle hook', async () => {
       const messageProcessor = {
         processTextMessage: jest.fn().mockImplementation(async (
           _text: string,
@@ -587,13 +514,11 @@ describe('MessageHandlers', () => {
           _logContext: unknown,
           _onProgress: unknown,
           options: { onPendingPauseAccepted: (presentation: {
-            awaitingMessageId?: number;
             clarificationMessageId?: number;
             question: string;
           }) => Promise<void> },
         ) => {
           await options.onPendingPauseAccepted({
-            awaitingMessageId: 555,
             clarificationMessageId: 556,
             question: 'Which task?',
           });
@@ -605,7 +530,6 @@ describe('MessageHandlers', () => {
 
       await handlers.handleText(ctx);
 
-      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 555);
       expect(ctx.telegram.callApi).toHaveBeenCalledWith('editMessageText', {
         chat_id: 456,
         message_id: 556,
@@ -613,9 +537,6 @@ describe('MessageHandlers', () => {
           markdown: '<details><summary>Clarification</summary>\n\nWhich task?\n\n</details>',
         },
       });
-      expect(ctx.telegram.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(
-        ctx.telegram.callApi.mock.invocationCallOrder[0],
-      );
       expect(ctx.telegram.callApi.mock.invocationCallOrder[0]).toBeLessThan(
         ctx.reply.mock.invocationCallOrder.at(-1),
       );
@@ -629,13 +550,11 @@ describe('MessageHandlers', () => {
           _logContext: unknown,
           _onProgress: unknown,
           options: { onPendingPauseAccepted: (presentation: {
-            awaitingMessageId?: number;
             clarificationMessageId?: number;
             question: string;
           }) => Promise<void> },
         ) => {
           await options.onPendingPauseAccepted({
-            awaitingMessageId: 555,
             clarificationMessageId: 556,
             question: 'Which task?',
           });
@@ -648,58 +567,7 @@ describe('MessageHandlers', () => {
 
       await handlers.handleText(ctx);
 
-      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 555);
       expect(ctx.reply).toHaveBeenCalledWith('Done\\.', { parse_mode: 'MarkdownV2' });
-    });
-
-    it('deletes a newly sent indicator when attaching its id fails', async () => {
-      const messageProcessor = {
-        processTextMessage: jest.fn().mockResolvedValue({
-          response: 'Which project?',
-          interruptType: 'clarify',
-          threadId: 'tg_attach_failure',
-        }),
-      } as any;
-      const pendingStore = makePendingStore({
-        attachAwaitingMessageId: jest.fn().mockRejectedValue(new Error('store unavailable')),
-      });
-      const { handlers } = createHandlers({ messageProcessor, pendingStore });
-      const ctx = createContext({ text: 'add a task', message_id: 15 });
-
-      await handlers.handleText(ctx);
-
-      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
-    });
-
-    it('deletes the plain-mode indicator when a pause resolves', async () => {
-      const messageProcessor = {
-        processTextMessage: jest.fn().mockResolvedValue({
-          response: 'Done.',
-          resolvedPendingPause: true,
-          consumedAwaitingMessageId: 555,
-        }),
-      } as any;
-      const pendingStore = makePendingStore();
-      const { handlers } = createHandlers({ messageProcessor, pendingStore });
-      const ctx = createContext({ text: 'yes', message_id: 14 });
-
-      await handlers.handleText(ctx);
-
-      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 555);
-    });
-
-    it('does not tear down when no pause was resolved', async () => {
-      const messageProcessor = {
-        // A plain final answer that resolved nothing: an id present without the flag must be ignored.
-        processTextMessage: jest.fn().mockResolvedValue({ response: 'Done.', consumedAwaitingMessageId: 555 }),
-      } as any;
-      const pendingStore = makePendingStore();
-      const { handlers } = createHandlers({ messageProcessor, pendingStore });
-      const ctx = createContext({ text: 'list tasks', message_id: 15 });
-
-      await handlers.handleText(ctx);
-
-      expect(ctx.telegram.deleteMessage).not.toHaveBeenCalledWith(456, 555);
     });
   });
 });

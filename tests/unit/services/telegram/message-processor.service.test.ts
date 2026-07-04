@@ -128,7 +128,7 @@ describe('MessageProcessorService', () => {
       chatId: 100,
       userId: 'telegram:7',
       interruptType: 'clarify',
-      awaitingMessageId: 444,
+      clarificationMessageId: 444,
       status: 'pending',
       createdAt: now,
       updatedAt: now,
@@ -144,8 +144,7 @@ describe('MessageProcessorService', () => {
     );
 
     expect(onPendingPauseAccepted).toHaveBeenCalledWith({
-      awaitingMessageId: 444,
-      clarificationMessageId: undefined,
+      clarificationMessageId: 444,
       question: 'Which task?',
     });
     expect(onPendingPauseAccepted.mock.invocationCallOrder[0]).toBeLessThan(

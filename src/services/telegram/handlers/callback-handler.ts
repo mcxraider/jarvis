@@ -7,7 +7,6 @@ import { PendingClarificationRecord, PendingClarificationStore } from '../pendin
 import { ConversationGateStore } from '../conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
-import { deleteAwaitingIndicator, showAwaitingIndicator } from '../awaiting-indicator';
 
 const CONFIRM_PREFIX = 'confirm:';
 const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
@@ -88,12 +87,6 @@ export class CallbackHandler {
 
       await ctx.answerCbQuery(decision === 'approve' ? 'Approved!' : 'Declined.');
 
-      // The button tap has won the gate, so remove the persistent Awaiting indicator before
-      // resuming the agent. Deletion is best-effort and never blocks the decision.
-      if (pending.awaitingMessageId && chatId !== undefined && 'deleteMessage' in ctx.telegram) {
-        await deleteAwaitingIndicator(ctx.telegram, chatId, pending.awaitingMessageId, logContext);
-      }
-
       const statusEmoji = decision === 'approve' ? '✅' : '❌';
       const statusText = decision === 'approve' ? 'Approved' : 'Declined';
 
@@ -111,7 +104,7 @@ export class CallbackHandler {
       }
 
       // Deliver the decision as its own new message instead of editing the confirm message.
-      await ctx.reply(`${statusEmoji} ${statusText}`);
+      await sendFinalReply(ctx, `${statusEmoji} ${statusText}`, logContext);
 
       await progress.start();
 
@@ -161,24 +154,12 @@ export class CallbackHandler {
                 });
               });
           }
-          const awaitingMessageId = await showAwaitingIndicator(ctx, gateKey, logContext);
-          if (awaitingMessageId !== undefined) {
-            await this.pendingStore.attachAwaitingMessageId(gateKey, awaitingMessageId).catch(async (error) => {
-              logger.warn('telegram.awaiting.attach_failed', {
-                ...logContext,
-                error: error instanceof Error ? error.message : String(error),
-              });
-              if (chatId !== undefined) {
-                await deleteAwaitingIndicator(ctx.telegram, chatId, awaitingMessageId, logContext);
-              }
-            });
-          }
         }
         logger.info('telegram.interrupt.prompt_presented', {
           ...logContext,
           gateKey,
           interruptType,
-          presentationOrder: interruptType === 'clarify' ? 'prompt_then_awaiting' : 'prompt_only',
+          presentation: interruptType === 'clarify' ? 'clarification_block' : 'prompt_only',
         });
       } else {
         const buffered = await this.conversationGate.getAndClearBufferedMessage(gateKey).catch(() => undefined);

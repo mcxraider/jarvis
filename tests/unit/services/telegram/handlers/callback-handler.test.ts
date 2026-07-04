@@ -33,7 +33,6 @@ async function setupWaitingGate(
   userId = 42,
   chatId = 100,
   threadId = 'tg_abc_msg123',
-  awaitingMessageId?: number,
 ) {
   const gateKey = getGateKey(userId, chatId);
   await gateStore.tryAcquire(gateKey, 60000);
@@ -47,7 +46,6 @@ async function setupWaitingGate(
     chatId,
     userId: `telegram:${userId}`,
     interruptType: 'confirm',
-    awaitingMessageId,
     status: 'pending',
     createdAt: now,
     updatedAt: now,
@@ -98,7 +96,7 @@ describe('CallbackHandler', () => {
     // The decision is delivered as its own new message, and the confirm message keeps
     // its text (only its inline keyboard is stripped).
     expect(ctx.editMessageReplyMarkup).toHaveBeenCalledWith(undefined);
-    expect(ctx.reply).toHaveBeenCalledWith('✅ Approved');
+    expect(ctx.reply).toHaveBeenCalledWith('✅ Approved', { parse_mode: 'MarkdownV2' });
     expect(ctx.editMessageText).not.toHaveBeenCalled();
   });
 
@@ -127,8 +125,63 @@ describe('CallbackHandler', () => {
     );
 
     expect(ctx.editMessageReplyMarkup).toHaveBeenCalledWith(undefined);
-    expect(ctx.reply).toHaveBeenCalledWith('❌ Declined');
+    expect(ctx.reply).toHaveBeenCalledWith('❌ Declined', { parse_mode: 'MarkdownV2' });
     expect(ctx.editMessageText).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['approve', '✅ Approved'],
+    ['decline', '❌ Declined'],
+  ])('sends the %s acknowledgement as a rich standalone message', async (decision, text) => {
+    setRichMessagesEnabled(true);
+    const agentClient = {
+      resume: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'tg_abc_msg123',
+        response: '',
+        toolResults: [],
+      }),
+    };
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateStore = new MemoryConversationGateStore();
+    await setupWaitingGate(gateStore, pendingStore);
+    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
+    const ctx = makeCtx(`confirm:${decision}:tg_abc_msg123`);
+    ctx.telegram.callApi = jest.fn().mockResolvedValue({ message_id: 900 });
+
+    await handler.handleCallbackQuery(ctx);
+
+    expect(ctx.telegram.callApi).toHaveBeenCalledWith('sendRichMessage', {
+      chat_id: 100,
+      rich_message: { markdown: text },
+    });
+    expect(ctx.editMessageReplyMarkup).toHaveBeenCalledWith(undefined);
+    expect(ctx.editMessageText).not.toHaveBeenCalled();
+  });
+
+  it('falls back to MarkdownV2 when a rich decision acknowledgement fails', async () => {
+    setRichMessagesEnabled(true);
+    const agentClient = {
+      resume: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'tg_abc_msg123',
+        response: '',
+        toolResults: [],
+      }),
+    };
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateStore = new MemoryConversationGateStore();
+    await setupWaitingGate(gateStore, pendingStore);
+    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
+    const ctx = makeCtx('confirm:approve:tg_abc_msg123');
+    ctx.telegram.callApi = jest.fn()
+      .mockRejectedValueOnce(new Error('rich unsupported'))
+      .mockResolvedValue(undefined);
+
+    await handler.handleCallbackQuery(ctx);
+
+    expect(ctx.reply).toHaveBeenCalledWith('✅ Approved', { parse_mode: 'MarkdownV2' });
+    expect(agentClient.resume).toHaveBeenCalled();
   });
 
   it('does nothing for non-confirm callback data', async () => {
@@ -345,11 +398,9 @@ describe('CallbackHandler', () => {
       .find((text) => text.includes('Which project do you mean?'));
     expect(clarifyReply).toBe('Which project do you mean?');
     expect(clarifyReply).not.toContain('Clarification required');
-    const pending = await pendingStore.get(getGateKey());
-    expect(pending?.awaitingMessageId).toBe(88);
   });
 
-  it('persists both rich message ids for a callback-generated clarification', async () => {
+  it('persists the rich block id for a callback-generated clarification', async () => {
     setRichMessagesEnabled(true);
     const agentClient = {
       resume: jest.fn().mockResolvedValue({
@@ -366,97 +417,22 @@ describe('CallbackHandler', () => {
     const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
     ctx.telegram.callApi = jest.fn()
+      .mockResolvedValueOnce({ message_id: 900 })
       .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce({ message_id: 901 })
-      .mockResolvedValueOnce({ message_id: 902 });
+      .mockResolvedValueOnce({ message_id: 901 });
 
     await handler.handleCallbackQuery(ctx);
 
     const richCalls = ctx.telegram.callApi.mock.calls.filter(
       (call: unknown[]) => call[0] === 'sendRichMessage',
     );
-    expect(richCalls[0][1].rich_message.markdown).toContain('<details open>');
-    expect(richCalls[1][1].rich_message.markdown).toBe('⏳ _Awaiting clarification…_');
+    expect(richCalls[0][1].rich_message.markdown).toBe('✅ Approved');
+    expect(richCalls[1][1].rich_message.markdown).toContain('<details open>');
     const pending = await pendingStore.get(getGateKey());
     expect(pending?.clarificationMessageId).toBe(901);
-    expect(pending?.awaitingMessageId).toBe(902);
   });
 
-  it.each(['approve', 'decline'])(
-    'deletes a legacy confirmation indicator on %s',
-    async (decision) => {
-      const agentClient = {
-        resume: jest.fn().mockResolvedValue({
-          status: 'completed',
-          threadId: 'tg_abc_msg123',
-          response: 'Done.',
-          toolResults: [],
-        }),
-      };
-      const pendingStore = new MemoryPendingClarificationStore();
-      const gateStore = new MemoryConversationGateStore();
-      await setupWaitingGate(gateStore, pendingStore, 42, 100, 'tg_abc_msg123', 777);
-
-      const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
-      const ctx = makeCtx(`confirm:${decision}:tg_abc_msg123`);
-
-      await handler.handleCallbackQuery(ctx);
-
-      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(100, 777);
-      expect(ctx.telegram.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(
-        agentClient.resume.mock.invocationCallOrder[0],
-      );
-    },
-  );
-
-  it('does not delete an indicator when the pending record has none', async () => {
-    const agentClient = {
-      resume: jest.fn().mockResolvedValue({
-        status: 'completed',
-        threadId: 'tg_abc_msg123',
-        response: 'Done.',
-        toolResults: [],
-      }),
-    };
-    const pendingStore = new MemoryPendingClarificationStore();
-    const gateStore = new MemoryConversationGateStore();
-    await setupWaitingGate(gateStore, pendingStore); // no awaitingMessageId
-
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
-    const ctx = makeCtx('confirm:approve:tg_abc_msg123');
-
-    await handler.handleCallbackQuery(ctx);
-
-    // The 777 indicator id was never stored, so it must never be deleted.
-    expect(ctx.telegram.deleteMessage).not.toHaveBeenCalledWith(100, 777);
-  });
-
-  it('does not record a fresh indicator when the resume re-interrupts for confirmation', async () => {
-    const agentClient = {
-      resume: jest.fn().mockResolvedValue({
-        status: 'interrupted',
-        threadId: 'tg_abc_msg123',
-        response: 'Also delete the project?',
-        interrupt: { type: 'confirm' },
-        toolResults: [],
-      }),
-    };
-    const pendingStore = new MemoryPendingClarificationStore();
-    const gateStore = new MemoryConversationGateStore();
-    await setupWaitingGate(gateStore, pendingStore, 42, 100, 'tg_abc_msg123', 777);
-
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
-    const ctx = makeCtx('confirm:approve:tg_abc_msg123');
-
-    await handler.handleCallbackQuery(ctx);
-
-    // A legacy indicator is still cleaned up, but the new confirmation pause has none.
-    expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(100, 777);
-    const pending = await pendingStore.get(getGateKey());
-    expect(pending?.awaitingMessageId).toBeUndefined();
-  });
-
-  it('sends a callback-triggered confirmation re-interrupt without an Awaiting message', async () => {
+  it('sends a callback-triggered confirmation re-interrupt with unchanged buttons', async () => {
     setRichMessagesEnabled(true);
     const agentClient = {
       resume: jest.fn().mockResolvedValue({
@@ -480,15 +456,5 @@ describe('CallbackHandler', () => {
       (call: unknown[]) => Boolean((call[1] as any)?.reply_markup?.inline_keyboard),
     );
     expect(reInterruptPromptIndex).toBeGreaterThanOrEqual(0);
-    expect(ctx.telegram.callApi.mock.calls).not.toContainEqual([
-      'sendRichMessage',
-      expect.objectContaining({
-        rich_message: expect.objectContaining({
-          markdown: expect.stringContaining('Awaiting'),
-        }),
-      }),
-    ]);
-    const pending = await pendingStore.get(getGateKey());
-    expect(pending?.awaitingMessageId).toBeUndefined();
   });
 });

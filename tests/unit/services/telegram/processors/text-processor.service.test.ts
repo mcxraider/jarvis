@@ -718,14 +718,13 @@ describe('TextProcessorService', () => {
     expect(await gateStore.getStatus(gateKey)).toBe('waiting_for_clarification');
   });
 
-  describe('consumedAwaitingMessageId (indicator teardown surfacing)', () => {
-    // Seeds a pending record (as if a prior turn paused) with an indicator id already attached,
-    // and puts the gate into the waiting state so the next message resumes it.
-    async function seedPendingWithIndicator(
+  describe('consumed clarification presentation', () => {
+    // Seeds a pending record and puts the gate into the waiting state so the next message resumes it.
+    async function seedPending(
       store: MemoryPendingClarificationStore,
       gateStore: MemoryConversationGateStore,
       interruptType: 'clarify' | 'confirm',
-      awaitingMessageId = 321,
+      clarificationMessageId = 321,
     ) {
       const gateKey = buildConversationKey(42, 'telegram:42', 100);
       await gateStore.tryAcquire(gateKey, 60000);
@@ -739,7 +738,7 @@ describe('TextProcessorService', () => {
         chatId: 100,
         userId: 'telegram:42',
         interruptType,
-        awaitingMessageId,
+        clarificationMessageId: interruptType === 'clarify' ? clarificationMessageId : undefined,
         status: 'pending',
         createdAt: now,
         updatedAt: now,
@@ -748,10 +747,10 @@ describe('TextProcessorService', () => {
       return gateKey;
     }
 
-    it('surfaces the consumed indicator id when a clarify reply resolves the pause', async () => {
+    it('surfaces the clarification id when a clarify reply resolves the pause', async () => {
       const store = new MemoryPendingClarificationStore();
       const gateStore = new MemoryConversationGateStore();
-      await seedPendingWithIndicator(store, gateStore, 'clarify');
+      await seedPending(store, gateStore, 'clarify');
       const agentClient = {
         invoke: jest.fn(),
         resume: jest.fn().mockResolvedValue({ status: 'completed', threadId: 'thread-hitl', response: 'Updated.', toolResults: [] }),
@@ -760,7 +759,7 @@ describe('TextProcessorService', () => {
 
       const result = await service.processTextMessage('the dentist task', 42, { chatId: 100, messageId: 11 });
 
-      expect(result.consumedAwaitingMessageId).toBe(321);
+      expect(result.consumedClarificationMessageId).toBe(321);
       // The flag confirms that the pending pause—not unrelated result data—was consumed.
       expect(result.resolvedPendingPause).toBe(true);
     });
@@ -768,7 +767,7 @@ describe('TextProcessorService', () => {
     it('notifies acceptance after winning the gate and before resuming the agent', async () => {
       const store = new MemoryPendingClarificationStore();
       const gateStore = new MemoryConversationGateStore();
-      await seedPendingWithIndicator(store, gateStore, 'clarify');
+      await seedPending(store, gateStore, 'clarify');
       const onPendingPauseAccepted = jest.fn().mockResolvedValue(undefined);
       const agentClient = {
         invoke: jest.fn(),
@@ -790,21 +789,20 @@ describe('TextProcessorService', () => {
       );
 
       expect(onPendingPauseAccepted).toHaveBeenCalledWith({
-        awaitingMessageId: 321,
-        clarificationMessageId: undefined,
+        clarificationMessageId: 321,
         question: 'Which task?',
       });
       expect(onPendingPauseAccepted.mock.invocationCallOrder[0]).toBeLessThan(
         agentClient.resume.mock.invocationCallOrder[0],
       );
-      expect(result.consumedAwaitingMessageId).toBeUndefined();
+      expect(result.consumedClarificationMessageId).toBeUndefined();
       expect(result.resolvedPendingPause).toBe(true);
     });
 
     it('does not notify acceptance for invalid typed confirmation text', async () => {
       const store = new MemoryPendingClarificationStore();
       const gateStore = new MemoryConversationGateStore();
-      await seedPendingWithIndicator(store, gateStore, 'confirm');
+      await seedPending(store, gateStore, 'confirm');
       const onPendingPauseAccepted = jest.fn();
       const agentClient = { invoke: jest.fn(), resume: jest.fn() };
       const service = createService(agentClient, store, gateStore);
@@ -821,10 +819,10 @@ describe('TextProcessorService', () => {
       expect(agentClient.resume).not.toHaveBeenCalled();
     });
 
-    it('surfaces the consumed indicator id when a typed decision resolves a confirm pause', async () => {
+    it('resolves a typed confirmation without clarification presentation data', async () => {
       const store = new MemoryPendingClarificationStore();
       const gateStore = new MemoryConversationGateStore();
-      await seedPendingWithIndicator(store, gateStore, 'confirm');
+      await seedPending(store, gateStore, 'confirm');
       const agentClient = {
         invoke: jest.fn(),
         resume: jest.fn().mockResolvedValue({ status: 'completed', threadId: 'thread-hitl', response: 'Deleted.', toolResults: [] }),
@@ -833,29 +831,28 @@ describe('TextProcessorService', () => {
 
       const result = await service.processTextMessage('yes', 42, { chatId: 100, messageId: 11 });
 
-      expect(result.consumedAwaitingMessageId).toBe(321);
+      expect(result.consumedClarificationMessageId).toBeUndefined();
       expect(result.resolvedPendingPause).toBe(true);
     });
 
     it('does NOT surface the id when a non-decision is refused on a confirm pause', async () => {
       const store = new MemoryPendingClarificationStore();
       const gateStore = new MemoryConversationGateStore();
-      await seedPendingWithIndicator(store, gateStore, 'confirm');
+      await seedPending(store, gateStore, 'confirm');
       const agentClient = { invoke: jest.fn(), resume: jest.fn() };
       const service = createService(agentClient, store, gateStore);
 
       const result = await service.processTextMessage('maybe later', 42, { chatId: 100, messageId: 11 });
 
-      // The pause is still open, so the persistent fallback indicator must stay.
-      expect(result.consumedAwaitingMessageId).toBeUndefined();
+      expect(result.consumedClarificationMessageId).toBeUndefined();
       expect(result.resolvedPendingPause).toBeFalsy();
       expect(agentClient.resume).not.toHaveBeenCalled();
     });
 
-    it('surfaces the superseded indicator id on /new (forceFresh)', async () => {
+    it('surfaces the superseded clarification id on /new (forceFresh)', async () => {
       const store = new MemoryPendingClarificationStore();
       const gateStore = new MemoryConversationGateStore();
-      await seedPendingWithIndicator(store, gateStore, 'clarify', 654);
+      await seedPending(store, gateStore, 'clarify', 654);
       const agentClient = {
         invoke: jest.fn().mockResolvedValue({ status: 'completed', threadId: 'thread-fresh', response: 'Fresh.', toolResults: [] }),
         resume: jest.fn(),
@@ -864,7 +861,7 @@ describe('TextProcessorService', () => {
 
       const result = await service.processTextMessage('start over', 42, { chatId: 100, messageId: 12 }, undefined, { forceFresh: true });
 
-      expect(result.consumedAwaitingMessageId).toBe(654);
+      expect(result.consumedClarificationMessageId).toBe(654);
       expect(result.resolvedPendingPause).toBe(true);
       expect(agentClient.invoke).toHaveBeenCalledTimes(1);
     });
@@ -882,7 +879,7 @@ describe('TextProcessorService', () => {
       const result = await service.processTextMessage('do a thing', 42, { chatId: 100, messageId: 13 }, undefined, { forceFresh: true });
 
       expect(result.resolvedPendingPause).toBeFalsy();
-      expect(result.consumedAwaitingMessageId).toBeUndefined();
+      expect(result.consumedClarificationMessageId).toBeUndefined();
     });
   });
 });

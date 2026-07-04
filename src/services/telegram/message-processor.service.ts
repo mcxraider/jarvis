@@ -315,21 +315,17 @@ export class MessageProcessorService {
       logger.info('conversation_gate.audio_resume_reserved', { ...logContext, gateKey });
       const pending = await this.pendingStore?.get(gateKey).catch(() => undefined);
       let pauseAcceptedNotified = false;
-      if (pending?.interruptType !== 'confirm' && (
-        pending?.awaitingMessageId !== undefined || pending?.clarificationMessageId !== undefined
-      )) {
+      if (pending?.interruptType !== 'confirm' && pending?.clarificationMessageId !== undefined) {
         try {
           await onPendingPauseAccepted?.({
-            awaitingMessageId: pending.awaitingMessageId,
             clarificationMessageId: pending.clarificationMessageId,
             question: pending.question,
           });
           pauseAcceptedNotified = Boolean(onPendingPauseAccepted);
         } catch (error) {
-          logger.warn('telegram.awaiting.acceptance_hook_failed', {
+          logger.warn('telegram.clarification.acceptance_hook_failed', {
             ...logContext,
             gateKey,
-            awaitingMessageId: pending.awaitingMessageId,
             clarificationMessageId: pending.clarificationMessageId,
             error: error instanceof Error ? error.message : String(error),
           });

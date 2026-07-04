@@ -20,15 +20,13 @@ import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service'
 import { PendingPausePresentation, TextProcessorResult } from '../processors/text-processor.service';
 import { PendingClarificationStore } from '../pending-clarification.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
-import { deleteAwaitingIndicator, showAwaitingIndicator } from '../awaiting-indicator';
 
 export class MessageHandlers {
   constructor(
     private readonly fileService: FileService,
     private readonly messageProcessor: MessageProcessorService,
     private readonly activityService: BotActivityService,
-    // Used only to attach the "Awaiting…" indicator's message_id onto the pending record the
-    // processor already saved, so the resolving turn (a different request) can delete it.
+    // Attaches the rich clarification block's message id after the processor saves the pause.
     private readonly pendingStore: PendingClarificationStore,
   ) {}
 
@@ -74,8 +72,7 @@ export class MessageHandlers {
     this.activityService.recordActivity('command_new');
 
     if (!remainder) {
-      // Read the pending record before abandoning so we can delete its "Awaiting…" indicator once
-      // the record is superseded (bare /new resolves the pause outside the processTextMessage path).
+      // Read the pending record before abandoning so its clarification can be collapsed.
       const gateKey = buildConversationKey(userId, mapTelegramUserId(userId), ctx.chat?.id);
       const pending = await this.pendingStore.get(gateKey).catch(() => undefined);
       const outcome = await this.messageProcessor.abandonConversation(userId, logContext);
@@ -84,11 +81,6 @@ export class MessageHandlers {
         return;
       }
       if (outcome === 'abandoned') {
-        // Both rich and plain modes persist an "⏳ Awaiting…" message whose id is stored on the
-        // pending record.
-        if (pending?.awaitingMessageId && ctx.chat && 'deleteMessage' in ctx.telegram) {
-          await deleteAwaitingIndicator(ctx.telegram, ctx.chat.id, pending.awaitingMessageId, logContext);
-        }
         await this.collapsePendingClarification(ctx, pending, logContext);
       }
       await ctx.reply('Starting fresh — send your next message.');
@@ -163,61 +155,15 @@ export class MessageHandlers {
     await this.processAudioFile(ctx, ctx.message.audio, 'audio');
   }
 
-  // Photo handler: takes the highest-resolution version of the photo (last in array)
-  // and forwards metadata + caption to the text processor for contextual processing.
+  // Photo handler: images are not supported. Reject with a helpful message, mirroring
+  // the sticker/GIF/video-note handlers, so only text and audio reach the agent.
   async handlePhoto(ctx: Context): Promise<void> {
     if (!ctx.message || !('photo' in ctx.message)) return;
-
-    const photo = ctx.message.photo;
-    const bestPhoto = photo[photo.length - 1];
-    if (!bestPhoto) return;
-
-    const userId = ctx.from?.id;
-    const logContext = this.createLogContext(ctx, 'photo');
-    const startedAt = Date.now();
-
-    logger.info('telegram.message.received', {
-      ...logContext,
-      userId,
-      fileId: bestPhoto.file_id,
-      width: bestPhoto.width,
-      height: bestPhoto.height,
-      fileSize: bestPhoto.file_size,
-      caption: ctx.message.caption ? truncateForLog(ctx.message.caption) : undefined,
-    });
-    this.activityService.recordActivity('message_photo');
-
-    try {
-      const result = await this.messageProcessor.processPhotoMessage(
-        {
-          fileId: bestPhoto.file_id,
-          caption: ctx.message.caption,
-          width: bestPhoto.width,
-          height: bestPhoto.height,
-          fileSize: bestPhoto.file_size,
-        },
-        userId,
-        logContext,
-        {
-          onPendingPauseAccepted: (presentation) =>
-            this.resolvePausePresentation(ctx, presentation, logContext),
-        },
-      );
-      await this.sendResult(ctx, result, logContext);
-      logger.info('telegram.reply.sent', {
-        ...logContext,
-        responseLength: result.response.length,
-        totalDurationMs: Date.now() - startedAt,
-      });
-    } catch (error) {
-      logger.error('telegram.message.failed', {
-        ...logContext,
-        error: (error as Error).message,
-        userId,
-        durationMs: Date.now() - startedAt,
-      });
-      await ctx.reply('Something went wrong processing your image. Please try again.');
-    }
+    await this.rejectUnsupportedMedia(
+      ctx,
+      'photo',
+      "I don't process images — please send a text message, a voice note, or an audio file.",
+    );
   }
 
   async handleSticker(ctx: Context): Promise<void> {
@@ -225,7 +171,7 @@ export class MessageHandlers {
     await this.rejectUnsupportedMedia(
       ctx,
       'sticker',
-      'Stickers are not supported yet. Please send text, audio, voice, or an image with a caption.',
+      'Stickers are not supported. Please send text, audio, or voice.',
     );
   }
 
@@ -234,7 +180,7 @@ export class MessageHandlers {
     await this.rejectUnsupportedMedia(
       ctx,
       'video_note',
-      'Round video notes are not supported yet. Please send text, audio, voice, or an image with a caption.',
+      'Round video notes are not supported. Please send text, audio, or voice.',
     );
   }
 
@@ -243,7 +189,7 @@ export class MessageHandlers {
     await this.rejectUnsupportedMedia(
       ctx,
       'animation',
-      'GIFs and animations are not supported yet. Please send text, audio, voice, or an image with a caption.',
+      'GIFs and animations are not supported. Please send text, audio, or voice.',
     );
   }
 
@@ -262,7 +208,7 @@ export class MessageHandlers {
         mimeType: document.mime_type,
         fileName: document.file_name,
       });
-      await ctx.reply('I only process audio files, images, voice notes, and text messages. Please send one of those.');
+      await ctx.reply('I only process audio files, voice notes, and text messages. Please send one of those.');
       return;
     }
 
@@ -321,7 +267,7 @@ export class MessageHandlers {
     });
     this.activityService.recordActivity('message_unknown');
 
-    await ctx.reply('I can only handle text, audio, voice, and images for now.');
+    await ctx.reply('I can only handle text, audio, and voice for now.');
   }
 
   private async processAudioFile(ctx: Context, audioFile: any, messageType: string): Promise<void> {
@@ -411,18 +357,11 @@ export class MessageHandlers {
 
   // Routes the final response to the appropriate reply method. Confirm-type interrupts
   // get inline Approve/Decline buttons; everything else goes as a plain rich/markdown reply.
-  //
-  // Also owns the "Awaiting…" indicator lifecycle for the text/audio paths:
-  //   1. Delete any indicator from a pause superseded by /new.
-  //   2. If this turn created a new pause, send its prompt before the persistent indicator.
   private async sendResult(ctx: Context, result: TextProcessorResult, logContext: LogContext): Promise<void> {
     const userId = ctx.from?.id;
     const gateKey = buildConversationKey(userId, mapTelegramUserId(userId), ctx.chat?.id);
 
     if (result.resolvedPendingPause) {
-      if (result.consumedAwaitingMessageId && ctx.chat && 'deleteMessage' in ctx.telegram) {
-        await deleteAwaitingIndicator(ctx.telegram, ctx.chat.id, result.consumedAwaitingMessageId, logContext);
-      }
       if (result.consumedClarificationMessageId && result.consumedClarificationQuestion) {
         await this.collapsePendingClarification(ctx, {
           clarificationMessageId: result.consumedClarificationMessageId,
@@ -443,19 +382,11 @@ export class MessageHandlers {
     }
 
     if (result.interruptType === 'clarify' && result.threadId) {
-      const awaitingMessageId = await showAwaitingIndicator(
-        ctx,
-        gateKey,
-        logContext,
-      );
-      if (awaitingMessageId !== undefined) {
-        await this.attachAwaitingMessageId(ctx, gateKey, awaitingMessageId, logContext);
-      }
       logger.info('telegram.interrupt.prompt_presented', {
         ...logContext,
         gateKey,
         interruptType: result.interruptType,
-        presentationOrder: 'prompt_then_awaiting',
+        presentation: 'clarification_block',
       });
     }
   }
@@ -475,36 +406,11 @@ export class MessageHandlers {
     });
   }
 
-  private async attachAwaitingMessageId(
-    ctx: Context,
-    gateKey: string,
-    messageId: number,
-    logContext: LogContext,
-  ): Promise<void> {
-    await this.pendingStore.attachAwaitingMessageId(gateKey, messageId).catch(async (error) => {
-      logger.warn('telegram.awaiting.attach_failed', {
-        ...logContext,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      if (ctx.chat && 'deleteMessage' in ctx.telegram) {
-        await deleteAwaitingIndicator(ctx.telegram, ctx.chat.id, messageId, logContext);
-      }
-    });
-  }
-
   private async resolvePausePresentation(
     ctx: Context,
     presentation: PendingPausePresentation,
     logContext: LogContext,
   ): Promise<void> {
-    if (presentation.awaitingMessageId !== undefined && ctx.chat && 'deleteMessage' in ctx.telegram) {
-      await deleteAwaitingIndicator(
-        ctx.telegram,
-        ctx.chat.id,
-        presentation.awaitingMessageId,
-        logContext,
-      );
-    }
     await this.collapsePendingClarification(ctx, presentation, logContext);
   }
 

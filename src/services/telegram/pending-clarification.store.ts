@@ -25,11 +25,6 @@ export interface PendingClarificationRecord {
   userId: string;
   requestId?: string;
   interruptType?: PendingInterruptType;
-  // Telegram message_id of the persistent "Awaiting clarification" indicator shown below a
-  // clarification prompt. Stored here (rather than in the transient progress reporter)
-  // because the pause is created in one request and resolved in another, so this is the only handle
-  // both halves share. Deleted when the record leaves 'pending'. See awaiting-indicator.ts.
-  awaitingMessageId?: number;
   // Telegram message_id of the rich clarification details block. Undefined for plain fallback.
   clarificationMessageId?: number;
   status: PendingClarificationStatus;
@@ -41,12 +36,15 @@ export interface PendingClarificationRecord {
 export interface PendingClarificationStore {
   get(pendingKey: string): Promise<PendingClarificationRecord | undefined>;
   save(record: PendingClarificationRecord): Promise<void>;
-  // Attaches the "Awaiting…" indicator's Telegram message_id to an existing pending record. Called
-  // by the handler after it sends the indicator (the id isn't known when save() first persists the
-  // record). No-op if the record is missing or no longer 'pending'.
-  attachAwaitingMessageId(pendingKey: string, messageId: number): Promise<void>;
   attachClarificationMessageId(pendingKey: string, messageId: number): Promise<void>;
   clear(pendingKey: string, status: Exclude<PendingClarificationStatus, 'pending'>): Promise<void>;
+  // Marks ALL still-'pending' records for a given Telegram user with the supplied terminal
+  // status. Used by /cancel as a per-user reset out of a stuck HITL pause — unlike clear(),
+  // which targets a single pendingKey. No-op if the user has no pending records.
+  clearAllForUser(
+    telegramUserId: number,
+    status: Exclude<PendingClarificationStatus, 'pending'>,
+  ): Promise<void>;
   // Marks all still-'pending' records whose expiresAt has passed as 'expired'. Intended to
   // be called on a timer / gate-timeout — NOT on the read path, which already filters on
   // expiresAt so resumption is impossible regardless of the stored status.
@@ -78,14 +76,6 @@ export class MemoryPendingClarificationStore implements PendingClarificationStor
     });
   }
 
-  async attachAwaitingMessageId(pendingKey: string, messageId: number): Promise<void> {
-    const record = this.records.get(pendingKey);
-    if (record?.status === 'pending') {
-      record.awaitingMessageId = messageId;
-      record.updatedAt = Date.now();
-    }
-  }
-
   async attachClarificationMessageId(pendingKey: string, messageId: number): Promise<void> {
     const record = this.records.get(pendingKey);
     if (record?.status === 'pending') {
@@ -96,6 +86,19 @@ export class MemoryPendingClarificationStore implements PendingClarificationStor
 
   async clear(pendingKey: string, _status: Exclude<PendingClarificationStatus, 'pending'>): Promise<void> {
     this.records.delete(pendingKey);
+  }
+
+  // Like clear(), the memory store has no durable status to flip, so it simply drops every
+  // record belonging to the user. Matching is by the stored telegramUserId.
+  async clearAllForUser(
+    telegramUserId: number,
+    _status: Exclude<PendingClarificationStatus, 'pending'>,
+  ): Promise<void> {
+    for (const [key, record] of this.records) {
+      if (record.telegramUserId === telegramUserId) {
+        this.records.delete(key);
+      }
+    }
   }
 
   // Memory store has no durable status to flip; pruning expired entries keeps the Map small.
@@ -129,7 +132,7 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
     const result = await this.pool.query(
       `
         SELECT pending_key, thread_id, question, telegram_user_id, chat_id, user_id,
-               request_id, interrupt_type, awaiting_message_id, clarification_message_id,
+               request_id, interrupt_type, clarification_message_id,
                status, created_at, updated_at, expires_at
         FROM telegram_pending_clarifications
         WHERE pending_key = $1
@@ -152,7 +155,6 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
       userId: row.user_id,
       requestId: row.request_id ?? undefined,
       interruptType: row.interrupt_type ?? undefined,
-      awaitingMessageId: row.awaiting_message_id === null ? undefined : Number(row.awaiting_message_id),
       clarificationMessageId: row.clarification_message_id === null
         ? undefined
         : Number(row.clarification_message_id),
@@ -169,10 +171,10 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
       `
         INSERT INTO telegram_pending_clarifications (
           pending_key, thread_id, question, telegram_user_id, chat_id, user_id,
-          request_id, interrupt_type, awaiting_message_id, clarification_message_id,
+          request_id, interrupt_type, clarification_message_id,
           status, created_at, updated_at, expires_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', $11, NOW(), $12)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', $10, NOW(), $11)
         ON CONFLICT (pending_key)
         DO UPDATE SET
           thread_id = EXCLUDED.thread_id,
@@ -182,7 +184,6 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
           user_id = EXCLUDED.user_id,
           request_id = EXCLUDED.request_id,
           interrupt_type = EXCLUDED.interrupt_type,
-          awaiting_message_id = EXCLUDED.awaiting_message_id,
           clarification_message_id = EXCLUDED.clarification_message_id,
           status = 'pending',
           updated_at = NOW(),
@@ -197,25 +198,10 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
         record.userId,
         record.requestId ?? null,
         record.interruptType ?? null,
-        record.awaitingMessageId ?? null,
         record.clarificationMessageId ?? null,
         new Date(record.createdAt),
         new Date(record.expiresAt),
       ],
-    );
-  }
-
-  async attachAwaitingMessageId(pendingKey: string, messageId: number): Promise<void> {
-    await this.ensureTable();
-    await this.pool.query(
-      `
-        UPDATE telegram_pending_clarifications
-        SET awaiting_message_id = $2,
-            updated_at = NOW()
-        WHERE pending_key = $1
-          AND status = 'pending'
-      `,
-      [pendingKey, messageId],
     );
   }
 
@@ -247,6 +233,23 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
     );
   }
 
+  async clearAllForUser(
+    telegramUserId: number,
+    status: Exclude<PendingClarificationStatus, 'pending'>,
+  ): Promise<void> {
+    await this.ensureTable();
+    await this.pool.query(
+      `
+        UPDATE telegram_pending_clarifications
+        SET status = $2,
+            updated_at = NOW()
+        WHERE telegram_user_id = $1
+          AND status = 'pending'
+      `,
+      [telegramUserId, status],
+    );
+  }
+
   private async ensureTable(): Promise<void> {
     if (!this.setupPromise) {
       this.setupPromise = this.pool.query(`
@@ -259,7 +262,6 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
           user_id TEXT NOT NULL,
           request_id TEXT,
           interrupt_type TEXT,
-          awaiting_message_id BIGINT,
           clarification_message_id BIGINT,
           status TEXT NOT NULL DEFAULT 'pending',
           created_at TIMESTAMPTZ NOT NULL,
@@ -270,11 +272,6 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
         this.pool.query(`
           ALTER TABLE telegram_pending_clarifications
             ADD COLUMN IF NOT EXISTS interrupt_type TEXT
-        `)
-      ).then(() =>
-        this.pool.query(`
-          ALTER TABLE telegram_pending_clarifications
-            ADD COLUMN IF NOT EXISTS awaiting_message_id BIGINT
         `)
       ).then(() =>
         this.pool.query(`
