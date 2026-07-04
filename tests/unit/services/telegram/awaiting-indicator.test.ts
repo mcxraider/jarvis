@@ -6,10 +6,12 @@ import {
   __resetAwaitingIndicatorsForTest,
 } from '../../../../src/services/telegram/awaiting-indicator';
 import { setRichMessagesEnabled } from '../../../../src/services/telegram/formatters/telegram-rich';
+import { logger } from '../../../../src/utils/logger';
 
 // Must match the module constants (kept in sync deliberately — the module doesn't export them).
 const KEEPALIVE_MS = 15_000;
 const MAX_MS = 30 * 60 * 1000;
+const MAX_FAILURES = 3;
 
 describe('awaiting-indicator', () => {
   afterEach(() => {
@@ -89,6 +91,63 @@ describe('awaiting-indicator', () => {
 
       await jest.advanceTimersByTimeAsync(KEEPALIVE_MS);
       expect(ctx.telegram.callApi).toHaveBeenCalledTimes(3);
+    });
+
+    it('handles a non-Error keepalive rejection without leaking an unhandled rejection', async () => {
+      jest.useFakeTimers();
+      setRichMessagesEnabled(true);
+      const ctx = richCtx();
+      const warn = jest.spyOn(logger, 'warn').mockImplementation();
+      ctx.telegram.callApi
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(undefined);
+
+      await showAwaitingIndicator(ctx, 'gate-rich', 'clarify');
+      await expect(jest.advanceTimersByTimeAsync(KEEPALIVE_MS)).resolves.toBeUndefined();
+
+      expect(warn).toHaveBeenCalledWith(
+        'telegram.awaiting.keepalive_failed',
+        expect.objectContaining({
+          gateKey: 'gate-rich',
+          failures: 1,
+          error: 'undefined',
+        }),
+      );
+    });
+
+    it('stops refreshing after the maximum consecutive keepalive failures', async () => {
+      jest.useFakeTimers();
+      setRichMessagesEnabled(true);
+      const ctx = richCtx();
+      jest.spyOn(logger, 'warn').mockImplementation();
+      ctx.telegram.callApi
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValue(new Error('transport down'));
+
+      await showAwaitingIndicator(ctx, 'gate-rich', 'confirm');
+      await jest.advanceTimersByTimeAsync(KEEPALIVE_MS * (MAX_FAILURES + 2));
+
+      expect(ctx.telegram.callApi).toHaveBeenCalledTimes(1 + MAX_FAILURES);
+    });
+
+    it('resets the consecutive failure count after a successful refresh', async () => {
+      jest.useFakeTimers();
+      setRichMessagesEnabled(true);
+      const ctx = richCtx();
+      jest.spyOn(logger, 'warn').mockImplementation();
+      ctx.telegram.callApi
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('failure 1'))
+        .mockRejectedValueOnce(new Error('failure 2'))
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('failure 3'))
+        .mockRejectedValueOnce(new Error('failure 4'))
+        .mockResolvedValueOnce(undefined);
+
+      await showAwaitingIndicator(ctx, 'gate-rich', 'confirm');
+      await jest.advanceTimersByTimeAsync(KEEPALIVE_MS * 5);
+
+      expect(ctx.telegram.callApi).toHaveBeenCalledTimes(6);
     });
 
     it('stopAwaitingIndicator halts further keepalive sends', async () => {

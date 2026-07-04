@@ -1,5 +1,6 @@
 import { TelegramProgressReporter } from '../../../../src/services/telegram/telegram-progress-reporter';
 import { setRichMessagesEnabled } from '../../../../src/services/telegram/formatters/telegram-rich';
+import { logger } from '../../../../src/utils/logger';
 
 const DOT_INTERVAL_MS = 800;
 
@@ -13,6 +14,7 @@ describe('TelegramProgressReporter', () => {
     setRichMessagesEnabled(false);
     jest.clearAllTimers();
     jest.useRealTimers();
+    jest.restoreAllMocks();
   });
 
   function createContext() {
@@ -260,6 +262,26 @@ describe('TelegramProgressReporter', () => {
 
       await reporter.complete('Done');
       expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(123, 77);
+    });
+
+    it('handles a non-Error rejection from a detached rich animation tick', async () => {
+      setRichMessagesEnabled(true);
+      const ctx = createRichContext();
+      const warn = jest.spyOn(logger, 'warn').mockImplementation();
+      ctx.telegram.callApi
+        .mockResolvedValueOnce(true)
+        .mockRejectedValueOnce(undefined);
+      const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
+
+      await reporter.start();
+      await expect(jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS)).resolves.toBeUndefined();
+
+      expect(warn).toHaveBeenCalledWith(
+        'telegram.rich.fallback',
+        expect.objectContaining({ stage: 'progress.update', error: 'undefined' }),
+      );
+      expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.\\.', { parse_mode: 'MarkdownV2' });
+      await reporter.complete('Done');
     });
   });
 });
