@@ -45,7 +45,7 @@ export class CommandHandlers {
       `• Text — send a message and I'll handle it (task management via Todoist)\n` +
       `• Voice — send a voice note and I'll transcribe + act on it\n` +
       `• Audio files — OGG, MP3, WAV, M4A supported\n` +
-      `• Unsupported media — images, stickers, GIFs, and round videos are rejected`;
+      `• Unsupported media — images, stickers, GIFs, and Telebubbles are rejected`;
 
     await replyWithMarkdown(ctx.reply.bind(ctx), helpMessage, { userId });
   }
@@ -102,7 +102,7 @@ export class CommandHandlers {
     logger.info('conversation_gate.manual_cancel', {
       userId, chatId, gateKey, previousStatus: status,
     });
-    await ctx.reply('Cancelled. You can send a new message now.');
+    await ctx.reply('Conversation cancelled. Let me know what you you\'d like to do next!');
   }
 
 }
