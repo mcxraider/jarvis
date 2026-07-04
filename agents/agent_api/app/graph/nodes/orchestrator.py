@@ -3,8 +3,6 @@
 import copy
 import json
 import os
-import re
-import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -300,43 +298,6 @@ class DeepSeekAgentClient:
         return status_code if isinstance(status_code, int) else None
 
 
-_CLARIFICATION_PATTERNS = [
-    "could you clarify",
-    "could you specify",
-    "could you tell me",
-    "can you tell me",
-    "what would you like",
-    "which one do you",
-    "do you want me to",
-    "would you like me to",
-    "please provide",
-    "i need more information",
-    "can you provide",
-]
-
-
-def _looks_like_question(content: str) -> bool:
-    """Detect text-only responses that are actually clarification questions.
-
-    The system prompt forbids asking questions in ANSWER (text-only responses).
-    A bare "?" in a completion summary (e.g. a task named "meet jon maybe?") is
-    not a question — we only treat "?" as meaningful when it ends a sentence:
-    at end-of-text, before a newline, or before whitespace+uppercase (new sentence).
-    Markdown bold/italic markers are stripped first to avoid false positives from
-    task names like **"meeting tomorrow?"** embedded in a success summary.
-    """
-    if not content:
-        return False
-    stripped = content.strip()
-    if not stripped:
-        return False
-    plain = re.sub(r'\*+', '', stripped)
-    if re.search(r'\?(?:\s*$|\s*\n|\s+[A-Z])', plain):
-        return True
-    lower = stripped.lower()
-    return any(p in lower for p in _CLARIFICATION_PATTERNS)
-
-
 def create_agent_node(
     agent_client: Any,
     registry: ToolRegistry,
@@ -410,37 +371,14 @@ def create_agent_node(
 
         if not assistant_message.get("tool_calls"):
             content = assistant_message.get("content") or ""
-            if _looks_like_question(content):
-                synthetic_id = f"synthetic_ask_user_{uuid.uuid4().hex[:8]}"
-                synthetic_tool_call = {
-                    "id": synthetic_id,
-                    "type": "function",
-                    "function": {
-                        "name": "ask_user",
-                        "arguments": json.dumps({
-                            "question": content,
-                            "reason": "Auto-converted from text response containing a question.",
-                        }),
-                    },
-                }
-                assistant_message["tool_calls"] = [synthetic_tool_call]
-                assistant_message["content"] = None
-                messages[-1] = assistant_message
-                next_node = "hitl"
-                tracer.event(
-                    "graph.hitl_upgrade",
-                    "Converted text question to ask_user tool call.",
-                    question_preview=content[:100],
+            final_response = content
+            tracer.payload("agent.final", "content", final_response)
+            run_log = getattr(tracer, "run_log", None)
+            if run_log is not None:
+                run_log.write_messages_dump(
+                    "final_turn_input (context sent to LLM on ANSWER turn)",
+                    messages[:-1],
                 )
-            else:
-                final_response = content
-                tracer.payload("agent.final", "content", final_response)
-                run_log = getattr(tracer, "run_log", None)
-                if run_log is not None:
-                    run_log.write_messages_dump(
-                        "final_turn_input (context sent to LLM on ANSWER turn)",
-                        messages[:-1],
-                    )
         else:
             tool_calls = assistant_message.get("tool_calls") or []
             if any(is_ask_user_tool_call(tc) for tc in tool_calls):
