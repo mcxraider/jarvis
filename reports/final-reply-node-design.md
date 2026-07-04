@@ -7,19 +7,18 @@ Status: Proposal / design doc (not yet implemented)
 
 Today the LangGraph agent produces the text that gets sent to the user **as a
 side effect of the `agent` node**. When DeepSeek returns a message with no tool
-calls and the content does not look like a question, the orchestrator simply
-copies the raw model content into state and exits:
+calls, the orchestrator copies the raw model content into state and exits:
 
 ```python
 # agents/agent_api/app/graph/nodes/orchestrator.py  (~line 411-436)
 if not assistant_message.get("tool_calls"):
     content = assistant_message.get("content") or ""
-    if _looks_like_question(content):
-        ...                       # convert to ask_user -> hitl
-    else:
-        final_response = content  # <-- raw model text becomes the user reply
-        next_node = "end"
+    final_response = content  # <-- raw model text becomes the user reply
+    next_node = "end"
 ```
+
+Question-like text is not upgraded automatically. The model must issue an
+explicit `ask_user` tool call when it needs a reply.
 
 `to_response()` then packages `final_response` verbatim into the API response,
 and the TypeScript service renders it to Telegram (MarkdownV2, splitting, rich

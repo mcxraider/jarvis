@@ -640,6 +640,24 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(result["final_response"], "Hello.")
         self.assertEqual(result["tool_results"], [])
 
+    def test_question_like_text_is_a_final_response(self) -> None:
+        responses = [
+            "Want me to continue?",
+            "Would you like me to continue",
+            "Can you provide the project name",
+        ]
+
+        for response in responses:
+            with self.subTest(response=response):
+                result = self.run_graph_with_fakes(
+                    [{"role": "assistant", "content": response}]
+                )
+
+                self.assertEqual(result["final_response"], response)
+                self.assertEqual(result["next"], "end")
+                self.assertNotIn("__interrupt__", result)
+                self.assertFalse(result.get("interrupted", False))
+
     def test_run_jarvis_generates_request_id_when_omitted(self) -> None:
         captured: List[Dict[str, Any]] = []
 
