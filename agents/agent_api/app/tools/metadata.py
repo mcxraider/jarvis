@@ -99,6 +99,12 @@ _REGISTRY: Dict[str, ToolDisplayMeta] = {
         service="todoist",
         highlight_arg="content",
     ),
+    "create_project": ToolDisplayMeta(
+        verb="adding",
+        label="Add project",
+        service="todoist",
+        highlight_arg="name",
+    ),
     "update_todoist_task": ToolDisplayMeta(
         verb="updating",
         label="Update task",
@@ -193,7 +199,9 @@ def needs_event_context_tools() -> frozenset:
 
 # Prior-read ID validation: entity-ID args that must have been surfaced by a prior
 # read before a mutation runs. Tools absent from this map skip validation (fail-open).
-# v1 validates `task_id` only; project/section/parent ids have no read tool to emit them.
+# v1 validates `task_id` only. `get_projects` now surfaces project ids, but project_id
+# grounding is enforced via the prompt rather than structurally, so add_todoist_task can
+# still target the Inbox or a known id without a prior read (see orchestrator prompt).
 _ENTITY_REQUIREMENTS: Dict[str, Tuple[EntityRef, ...]] = {
     "complete_task": (EntityRef("task_id", "task"),),
     "uncomplete_task": (EntityRef("task_id", "task"),),

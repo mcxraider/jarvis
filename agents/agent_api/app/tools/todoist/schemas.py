@@ -18,6 +18,7 @@ MUTATING_TOOL_NAMES = {
     "uncomplete_task",
     "delete_todoist_task",
     "add_comment",
+    "create_project",
 }
 
 
@@ -399,6 +400,66 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
         "additionalProperties": False,
     }
 
+    get_projects_parameters = {
+        "type": "object",
+        "properties": {
+            "search": {
+                "type": "string",
+                "description": (
+                    "Optional case-insensitive substring to filter projects by name "
+                    "(e.g. 'work' matches 'Work', 'Homework'). Omit to return all projects."
+                ),
+            },
+            "cursor": {
+                "type": ["string", "null"],
+                "description": (
+                    "Opaque pagination token from a previous response's next_cursor field. "
+                    "Omit or pass null for the first page. NEVER fabricate a cursor value."
+                ),
+            },
+            "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+        },
+        "required": [],
+        "additionalProperties": False,
+    }
+
+    create_project_parameters = {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Name of the new project.",
+            },
+            "description": {
+                "type": "string",
+                "description": "Optional description for the project. Supports Markdown.",
+            },
+            "parent_id": {
+                "type": "string",
+                "description": "Parent project ID. Set this to nest the project as a sub-project.",
+            },
+            "color": {
+                "type": "string",
+                "description": (
+                    "Color name for the project (e.g. 'berry_red', 'blue', 'green'). "
+                    "Omit to use the Todoist default."
+                ),
+            },
+            "is_favorite": {
+                "type": "boolean",
+                "description": "Whether to mark the project as a favorite.",
+            },
+            "view_style": {
+                "type": "string",
+                "enum": ["list", "board"],
+                "description": "How the project is displayed in Todoist: 'list' or 'board'.",
+            },
+        },
+        "required": ["name"],
+        "additionalProperties": False,
+    }
+
     return [
         {
             "type": "function",
@@ -505,6 +566,26 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
                     "substring."
                 ),
                 "parameters": get_labels_parameters,
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_projects",
+                "description": (
+                    "List the user's Todoist projects, optionally filtered by a name "
+                    "substring. Use this to resolve a project name to its ID before "
+                    "adding a task to that project."
+                ),
+                "parameters": get_projects_parameters,
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "create_project",
+                "description": "Create a new Todoist project.",
+                "parameters": create_project_parameters,
             },
         },
     ]

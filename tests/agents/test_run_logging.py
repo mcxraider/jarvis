@@ -212,6 +212,8 @@ _TODOIST_METHODS = (
     "get_comments",
     "add_comment",
     "get_labels",
+    "get_projects",
+    "create_project",
 )
 
 

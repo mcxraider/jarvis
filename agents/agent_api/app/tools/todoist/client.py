@@ -385,7 +385,21 @@ class TodoistApiClient:
         data = self._request(f"{TODOIST_REST_BASE_URL}/labels{suffix}")
         if search is None:
             return data
-        return _filter_labels_by_name(data, search)
+        return _filter_by_name(data, search)
+
+    def get_projects(self, arguments: Dict[str, Any]) -> Any:
+        arguments = dict(arguments)
+        search = arguments.pop("search", None)
+        params = _query_params(_without_none(arguments))
+        suffix = f"?{params}" if params else ""
+        data = self._request(f"{TODOIST_REST_BASE_URL}/projects{suffix}")
+        if search is None:
+            return data
+        return _filter_by_name(data, search)
+
+    def create_project(self, arguments: Dict[str, Any]) -> Any:
+        payload = _without_none(arguments)
+        return self._request(f"{TODOIST_REST_BASE_URL}/projects", "POST", payload)
 
 
 def _without_none(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -418,9 +432,10 @@ def _validate_comment_target(data: Dict[str, Any]) -> None:
         raise ValueError("add_comment requires exactly one of task_id or project_id")
 
 
-def _filter_labels_by_name(data: Any, search: str) -> Any:
-    """Filter a labels response to names containing ``search`` (case-insensitive).
+def _filter_by_name(data: Any, search: str) -> Any:
+    """Filter a labels/projects response to names containing ``search`` (case-insensitive).
 
+    Works for any resource whose items carry a ``name`` field (labels, projects).
     Handles both the paginated ``{"results": [...], "next_cursor": ...}`` shape and a
     bare list, so the tool keeps working if the API response shape varies.
     """

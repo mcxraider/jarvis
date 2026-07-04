@@ -16,12 +16,14 @@ def _build_registry() -> ToolRegistry:
         ("get_completed_todoist_tasks_by_completion_date", False),
         ("get_comments", False),
         ("get_labels", False),
+        ("get_projects", False),
         ("add_todoist_task", True),
         ("update_todoist_task", True),
         ("complete_task", True),
         ("uncomplete_task", True),
         ("delete_todoist_task", True),
         ("add_comment", True),
+        ("create_project", True),
     ]
     specs = [
         ToolSpec(
@@ -104,6 +106,26 @@ class TestKeywordMatching:
         assert "get_comments" in result
         assert "add_comment" in result
 
+class TestProjectIntent:
+    def setup_method(self):
+        self.registry = _build_registry()
+        self.selector = KeywordToolSelector(allow_mutations=True)
+
+    def test_list_projects_maps_to_read(self):
+        result = _selected_names(
+            self.selector.select_schemas("what projects do i have", self.registry)
+        )
+        assert "get_projects" in result
+        assert "create_project" not in result
+
+    def test_create_project_pairs_read_and_write(self):
+        result = _selected_names(
+            self.selector.select_schemas("create a project called Reading", self.registry)
+        )
+        assert "get_projects" in result
+        assert "create_project" in result
+
+
 class TestMultiIntent:
     def setup_method(self):
         self.registry = _build_registry()
@@ -127,11 +149,11 @@ class TestFallback:
         result = _selected_names(
             self.selector.select_schemas("hello how are you", self.registry)
         )
-        assert len(result) == 13
+        assert len(result) == 15
 
     def test_ambiguous_returns_all(self):
         result = _selected_names(self.selector.select_schemas("tasks", self.registry))
-        assert len(result) == 13
+        assert len(result) == 15
 
 
 class TestMutationFilter:
@@ -158,7 +180,7 @@ class TestMutationFilter:
         # Actually: when fallback fires, we return ALL tools. The mutation filter
         # only applies when keywords DID match. This is intentional — the dispatcher
         # enforces mutations, the selector is just prompt hygiene.
-        assert len(result) == 13
+        assert len(result) == 15
 
 
 class TestAlwaysInclude:
@@ -227,7 +249,7 @@ class TestEmptyQuery:
 
     def test_empty_string_falls_back_to_all(self):
         result = _selected_names(self.selector.select_schemas("", self.registry))
-        assert len(result) == 13
+        assert len(result) == 15
 
 
 class TestFactory:

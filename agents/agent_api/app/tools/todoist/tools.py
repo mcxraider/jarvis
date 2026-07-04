@@ -101,6 +101,8 @@ def get_todoist_tool_specs(todoist_client: Any) -> List[ToolSpec]:
         "get_comments": todoist_client.get_comments,
         "add_comment": todoist_client.add_comment,
         "get_labels": todoist_client.get_labels,
+        "get_projects": todoist_client.get_projects,
+        "create_project": todoist_client.create_project,
     }
     return [
         ToolSpec(
@@ -343,6 +345,46 @@ def build_todoist_langchain_tools(dispatch: DispatchFn) -> List[Any]:
             {"search": search, "cursor": cursor, "limit": limit},
         )
 
+    @tool
+    def get_projects(
+        tool_call_id: Annotated[str, InjectedToolCallId],
+        search: Optional[str] = None,
+        cursor: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """List the user's Todoist projects, optionally filtered by name."""
+
+        return dispatch(
+            tool_call_id,
+            "get_projects",
+            {"search": search, "cursor": cursor, "limit": limit},
+        )
+
+    @tool
+    def create_project(
+        name: str,
+        tool_call_id: Annotated[str, InjectedToolCallId],
+        description: Optional[str] = None,
+        parent_id: Optional[str] = None,
+        color: Optional[str] = None,
+        is_favorite: Optional[bool] = None,
+        view_style: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a new Todoist project."""
+
+        return dispatch(
+            tool_call_id,
+            "create_project",
+            {
+                "name": name,
+                "description": description,
+                "parent_id": parent_id,
+                "color": color,
+                "is_favorite": is_favorite,
+                "view_style": view_style,
+            },
+        )
+
     return [
         add_todoist_task,
         get_todoist_task,
@@ -356,6 +398,8 @@ def build_todoist_langchain_tools(dispatch: DispatchFn) -> List[Any]:
         get_comments,
         add_comment,
         get_labels,
+        get_projects,
+        create_project,
     ]
 
 
