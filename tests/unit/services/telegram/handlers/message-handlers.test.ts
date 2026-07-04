@@ -455,7 +455,7 @@ describe('MessageHandlers', () => {
   });
 
   describe('Awaiting… indicator lifecycle', () => {
-    it('sends an Awaiting indicator and records its id when a confirm pause is raised', async () => {
+    it('does not send or record an Awaiting indicator when a confirm pause is raised', async () => {
       const messageProcessor = {
         processTextMessage: jest.fn().mockResolvedValue({
           response: 'Delete 5 tasks?',
@@ -469,13 +469,15 @@ describe('MessageHandlers', () => {
 
       await handlers.handleText(ctx);
 
-      // Confirm message carries the inline keyboard...
       expect(ctx.reply).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({ reply_markup: expect.objectContaining({ inline_keyboard: expect.anything() }) }),
       );
-      // ...and the indicator's id (77 from the reply mock) is attached to the pending record.
-      expect(pendingStore.attachAwaitingMessageId).toHaveBeenCalledWith(expect.any(String), 77);
+      expect(pendingStore.attachAwaitingMessageId).not.toHaveBeenCalled();
+      expect(ctx.reply).not.toHaveBeenCalledWith(
+        expect.stringContaining('Awaiting confirmation'),
+        expect.anything(),
+      );
     });
 
     it('sends an Awaiting indicator when a clarify pause is raised', async () => {
@@ -518,7 +520,8 @@ describe('MessageHandlers', () => {
       ]);
       const promptCall = ctx.telegram.callApi.mock.calls[1][1];
       const awaitingCall = ctx.telegram.callApi.mock.calls[2][1];
-      expect(promptCall.rich_message.markdown).toContain('Which project?');
+      expect(promptCall.rich_message.markdown).toBe('Which project?');
+      expect(promptCall.rich_message.markdown).not.toContain('Clarification required');
       expect(awaitingCall.rich_message.markdown).toBe('⏳ _Awaiting clarification…_');
       expect(ctx.telegram.callApi.mock.invocationCallOrder[1]).toBeLessThan(
         ctx.telegram.callApi.mock.invocationCallOrder[2],
@@ -526,7 +529,7 @@ describe('MessageHandlers', () => {
       expect(pendingStore.attachAwaitingMessageId).toHaveBeenCalledWith(expect.any(String), 701);
     });
 
-    it('sends a confirmation prompt with buttons before the persistent rich Awaiting message', async () => {
+    it('sends a confirmation prompt with buttons without a rich Awaiting message', async () => {
       setRichMessagesEnabled(true);
       const messageProcessor = {
         processTextMessage: jest.fn().mockResolvedValue({
@@ -541,18 +544,21 @@ describe('MessageHandlers', () => {
 
       await handlers.handleText(ctx);
 
-      const awaitingCallIndex = ctx.telegram.callApi.mock.calls.findIndex(
-        (call: unknown[]) =>
-          call[0] === 'sendRichMessage' &&
-          String((call[1] as any).rich_message.markdown).includes('Awaiting confirmation'),
-      );
-      expect(awaitingCallIndex).toBeGreaterThanOrEqual(0);
       const confirmCall = ctx.reply.mock.calls.findIndex(
         (call: unknown[]) => Boolean((call[1] as any)?.reply_markup?.inline_keyboard),
       );
       expect(confirmCall).toBeGreaterThanOrEqual(0);
-      expect(ctx.reply.mock.invocationCallOrder[confirmCall]).toBeLessThan(
-        ctx.telegram.callApi.mock.invocationCallOrder[awaitingCallIndex],
+      expect(ctx.telegram.callApi.mock.calls).not.toContainEqual([
+        'sendRichMessage',
+        expect.objectContaining({
+          rich_message: expect.objectContaining({
+            markdown: expect.stringContaining('Awaiting'),
+          }),
+        }),
+      ]);
+      expect(ctx.reply).not.toHaveBeenCalledWith(
+        expect.stringContaining('Awaiting confirmation'),
+        expect.anything(),
       );
     });
 

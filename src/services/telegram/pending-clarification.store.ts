@@ -25,8 +25,8 @@ export interface PendingClarificationRecord {
   userId: string;
   requestId?: string;
   interruptType?: PendingInterruptType;
-  // Telegram message_id of the persistent "Awaiting confirmation/clarification" indicator shown
-  // below the confirm/clarify prompt. Stored here (rather than in the transient progress reporter)
+  // Telegram message_id of the persistent "Awaiting clarification" indicator shown below a
+  // clarification prompt. Stored here (rather than in the transient progress reporter)
   // because the pause is created in one request and resolved in another, so this is the only handle
   // both halves share. Deleted when the record leaves 'pending'. See awaiting-indicator.ts.
   awaitingMessageId?: number;

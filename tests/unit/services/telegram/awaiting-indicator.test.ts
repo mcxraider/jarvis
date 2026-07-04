@@ -1,5 +1,5 @@
 import {
-  AWAITING_LABELS,
+  AWAITING_CLARIFICATION_LABEL,
   deleteAwaitingIndicator,
   showAwaitingIndicator,
 } from '../../../../src/services/telegram/awaiting-indicator';
@@ -13,10 +13,9 @@ describe('awaiting-indicator', () => {
     jest.restoreAllMocks();
   });
 
-  describe('AWAITING_LABELS', () => {
-    it('maps each interrupt type to a distinct label', () => {
-      expect(AWAITING_LABELS.confirm).toBe('Awaiting confirmation');
-      expect(AWAITING_LABELS.clarify).toBe('Awaiting clarification');
+  describe('AWAITING_CLARIFICATION_LABEL', () => {
+    it('uses the clarification-only label', () => {
+      expect(AWAITING_CLARIFICATION_LABEL).toBe('Awaiting clarification');
     });
   });
 
@@ -28,7 +27,7 @@ describe('awaiting-indicator', () => {
         reply: jest.fn().mockResolvedValue({ message_id: 77 }),
       } as any;
 
-      const id = await showAwaitingIndicator(ctx, 'gate-plain', 'confirm');
+      const id = await showAwaitingIndicator(ctx, 'gate-plain');
 
       expect(id).toBe(77);
       expect(ctx.reply).toHaveBeenCalledTimes(1);
@@ -41,7 +40,7 @@ describe('awaiting-indicator', () => {
         reply: jest.fn().mockRejectedValue(new Error('blocked')),
       } as any;
 
-      await expect(showAwaitingIndicator(ctx, 'gate-fail', 'confirm')).resolves.toBeUndefined();
+      await expect(showAwaitingIndicator(ctx, 'gate-fail')).resolves.toBeUndefined();
     });
   });
 
@@ -58,13 +57,13 @@ describe('awaiting-indicator', () => {
       setRichMessagesEnabled(true);
       const ctx = richCtx();
 
-      const id = await showAwaitingIndicator(ctx, 'gate-rich', 'confirm');
+      const id = await showAwaitingIndicator(ctx, 'gate-rich');
 
       expect(id).toBe(91);
       expect(ctx.telegram.callApi).toHaveBeenCalledTimes(1);
       expect(ctx.telegram.callApi).toHaveBeenCalledWith('sendRichMessage', {
         chat_id: 1,
-        rich_message: { markdown: '⏳ _Awaiting confirmation…_' },
+        rich_message: { markdown: '⏳ _Awaiting clarification…_' },
       });
       expect(ctx.telegram.callApi).not.toHaveBeenCalledWith('sendRichMessageDraft', expect.anything());
     });
@@ -78,7 +77,7 @@ describe('awaiting-indicator', () => {
         reply: jest.fn().mockResolvedValue({ message_id: 55 }),
       } as any;
 
-      const id = await showAwaitingIndicator(ctx, 'gate-fallback', 'confirm');
+      const id = await showAwaitingIndicator(ctx, 'gate-fallback');
 
       expect(id).toBe(55);
       expect(ctx.reply).toHaveBeenCalled();

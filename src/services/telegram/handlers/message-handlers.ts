@@ -9,7 +9,7 @@ import { createRequestId, LogContext, logger, truncateForLog } from '../../../ut
 import { FileService } from '../file.service';
 import { MessageProcessorService } from '../message-processor.service';
 import { BotActivityService, BotActivityType } from '../bot-activity.service';
-import { formatInterruptReply, sendFinalReply } from '../formatters/telegram-rich';
+import { sendFinalReply } from '../formatters/telegram-rich';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
 import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service';
@@ -423,14 +423,13 @@ export class MessageHandlers {
     if (result.interruptType === 'confirm' && result.threadId) {
       await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
     } else {
-      await sendFinalReply(ctx, formatInterruptReply(result.response, result.interruptType), logContext);
+      await sendFinalReply(ctx, result.response, logContext);
     }
 
-    if (result.interruptType && result.threadId) {
+    if (result.interruptType === 'clarify' && result.threadId) {
       const awaitingMessageId = await showAwaitingIndicator(
         ctx,
         gateKey,
-        result.interruptType,
         logContext,
       );
       if (awaitingMessageId !== undefined) {
