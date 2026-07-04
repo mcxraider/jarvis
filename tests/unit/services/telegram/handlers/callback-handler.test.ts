@@ -349,6 +349,39 @@ describe('CallbackHandler', () => {
     expect(pending?.awaitingMessageId).toBe(88);
   });
 
+  it('persists both rich message ids for a callback-generated clarification', async () => {
+    setRichMessagesEnabled(true);
+    const agentClient = {
+      resume: jest.fn().mockResolvedValue({
+        status: 'interrupted',
+        threadId: 'tg_abc_msg123',
+        response: 'Which project do you mean?',
+        interrupt: { type: 'clarify' },
+        toolResults: [],
+      }),
+    };
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateStore = new MemoryConversationGateStore();
+    await setupWaitingGate(gateStore, pendingStore);
+    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
+    const ctx = makeCtx('confirm:approve:tg_abc_msg123');
+    ctx.telegram.callApi = jest.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ message_id: 901 })
+      .mockResolvedValueOnce({ message_id: 902 });
+
+    await handler.handleCallbackQuery(ctx);
+
+    const richCalls = ctx.telegram.callApi.mock.calls.filter(
+      (call: unknown[]) => call[0] === 'sendRichMessage',
+    );
+    expect(richCalls[0][1].rich_message.markdown).toContain('<details open>');
+    expect(richCalls[1][1].rich_message.markdown).toBe('⏳ _Awaiting clarification…_');
+    const pending = await pendingStore.get(getGateKey());
+    expect(pending?.clarificationMessageId).toBe(901);
+    expect(pending?.awaitingMessageId).toBe(902);
+  });
+
   it.each(['approve', 'decline'])(
     'deletes a legacy confirmation indicator on %s',
     async (decision) => {

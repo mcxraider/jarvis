@@ -1,9 +1,68 @@
 import {
+  collapseClarification,
   isRichMessagesEnabled,
+  renderClarificationBlock,
+  sendClarificationReply,
   sendFinalReply,
   sendRichMessageToChat,
   setRichMessagesEnabled,
 } from '../../../../../src/services/telegram/formatters/telegram-rich';
+
+describe('telegram-rich clarification blocks', () => {
+  afterEach(() => setRichMessagesEnabled(false));
+
+  it('renders the same Markdown question expanded and collapsed', () => {
+    const question = '**Which project?**';
+    expect(renderClarificationBlock(question, true)).toBe(
+      '<details open><summary>Clarification</summary>\n\n**Which project?**\n\n</details>',
+    );
+    expect(renderClarificationBlock(question, false)).toBe(
+      '<details><summary>Clarification</summary>\n\n**Which project?**\n\n</details>',
+    );
+  });
+
+  it('sends an expanded rich clarification and returns its message id', async () => {
+    setRichMessagesEnabled(true);
+    const callApi = jest.fn().mockResolvedValue({ message_id: 42 });
+    const ctx = {
+      chat: { id: 123 },
+      reply: jest.fn(),
+      telegram: { callApi },
+    } as any;
+
+    await expect(sendClarificationReply(ctx, 'Which project?')).resolves.toBe(42);
+    expect(callApi).toHaveBeenCalledWith('sendRichMessage', {
+      chat_id: 123,
+      rich_message: {
+        markdown: '<details open><summary>Clarification</summary>\n\nWhich project?\n\n</details>',
+      },
+    });
+  });
+
+  it('falls back to a plain reply and returns no collapsible id', async () => {
+    setRichMessagesEnabled(true);
+    const ctx = {
+      chat: { id: 123 },
+      reply: jest.fn().mockResolvedValue({ message_id: 1 }),
+      telegram: { callApi: jest.fn().mockRejectedValue(new Error('unsupported')) },
+    } as any;
+
+    await expect(sendClarificationReply(ctx, 'Which project?')).resolves.toBeUndefined();
+    expect(ctx.reply).toHaveBeenCalledWith('Which project?', { parse_mode: 'MarkdownV2' });
+  });
+
+  it('edits the original rich clarification into a collapsed block', async () => {
+    const telegram = { callApi: jest.fn().mockResolvedValue(true) } as any;
+    await collapseClarification(telegram, 123, 42, 'Which project?');
+    expect(telegram.callApi).toHaveBeenCalledWith('editMessageText', {
+      chat_id: 123,
+      message_id: 42,
+      rich_message: {
+        markdown: '<details><summary>Clarification</summary>\n\nWhich project?\n\n</details>',
+      },
+    });
+  });
+});
 
 describe('telegram-rich sendFinalReply', () => {
   afterEach(() => setRichMessagesEnabled(false));

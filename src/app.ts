@@ -171,9 +171,16 @@ conversationGate.setOnExpiry((gateKey, chatId) => {
     .catch(() => {});
   pendingStore
     .get(gateKey)
-    .then((pending) => {
+    .then(async (pending) => {
       if (pending?.awaitingMessageId !== undefined) {
-        return botService.deleteMessage(chatId, pending.awaitingMessageId);
+        await botService.deleteMessage(chatId, pending.awaitingMessageId);
+      }
+      if (pending?.clarificationMessageId !== undefined) {
+        await botService.collapseClarification(
+          chatId,
+          pending.clarificationMessageId,
+          pending.question,
+        );
       }
     })
     .catch(() => {})

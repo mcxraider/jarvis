@@ -32,6 +32,11 @@ type RawTelegram = {
   sendMessage: (chatId: number | string, text: string, options?: unknown) => Promise<Message.TextMessage>;
 };
 
+export function renderClarificationBlock(question: string, expanded: boolean): string {
+  const open = expanded ? ' open' : '';
+  return `<details${open}><summary>Clarification</summary>\n\n${question}\n\n</details>`;
+}
+
 function rawCallApi(
   ctx: Context,
   method: string,
@@ -94,6 +99,50 @@ export async function sendFinalReply(
 
     await replyWithMarkdown(ctx.reply.bind(ctx), chunk, logContext);
   }
+}
+
+/**
+ * Sends a clarification as one expanded rich details block and returns its message id.
+ * Plain-mode and rich-send fallback messages deliberately return undefined because they
+ * cannot later be collapsed with a rich-message edit.
+ */
+export async function sendClarificationReply(
+  ctx: Context,
+  question: string,
+  logContext: object = {},
+): Promise<number | undefined> {
+  if (richEnabled && ctx.chat) {
+    try {
+      const message = await sendRichMessage(ctx, renderClarificationBlock(question, true));
+      return message.message_id;
+    } catch (error) {
+      logger.warn('telegram.rich.fallback', {
+        ...logContext,
+        method: 'sendRichMessage',
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  await replyWithMarkdown(ctx.reply.bind(ctx), question, logContext);
+  return undefined;
+}
+
+/** Collapses a previously sent rich clarification block. */
+export async function collapseClarification(
+  telegram: Telegram,
+  chatId: number,
+  messageId: number,
+  question: string,
+): Promise<void> {
+  const raw = telegram as unknown as RawTelegram;
+  await raw.callApi('editMessageText', {
+    chat_id: chatId,
+    message_id: messageId,
+    rich_message: {
+      markdown: renderClarificationBlock(question, false),
+    },
+  });
 }
 
 /**

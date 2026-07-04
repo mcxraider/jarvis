@@ -1,6 +1,7 @@
 import { CommandHandlers } from '../../../../../src/services/telegram/handlers/command-handlers';
 import { MemoryConversationGateStore } from '../../../../../src/services/telegram/conversation-gate.store';
 import { MemoryPendingClarificationStore } from '../../../../../src/services/telegram/pending-clarification.store';
+import { buildConversationKey } from '../../../../../src/services/telegram/conversation-key';
 
 describe('CommandHandlers', () => {
   function createContext() {
@@ -81,5 +82,53 @@ describe('CommandHandlers', () => {
     await handlers.handleStatus(ctx);
 
     expect(ctx.reply).toHaveBeenCalledWith('degraded status', { parse_mode: 'MarkdownV2' });
+  });
+
+  it('deletes and collapses a pending clarification on /cancel', async () => {
+    const activityService = createActivityService();
+    const statusService = { getFormattedStatus: jest.fn() } as any;
+    const gateStore = new MemoryConversationGateStore();
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    const now = Date.now();
+    await gateStore.tryAcquire(gateKey, 60000);
+    await gateStore.transitionToWaiting(gateKey, 60000);
+    await pendingStore.save({
+      pendingKey: gateKey,
+      threadId: 'thread-1',
+      question: 'Which project?',
+      telegramUserId: 123,
+      chatId: 456,
+      userId: 'telegram:123',
+      interruptType: 'clarify',
+      awaitingMessageId: 10,
+      clarificationMessageId: 11,
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + 60000,
+    });
+    const handlers = new CommandHandlers(activityService, statusService, gateStore, pendingStore);
+    const ctx = {
+      from: { id: 123, username: 'tester' },
+      chat: { id: 456 },
+      reply: jest.fn().mockResolvedValue(undefined),
+      telegram: {
+        deleteMessage: jest.fn().mockResolvedValue(true),
+        callApi: jest.fn().mockResolvedValue(true),
+      },
+    } as any;
+
+    await handlers.handleCancel(ctx);
+
+    expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 10);
+    expect(ctx.telegram.callApi).toHaveBeenCalledWith('editMessageText', {
+      chat_id: 456,
+      message_id: 11,
+      rich_message: {
+        markdown: '<details><summary>Clarification</summary>\n\nWhich project?\n\n</details>',
+      },
+    });
+    expect(await pendingStore.get(gateKey)).toBeUndefined();
   });
 });
