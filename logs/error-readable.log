@@ -1141,3 +1141,8 @@
     {
       "error": "Bot is not running!"
     }
+[2026-07-04 19:10:03] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
