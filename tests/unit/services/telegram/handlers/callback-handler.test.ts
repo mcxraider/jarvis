@@ -321,10 +321,7 @@ describe('CallbackHandler', () => {
     expect(await gateStore.getStatus(gateKey)).toBe('waiting_for_clarification');
   });
 
-  // Regression: a clarify raised straight after a confirm-button tap flows through this
-  // callback path, which previously sent the question verbatim and dropped the
-  // "Clarification required" header the typed-message path always adds.
-  it('prefixes the clarification header when resume returns a clarify interrupt', async () => {
+  it('sends a callback-generated clarification verbatim without a redundant header', async () => {
     const agentClient = {
       resume: jest.fn().mockResolvedValue({
         status: 'interrupted',
@@ -346,12 +343,14 @@ describe('CallbackHandler', () => {
     const clarifyReply = (ctx.reply as jest.Mock).mock.calls
       .map((call) => String(call[0]))
       .find((text) => text.includes('Which project do you mean?'));
-    expect(clarifyReply).toBeDefined();
-    expect(clarifyReply).toContain('Clarification required');
+    expect(clarifyReply).toBe('Which project do you mean?');
+    expect(clarifyReply).not.toContain('Clarification required');
+    const pending = await pendingStore.get(getGateKey());
+    expect(pending?.awaitingMessageId).toBe(88);
   });
 
   it.each(['approve', 'decline'])(
-    'deletes the Awaiting confirmation indicator on %s',
+    'deletes a legacy confirmation indicator on %s',
     async (decision) => {
       const agentClient = {
         resume: jest.fn().mockResolvedValue({
@@ -399,7 +398,7 @@ describe('CallbackHandler', () => {
     expect(ctx.telegram.deleteMessage).not.toHaveBeenCalledWith(100, 777);
   });
 
-  it('shows a fresh indicator and records its id when the resume re-interrupts', async () => {
+  it('does not record a fresh indicator when the resume re-interrupts for confirmation', async () => {
     const agentClient = {
       resume: jest.fn().mockResolvedValue({
         status: 'interrupted',
@@ -418,13 +417,13 @@ describe('CallbackHandler', () => {
 
     await handler.handleCallbackQuery(ctx);
 
-    // Old indicator torn down, new one's id (88 from the reply mock) recorded on the fresh record.
+    // A legacy indicator is still cleaned up, but the new confirmation pause has none.
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(100, 777);
     const pending = await pendingStore.get(getGateKey());
-    expect(pending?.awaitingMessageId).toBe(88);
+    expect(pending?.awaitingMessageId).toBeUndefined();
   });
 
-  it('sends a callback-triggered re-interrupt prompt before its persistent Awaiting message', async () => {
+  it('sends a callback-triggered confirmation re-interrupt without an Awaiting message', async () => {
     setRichMessagesEnabled(true);
     const agentClient = {
       resume: jest.fn().mockResolvedValue({
@@ -444,18 +443,19 @@ describe('CallbackHandler', () => {
 
     await handler.handleCallbackQuery(ctx);
 
-    const awaitingCallIndex = ctx.telegram.callApi.mock.calls.findIndex(
-      (call: unknown[]) =>
-        call[0] === 'sendRichMessage' &&
-        String((call[1] as any).rich_message.markdown).includes('Awaiting confirmation'),
-    );
     const reInterruptPromptIndex = ctx.reply.mock.calls.findIndex(
       (call: unknown[]) => Boolean((call[1] as any)?.reply_markup?.inline_keyboard),
     );
-    expect(awaitingCallIndex).toBeGreaterThanOrEqual(0);
     expect(reInterruptPromptIndex).toBeGreaterThanOrEqual(0);
-    expect(ctx.reply.mock.invocationCallOrder[reInterruptPromptIndex]).toBeLessThan(
-      ctx.telegram.callApi.mock.invocationCallOrder[awaitingCallIndex],
-    );
+    expect(ctx.telegram.callApi.mock.calls).not.toContainEqual([
+      'sendRichMessage',
+      expect.objectContaining({
+        rich_message: expect.objectContaining({
+          markdown: expect.stringContaining('Awaiting'),
+        }),
+      }),
+    ]);
+    const pending = await pendingStore.get(getGateKey());
+    expect(pending?.awaitingMessageId).toBeUndefined();
   });
 });

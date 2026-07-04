@@ -1,22 +1,9 @@
 import {
-  CLARIFICATION_HEADER,
-  formatInterruptReply,
   isRichMessagesEnabled,
   sendFinalReply,
   sendRichMessageToChat,
   setRichMessagesEnabled,
 } from '../../../../../src/services/telegram/formatters/telegram-rich';
-
-describe('formatInterruptReply', () => {
-  it('prepends the clarification header for clarify interrupts', () => {
-    expect(formatInterruptReply('Which one?', 'clarify')).toBe(`${CLARIFICATION_HEADER}\n\nWhich one?`);
-  });
-
-  it('leaves confirm and final replies untouched', () => {
-    expect(formatInterruptReply('Delete 5 tasks?', 'confirm')).toBe('Delete 5 tasks?');
-    expect(formatInterruptReply('All done.', undefined)).toBe('All done.');
-  });
-});
 
 describe('telegram-rich sendFinalReply', () => {
   afterEach(() => setRichMessagesEnabled(false));

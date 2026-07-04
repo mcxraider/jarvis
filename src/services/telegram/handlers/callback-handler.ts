@@ -2,7 +2,7 @@ import { Context } from 'telegraf';
 import { createRequestId, logger, LogContext } from '../../../utils/logger';
 import { LangGraphAgentClient, LangGraphAgentResponse } from '../../ai/langgraph-agent-client.service';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
-import { formatInterruptReply, sendFinalReply } from '../formatters/telegram-rich';
+import { sendFinalReply } from '../formatters/telegram-rich';
 import { PendingClarificationRecord, PendingClarificationStore } from '../pending-clarification.store';
 import { ConversationGateStore } from '../conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
@@ -144,32 +144,27 @@ export class CallbackHandler {
         if (interruptType === 'confirm') {
           await this.sendConfirmReply(ctx, agentResponse.response, agentResponse.threadId, requestId);
         } else {
-          await sendFinalReply(ctx, formatInterruptReply(agentResponse.response, interruptType), {
+          await sendFinalReply(ctx, agentResponse.response, {
             requestId,
           });
-        }
-        const awaitingMessageId = await showAwaitingIndicator(
-          ctx,
-          gateKey,
-          interruptType,
-          logContext,
-        );
-        if (awaitingMessageId !== undefined) {
-          await this.pendingStore.attachAwaitingMessageId(gateKey, awaitingMessageId).catch(async (error) => {
-            logger.warn('telegram.awaiting.attach_failed', {
-              ...logContext,
-              error: error instanceof Error ? error.message : String(error),
+          const awaitingMessageId = await showAwaitingIndicator(ctx, gateKey, logContext);
+          if (awaitingMessageId !== undefined) {
+            await this.pendingStore.attachAwaitingMessageId(gateKey, awaitingMessageId).catch(async (error) => {
+              logger.warn('telegram.awaiting.attach_failed', {
+                ...logContext,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              if (chatId !== undefined) {
+                await deleteAwaitingIndicator(ctx.telegram, chatId, awaitingMessageId, logContext);
+              }
             });
-            if (chatId !== undefined) {
-              await deleteAwaitingIndicator(ctx.telegram, chatId, awaitingMessageId, logContext);
-            }
-          });
+          }
         }
         logger.info('telegram.interrupt.prompt_presented', {
           ...logContext,
           gateKey,
           interruptType,
-          presentationOrder: 'prompt_then_awaiting',
+          presentationOrder: interruptType === 'clarify' ? 'prompt_then_awaiting' : 'prompt_only',
         });
       } else {
         const buffered = await this.conversationGate.getAndClearBufferedMessage(gateKey).catch(() => undefined);
