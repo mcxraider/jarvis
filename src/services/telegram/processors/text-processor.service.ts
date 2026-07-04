@@ -22,7 +22,8 @@ export interface TextProcessorResult {
   // message_id of an "Awaiting…" indicator that this turn consumed (i.e. the pending record it
   // resolved or superseded carried one). The handler deletes it — the processor stays
   // Telegram-agnostic. Undefined when no pending record was consumed or it had no indicator.
-  // Only set for plain-mode indicators; rich-mode indicators are drafts with no message_id.
+  // Set for either persistent rich or plain indicators when no immediate acceptance hook handled
+  // deletion (for example, a /new supersede path).
   consumedAwaitingMessageId?: number;
   // True when this turn resolved or superseded a pending pause (a pending record left 'pending').
   // The handler uses this to distinguish a consumed plain indicator id from unrelated result data.
@@ -32,6 +33,8 @@ export interface TextProcessorResult {
 export interface TextProcessorOptions {
   gatePreAcquired?: boolean;
   pendingClarificationPreReserved?: boolean;
+  onPendingPauseAccepted?: (messageId: number) => void | Promise<void>;
+  pendingPauseAcceptedNotified?: boolean;
   // When set, abandon any pending clarify/confirm interrupt for this conversation and start
   // a brand-new agent thread for `text`. Used by the /new command. If the agent is actively
   // running (not just waiting on the user), the request is refused rather than started
@@ -100,7 +103,11 @@ export class TextProcessorService {
           userId,
           logContext,
           onProgress,
-          { alreadyRunning: true },
+          {
+            alreadyRunning: true,
+            onPendingPauseAccepted: options.onPendingPauseAccepted,
+            pendingPauseAcceptedNotified: options.pendingPauseAcceptedNotified,
+          },
         );
       }
 
@@ -142,7 +149,16 @@ export class TextProcessorService {
             logger.warn('conversation_gate.inconsistent_state', { ...logContext, gateKey });
             await this.conversationGate.release(gateKey).catch(() => {});
           } else {
-            return await this.handlePendingClarification(text, pending, gateKey, internalUserId, userId, logContext, onProgress);
+            return await this.handlePendingClarification(
+              text,
+              pending,
+              gateKey,
+              internalUserId,
+              userId,
+              logContext,
+              onProgress,
+              { onPendingPauseAccepted: options?.onPendingPauseAccepted },
+            );
           }
         }
 
@@ -264,7 +280,11 @@ export class TextProcessorService {
     userId: number | undefined,
     logContext: LogContext,
     onProgress?: LangGraphProgressCallback,
-    options?: { alreadyRunning?: boolean },
+    options?: {
+      alreadyRunning?: boolean;
+      onPendingPauseAccepted?: (messageId: number) => void | Promise<void>;
+      pendingPauseAcceptedNotified?: boolean;
+    },
   ): Promise<TextProcessorResult> {
     if (pending.interruptType === 'confirm' && !this.isConfirmDecision(text)) {
       if (options?.alreadyRunning) {
@@ -281,6 +301,21 @@ export class TextProcessorService {
       const transitioned = await this.conversationGate.transitionToRunning(gateKey, this.runningTtlMs);
       if (!transitioned) {
         return { response: "I'm already processing your response. Please wait." };
+      }
+    }
+
+    let awaitingIndicatorHandled = options?.pendingPauseAcceptedNotified ?? false;
+    if (!awaitingIndicatorHandled && pending.awaitingMessageId !== undefined) {
+      try {
+        await options?.onPendingPauseAccepted?.(pending.awaitingMessageId);
+        awaitingIndicatorHandled = Boolean(options?.onPendingPauseAccepted);
+      } catch (error) {
+        logger.warn('telegram.awaiting.acceptance_hook_failed', {
+          ...logContext,
+          gateKey,
+          messageId: pending.awaitingMessageId,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
 
@@ -326,8 +361,8 @@ export class TextProcessorService {
         bufferedMessage: buffered,
         // Consumed the pending record above (clear '…completed'), so its indicator must be torn down
         // — whether this turn ended or re-interrupted (a fresh indicator is sent for the new pause).
-        // consumedAwaitingMessageId drives the plain-mode message delete.
-        consumedAwaitingMessageId: pending.awaitingMessageId,
+        // consumedAwaitingMessageId drives fallback deletion when no acceptance hook was supplied.
+        consumedAwaitingMessageId: awaitingIndicatorHandled ? undefined : pending.awaitingMessageId,
         resolvedPendingPause: true,
       };
     } catch (error) {

@@ -45,28 +45,28 @@ describe('awaiting-indicator', () => {
     });
   });
 
-  describe('showAwaitingIndicator (rich mode, one-shot preview)', () => {
+  describe('showAwaitingIndicator (rich mode, persistent)', () => {
     function richCtx() {
       return {
         chat: { id: 1 },
-        telegram: { callApi: jest.fn().mockResolvedValue(undefined) },
+        telegram: { callApi: jest.fn().mockResolvedValue({ message_id: 91 }) },
         reply: jest.fn(),
       } as any;
     }
 
-    it('sends one draft and returns undefined (drafts have no message_id)', async () => {
-      jest.useFakeTimers();
+    it('sends one non-animated rich message and returns its message_id', async () => {
       setRichMessagesEnabled(true);
       const ctx = richCtx();
 
       const id = await showAwaitingIndicator(ctx, 'gate-rich', 'confirm');
 
-      expect(id).toBeUndefined();
+      expect(id).toBe(91);
       expect(ctx.telegram.callApi).toHaveBeenCalledTimes(1);
-      expect(ctx.telegram.callApi).toHaveBeenCalledWith('sendRichMessageDraft', expect.any(Object));
-      await jest.advanceTimersByTimeAsync(60_000);
-      expect(ctx.telegram.callApi).toHaveBeenCalledTimes(1);
-      expect(jest.getTimerCount()).toBe(0);
+      expect(ctx.telegram.callApi).toHaveBeenCalledWith('sendRichMessage', {
+        chat_id: 1,
+        rich_message: { markdown: '⏳ _Awaiting confirmation…_' },
+      });
+      expect(ctx.telegram.callApi).not.toHaveBeenCalledWith('sendRichMessageDraft', expect.anything());
     });
 
     it('falls back safely on a non-Error rich rejection and returns the plain message id', async () => {

@@ -1,10 +1,8 @@
 // src/services/telegram/awaiting-indicator.ts — the "Awaiting confirmation/clarification" indicator
-// shown immediately before a HITL confirm/clarify message, kept visually identical to the live
-// <tg-thinking> progress block.
+// shown immediately after a HITL confirm/clarify message.
 //
 // Two modes:
-//   - Rich mode: a one-shot <tg-thinking> draft. The persistent prompt sent immediately afterward
-//     finalizes the response, so no draft remains active while Telegram waits for user input.
+//   - Rich mode: a real, persistent, non-animated rich message.
 //   - Plain mode (rich off / on failure): a real persistent "⏳ Awaiting…" message. Its message_id is
 //     stored on the PendingClarificationRecord and removed via deleteAwaitingIndicator.
 
@@ -13,9 +11,7 @@ import { logger } from '../../utils/logger';
 import { PendingInterruptType } from './pending-clarification.store';
 import {
   isRichMessagesEnabled,
-  newDraftId,
-  renderThinkingLabel,
-  sendRichMessageDraftToChat,
+  sendRichMessage,
 } from './formatters/telegram-rich';
 import { replyWithMarkdown } from './formatters/telegram-markdown';
 
@@ -28,10 +24,9 @@ export const AWAITING_LABELS: Record<PendingInterruptType, string> = {
 /**
  * Shows the "Awaiting…" indicator for a just-created pause.
  *
- * Rich mode: sends the shared thinking-style draft exactly once, then returns `undefined` because a
- * draft has no message_id. The caller must immediately send the persistent interrupt prompt.
+ * Rich mode: sends a persistent, non-animated rich message and returns its message_id.
  *
- * Plain mode (rich off, or the initial rich send fails): sends a real persistent message and returns
+ * Plain mode (rich off, or the rich send fails): sends a real persistent message and returns
  * its `message_id` so the caller can store it for later {@link deleteAwaitingIndicator} teardown.
  *
  * Best-effort throughout: never throws, so a missing indicator can't break the confirm/clarify flow
@@ -46,20 +41,16 @@ export async function showAwaitingIndicator(
   const label = AWAITING_LABELS[interruptType];
 
   if (isRichMessagesEnabled() && ctx.chat) {
-    const chatId = ctx.chat.id;
-    const telegram = ctx.telegram;
-    const draftId = newDraftId();
-    const markdown = renderThinkingLabel(label);
-
     try {
-      await sendRichMessageDraftToChat(telegram, chatId, draftId, markdown);
-      logger.info('telegram.awaiting.preview_sent', {
+      const message = await sendRichMessage(ctx, `⏳ _${label}…_`);
+      logger.info('telegram.awaiting.sent', {
         ...logContext,
         gateKey,
         interruptType,
-        mode: 'rich_one_shot',
+        mode: 'rich_persistent',
+        messageId: message.message_id,
       });
-      return undefined;
+      return message.message_id;
     } catch (error) {
       // Rich transport down for this send — degrade to the persistent plain message.
       logger.warn('telegram.awaiting.rich_fallback', {
@@ -87,7 +78,7 @@ async function sendPlainAwaiting(
 ): Promise<number | undefined> {
   try {
     const message = await replyWithMarkdown(ctx.reply.bind(ctx), `⏳ _${label}…_`, logContext);
-    logger.info('telegram.awaiting.preview_sent', {
+    logger.info('telegram.awaiting.sent', {
       ...logContext,
       gateKey,
       interruptType,

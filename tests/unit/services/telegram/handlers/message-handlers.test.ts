@@ -85,7 +85,7 @@ describe('MessageHandlers', () => {
         telegramFirstName: 'Test',
       }),
       expect.any(Function),
-      undefined,
+      expect.objectContaining({ onPendingPauseAccepted: expect.any(Function) }),
     );
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_text');
     expect(ctx.reply).toHaveBeenCalledWith('processed text', { parse_mode: 'MarkdownV2' });
@@ -155,6 +155,7 @@ describe('MessageHandlers', () => {
         onTranscription: expect.any(Function),
         onTranscribed: expect.any(Function),
         onProgress: expect.any(Function),
+        onPendingPauseAccepted: expect.any(Function),
       }),
     );
     expect(messageProcessor.processAudioMessage).not.toHaveBeenCalled();
@@ -252,6 +253,7 @@ describe('MessageHandlers', () => {
       },
       123,
       expect.objectContaining({ messageType: 'photo' }),
+      expect.objectContaining({ onPendingPauseAccepted: expect.any(Function) }),
     );
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_photo');
     expect(ctx.reply).toHaveBeenCalledWith('processed photo', { parse_mode: 'MarkdownV2' });
@@ -357,7 +359,10 @@ describe('MessageHandlers', () => {
         123,
         expect.objectContaining({ messageType: 'text' }),
         expect.any(Function),
-        { forceFresh: true },
+        expect.objectContaining({
+          forceFresh: true,
+          onPendingPauseAccepted: expect.any(Function),
+        }),
       );
       expect(messageProcessor.abandonConversation).not.toHaveBeenCalled();
       expect(activityService.recordActivity).toHaveBeenCalledWith('command_new');
@@ -378,7 +383,10 @@ describe('MessageHandlers', () => {
         123,
         expect.any(Object),
         expect.any(Function),
-        { forceFresh: true },
+        expect.objectContaining({
+          forceFresh: true,
+          onPendingPauseAccepted: expect.any(Function),
+        }),
       );
     });
 
@@ -487,7 +495,7 @@ describe('MessageHandlers', () => {
       expect(pendingStore.attachAwaitingMessageId).toHaveBeenCalledWith(expect.any(String), 77);
     });
 
-    it('sends the rich Awaiting preview before the clarification prompt', async () => {
+    it('sends the clarification prompt before a persistent rich Awaiting message', async () => {
       setRichMessagesEnabled(true);
       const messageProcessor = {
         processTextMessage: jest.fn().mockResolvedValue({
@@ -496,25 +504,29 @@ describe('MessageHandlers', () => {
           threadId: 'tg_order_clarify',
         }),
       } as any;
-      const { handlers } = createHandlers({ messageProcessor });
+      const pendingStore = makePendingStore();
+      const { handlers } = createHandlers({ messageProcessor, pendingStore });
       const ctx = createContext({ text: 'add a task', message_id: 12 });
-      ctx.telegram.callApi = jest.fn().mockResolvedValue(undefined);
+      ctx.telegram.callApi = jest.fn().mockResolvedValue({ message_id: 701 });
 
       await handlers.handleText(ctx);
 
       expect(ctx.telegram.callApi.mock.calls.map((call: unknown[]) => call[0])).toEqual([
         'sendRichMessageDraft',
-        'sendRichMessageDraft',
+        'sendRichMessage',
         'sendRichMessage',
       ]);
-      const awaitingDraftCall = ctx.telegram.callApi.mock.calls[1][1];
-      expect(awaitingDraftCall.rich_message.markdown).toContain('Awaiting clarification');
+      const promptCall = ctx.telegram.callApi.mock.calls[1][1];
+      const awaitingCall = ctx.telegram.callApi.mock.calls[2][1];
+      expect(promptCall.rich_message.markdown).toContain('Which project?');
+      expect(awaitingCall.rich_message.markdown).toBe('⏳ _Awaiting clarification…_');
       expect(ctx.telegram.callApi.mock.invocationCallOrder[1]).toBeLessThan(
         ctx.telegram.callApi.mock.invocationCallOrder[2],
       );
+      expect(pendingStore.attachAwaitingMessageId).toHaveBeenCalledWith(expect.any(String), 701);
     });
 
-    it('sends the rich Awaiting preview before a confirmation prompt with buttons', async () => {
+    it('sends a confirmation prompt with buttons before the persistent rich Awaiting message', async () => {
       setRichMessagesEnabled(true);
       const messageProcessor = {
         processTextMessage: jest.fn().mockResolvedValue({
@@ -525,13 +537,13 @@ describe('MessageHandlers', () => {
       } as any;
       const { handlers } = createHandlers({ messageProcessor });
       const ctx = createContext({ text: 'delete everything', message_id: 13 });
-      ctx.telegram.callApi = jest.fn().mockResolvedValue(undefined);
+      ctx.telegram.callApi = jest.fn().mockResolvedValue({ message_id: 702 });
 
       await handlers.handleText(ctx);
 
       const awaitingCallIndex = ctx.telegram.callApi.mock.calls.findIndex(
         (call: unknown[]) =>
-          call[0] === 'sendRichMessageDraft' &&
+          call[0] === 'sendRichMessage' &&
           String((call[1] as any).rich_message.markdown).includes('Awaiting confirmation'),
       );
       expect(awaitingCallIndex).toBeGreaterThanOrEqual(0);
@@ -539,8 +551,8 @@ describe('MessageHandlers', () => {
         (call: unknown[]) => Boolean((call[1] as any)?.reply_markup?.inline_keyboard),
       );
       expect(confirmCall).toBeGreaterThanOrEqual(0);
-      expect(ctx.telegram.callApi.mock.invocationCallOrder[awaitingCallIndex]).toBeLessThan(
-        ctx.reply.mock.invocationCallOrder[confirmCall],
+      expect(ctx.reply.mock.invocationCallOrder[confirmCall]).toBeLessThan(
+        ctx.telegram.callApi.mock.invocationCallOrder[awaitingCallIndex],
       );
     });
 
@@ -555,6 +567,49 @@ describe('MessageHandlers', () => {
       await handlers.handleText(ctx);
 
       expect(pendingStore.attachAwaitingMessageId).not.toHaveBeenCalled();
+    });
+
+    it('deletes the indicator immediately when an accepted reply invokes the lifecycle hook', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn().mockImplementation(async (
+          _text: string,
+          _userId: number,
+          _logContext: unknown,
+          _onProgress: unknown,
+          options: { onPendingPauseAccepted: (messageId: number) => Promise<void> },
+        ) => {
+          await options.onPendingPauseAccepted(555);
+          return { response: 'Done.', resolvedPendingPause: true };
+        }),
+      } as any;
+      const { handlers } = createHandlers({ messageProcessor });
+      const ctx = createContext({ text: 'the dentist task', message_id: 14 });
+
+      await handlers.handleText(ctx);
+
+      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 555);
+      expect(ctx.telegram.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(
+        ctx.reply.mock.invocationCallOrder.at(-1),
+      );
+    });
+
+    it('deletes a newly sent indicator when attaching its id fails', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn().mockResolvedValue({
+          response: 'Which project?',
+          interruptType: 'clarify',
+          threadId: 'tg_attach_failure',
+        }),
+      } as any;
+      const pendingStore = makePendingStore({
+        attachAwaitingMessageId: jest.fn().mockRejectedValue(new Error('store unavailable')),
+      });
+      const { handlers } = createHandlers({ messageProcessor, pendingStore });
+      const ctx = createContext({ text: 'add a task', message_id: 15 });
+
+      await handlers.handleText(ctx);
+
+      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
     });
 
     it('deletes the plain-mode indicator when a pause resolves', async () => {

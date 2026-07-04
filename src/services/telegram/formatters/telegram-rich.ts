@@ -156,27 +156,6 @@ export async function sendRichMessageToChat(
 }
 
 /**
- * Context-free twin of {@link sendRichDraft}: streams an ephemeral rich draft to a chat by id
- * when no Telegraf `Context` is available. The one-shot "Awaiting…" preview uses this immediately
- * before its persistent interrupt prompt. Throws on failure so the caller can fall back.
- */
-export async function sendRichMessageDraftToChat(
-  telegram: Telegram,
-  chatId: number,
-  draftId: number,
-  markdown: string,
-): Promise<void> {
-  // Same untyped-method cast as sendRichMessageToChat: Bot API 10.1's sendRichMessageDraft has no
-  // typed Telegraf binding, so reach it through the loosened RawTelegram shape.
-  const raw = telegram as unknown as RawTelegram;
-  await raw.callApi('sendRichMessageDraft', {
-    chat_id: chatId,
-    draft_id: draftId,
-    rich_message: { markdown },
-  });
-}
-
-/**
  * Streams a partial rich message as an ephemeral draft. Re-sending with the same
  * `draftId` animates the change. Throws on failure so callers can fall back.
  */

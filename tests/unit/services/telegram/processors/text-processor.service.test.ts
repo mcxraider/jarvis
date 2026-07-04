@@ -765,6 +765,58 @@ describe('TextProcessorService', () => {
       expect(result.resolvedPendingPause).toBe(true);
     });
 
+    it('notifies acceptance after winning the gate and before resuming the agent', async () => {
+      const store = new MemoryPendingClarificationStore();
+      const gateStore = new MemoryConversationGateStore();
+      await seedPendingWithIndicator(store, gateStore, 'clarify');
+      const onPendingPauseAccepted = jest.fn().mockResolvedValue(undefined);
+      const agentClient = {
+        invoke: jest.fn(),
+        resume: jest.fn().mockResolvedValue({
+          status: 'completed',
+          threadId: 'thread-hitl',
+          response: 'Updated.',
+          toolResults: [],
+        }),
+      };
+      const service = createService(agentClient, store, gateStore);
+
+      const result = await service.processTextMessage(
+        'the dentist task',
+        42,
+        { chatId: 100, messageId: 11 },
+        undefined,
+        { onPendingPauseAccepted },
+      );
+
+      expect(onPendingPauseAccepted).toHaveBeenCalledWith(321);
+      expect(onPendingPauseAccepted.mock.invocationCallOrder[0]).toBeLessThan(
+        agentClient.resume.mock.invocationCallOrder[0],
+      );
+      expect(result.consumedAwaitingMessageId).toBeUndefined();
+      expect(result.resolvedPendingPause).toBe(true);
+    });
+
+    it('does not notify acceptance for invalid typed confirmation text', async () => {
+      const store = new MemoryPendingClarificationStore();
+      const gateStore = new MemoryConversationGateStore();
+      await seedPendingWithIndicator(store, gateStore, 'confirm');
+      const onPendingPauseAccepted = jest.fn();
+      const agentClient = { invoke: jest.fn(), resume: jest.fn() };
+      const service = createService(agentClient, store, gateStore);
+
+      await service.processTextMessage(
+        'maybe later',
+        42,
+        { chatId: 100, messageId: 11 },
+        undefined,
+        { onPendingPauseAccepted },
+      );
+
+      expect(onPendingPauseAccepted).not.toHaveBeenCalled();
+      expect(agentClient.resume).not.toHaveBeenCalled();
+    });
+
     it('surfaces the consumed indicator id when a typed decision resolves a confirm pause', async () => {
       const store = new MemoryPendingClarificationStore();
       const gateStore = new MemoryConversationGateStore();
