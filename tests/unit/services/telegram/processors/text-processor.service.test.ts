@@ -43,7 +43,7 @@ describe('TextProcessorService', () => {
     const service = createService(agentClient);
 
     await expect(
-      service.processTextMessage('add milk', 701122767, {
+      service.processTextMessage(' \n add milk \t ', 701122767, {
         requestId: 'tg_test',
         chatId: 555,
         messageId: 42,
@@ -72,6 +72,26 @@ describe('TextProcessorService', () => {
         threadId: 'tg_tg_test',
       },
     );
+    expect(agentClient.resume).not.toHaveBeenCalled();
+  });
+
+  it('rejects whitespace-only text without calling or acquiring resources for the agent', async () => {
+    const agentClient = {
+      invoke: jest.fn(),
+      resume: jest.fn(),
+    };
+    const gateStore = new MemoryConversationGateStore();
+    const getStatus = jest.spyOn(gateStore, 'getStatus');
+    const tryAcquire = jest.spyOn(gateStore, 'tryAcquire');
+    const service = createService(agentClient, undefined, gateStore);
+
+    await expect(service.processTextMessage(' \n\t ', 42, { chatId: 100 })).resolves.toEqual({
+      response: 'Please send a message with some text.',
+    });
+
+    expect(getStatus).not.toHaveBeenCalled();
+    expect(tryAcquire).not.toHaveBeenCalled();
+    expect(agentClient.invoke).not.toHaveBeenCalled();
     expect(agentClient.resume).not.toHaveBeenCalled();
   });
 
@@ -198,7 +218,7 @@ describe('TextProcessorService', () => {
       service.processTextMessage('update my task', 42, { chatId: 100, messageId: 10 }),
     ).resolves.toHaveProperty('response', 'Which task should I update?');
     await expect(
-      service.processTextMessage('the dentist task', 42, {
+      service.processTextMessage(' \n the dentist task \t ', 42, {
         chatId: 100,
         messageId: 11,
         telegramUsername: 'tester',
