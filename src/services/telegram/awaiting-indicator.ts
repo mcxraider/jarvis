@@ -32,6 +32,10 @@ export const AWAITING_LABELS: Record<PendingInterruptType, string> = {
 // Re-send the draft comfortably inside its ~30s TTL so the shimmer never lapses between ticks.
 const AWAITING_KEEPALIVE_MS = 15_000;
 
+// Stop refreshing after repeated transport failures. The draft can fade without affecting the
+// underlying confirm/clarify pause, and this avoids retrying and logging for the full waiting TTL.
+const AWAITING_KEEPALIVE_MAX_FAILURES = 3;
+
 // Hard cap on how long a keepalive animates, so an orphaned timer (e.g. a pause resolved on another
 // instance, or a lost resolve signal) can't refresh forever. Matches the gate's waiting TTL.
 const DEFAULT_AWAITING_MAX_MS = 30 * 60 * 1000;
@@ -49,6 +53,7 @@ interface KeepaliveEntry {
   markdown: string;
   timer: ReturnType<typeof setInterval>;
   startedAt: number;
+  failures: number;
 }
 
 // One live keepalive per waiting conversation, keyed by the same gate key the pending record uses.
@@ -90,7 +95,7 @@ export async function showAwaitingIndicator(
       logger.warn('telegram.awaiting.rich_fallback', {
         ...logContext,
         interruptType,
-        error: (error as Error).message,
+        error: error instanceof Error ? error.message : String(error),
       });
       return sendPlainAwaiting(ctx, label, interruptType, logContext);
     }
@@ -98,22 +103,55 @@ export async function showAwaitingIndicator(
     // Clear any stale keepalive for this key (e.g. a chained re-interrupt) before registering.
     stopAwaitingIndicator(gateKey);
     const startedAt = Date.now();
-    const timer = setInterval(() => {
-      if (Date.now() - startedAt >= AWAITING_MAX_MS) {
-        stopAwaitingIndicator(gateKey);
-        return;
-      }
-      void sendRichMessageDraftToChat(telegram, chatId, draftId, markdown).catch((error) => {
-        logger.warn('telegram.awaiting.keepalive_failed', {
+    const entry: KeepaliveEntry = {
+      chatId,
+      draftId,
+      telegram,
+      markdown,
+      timer: undefined as unknown as ReturnType<typeof setInterval>,
+      startedAt,
+      failures: 0,
+    };
+    entry.timer = setInterval(() => {
+      try {
+        if (Date.now() - startedAt >= AWAITING_MAX_MS) {
+          stopAwaitingIndicator(gateKey);
+          return;
+        }
+        void sendRichMessageDraftToChat(telegram, chatId, draftId, markdown)
+          .then(() => {
+            if (keepalives.get(gateKey) !== entry) return;
+            entry.failures = 0;
+          })
+          .catch((error) => {
+            // A stopped/replaced entry can still have an in-flight request. Its eventual result
+            // must not mutate or stop the newer keepalive registered under the same gate key.
+            if (keepalives.get(gateKey) !== entry) return;
+            entry.failures += 1;
+            logger.warn('telegram.awaiting.keepalive_failed', {
+              ...logContext,
+              gateKey,
+              failures: entry.failures,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            if (entry.failures >= AWAITING_KEEPALIVE_MAX_FAILURES) {
+              stopAwaitingIndicator(gateKey);
+            }
+          });
+      } catch (error) {
+        logger.error('telegram.awaiting.keepalive_crashed', {
           ...logContext,
           gateKey,
-          error: (error as Error).message,
+          error: error instanceof Error ? error.message : String(error),
         });
-      });
+        if (keepalives.get(gateKey) === entry) {
+          stopAwaitingIndicator(gateKey);
+        }
+      }
     }, AWAITING_KEEPALIVE_MS);
     // Don't let the keepalive keep the process alive on shutdown.
-    timer.unref?.();
-    keepalives.set(gateKey, { chatId, draftId, telegram, markdown, timer, startedAt });
+    entry.timer.unref?.();
+    keepalives.set(gateKey, entry);
     return undefined;
   }
 
@@ -137,7 +175,7 @@ async function sendPlainAwaiting(
     logger.warn('telegram.awaiting.send_failed', {
       ...logContext,
       interruptType,
-      error: (error as Error).message,
+      error: error instanceof Error ? error.message : String(error),
     });
     return undefined;
   }
@@ -174,7 +212,7 @@ export async function deleteAwaitingIndicator(
     logger.warn('telegram.awaiting.delete_failed', {
       ...logContext,
       messageId,
-      error: (error as Error).message,
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 }

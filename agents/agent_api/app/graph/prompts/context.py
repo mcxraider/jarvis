@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 
 USER_PROMPTS: List[str] = [
-    # "set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of priority based on when im most free"
+    "set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of priority based on when im most free"
     # "search phoebe calendar hows her availability next monday?"
     #"when am i free next week?"
     "delete my dinner with zac in my cal monday 8pm"

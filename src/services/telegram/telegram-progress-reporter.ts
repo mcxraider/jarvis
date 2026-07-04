@@ -138,7 +138,7 @@ export class TelegramProgressReporter {
         await sendRichDraft(this.ctx, this.draftId, this.renderRichLabel(label));
         return;
       } catch (error) {
-        this.disableRichMode('progress.start', error as Error);
+        this.disableRichMode('progress.start', error);
       }
     }
 
@@ -151,7 +151,7 @@ export class TelegramProgressReporter {
         await sendRichDraft(this.ctx, this.draftId, this.renderRichLabel(label));
         return;
       } catch (error) {
-        this.disableRichMode('progress.update', error as Error);
+        this.disableRichMode('progress.update', error);
         if (!this.completed) {
           await this.createPlainStatus(label);
         }
@@ -176,7 +176,7 @@ export class TelegramProgressReporter {
     } catch (error) {
       logger.warn('telegram.progress.start_failed', {
         ...this.logContext,
-        error: (error as Error).message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -198,7 +198,7 @@ export class TelegramProgressReporter {
     } catch (error) {
       logger.warn('telegram.progress.edit_failed', {
         ...this.logContext,
-        error: (error as Error).message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -216,18 +216,18 @@ export class TelegramProgressReporter {
     } catch (error) {
       logger.warn('telegram.progress.delete_failed', {
         ...this.logContext,
-        error: (error as Error).message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
 
-  private disableRichMode(stage: string, error: Error): void {
+  private disableRichMode(stage: string, error: unknown): void {
     this.richActive = false;
     this.draftId = undefined;
     logger.warn('telegram.rich.fallback', {
       ...this.logContext,
       stage,
-      error: error.message,
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 

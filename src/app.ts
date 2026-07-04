@@ -192,7 +192,9 @@ conversationGate.setOnExpiry((gateKey, chatId) => {
 const PENDING_SWEEP_INTERVAL_MS = 60 * 1000;
 setInterval(() => {
   pendingStore.sweepExpired().catch((error) => {
-    logger.warn('telegram.pending_store.sweep_failed', { error: (error as Error).message });
+    logger.warn('telegram.pending_store.sweep_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
   });
 }, PENDING_SWEEP_INTERVAL_MS).unref();
 

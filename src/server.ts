@@ -100,3 +100,22 @@ function shutdown(signal: string) {
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+// Detached async work runs outside Express's error boundary. Keep an unexpected best-effort
+// rejection from silently killing the bot under nodemon, and leave a durable diagnostic trail.
+process.on('unhandledRejection', (reason) => {
+  logger.error('process.unhandled_rejection', {
+    error: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+});
+
+// There is no process supervisor in the development setup: nodemon waits for a file change after a
+// crash. Log synchronous failures and keep serving; revisit the recovery policy if supervision is
+// added, since an uncaught exception can leave arbitrary application state inconsistent.
+process.on('uncaughtException', (error) => {
+  logger.error('process.uncaught_exception', {
+    error: error.message,
+    stack: error.stack,
+  });
+});
