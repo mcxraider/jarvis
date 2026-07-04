@@ -73,12 +73,17 @@ export class TextProcessorService {
     onProgress?: LangGraphProgressCallback,
     options?: TextProcessorOptions,
   ): Promise<TextProcessorResult> {
+    const normalizedText = text.trim();
+    if (!normalizedText) {
+      return { response: 'Please send a message with some text.' };
+    }
+
     const startedAt = Date.now();
 
     logger.info('text_processor.started', {
       ...logContext,
       userId,
-      messageLength: text.length,
+      messageLength: normalizedText.length,
     });
 
     const internalUserId = mapTelegramUserId(userId);
@@ -96,7 +101,7 @@ export class TextProcessorService {
           };
         }
         return await this.handlePendingClarification(
-          text,
+          normalizedText,
           pending,
           gateKey,
           internalUserId,
@@ -134,7 +139,7 @@ export class TextProcessorService {
         const gateStatus = await this.safeGetGateStatus(gateKey);
 
         if (gateStatus === 'running') {
-          await this.conversationGate.setBufferedMessage(gateKey, text).catch(() => {});
+          await this.conversationGate.setBufferedMessage(gateKey, normalizedText).catch(() => {});
           logger.info('conversation_gate.blocked', { ...logContext, gateKey });
           return {
             response: "I'm still working on your previous request. Your message has been noted — I'll mention it when I'm done.",
@@ -149,7 +154,7 @@ export class TextProcessorService {
             await this.conversationGate.release(gateKey).catch(() => {});
           } else {
             return await this.handlePendingClarification(
-              text,
+              normalizedText,
               pending,
               gateKey,
               internalUserId,
@@ -175,7 +180,7 @@ export class TextProcessorService {
       const threadId = `tg_${logContext.requestId || randomUUID()}`;
       const requestContext = { ...logContext, threadId };
       const agentRequest = {
-        message: text,
+        message: normalizedText,
         userId: internalUserId,
         source: 'telegram',
         telegramUserId: userId,
@@ -207,7 +212,7 @@ export class TextProcessorService {
       logger.info('text_processor.completed', {
         ...logContext,
         userId,
-        messageLength: text.length,
+        messageLength: normalizedText.length,
         responseLength: response.length,
         agentStatus: agentResponse.status,
         threadId: agentResponse.threadId,
@@ -235,7 +240,7 @@ export class TextProcessorService {
       logger.error('text_processor.failed', {
         ...logContext,
         userId,
-        messageLength: text.length,
+        messageLength: normalizedText.length,
         error: (error as Error).message,
         durationMs: Date.now() - startedAt,
       });

@@ -392,7 +392,10 @@ describe('MessageHandlers', () => {
 
       expect(messageProcessor.abandonConversation).toHaveBeenCalledWith(123, expect.any(Object));
       expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
-      expect(ctx.reply).toHaveBeenCalledWith('Starting fresh — send your next message.');
+      expect(ctx.reply).toHaveBeenCalledWith(
+        "We're in a new conversation — send your next message\\.",
+        { parse_mode: 'MarkdownV2' },
+      );
     });
 
     it('bare /new while the agent is running tells the user to wait', async () => {
@@ -406,9 +409,31 @@ describe('MessageHandlers', () => {
       await handlers.handleNew(ctx);
 
       expect(ctx.reply).toHaveBeenCalledWith(
-        "I'm still finishing your previous request — try /new again in a moment, or /cancel.",
+        "I'm still finishing your previous request — try /new again in a moment, or /cancel\\.",
+        { parse_mode: 'MarkdownV2' },
       );
       expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['abandoned', "We're in a new conversation — send your next message."],
+      ['running', "I'm still finishing your previous request — try /new again in a moment, or /cancel."],
+    ])('sends the bare /new %s response through the rich-message path', async (outcome, text) => {
+      setRichMessagesEnabled(true);
+      const messageProcessor = {
+        processTextMessage: jest.fn(),
+        abandonConversation: jest.fn().mockResolvedValue(outcome),
+      } as any;
+      const { handlers } = createHandlers({ messageProcessor });
+      const ctx = createContext({ text: '/new', message_id: 11 });
+
+      await handlers.handleNew(ctx);
+
+      expect(ctx.telegram.callApi).toHaveBeenCalledWith('sendRichMessage', {
+        chat_id: 456,
+        rich_message: { markdown: text },
+      });
+      expect(ctx.reply).not.toHaveBeenCalled();
     });
 
     it('bare /new collapses the clarification when it abandons a pause', async () => {

@@ -79,6 +79,16 @@ npm run test:telegram-rich
 
 This script reads `BOT_TOKEN` and `TEST_CHAT_ID` from the environment or `.env`.
 
+To preview every custom emoji in the Telegram `AIActions` set:
+
+```bash
+npm run test:telegram-rich-emojis
+```
+
+The script fetches the current sticker set at runtime and streams each emoji
+inside a thinking draft, one at a time, with a five-second pause between
+previews. Set `TEST_TELEGRAM_EMOJI_SET` to test a different custom emoji set.
+
 ### Live Todoist CRUD Tests
 
 Command:

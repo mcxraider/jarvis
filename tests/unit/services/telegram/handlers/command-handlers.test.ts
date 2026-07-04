@@ -2,12 +2,21 @@ import { CommandHandlers } from '../../../../../src/services/telegram/handlers/c
 import { MemoryConversationGateStore } from '../../../../../src/services/telegram/conversation-gate.store';
 import { MemoryPendingClarificationStore } from '../../../../../src/services/telegram/pending-clarification.store';
 import { buildConversationKey } from '../../../../../src/services/telegram/conversation-key';
+import { setRichMessagesEnabled } from '../../../../../src/services/telegram/formatters/telegram-rich';
 
 describe('CommandHandlers', () => {
+  afterEach(() => {
+    setRichMessagesEnabled(false);
+  });
+
   function createContext() {
     return {
       from: { id: 123, username: 'tester' },
+      chat: { id: 456 },
       reply: jest.fn().mockResolvedValue(undefined),
+      telegram: {
+        callApi: jest.fn().mockResolvedValue({ message_id: 1 }),
+      },
     } as any;
   }
 
@@ -80,6 +89,50 @@ describe('CommandHandlers', () => {
     await handlers.handleStatus(ctx);
 
     expect(ctx.reply).toHaveBeenCalledWith('degraded status', { parse_mode: 'MarkdownV2' });
+  });
+
+  it.each([
+    ['help', 'handleHelp', 'Jarvis'],
+    ['status', 'handleStatus', 'healthy status'],
+  ])('sends /%s through the rich-message path when enabled', async (_command, method, text) => {
+    setRichMessagesEnabled(true);
+    const ctx = createContext();
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn().mockResolvedValue('healthy status') } as any,
+      new MemoryConversationGateStore(),
+      new MemoryPendingClarificationStore(),
+    );
+
+    await (handlers[method as 'handleHelp' | 'handleStatus'] as (ctx: any) => Promise<void>).call(
+      handlers,
+      ctx,
+    );
+
+    expect(ctx.telegram.callApi).toHaveBeenCalledWith('sendRichMessage', {
+      chat_id: 456,
+      rich_message: { markdown: expect.stringContaining(text) },
+    });
+    expect(ctx.reply).not.toHaveBeenCalled();
+  });
+
+  it('falls back to MarkdownV2 when a rich command response fails', async () => {
+    setRichMessagesEnabled(true);
+    const ctx = createContext();
+    ctx.telegram.callApi.mockRejectedValueOnce(new Error('rich unavailable'));
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      new MemoryConversationGateStore(),
+      new MemoryPendingClarificationStore(),
+    );
+
+    await handlers.handleHelp(ctx);
+
+    expect(ctx.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Jarvis'),
+      { parse_mode: 'MarkdownV2' },
+    );
   });
 
   it('deletes and collapses a pending clarification on /cancel', async () => {
@@ -160,5 +213,26 @@ describe('CommandHandlers', () => {
     await handlers.handleCancel(ctx);
 
     expect(await pendingStore.get(gateKey)).toBeUndefined();
+  });
+
+  it('sends the /cancel confirmation through the rich-message path when enabled', async () => {
+    setRichMessagesEnabled(true);
+    const ctx = createContext();
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      new MemoryConversationGateStore(),
+      new MemoryPendingClarificationStore(),
+    );
+
+    await handlers.handleCancel(ctx);
+
+    expect(ctx.telegram.callApi).toHaveBeenCalledWith('sendRichMessage', {
+      chat_id: 456,
+      rich_message: {
+        markdown: "Conversation cancelled. Let me know what you you'd like to do next!",
+      },
+    });
+    expect(ctx.reply).not.toHaveBeenCalled();
   });
 });

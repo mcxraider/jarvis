@@ -77,13 +77,17 @@ export class MessageHandlers {
       const pending = await this.pendingStore.get(gateKey).catch(() => undefined);
       const outcome = await this.messageProcessor.abandonConversation(userId, logContext);
       if (outcome === 'running') {
-        await ctx.reply("I'm still finishing your previous request — try /new again in a moment, or /cancel.");
+        await sendFinalReply(
+          ctx,
+          "I'm still finishing your previous request — try /new again in a moment, or /cancel.",
+          logContext,
+        );
         return;
       }
       if (outcome === 'abandoned') {
         await this.collapsePendingClarification(ctx, pending, logContext);
       }
-      await ctx.reply('We\'re in a new conversation — send your next message.');
+      await sendFinalReply(ctx, 'We\'re in a new conversation — send your next message.', logContext);
       return;
     }
 

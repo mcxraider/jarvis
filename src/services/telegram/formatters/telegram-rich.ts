@@ -55,7 +55,22 @@ export function newDraftId(): number {
 // that can't render it. Shared by the transient progress block and the persistent "Awaiting…"
 // indicator so both look identical.
 const THINKING_CUSTOM_EMOJI_ID = '5573333417954639880';
-const THINKING_CUSTOM_EMOJI_FALLBACK = '😀';
+const THINKING_CUSTOM_EMOJI_FALLBACK = '🤔';
+
+/** Renders one custom emoji for use in rich Markdown. */
+export function renderCustomEmoji(customEmojiId: string, fallback: string): string {
+  return `<tg-emoji emoji-id="${customEmojiId}">${fallback}</tg-emoji>`;
+}
+
+/** Renders a thinking block with a caller-selected custom emoji. */
+export function renderThinkingLabelWithEmoji(
+  label: string,
+  customEmojiId: string,
+  fallback: string,
+): string {
+  const emoji = renderCustomEmoji(customEmojiId, fallback);
+  return `<tg-thinking>${emoji} ${label}</tg-thinking>`;
+}
 
 /**
  * Renders a label inside Telegram's `<tg-thinking>` widget with the shared custom emoji. Single
@@ -63,10 +78,11 @@ const THINKING_CUSTOM_EMOJI_FALLBACK = '😀';
  * ephemeral draft) and the persistent "Awaiting…" indicator (as a real rich message).
  */
 export function renderThinkingLabel(label: string): string {
-  const emoji =
-    `<tg-emoji emoji-id="${THINKING_CUSTOM_EMOJI_ID}">` +
-    `${THINKING_CUSTOM_EMOJI_FALLBACK}</tg-emoji>`;
-  return `<tg-thinking>${emoji} ${label}</tg-thinking>`;
+  return renderThinkingLabelWithEmoji(
+    label,
+    THINKING_CUSTOM_EMOJI_ID,
+    THINKING_CUSTOM_EMOJI_FALLBACK,
+  );
 }
 
 /**

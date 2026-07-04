@@ -2,7 +2,6 @@ import { Context } from 'telegraf';
 import { logger } from '../../../utils/logger';
 import { BotActivityService } from '../bot-activity.service';
 import { BotStatusService } from '../bot-status.service';
-import { replyWithMarkdown } from '../formatters/telegram-markdown';
 import { collapseClarification, sendFinalReply } from '../formatters/telegram-rich';
 import { TELEGRAM_ONBOARDING_MESSAGE } from '../onboarding-message';
 import { ConversationGateStore } from '../conversation-gate.store';
@@ -47,7 +46,7 @@ export class CommandHandlers {
       `• Audio files — OGG, MP3, WAV, M4A supported\n` +
       `• Unsupported media — images, stickers, GIFs, and Telebubbles are rejected`;
 
-    await replyWithMarkdown(ctx.reply.bind(ctx), helpMessage, { userId });
+    await sendFinalReply(ctx, helpMessage, { userId });
   }
 
   async handleStatus(ctx: Context): Promise<void> {
@@ -56,7 +55,7 @@ export class CommandHandlers {
     this.activityService.recordActivity('command_status');
 
     const statusMessage = await this.statusService.getFormattedStatus(userId);
-    await replyWithMarkdown(ctx.reply.bind(ctx), statusMessage, { userId });
+    await sendFinalReply(ctx, statusMessage, { userId });
   }
 
   async handleCancel(ctx: Context): Promise<void> {
@@ -102,7 +101,11 @@ export class CommandHandlers {
     logger.info('conversation_gate.manual_cancel', {
       userId, chatId, gateKey, previousStatus: status,
     });
-    await ctx.reply('Conversation cancelled. Let me know what you you\'d like to do next!');
+    await sendFinalReply(
+      ctx,
+      'Conversation cancelled. Let me know what you you\'d like to do next!',
+      { userId, chatId, gateKey },
+    );
   }
 
 }
