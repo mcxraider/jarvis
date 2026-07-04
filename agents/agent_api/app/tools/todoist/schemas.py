@@ -13,7 +13,6 @@ from agents.agent_api.app.tools.control import ASK_USER_TOOL_NAME, get_control_t
 
 MUTATING_TOOL_NAMES = {
     "add_todoist_task",
-    "bulk_add_todoist_tasks",
     "update_todoist_task",
     "complete_task",
     "uncomplete_task",
@@ -122,51 +121,6 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
             "duration": ["duration_unit"],
             "duration_unit": ["duration"],
         },
-        "additionalProperties": False,
-    }
-
-    bulk_add_parameters = {
-        "type": "object",
-        "properties": {
-            "content": {
-                "type": "string",
-                "minLength": 1,
-                "description": "Task title (same for all created tasks)",
-            },
-            "count": {
-                "type": "integer",
-                "minimum": 2,
-                "maximum": 50,
-                "description": "Number of identical tasks to create (2-50)",
-            },
-            "description": {"type": "string", "description": "Optional task details"},
-            "project_id": {"type": "string", "description": "Project ID"},
-            "section_id": {"type": "string", "description": "Section ID"},
-            "labels": {"type": "array", "items": {"type": "string"}},
-            "priority": {
-                "type": "integer",
-                "enum": [1, 2, 3, 4],
-                "description": (
-                    "Task priority as an integer 1-4. 4 = highest urgency (shown as P1 in "
-                    "the Todoist UI), 3 = P2, 2 = P3, 1 = normal/default (P4). Higher number "
-                    "means more urgent."
-                ),
-            },
-            "due_string": {
-                "type": "string",
-                "description": "Natural-language due date applied to all created tasks.",
-            },
-            "due_date": {
-                "type": "string",
-                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                "description": "YYYY-MM-DD due date",
-            },
-            "due_datetime": {
-                "type": "string",
-                "description": "RFC3339 due datetime",
-            },
-        },
-        "required": ["content", "count"],
         "additionalProperties": False,
     }
 
@@ -452,18 +406,6 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
                 "name": "add_todoist_task",
                 "description": "Create a Todoist task.",
                 "parameters": add_task_parameters,
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "bulk_add_todoist_tasks",
-                "description": (
-                    "Create multiple identical Todoist tasks in one operation. "
-                    "Use instead of calling add_todoist_task N times when all tasks "
-                    "share the same title and parameters."
-                ),
-                "parameters": bulk_add_parameters,
             },
         },
         {

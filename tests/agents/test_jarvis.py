@@ -84,9 +84,6 @@ class FakeTodoistClient:
     def get_completed_todoist_tasks_by_completion_date(self, arguments: Dict[str, Any]) -> Any:
         return [self._record("get_completed_todoist_tasks_by_completion_date", arguments)]
 
-    def bulk_add_todoist_tasks(self, arguments: Dict[str, Any]) -> Any:
-        return self._record("bulk_add_todoist_tasks", arguments)
-
     def get_comments(self, arguments: Dict[str, Any]) -> Any:
         return self._record("get_comments", arguments)
 

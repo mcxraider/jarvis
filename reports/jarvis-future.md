@@ -17,6 +17,9 @@ The short answer is:
 
 The phrase **typed work item** is important. The orchestrator should not simply rewrite the user’s sentence and pass another blob of prose to a worker. It should preserve intent, constraints, dependencies, assumptions, and expected output in a structured handoff.
 
+my thoughts:
+- router/ planner will decide which context and tools the orchestrator needs?
+
 ---
 
 ## Executive recommendation

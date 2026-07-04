@@ -29,7 +29,7 @@ USER_PROMPTS: List[str] = [
     # "Delete all tasks on Tuesday."
 
     # --- Regression test prompts (test on Telegram) --- Always test this flow...
-    # 1. Bulk add (tests bulk_add_todoist_tasks + confirm gate rendering)
+    # 1. Multi-add (tests the 5+ mutation confirm gate)
     # "add 24 tasks titled 'hehehehehehhe' due tomorrow",
     # 2. Summarizer trigger (tests route_after_tools → summarize node on large results)
     # "show me all my tasks for today and tmr",
@@ -155,7 +155,7 @@ USER_PROMPTS: List[str] = [
     # "Add a team check-in next Tuesday 11am.",
     # "I land in London Tuesday morning. If the Tokyo leg is still on my calendar, leave next week alone; otherwise shift Tuesday's calls to after 2pm local.",  # conditional branch in one turn + '2pm local' TZ conversion; A=no changes, B=shift after 2pm London
     
-    # --16 -- stress testing the bulk add of many tasks, and the summarizer for large results, and the count query bypass, and the concurrent executor with confirm, and the pagination with large result handling
+    # --16 -- stress testing multi-add, large-result summarization, count-query bypass, concurrent execution with confirmation, and pagination
     # part a
     # '''Add these 20 different items into my Todoist task calendar:
     #     1. Submit internship timesheet tomorrow at 9am

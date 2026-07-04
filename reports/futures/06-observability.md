@@ -52,7 +52,7 @@ Visibility into system behavior and a testing strategy. The system should be deb
 - Scenario set with expected tool-call sequences per prompt.
 - Assert tool name/arg sequences (allow-set, not exact match — LLM nondeterminism).
 - LLM-as-judge on final answers for quality/grounding.
-- Golden-trace diffs for representative flows: simple add, bulk add, follow-up mutation, reference resolution, HITL clarification, tool-unavailable, safety block.
+- Golden-trace diffs for representative flows: simple add, multi-add, follow-up mutation, reference resolution, HITL clarification, tool-unavailable, safety block.
 
 ### Live gated tests (real APIs, explicit env flag)
 - Optional: create 2+ dated tasks from one message.

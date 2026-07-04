@@ -46,16 +46,6 @@ def _render_task_with_context(held_call: dict) -> str:
     return f"{meta.label} (id={task_id})."
 
 
-def _render_bulk_add(held_call: dict) -> str:
-    args = held_call.get("args", {})
-    content = args.get("content", "")
-    count = args.get("count", "?")
-    meta = _REGISTRY["bulk_add_todoist_tasks"]
-    if content:
-        return f'{meta.label}: {count}× "{content}".'
-    return f"{meta.label}: {count} tasks."
-
-
 def _render_update(held_call: dict) -> str:
     args = held_call.get("args", {})
     task_id = args.get("task_id", "unknown")
@@ -102,13 +92,6 @@ _REGISTRY: Dict[str, ToolDisplayMeta] = {
         always_risky=True,
         needs_task_context=True,
         render_fn=_render_task_with_context,
-    ),
-    "bulk_add_todoist_tasks": ToolDisplayMeta(
-        verb="adding",
-        label="Bulk-add tasks",
-        service="todoist",
-        always_risky=True,
-        render_fn=_render_bulk_add,
     ),
     "add_todoist_task": ToolDisplayMeta(
         verb="adding",
