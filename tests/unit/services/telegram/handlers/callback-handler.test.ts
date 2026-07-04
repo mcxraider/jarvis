@@ -2,6 +2,7 @@ import { CallbackHandler } from '../../../../../src/services/telegram/handlers/c
 import { MemoryConversationGateStore } from '../../../../../src/services/telegram/conversation-gate.store';
 import { MemoryPendingClarificationStore } from '../../../../../src/services/telegram/pending-clarification.store';
 import { buildConversationKey } from '../../../../../src/services/telegram/conversation-key';
+import * as awaitingIndicator from '../../../../../src/services/telegram/awaiting-indicator';
 
 function makeCtx(callbackData: string, userId = 42, chatId = 100) {
   return {
@@ -55,6 +56,11 @@ async function setupWaitingGate(
 }
 
 describe('CallbackHandler', () => {
+  // Restore spies between tests so awaiting-indicator spy history doesn't leak.
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('calls resume with the threadId encoded in approve callback data', async () => {
     const agentClient = {
       resume: jest.fn().mockResolvedValue({
@@ -366,6 +372,29 @@ describe('CallbackHandler', () => {
       expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(100, 777);
     },
   );
+
+  it('stops the rich-mode keepalive on a button tap (by gate key)', async () => {
+    const stopSpy = jest.spyOn(awaitingIndicator, 'stopAwaitingIndicator');
+    const agentClient = {
+      resume: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'tg_abc_msg123',
+        response: 'Done.',
+        toolResults: [],
+      }),
+    };
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateStore = new MemoryConversationGateStore();
+    await setupWaitingGate(gateStore, pendingStore);
+
+    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
+    const ctx = makeCtx('confirm:approve:tg_abc_msg123');
+
+    await handler.handleCallbackQuery(ctx);
+
+    // Rich mode has no message_id on the record; teardown must go through stopAwaitingIndicator(gateKey).
+    expect(stopSpy).toHaveBeenCalledWith(getGateKey());
+  });
 
   it('does not delete an indicator when the pending record has none', async () => {
     const agentClient = {

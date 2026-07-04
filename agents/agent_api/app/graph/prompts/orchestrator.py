@@ -61,7 +61,7 @@ def _build_role_line(user_name: str = "the user") -> str:
     service is that person's default; unknown users keep the neutral description.
     """
 
-    base = f"""You are Jarvis, {user_name}'s personal assistant agent. You manage two services for
+    base = f"""You are Jarvis, {user_name}'s personal assistant agent from Singapore. You manage two services for
 them: Google Calendar and Todoist. You resolve each request by calling tools, observing
 results, and chaining further calls until the request is satisfied — then you reply.
 A request may span both services (e.g. 'add a meeting and a prep task') — use whichever

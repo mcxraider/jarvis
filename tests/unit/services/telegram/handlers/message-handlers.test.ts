@@ -1,5 +1,6 @@
 import { MessageHandlers } from '../../../../../src/services/telegram/handlers/message-handlers';
 import { TELEGRAM_ONBOARDING_MESSAGE } from '../../../../../src/services/telegram/onboarding-message';
+import * as awaitingIndicator from '../../../../../src/services/telegram/awaiting-indicator';
 
 // Minimal PendingClarificationStore mock. `get` defaults to "no pending record"; tests that exercise
 // teardown override it. `attachAwaitingMessageId` is the signal that an "Awaiting…" indicator was
@@ -16,6 +17,12 @@ function makePendingStore(overrides: Record<string, any> = {}) {
 }
 
 describe('MessageHandlers', () => {
+  // Some tests spy on the shared awaiting-indicator module; restore between tests so spy call
+  // history doesn't leak across cases (module-level singletons persist within a test file).
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   function createContext(message: Record<string, unknown>) {
     return {
       from: { id: 123, username: 'tester', first_name: 'Test' },
@@ -152,7 +159,7 @@ describe('MessageHandlers', () => {
     );
     expect(messageProcessor.processAudioMessage).not.toHaveBeenCalled();
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_document');
-    expect(ctx.reply).toHaveBeenCalledWith('Transcribing\\.\\.\\.', {
+    expect(ctx.reply).toHaveBeenCalledWith('Transcribing\\.', {
       parse_mode: 'MarkdownV2',
     });
     // The transcription is delivered as its own message, above the thinking block.
@@ -160,7 +167,7 @@ describe('MessageHandlers', () => {
       parse_mode: 'MarkdownV2',
     });
     // Thinking block starts fresh below the transcription (new message, not an edit).
-    expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.\\.\\.', {
+    expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.', {
       parse_mode: 'MarkdownV2',
     });
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
@@ -207,7 +214,7 @@ describe('MessageHandlers', () => {
     expect(ctx.reply).toHaveBeenCalledWith('🗣️: transcribed text', {
       parse_mode: 'MarkdownV2',
     });
-    expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.\\.\\.', { parse_mode: 'MarkdownV2' });
+    expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.', { parse_mode: 'MarkdownV2' });
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
   });
 
@@ -493,10 +500,14 @@ describe('MessageHandlers', () => {
       expect(pendingStore.attachAwaitingMessageId).not.toHaveBeenCalled();
     });
 
-    it('deletes the consumed Awaiting indicator surfaced by the processor', async () => {
+    it('tears down a resolved pause: stops the keepalive and deletes the plain-mode indicator', async () => {
+      const stopSpy = jest.spyOn(awaitingIndicator, 'stopAwaitingIndicator');
       const messageProcessor = {
         processTextMessage: jest.fn().mockResolvedValue({
           response: 'Done.',
+          // The processor surfaces both together: the flag drives rich-mode keepalive teardown,
+          // the id drives the plain-mode message delete.
+          resolvedPendingPause: true,
           consumedAwaitingMessageId: 555,
         }),
       } as any;
@@ -506,7 +517,24 @@ describe('MessageHandlers', () => {
 
       await handlers.handleText(ctx);
 
+      expect(stopSpy).toHaveBeenCalledWith(expect.any(String));
       expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 555);
+    });
+
+    it('does not tear down when no pause was resolved', async () => {
+      const stopSpy = jest.spyOn(awaitingIndicator, 'stopAwaitingIndicator');
+      const messageProcessor = {
+        // A plain final answer that resolved nothing: an id present without the flag must be ignored.
+        processTextMessage: jest.fn().mockResolvedValue({ response: 'Done.', consumedAwaitingMessageId: 555 }),
+      } as any;
+      const pendingStore = makePendingStore();
+      const { handlers } = createHandlers({ messageProcessor, pendingStore });
+      const ctx = createContext({ text: 'list tasks', message_id: 15 });
+
+      await handlers.handleText(ctx);
+
+      expect(stopSpy).not.toHaveBeenCalled();
+      expect(ctx.telegram.deleteMessage).not.toHaveBeenCalledWith(456, 555);
     });
   });
 });

@@ -22,7 +22,12 @@ export interface TextProcessorResult {
   // message_id of an "Awaiting…" indicator that this turn consumed (i.e. the pending record it
   // resolved or superseded carried one). The handler deletes it — the processor stays
   // Telegram-agnostic. Undefined when no pending record was consumed or it had no indicator.
+  // Only set for plain-mode indicators; rich-mode indicators are drafts with no message_id.
   consumedAwaitingMessageId?: number;
+  // True when this turn resolved or superseded a pending pause (a pending record left 'pending').
+  // The handler keys "Awaiting…" teardown off this — rich mode has no message_id to signal
+  // resolution, so this flag is what tells the handler to stop the keepalive draft.
+  resolvedPendingPause?: boolean;
 }
 
 export interface TextProcessorOptions {
@@ -104,6 +109,7 @@ export class TextProcessorService {
       // path below. Refuse if the agent is mid-flight so we never run two invokes on one gate.
       // Remember the superseded record's awaiting-indicator id so it can be torn down on the result.
       let supersededAwaitingMessageId: number | undefined;
+      let supersededPause = false;
       if (options?.forceFresh && !gateAcquired) {
         const abandon = await this.abandonIfWaiting(gateKey, logContext);
         if (abandon.outcome === 'running') {
@@ -113,6 +119,9 @@ export class TextProcessorService {
             blocked: true,
           };
         }
+        // 'abandoned' means a waiting pause was actually cleared — its indicator (plain or rich)
+        // must be torn down. 'idle' means nothing was pending, so nothing to tear down.
+        supersededPause = abandon.outcome === 'abandoned';
         supersededAwaitingMessageId = abandon.awaitingMessageId;
       }
 
@@ -199,6 +208,7 @@ export class TextProcessorService {
         threadId: agentResponse.threadId,
         bufferedMessage: buffered,
         consumedAwaitingMessageId: supersededAwaitingMessageId,
+        resolvedPendingPause: supersededPause,
       };
     } catch (error) {
       if (gateAcquired) {
@@ -317,7 +327,10 @@ export class TextProcessorService {
         bufferedMessage: buffered,
         // Consumed the pending record above (clear '…completed'), so its indicator must be torn down
         // — whether this turn ended or re-interrupted (a fresh indicator is sent for the new pause).
+        // resolvedPendingPause drives rich-mode keepalive teardown; consumedAwaitingMessageId drives
+        // the plain-mode message delete.
         consumedAwaitingMessageId: pending.awaitingMessageId,
+        resolvedPendingPause: true,
       };
     } catch (error) {
       await this.conversationGate.transitionToWaiting(gateKey, this.waitingTtlMs).catch(() => {
