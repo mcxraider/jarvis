@@ -22,6 +22,7 @@ import { CallbackHandler } from './services/telegram/handlers/callback-handler';
 import { TelegramHandlers } from './services/telegram/handlers/telegram-handlers';
 import { TelegramBotService } from './services/telegram/telegram-bot.service';
 import { setRichMessagesEnabled } from './services/telegram/formatters/telegram-rich';
+import { stopAwaitingIndicator } from './services/telegram/awaiting-indicator';
 
 // --- Environment validation ---
 // All of these must be set before the app can start. A missing variable
@@ -166,6 +167,9 @@ export const botService = new TelegramBotService(telegramConfig, handlers);
 // already blocked by the store's expires_at filter; this keeps the persisted status accurate and the
 // chat clean. Read the record before clearing so we still have its indicator message_id.
 conversationGate.setOnExpiry((gateKey, chatId) => {
+  // Stop any rich-mode "Awaiting…" keepalive (in-memory, no message_id) so its draft stops
+  // refreshing; the plain-mode persistent message is removed below via its stored id.
+  stopAwaitingIndicator(gateKey);
   botService
     .sendRichMessage(chatId, '⏱ Request timed out. Send a new message to try again.', { chatId, gateKey })
     .catch(() => {});

@@ -16,7 +16,7 @@ import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service'
 import { TextProcessorResult } from '../processors/text-processor.service';
 import { PendingClarificationStore } from '../pending-clarification.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
-import { deleteAwaitingIndicator, sendAwaitingIndicator } from '../awaiting-indicator';
+import { deleteAwaitingIndicator, showAwaitingIndicator, stopAwaitingIndicator } from '../awaiting-indicator';
 
 export class MessageHandlers {
   constructor(
@@ -79,8 +79,13 @@ export class MessageHandlers {
         await ctx.reply("I'm still finishing your previous request — try /new again in a moment, or /cancel.");
         return;
       }
-      if (outcome === 'abandoned' && pending?.awaitingMessageId && ctx.chat && 'deleteMessage' in ctx.telegram) {
-        await deleteAwaitingIndicator(ctx.telegram, ctx.chat.id, pending.awaitingMessageId, logContext);
+      if (outcome === 'abandoned') {
+        // Rich mode: stop the animated keepalive (no message_id). Plain mode: delete the persistent
+        // "⏳ Awaiting…" message the record carried.
+        stopAwaitingIndicator(gateKey);
+        if (pending?.awaitingMessageId && ctx.chat && 'deleteMessage' in ctx.telegram) {
+          await deleteAwaitingIndicator(ctx.telegram, ctx.chat.id, pending.awaitingMessageId, logContext);
+        }
       }
       await ctx.reply('Starting fresh — send your next message.');
       return;
@@ -392,12 +397,20 @@ export class MessageHandlers {
   // get inline Approve/Decline buttons; everything else goes as a plain rich/markdown reply.
   //
   // Also owns the "Awaiting…" indicator lifecycle for the text/audio paths:
-  //   1. Tear down any indicator this turn consumed (a resolved/superseded prior pause).
-  //   2. If this turn *created* a new pause, send a fresh indicator below the confirm/clarify
-  //      message and record its id on the pending record for the next turn to delete.
+  //   1. Tear down any indicator this turn resolved (a resolved/superseded prior pause): stop the
+  //      rich keepalive by gate key, and delete the plain-mode message if the processor surfaced one.
+  //   2. If this turn *created* a new pause, show a fresh indicator below the confirm/clarify message.
   private async sendResult(ctx: Context, result: TextProcessorResult, logContext: LogContext): Promise<void> {
-    if (result.consumedAwaitingMessageId && ctx.chat && 'deleteMessage' in ctx.telegram) {
-      await deleteAwaitingIndicator(ctx.telegram, ctx.chat.id, result.consumedAwaitingMessageId, logContext);
+    const userId = ctx.from?.id;
+    const gateKey = buildConversationKey(userId, mapTelegramUserId(userId), ctx.chat?.id);
+
+    if (result.resolvedPendingPause) {
+      // Rich mode animates via a keepalive timer (no message_id) — stop it. Plain mode persisted a
+      // real message — delete it by the id the (Telegram-agnostic) processor surfaced.
+      stopAwaitingIndicator(gateKey);
+      if (result.consumedAwaitingMessageId && ctx.chat && 'deleteMessage' in ctx.telegram) {
+        await deleteAwaitingIndicator(ctx.telegram, ctx.chat.id, result.consumedAwaitingMessageId, logContext);
+      }
     }
 
     if (result.interruptType === 'confirm' && result.threadId) {
@@ -409,24 +422,24 @@ export class MessageHandlers {
     // Only confirm/clarify interrupts (which carry a threadId) leave the conversation waiting on the
     // user; final answers do not, so no indicator is shown for them.
     if (result.interruptType && result.threadId) {
-      await this.showAwaitingIndicator(ctx, result.interruptType, logContext);
+      await this.presentAwaitingIndicator(ctx, gateKey, result.interruptType, logContext);
     }
   }
 
-  // Sends the persistent "Awaiting…" indicator below the just-sent confirm/clarify message and
-  // attaches its message_id to the pending record (keyed by the same conversation gate key the
-  // processor used). Best-effort: a failure here only means the resolving turn has nothing to
-  // delete, so it must never break the confirm/clarify flow.
-  private async showAwaitingIndicator(
+  // Shows the "Awaiting…" indicator below the just-sent confirm/clarify message. In rich mode the
+  // shared module owns an animated keepalive draft (no id to store, returns undefined). In plain
+  // mode it returns a persistent message_id, which we attach to the pending record so the resolving
+  // turn (a different request) can delete it. Best-effort: a failure here only means the resolving
+  // turn has nothing to delete, so it must never break the confirm/clarify flow.
+  private async presentAwaitingIndicator(
     ctx: Context,
+    gateKey: string,
     interruptType: NonNullable<TextProcessorResult['interruptType']>,
     logContext: LogContext,
   ): Promise<void> {
-    const messageId = await sendAwaitingIndicator(ctx, interruptType, logContext);
+    const messageId = await showAwaitingIndicator(ctx, gateKey, interruptType, logContext);
     if (messageId === undefined) return;
 
-    const userId = ctx.from?.id;
-    const gateKey = buildConversationKey(userId, mapTelegramUserId(userId), ctx.chat?.id);
     await this.pendingStore.attachAwaitingMessageId(gateKey, messageId).catch((error) => {
       logger.warn('telegram.awaiting.attach_failed', {
         ...logContext,

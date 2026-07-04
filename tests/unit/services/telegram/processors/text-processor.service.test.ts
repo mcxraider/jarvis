@@ -761,6 +761,8 @@ describe('TextProcessorService', () => {
       const result = await service.processTextMessage('the dentist task', 42, { chatId: 100, messageId: 11 });
 
       expect(result.consumedAwaitingMessageId).toBe(321);
+      // The flag drives rich-mode keepalive teardown (which has no message_id).
+      expect(result.resolvedPendingPause).toBe(true);
     });
 
     it('surfaces the consumed indicator id when a typed decision resolves a confirm pause', async () => {
@@ -776,6 +778,7 @@ describe('TextProcessorService', () => {
       const result = await service.processTextMessage('yes', 42, { chatId: 100, messageId: 11 });
 
       expect(result.consumedAwaitingMessageId).toBe(321);
+      expect(result.resolvedPendingPause).toBe(true);
     });
 
     it('does NOT surface the id when a non-decision is refused on a confirm pause', async () => {
@@ -787,8 +790,10 @@ describe('TextProcessorService', () => {
 
       const result = await service.processTextMessage('maybe later', 42, { chatId: 100, messageId: 11 });
 
-      // The pause is still open, so the indicator must stay — nothing to tear down.
+      // The pause is still open, so the indicator must stay — nothing to tear down. The keepalive
+      // must keep animating, so resolvedPendingPause must be falsy too.
       expect(result.consumedAwaitingMessageId).toBeUndefined();
+      expect(result.resolvedPendingPause).toBeFalsy();
       expect(agentClient.resume).not.toHaveBeenCalled();
     });
 
@@ -805,7 +810,24 @@ describe('TextProcessorService', () => {
       const result = await service.processTextMessage('start over', 42, { chatId: 100, messageId: 12 }, undefined, { forceFresh: true });
 
       expect(result.consumedAwaitingMessageId).toBe(654);
+      expect(result.resolvedPendingPause).toBe(true);
       expect(agentClient.invoke).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT flag a resolved pause on a fresh message with nothing pending', async () => {
+      const store = new MemoryPendingClarificationStore();
+      const gateStore = new MemoryConversationGateStore();
+      const agentClient = {
+        invoke: jest.fn().mockResolvedValue({ status: 'completed', threadId: 'thread-new', response: 'Ok.', toolResults: [] }),
+        resume: jest.fn(),
+      };
+      const service = createService(agentClient, store, gateStore);
+
+      // forceFresh with no waiting pause → 'idle' abandon outcome → nothing was superseded.
+      const result = await service.processTextMessage('do a thing', 42, { chatId: 100, messageId: 13 }, undefined, { forceFresh: true });
+
+      expect(result.resolvedPendingPause).toBeFalsy();
+      expect(result.consumedAwaitingMessageId).toBeUndefined();
     });
   });
 });
