@@ -1,0 +1,80 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-04T11:46:50+08:00
+request_id: tg_update_564452296
+thread_id: tg_tg_update_564452296
+user_id: telegram:701122767
+telegram_user_id: 701122767
+telegram_username: jer_jerryyy
+telegram_first_name: jerry
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-04 11:46:50.205 | section              | === Jarvis LangGraph Run ===
+2026-07-04 11:46:50.205 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_564452296
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: tg_tg_update_564452296
+      request_source: telegram
+      resuming: false
+2026-07-04 11:46:50.205 | runtime.prompt       | [payload] user_prompt: hello please add into my calendar
+2026-07-04 11:46:50.804 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-04 11:46:51.072 | graph.agent          | Entering agent node.
+      turn: 1
+      max_turns: 20
+      messages: 2
+2026-07-04 11:46:51.073 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-04 11:46:51.076 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 2
+      tools: 21
+2026-07-04 11:46:53.875 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 7687
+      completion_tokens: 217
+      total_tokens: 7904
+2026-07-04 11:46:53.876 | graph.route          | Agent node completed.
+      next: hitl
+      turn: 1
+2026-07-04 11:46:53.879 | graph.hitl           | Interrupting for user clarification.
+      question: What would you like to add to your calendar? Please provide at least the event title and the date/time.
+      deferred_tools: 0
+      extra_questions: 0
+2026-07-04 11:46:53.923 | runtime.done         | Graph invocation completed.
+      request_id: tg_update_564452296
+      turns: 1
+      tool_results: 0
+      has_error: false
+      interrupted: true
+      interrupt_type: clarify
+      total_tokens: 7904
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-07-04T11:46:53+08:00
+duration_seconds: 3.728
+request_id: tg_update_564452296
+turns: 1
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 7687
+completion_tokens: 217
+total_tokens: 7904
+cached_tokens: 0
+cache_hit_rate: 0.0
+reasoning_tokens: 43
+==============================================================================

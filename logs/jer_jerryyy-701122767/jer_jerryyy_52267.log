@@ -1,0 +1,480 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-04T01:51:27+08:00
+request_id: tg_update_564452267
+thread_id: tg_tg_update_564452267
+user_id: telegram:701122767
+telegram_user_id: 701122767
+telegram_username: jer_jerryyy
+telegram_first_name: jerry
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-04 01:51:27.177 | section              | === Jarvis LangGraph Run ===
+2026-07-04 01:51:27.177 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_564452267
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: tg_tg_update_564452267
+      request_source: telegram
+      resuming: false
+2026-07-04 01:51:27.177 | runtime.prompt       | [payload] user_prompt: how’s my schedule today?
+2026-07-04 01:51:27.446 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-04 01:51:27.524 | graph.agent          | Entering agent node.
+      turn: 1
+      max_turns: 20
+      messages: 2
+2026-07-04 01:51:27.526 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-04 01:51:27.526 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 2
+      tools: 21
+2026-07-04 01:51:30.325 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 2
+      has_content: false
+      has_reasoning: true
+      prompt_tokens: 7686
+      completion_tokens: 242
+      total_tokens: 7928
+2026-07-04 01:51:30.327 | graph.route          | Agent node completed.
+      next: tools
+      turn: 1
+2026-07-04 01:51:30.331 | graph.validate       | All entity references verified.
+      tool_calls: 2
+      next: tools
+2026-07-04 01:51:30.335 | graph.tools          | Entering tools node.
+      tool_calls: 2
+      accumulated_results: 0
+2026-07-04 01:51:30.409 | tool.start           | Preparing tool call.
+      id: call_00_LFAFlgHUXncuo8F2fffX9475
+      name: get_tasks_by_filter
+      mutating: false
+2026-07-04 01:51:30.409 | tool.start           | Preparing tool call.
+      id: call_01_epiodu496R9k4lcbHoGH1253
+      name: list_calendar_events
+      mutating: false
+2026-07-04 01:51:30.409 | tool.args            | [payload] get_tasks_by_filter:
+      query: today
+2026-07-04 01:51:30.409 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-04T00:00:00+08:00
+      time_max: 2026-07-05T00:00:00+08:00
+      single_events: true
+2026-07-04 01:51:30.410 | todoist.request      | Sending Todoist API request.
+      method: GET
+      endpoint: /tasks/filter
+      has_payload: false
+      attempt: 1
+      max_attempts: 3
+2026-07-04 01:51:30.410 | todoist.payload      | [payload] request: None
+2026-07-04 01:51:30.621 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-04 01:51:30.983 | calendar.response    | Received Calendar API response.
+      operation: calendar.events.list
+      attempt: 1
+2026-07-04 01:51:30.984 | tool.done            | Tool call completed.
+      name: list_calendar_events
+2026-07-04 01:51:30.985 | tool.result          | [payload] list_calendar_events:
+      events:
+      (1 items)
+            event_id: ul3e002tgnj4dba489uq2b0h2c
+            summary: Eating with Zach
+            start: 2026-07-04T12:00:00+08:00
+            end: 2026-07-04T13:00:00+08:00
+            status: confirmed
+2026-07-04 01:51:31.433 | todoist.response     | Received Todoist API response.
+      status: 200
+      has_body: true
+      attempt: 1
+2026-07-04 01:51:31.433 | todoist.payload      | [payload] response:
+      results:
+      (1 items)
+            user_id: 41485550
+            id: 6h2wcq7RqCg24cvp
+            project_id: 6M5457p2vRg4g3Vp
+            added_by_uid: 41485550
+            added_at: 2026-07-03T02:45:35.701881Z
+            updated_at: 2026-07-03T02:45:35.701897Z
+            due:
+                  date: 2026-07-04T13:00:00
+                  string: 4 Jul 13:00
+                  lang: en
+            priority: 4
+            child_order: 4040
+            content: cut hair
+            day_order: -1
+2026-07-04 01:51:31.434 | tool.done            | Tool call completed.
+      name: get_tasks_by_filter
+2026-07-04 01:51:31.440 | tool.result          | [payload] get_tasks_by_filter:
+      results:
+      (1 items)
+            user_id: 41485550
+            id: 6h2wcq7RqCg24cvp
+            project_id: 6M5457p2vRg4g3Vp
+            added_by_uid: 41485550
+            added_at: 2026-07-03T02:45:35.701881Z
+            updated_at: 2026-07-03T02:45:35.701897Z
+            due:
+                  date: 2026-07-04T13:00:00
+                  string: 4 Jul 13:00
+                  lang: en
+            priority: 4
+            child_order: 4040
+            content: cut hair
+            day_order: -1
+2026-07-04 01:51:31.442 | graph.route          | Tools node completed.
+      next: agent
+      successes: 2
+      failures: 0
+2026-07-04 01:51:31.448 | graph.agent          | Entering agent node.
+      turn: 2
+      max_turns: 20
+      messages: 5
+2026-07-04 01:51:31.449 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-04 01:51:31.451 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 5
+      tools: 21
+2026-07-04 01:51:35.032 | agent.response       | Received assistant message.
+      has_tool_calls: false
+      tool_calls: 0
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 8467
+      completion_tokens: 339
+      total_tokens: 8806
+      cached_tokens: 7808
+      cache_hit_rate: 92.2
+2026-07-04 01:51:35.033 | graph.hitl_upgrade   | Converted text question to ask_user tool call.
+      question_preview:Here's your schedule for **Saturday, July 4, 2026**:
+
+---
+
+### 📅 Google Calendar Events
+
+| Time | Ev
+2026-07-04 01:51:35.034 | graph.route          | Agent node completed.
+      next: hitl
+      turn: 2
+2026-07-04 01:51:35.046 | graph.hitl           | Interrupting for user clarification.
+      question:Here's your schedule for **Saturday, July 4, 2026**:
+
+---
+
+### 📅 Google Calendar Events
+
+| Time | Event |
+|------|-------|
+| 🕛 12:00 PM – 1:00 PM | **Eating with Zach** |
+
+### ✅ Todoist Tasks (Due Today)
+
+| Time | Task | Priority |
+|------|------|----------|
+| 🕐 1:00 PM | **Cut hair** | 🔴 P1 (Urgent) |
+
+---
+
+**Overview:** Your day looks pretty light! You've got lunch with Zach from 12–1 PM, and right after that you need to get your hair cut at 1 PM — they're back-to-back with no overlap, so that's clean.
+
+Want me to add anything else or help plan the rest of your weekend?
+      deferred_tools: 0
+      extra_questions: 0
+2026-07-04 01:51:35.102 | runtime.done         | Graph invocation completed.
+      request_id: tg_update_564452267
+      turns: 2
+      tool_results: 2
+      has_error: false
+      interrupted: true
+      interrupt_type: clarify
+      total_tokens: 16734
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-07-04T01:51:35+08:00
+duration_seconds: 7.975
+request_id: tg_update_564452267
+turns: 2
+tool_results: 2
+has_error: False
+interrupted: True
+prompt_tokens: 16153
+completion_tokens: 581
+total_tokens: 16734
+cached_tokens: 7808
+cache_hit_rate: 48.3
+reasoning_tokens: 261
+==============================================================================
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-04T01:51:54+08:00
+request_id: tg_update_564452268
+thread_id: tg_tg_update_564452267
+user_id: telegram:701122767
+telegram_user_id: 701122767
+telegram_username: jer_jerryyy
+telegram_first_name: jerry
+request_source: telegram
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: True
+------------------------------------------------------------------------------
+2026-07-04 01:51:54.654 | section              | === Jarvis LangGraph Run ===
+2026-07-04 01:51:54.655 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_564452268
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: tg_tg_update_564452267
+      request_source: telegram
+      resuming: true
+2026-07-04 01:51:54.655 | runtime.prompt       | [payload] user_prompt: delete zac meetup
+2026-07-04 01:51:54.766 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-04 01:51:54.792 | graph.hitl           | Interrupting for user clarification.
+      question:Here's your schedule for **Saturday, July 4, 2026**:
+
+---
+
+### 📅 Google Calendar Events
+
+| Time | Event |
+|------|-------|
+| 🕛 12:00 PM – 1:00 PM | **Eating with Zach** |
+
+### ✅ Todoist Tasks (Due Today)
+
+| Time | Task | Priority |
+|------|------|----------|
+| 🕐 1:00 PM | **Cut hair** | 🔴 P1 (Urgent) |
+
+---
+
+**Overview:** Your day looks pretty light! You've got lunch with Zach from 12–1 PM, and right after that you need to get your hair cut at 1 PM — they're back-to-back with no overlap, so that's clean.
+
+Want me to add anything else or help plan the rest of your weekend?
+      deferred_tools: 0
+      extra_questions: 0
+2026-07-04 01:51:54.792 | graph.hitl           | Resumed from user clarification.
+2026-07-04 01:51:54.793 | graph.agent          | Entering agent node.
+      turn: 3
+      max_turns: 20
+      messages: 8
+2026-07-04 01:51:54.793 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-04 01:51:54.794 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 8
+      tools: 21
+2026-07-04 01:51:57.646 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 9161
+      completion_tokens: 200
+      total_tokens: 9361
+      cached_tokens: 8448
+      cache_hit_rate: 92.2
+2026-07-04 01:51:57.649 | graph.route          | Agent node completed.
+      next: tools
+      turn: 3
+2026-07-04 01:51:57.655 | graph.validate       | All entity references verified.
+      tool_calls: 1
+      next: confirm
+2026-07-04 01:51:57.660 | graph.prepare_confirm | Froze risky actions into held_calls.
+      held_call_count: 1
+      tool_names: [delete_calendar_event]
+      deferred_count: 0
+2026-07-04 01:51:57.662 | graph.confirm        | Interrupting for user confirmation.
+      count: 1
+      tool_names: [delete_calendar_event]
+      summary:Delete event "Eating with Zach".
+This action is irreversible.
+2026-07-04 01:51:57.784 | runtime.done         | Graph invocation completed.
+      request_id: tg_update_564452268
+      turns: 3
+      tool_results: 2
+      has_error: false
+      interrupted: true
+      interrupt_type: confirm
+      total_tokens: 9361
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-07-04T01:51:57+08:00
+duration_seconds: 3.14
+request_id: tg_update_564452268
+turns: 3
+tool_results: 2
+has_error: False
+interrupted: True
+prompt_tokens: 9161
+completion_tokens: 200
+total_tokens: 9361
+cached_tokens: 8448
+cache_hit_rate: 92.2
+reasoning_tokens: 124
+==============================================================================
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-04T01:52:02+08:00
+request_id: cb_mr58da53_g8byid
+thread_id: tg_tg_update_564452267
+user_id: telegram:701122767
+telegram_user_id: 701122767
+telegram_username: jer_jerryyy
+telegram_first_name: jerry
+request_source: telegram
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: True
+------------------------------------------------------------------------------
+2026-07-04 01:52:02.266 | section              | === Jarvis LangGraph Run ===
+2026-07-04 01:52:02.266 | runtime.start        | Starting graph invocation.
+      request_id: cb_mr58da53_g8byid
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: tg_tg_update_564452267
+      request_source: telegram
+      resuming: true
+2026-07-04 01:52:02.267 | runtime.prompt       | [payload] user_prompt: approve
+2026-07-04 01:52:02.366 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-04 01:52:02.398 | graph.confirm        | Interrupting for user confirmation.
+      count: 1
+      tool_names: [delete_calendar_event]
+      summary:Delete event "Eating with Zach".
+This action is irreversible.
+2026-07-04 01:52:02.399 | graph.confirm        | Resumed from user confirmation.
+      decision: approve
+      count: 1
+2026-07-04 01:52:02.400 | graph.executor       | Evaluating guards.
+      count: 1
+      decision: approve
+2026-07-04 01:52:02.400 | graph.executor       | Dispatching concurrent execution.
+      count: 1
+      max_workers: 1
+      timeout: 45.0
+2026-07-04 01:52:02.400 | graph.executor       | Executing confirmed action.
+      held_call_id: cc05cf22-caae-4666-bffe-27137cedc999
+      tool_name: delete_calendar_event
+2026-07-04 01:52:02.401 | tool.start           | Preparing tool call.
+      id: call_00_PEDPeXhCftVCdq1iTVmX9347
+      name: delete_calendar_event
+      mutating: true
+2026-07-04 01:52:02.401 | tool.args            | [payload] delete_calendar_event:
+      event_id: ul3e002tgnj4dba489uq2b0h2c
+2026-07-04 01:52:02.472 | idempotency.operation.claim_acquired | Operation idempotency state changed.
+      tool_name: delete_calendar_event
+      key: a835373ea8f73ae2f8c7ef01450af8bf40d490c4561bd3761d79f17b98c18b6b
+2026-07-04 01:52:02.476 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.delete
+      attempt: 1
+      max_attempts: 3
+2026-07-04 01:52:02.954 | calendar.response    | Received Calendar API response.
+      operation: calendar.events.delete
+      attempt: 1
+2026-07-04 01:52:02.955 | tool.done            | Tool call completed.
+      name: delete_calendar_event
+2026-07-04 01:52:02.955 | tool.result          | [payload] delete_calendar_event:
+      success: true
+      message: Event ul3e002tgnj4dba489uq2b0h2c deleted
+      event_id: ul3e002tgnj4dba489uq2b0h2c
+2026-07-04 01:52:02.972 | idempotency.operation.completed | Operation idempotency state changed.
+      tool_name: delete_calendar_event
+      key: a835373ea8f73ae2f8c7ef01450af8bf40d490c4561bd3761d79f17b98c18b6b
+2026-07-04 01:52:02.973 | graph.executor       | Execution completed.
+      held_call_id: cc05cf22-caae-4666-bffe-27137cedc999
+      success: true
+2026-07-04 01:52:02.976 | graph.agent          | Entering agent node.
+      turn: 4
+      max_turns: 20
+      messages: 10
+2026-07-04 01:52:02.978 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-04 01:52:02.981 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 10
+      tools: 21
+2026-07-04 01:52:04.592 | agent.response       | Received assistant message.
+      has_tool_calls: false
+      tool_calls: 0
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 9488
+      completion_tokens: 103
+      total_tokens: 9591
+      cached_tokens: 9344
+      cache_hit_rate: 98.5
+2026-07-04 01:52:04.594 | graph.hitl_upgrade   | Converted text question to ask_user tool call.
+      question_preview:The **Eating with Zach** event has been deleted. Here's your updated schedule for today:
+
+---
+
+### ✅
+2026-07-04 01:52:04.594 | graph.route          | Agent node completed.
+      next: hitl
+      turn: 4
+2026-07-04 01:52:04.600 | graph.hitl           | Interrupting for user clarification.
+      question:The **Eating with Zach** event has been deleted. Here's your updated schedule for today:
+
+---
+
+### ✅ Updated Schedule — Saturday, July 4, 2026
+
+| Time | Item |
+|------|------|
+| 🕐 1:00 PM | **Cut hair** (P1 – Urgent) |
+
+Just that one task left. A nice open Saturday! Anything else you'd like to do?
+      deferred_tools: 0
+      extra_questions: 0
+2026-07-04 01:52:04.770 | runtime.done         | Graph invocation completed.
+      request_id: cb_mr58da53_g8byid
+      turns: 4
+      tool_results: 3
+      has_error: false
+      interrupted: true
+      interrupt_type: clarify
+      total_tokens: 9591
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-07-04T01:52:04+08:00
+duration_seconds: 2.517
+request_id: cb_mr58da53_g8byid
+turns: 4
+tool_results: 3
+has_error: False
+interrupted: True
+prompt_tokens: 9488
+completion_tokens: 103
+total_tokens: 9591
+cached_tokens: 9344
+cache_hit_rate: 98.5
+reasoning_tokens: 16
+==============================================================================
