@@ -140,7 +140,7 @@ const statusService = new BotStatusService(activityService, {
 // forwarded through the same text pipeline — so voice and typed share the same path.
 const textProcessor = new TextProcessorService(agentClient, pendingStore, conversationGate);
 const audioProcessor = new AudioProcessorService(whisperService, textProcessor);
-const messageProcessor = new MessageProcessorService(textProcessor, audioProcessor, conversationGate);
+const messageProcessor = new MessageProcessorService(textProcessor, audioProcessor, conversationGate, pendingStore);
 
 // Telegram handlers: commands (/help, /status, /cancel), message types, and inline callbacks.
 const messageHandlers = new MessageHandlers(fileService, messageProcessor, activityService, pendingStore);

@@ -88,8 +88,8 @@ export class CallbackHandler {
 
       await ctx.answerCbQuery(decision === 'approve' ? 'Approved!' : 'Declined.');
 
-      // The button tap resolves the pause. Rich mode was only a one-shot preview, while plain mode
-      // persisted a real message whose id is stored on the pending record.
+      // The button tap has won the gate, so remove the persistent Awaiting indicator before
+      // resuming the agent. Deletion is best-effort and never blocks the decision.
       if (pending.awaitingMessageId && chatId !== undefined && 'deleteMessage' in ctx.telegram) {
         await deleteAwaitingIndicator(ctx.telegram, chatId, pending.awaitingMessageId, logContext);
       }
@@ -141,15 +141,6 @@ export class CallbackHandler {
         const interruptType = agentResponse.interrupt?.type === 'confirm' ? 'confirm' : 'clarify';
         await this.conversationGate.transitionToWaiting(gateKey, this.waitingTtlMs);
         await this.savePendingRecord(gateKey, agentResponse, internalUserId, userId, chatId, requestId, interruptType);
-        const awaitingMessageId = await showAwaitingIndicator(
-          ctx,
-          gateKey,
-          interruptType,
-          logContext,
-        );
-        if (awaitingMessageId !== undefined) {
-          await this.pendingStore.attachAwaitingMessageId(gateKey, awaitingMessageId).catch(() => {});
-        }
         if (interruptType === 'confirm') {
           await this.sendConfirmReply(ctx, agentResponse.response, agentResponse.threadId, requestId);
         } else {
@@ -157,11 +148,28 @@ export class CallbackHandler {
             requestId,
           });
         }
+        const awaitingMessageId = await showAwaitingIndicator(
+          ctx,
+          gateKey,
+          interruptType,
+          logContext,
+        );
+        if (awaitingMessageId !== undefined) {
+          await this.pendingStore.attachAwaitingMessageId(gateKey, awaitingMessageId).catch(async (error) => {
+            logger.warn('telegram.awaiting.attach_failed', {
+              ...logContext,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            if (chatId !== undefined) {
+              await deleteAwaitingIndicator(ctx.telegram, chatId, awaitingMessageId, logContext);
+            }
+          });
+        }
         logger.info('telegram.interrupt.prompt_presented', {
           ...logContext,
           gateKey,
           interruptType,
-          presentationOrder: 'awaiting_then_prompt',
+          presentationOrder: 'prompt_then_awaiting',
         });
       } else {
         const buffered = await this.conversationGate.getAndClearBufferedMessage(gateKey).catch(() => undefined);

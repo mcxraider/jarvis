@@ -17,6 +17,7 @@ export interface AudioProcessingHooks {
   onTranscription?: (text: string) => void | Promise<void>;
   onTranscribed?: () => void | Promise<void>;
   onProgress?: LangGraphProgressCallback;
+  onPendingPauseAccepted?: (messageId: number) => void | Promise<void>;
 }
 
 export class AudioProcessorService {
@@ -84,6 +85,8 @@ export class AudioProcessorService {
           threadId: result.threadId,
           blocked: result.blocked,
           bufferedMessage: result.bufferedMessage,
+          consumedAwaitingMessageId: result.consumedAwaitingMessageId,
+          resolvedPendingPause: result.resolvedPendingPause,
         };
       } catch (processingError) {
         logger.warn('audio_processor.text_processing_failed', {
@@ -174,6 +177,8 @@ export class AudioProcessorService {
           threadId: result.threadId,
           blocked: result.blocked,
           bufferedMessage: result.bufferedMessage,
+          consumedAwaitingMessageId: result.consumedAwaitingMessageId,
+          resolvedPendingPause: result.resolvedPendingPause,
         };
       } catch (processingError) {
         logger.warn('audio_processor.document_text_processing_failed', {

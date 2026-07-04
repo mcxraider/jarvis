@@ -80,8 +80,8 @@ export class MessageHandlers {
         return;
       }
       if (outcome === 'abandoned') {
-        // Rich mode is a one-shot preview with nothing to tear down. Plain mode persists an
-        // "⏳ Awaiting…" message whose id is stored on the pending record.
+        // Both rich and plain modes persist an "⏳ Awaiting…" message whose id is stored on the
+        // pending record.
         if (pending?.awaitingMessageId && ctx.chat && 'deleteMessage' in ctx.telegram) {
           await deleteAwaitingIndicator(ctx.telegram, ctx.chat.id, pending.awaitingMessageId, logContext);
         }
@@ -116,7 +116,11 @@ export class MessageHandlers {
           lastProgressStage = event.stage;
           await progressReporter.record(event);
         },
-        options,
+        {
+          ...options,
+          onPendingPauseAccepted: (messageId) =>
+            this.deleteAcceptedAwaitingIndicator(ctx, messageId, logContext),
+        },
       );
       await progressReporter.complete(this.completionStatus(lastProgressStage));
       await this.sendResult(ctx, result, logContext);
@@ -189,6 +193,10 @@ export class MessageHandlers {
         },
         userId,
         logContext,
+        {
+          onPendingPauseAccepted: (messageId) =>
+            this.deleteAcceptedAwaitingIndicator(ctx, messageId, logContext),
+        },
       );
       await this.sendResult(ctx, result, logContext);
       logger.info('telegram.reply.sent', {
@@ -273,6 +281,8 @@ export class MessageHandlers {
         onTranscription: (text) => this.sendTranscription(ctx, reporter, text, logContext),
         onTranscribed,
         onProgress,
+        onPendingPauseAccepted: (messageId) =>
+          this.deleteAcceptedAwaitingIndicator(ctx, messageId, logContext),
       });
     }, 'Something went wrong processing your audio document. Please try again.');
   }
@@ -327,6 +337,8 @@ export class MessageHandlers {
         onTranscription: (text) => this.sendTranscription(ctx, reporter, text, logContext),
         onTranscribed,
         onProgress,
+        onPendingPauseAccepted: (messageId) =>
+          this.deleteAcceptedAwaitingIndicator(ctx, messageId, logContext),
       });
     }, `Something went wrong processing your ${messageType} message. Please try again.`);
   }
@@ -396,8 +408,8 @@ export class MessageHandlers {
   // get inline Approve/Decline buttons; everything else goes as a plain rich/markdown reply.
   //
   // Also owns the "Awaiting…" indicator lifecycle for the text/audio paths:
-  //   1. Delete any persistent plain-mode indicator this turn resolved.
-  //   2. If this turn created a new pause, send a one-shot preview before the persistent prompt.
+  //   1. Delete any indicator from a pause superseded by /new.
+  //   2. If this turn created a new pause, send its prompt before the persistent indicator.
   private async sendResult(ctx: Context, result: TextProcessorResult, logContext: LogContext): Promise<void> {
     const userId = ctx.from?.id;
     const gateKey = buildConversationKey(userId, mapTelegramUserId(userId), ctx.chat?.id);
@@ -408,6 +420,12 @@ export class MessageHandlers {
       }
     }
 
+    if (result.interruptType === 'confirm' && result.threadId) {
+      await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
+    } else {
+      await sendFinalReply(ctx, formatInterruptReply(result.response, result.interruptType), logContext);
+    }
+
     if (result.interruptType && result.threadId) {
       const awaitingMessageId = await showAwaitingIndicator(
         ctx,
@@ -416,37 +434,40 @@ export class MessageHandlers {
         logContext,
       );
       if (awaitingMessageId !== undefined) {
-        await this.attachAwaitingMessageId(gateKey, awaitingMessageId, logContext);
+        await this.attachAwaitingMessageId(ctx, gateKey, awaitingMessageId, logContext);
       }
-    }
-
-    if (result.interruptType === 'confirm' && result.threadId) {
-      await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
-    } else {
-      await sendFinalReply(ctx, formatInterruptReply(result.response, result.interruptType), logContext);
-    }
-
-    if (result.interruptType && result.threadId) {
       logger.info('telegram.interrupt.prompt_presented', {
         ...logContext,
         gateKey,
         interruptType: result.interruptType,
-        presentationOrder: 'awaiting_then_prompt',
+        presentationOrder: 'prompt_then_awaiting',
       });
     }
   }
 
   private async attachAwaitingMessageId(
+    ctx: Context,
     gateKey: string,
     messageId: number,
     logContext: LogContext,
   ): Promise<void> {
-    await this.pendingStore.attachAwaitingMessageId(gateKey, messageId).catch((error) => {
+    await this.pendingStore.attachAwaitingMessageId(gateKey, messageId).catch(async (error) => {
       logger.warn('telegram.awaiting.attach_failed', {
         ...logContext,
         error: error instanceof Error ? error.message : String(error),
       });
+      await this.deleteAcceptedAwaitingIndicator(ctx, messageId, logContext);
     });
+  }
+
+  private async deleteAcceptedAwaitingIndicator(
+    ctx: Context,
+    messageId: number,
+    logContext: LogContext,
+  ): Promise<void> {
+    if (ctx.chat && 'deleteMessage' in ctx.telegram) {
+      await deleteAwaitingIndicator(ctx.telegram, ctx.chat.id, messageId, logContext);
+    }
   }
 
   private async rejectUnsupportedMedia(ctx: Context, messageType: string, replyText: string): Promise<void> {

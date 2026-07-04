@@ -371,6 +371,9 @@ describe('CallbackHandler', () => {
       await handler.handleCallbackQuery(ctx);
 
       expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(100, 777);
+      expect(ctx.telegram.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(
+        agentClient.resume.mock.invocationCallOrder[0],
+      );
     },
   );
 
@@ -421,7 +424,7 @@ describe('CallbackHandler', () => {
     expect(pending?.awaitingMessageId).toBe(88);
   });
 
-  it('sends a one-shot Awaiting preview before a callback-triggered re-interrupt prompt', async () => {
+  it('sends a callback-triggered re-interrupt prompt before its persistent Awaiting message', async () => {
     setRichMessagesEnabled(true);
     const agentClient = {
       resume: jest.fn().mockResolvedValue({
@@ -437,13 +440,13 @@ describe('CallbackHandler', () => {
     await setupWaitingGate(gateStore, pendingStore);
     const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
-    ctx.telegram.callApi = jest.fn().mockResolvedValue(undefined);
+    ctx.telegram.callApi = jest.fn().mockResolvedValue({ message_id: 909 });
 
     await handler.handleCallbackQuery(ctx);
 
     const awaitingCallIndex = ctx.telegram.callApi.mock.calls.findIndex(
       (call: unknown[]) =>
-        call[0] === 'sendRichMessageDraft' &&
+        call[0] === 'sendRichMessage' &&
         String((call[1] as any).rich_message.markdown).includes('Awaiting confirmation'),
     );
     const reInterruptPromptIndex = ctx.reply.mock.calls.findIndex(
@@ -451,8 +454,8 @@ describe('CallbackHandler', () => {
     );
     expect(awaitingCallIndex).toBeGreaterThanOrEqual(0);
     expect(reInterruptPromptIndex).toBeGreaterThanOrEqual(0);
-    expect(ctx.telegram.callApi.mock.invocationCallOrder[awaitingCallIndex]).toBeLessThan(
-      ctx.reply.mock.invocationCallOrder[reInterruptPromptIndex],
+    expect(ctx.reply.mock.invocationCallOrder[reInterruptPromptIndex]).toBeLessThan(
+      ctx.telegram.callApi.mock.invocationCallOrder[awaitingCallIndex],
     );
   });
 });
