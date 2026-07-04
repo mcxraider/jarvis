@@ -1,0 +1,231 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-04T12:44:16+08:00
+request_id: tg_update_564452303
+thread_id: tg_tg_update_564452303
+user_id: telegram:701122767
+telegram_user_id: 701122767
+telegram_username: jer_jerryyy
+telegram_first_name: jerry
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-04 12:44:16.015 | section              | === Jarvis LangGraph Run ===
+2026-07-04 12:44:16.016 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_564452303
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: tg_tg_update_564452303
+      request_source: telegram
+      resuming: false
+2026-07-04 12:44:16.016 | runtime.prompt       | [payload] user_prompt:
+      set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of priority based on when im most free. get back to me...
+2026-07-04 12:44:16.147 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-04 12:44:16.167 | graph.agent          | Entering agent node.
+      turn: 1
+      max_turns: 20
+      messages: 2
+2026-07-04 12:44:16.168 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-04 12:44:16.169 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 2
+      tools: 21
+2026-07-04 12:44:22.870 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: false
+      has_reasoning: true
+      prompt_tokens: 7719
+      completion_tokens: 689
+      total_tokens: 8408
+      cached_tokens: 7552
+      cache_hit_rate: 97.8
+2026-07-04 12:44:22.872 | graph.route          | Agent node completed.
+      next: tools
+      turn: 1
+2026-07-04 12:44:22.879 | graph.validate       | All entity references verified.
+      tool_calls: 1
+      next: tools
+2026-07-04 12:44:22.883 | graph.tools          | Entering tools node.
+      tool_calls: 1
+      accumulated_results: 0
+2026-07-04 12:44:22.888 | tool.start           | Preparing tool call.
+      id: call_00_oSsNLK3gZSfJpe1AWdAR7360
+      name: get_freebusy
+      mutating: false
+2026-07-04 12:44:22.889 | tool.args            | [payload] get_freebusy:
+      time_min: 2026-07-06T17:00:00+08:00
+      time_max: 2026-07-12T22:00:00+08:00
+2026-07-04 12:44:23.136 | calendar.request     | Sending Calendar API request.
+      operation: calendar.freebusy.query
+      attempt: 1
+      max_attempts: 3
+2026-07-04 12:44:23.450 | calendar.response    | Received Calendar API response.
+      operation: calendar.freebusy.query
+      attempt: 1
+2026-07-04 12:44:23.451 | tool.done            | Tool call completed.
+      name: get_freebusy
+2026-07-04 12:44:23.452 | tool.result          | [payload] get_freebusy:
+      calendars:
+            primary:
+                  busy:
+                  (1 items)
+                        start: 2026-07-07T11:00:00Z
+                        end: 2026-07-07T12:00:00Z
+2026-07-04 12:44:23.455 | graph.route          | Tools node completed.
+      next: agent
+      successes: 1
+      failures: 0
+2026-07-04 12:44:23.462 | graph.agent          | Entering agent node.
+      turn: 2
+      max_turns: 20
+      messages: 4
+2026-07-04 12:44:23.463 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-04 12:44:23.465 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 4
+      tools: 21
+2026-07-04 12:44:25.888 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: false
+      has_reasoning: true
+      prompt_tokens: 8535
+      completion_tokens: 241
+      total_tokens: 8776
+      cached_tokens: 8320
+      cache_hit_rate: 97.5
+2026-07-04 12:44:25.889 | graph.route          | Agent node completed.
+      next: tools
+      turn: 2
+2026-07-04 12:44:25.895 | graph.validate       | All entity references verified.
+      tool_calls: 1
+      next: tools
+2026-07-04 12:44:25.899 | graph.tools          | Entering tools node.
+      tool_calls: 1
+      accumulated_results: 1
+2026-07-04 12:44:25.903 | tool.start           | Preparing tool call.
+      id: call_00_bjX9rg1wv15vljDFmdas0111
+      name: list_calendar_events
+      mutating: false
+2026-07-04 12:44:25.904 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-06T00:00:00+08:00
+      time_max: 2026-07-12T23:59:59+08:00
+      single_events: true
+2026-07-04 12:44:25.909 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-04 12:44:26.213 | calendar.response    | Received Calendar API response.
+      operation: calendar.events.list
+      attempt: 1
+2026-07-04 12:44:26.214 | tool.done            | Tool call completed.
+      name: list_calendar_events
+2026-07-04 12:44:26.215 | tool.result          | [payload] list_calendar_events:
+      events:
+      (1 items)
+            event_id: epb8s1a8rq00d3rad25t2lb2tc
+            summary: Eating with John
+            start: 2026-07-07T19:00:00+08:00
+            end: 2026-07-07T20:00:00+08:00
+            status: confirmed
+2026-07-04 12:44:26.216 | graph.route          | Tools node completed.
+      next: agent
+      successes: 1
+      failures: 0
+2026-07-04 12:44:26.220 | graph.agent          | Entering agent node.
+      turn: 3
+      max_turns: 20
+      messages: 6
+2026-07-04 12:44:26.222 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-04 12:44:26.227 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 6
+      tools: 21
+2026-07-04 12:44:36.586 | agent.response       | Received assistant message.
+      has_tool_calls: false
+      tool_calls: 0
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 8945
+      completion_tokens: 1109
+      total_tokens: 10054
+      cached_tokens: 8704
+      cache_hit_rate: 97.3
+2026-07-04 12:44:36.592 | graph.hitl_upgrade   | Converted text question to ask_user tool call.
+      question_preview: Great, here's what I found for next week! Let me check your schedule during dinner hours (let's say 
+2026-07-04 12:44:36.593 | graph.route          | Agent node completed.
+      next: hitl
+      turn: 3
+2026-07-04 12:44:36.600 | graph.hitl           | Interrupting for user clarification.
+      question:Great, here's what I found for next week! Let me check your schedule during dinner hours (let's say 6:30pm–9pm).
+
+**Your schedule next week (Mon 6 Jul – Sun 12 Jul):**
+- **Mon** — 🟢 Wide open
+- **Tue** — 🔴 Busy 7pm–8pm (Eating with John)
+- **Wed** — 🟢 Wide open
+- **Thu** — 🟢 Wide open
+- **Fri** — 🟢 Wide open
+- **Sat** — 🟢 Wide open
+- **Sun** — 🟢 Wide open
+
+---
+
+Here are my **top 3 ranked picks** for a dinner with Zac, in order of priority:
+
+### 🥇 1. Monday 6 July — ⭐ Most free & earliest
+Completely clear all evening. You can pick any dinner slot without rushing.
+
+### 🥈 2. Wednesday 8 July — ⭐ Also fully free
+Another wide-open evening, just a day later in the week.
+
+### 🥉 3. Thursday 9 July — ⭐ Fully free
+More breathing room mid-week, still no conflicts.
+
+*(Tuesday is the only day with a conflict — 7–8pm with John — so it's the least free.)*
+
+---
+
+Which date works best for you? And what time would you like dinner — say **7pm** as a default?
+      deferred_tools: 0
+      extra_questions: 0
+2026-07-04 12:44:36.670 | runtime.done         | Graph invocation completed.
+      request_id: tg_update_564452303
+      turns: 3
+      tool_results: 2
+      has_error: false
+      interrupted: true
+      interrupt_type: clarify
+      total_tokens: 27238
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-07-04T12:44:36+08:00
+duration_seconds: 20.665
+request_id: tg_update_564452303
+turns: 3
+tool_results: 2
+has_error: False
+interrupted: True
+prompt_tokens: 25199
+completion_tokens: 2039
+total_tokens: 27238
+cached_tokens: 24576
+cache_hit_rate: 97.5
+reasoning_tokens: 1530
+==============================================================================

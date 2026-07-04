@@ -80,3 +80,6 @@
 {"chatId":"[REDACTED_ID]","error":"400: Bad Request: RICH_MESSAGE_BLOCK_UNSUPPORTED","interruptType":"clarify","level":"warn","message":"telegram.awaiting.rich_fallback","messageId":764,"messageType":"text","requestId":"tg_update_564452291","telegramFirstName":"jerry","telegramUsername":"jer_jerryyy","timestamp":"2026-07-04 03:40:58","updateId":564452291,"userId":"[REDACTED_ID]"}
 {"chatId":"[REDACTED_ID]","error":"400: Bad Request: RICH_MESSAGE_BLOCK_UNSUPPORTED","interruptType":"clarify","level":"warn","message":"telegram.awaiting.rich_fallback","messageId":769,"messageType":"text","requestId":"tg_update_564452293","telegramFirstName":"jerry","telegramUsername":"jer_jerryyy","timestamp":"2026-07-04 03:45:22","updateId":564452293,"userId":"[REDACTED_ID]"}
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-04 03:51:19"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-04 11:54:45"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-04 12:24:14"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-04 12:45:20"}
