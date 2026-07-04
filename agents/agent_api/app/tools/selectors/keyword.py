@@ -51,6 +51,17 @@ KEYWORD_ROUTES: Dict[str, List[str]] = {
     "comment": ["get_comments", "add_comment"],
     # Labels
     "label": ["get_labels"],
+    # Projects. The bare "project" substring (also matches "projects") routes plain
+    # listing/lookup to the read tool. Create phrasings are enumerated (the matcher
+    # has no proximity, so "create a project" won't match "create project") and each
+    # pairs discovery with creation — the model then picks by intent, mirroring how
+    # "delete" offers both get_tasks and delete_todoist_task.
+    "project": ["get_projects"],
+    "create project": ["get_projects", "create_project"],
+    "create a project": ["get_projects", "create_project"],
+    "new project": ["get_projects", "create_project"],
+    "make a project": ["get_projects", "create_project"],
+    "add a project": ["get_projects", "create_project"],
     # Google Calendar. These names are silently dropped when the calendar domain
     # is unregistered (select_schemas filters to registry membership), so the
     # routes are harmless on a Todoist-only run. Longest-first scan lets the

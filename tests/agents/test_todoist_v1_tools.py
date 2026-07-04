@@ -20,6 +20,7 @@ from agents.agent_api.app.tools.todoist.tools import (
 )
 
 NEW_TOOLS = {"uncomplete_task", "get_comments", "add_comment", "get_labels"}
+PROJECT_TOOLS = {"get_projects", "create_project"}
 
 
 def _schema(name):
@@ -31,12 +32,25 @@ class TestSchemaRegistration:
         names = {s["function"]["name"] for s in get_todoist_tool_schemas()}
         assert NEW_TOOLS <= names
 
+    def test_project_tools_registered(self):
+        names = {s["function"]["name"] for s in get_todoist_tool_schemas()}
+        assert PROJECT_TOOLS <= names
+
     def test_mutating_membership(self):
         # New writers must be guarded; new readers must not be.
         assert "uncomplete_task" in MUTATING_TOOL_NAMES
         assert "add_comment" in MUTATING_TOOL_NAMES
         assert "get_comments" not in MUTATING_TOOL_NAMES
         assert "get_labels" not in MUTATING_TOOL_NAMES
+
+    def test_project_mutating_membership(self):
+        # create_project writes; get_projects is a read.
+        assert "create_project" in MUTATING_TOOL_NAMES
+        assert "get_projects" not in MUTATING_TOOL_NAMES
+
+    def test_create_project_requires_name(self):
+        params = _schema("create_project")["function"]["parameters"]
+        assert params["required"] == ["name"]
 
     def test_add_comment_requires_content(self):
         params = _schema("add_comment")["function"]["parameters"]
@@ -151,3 +165,49 @@ class TestGetLabels:
         assert result["next_cursor"] == "x"  # preserves other response fields
         # search must not be forwarded to the API as a query param
         assert "search" not in mock_request.call_args[0][0]
+
+
+class TestGetProjects:
+    @patch.object(TodoistApiClient, "_request")
+    def test_no_search_returns_raw(self, mock_request):
+        payload = {"results": [{"id": "1", "name": "Inbox"}], "next_cursor": None}
+        mock_request.return_value = payload
+        client = TodoistApiClient(api_key="test-key")
+
+        assert client.get_projects({}) == payload
+        assert mock_request.call_args[0][0] == f"{TODOIST_REST_BASE_URL}/projects"
+
+    @patch.object(TodoistApiClient, "_request")
+    def test_search_filters_client_side(self, mock_request):
+        mock_request.return_value = {
+            "results": [
+                {"id": "1", "name": "jarvis-mcp"},
+                {"id": "2", "name": "Inbox"},
+                {"id": "3", "name": "MCP notes"},
+            ],
+            "next_cursor": "y",
+        }
+        client = TodoistApiClient(api_key="test-key")
+
+        result = client.get_projects({"search": "mcp"})
+
+        names = [project["name"] for project in result["results"]]
+        assert names == ["jarvis-mcp", "MCP notes"]  # case-insensitive substring
+        assert result["next_cursor"] == "y"  # preserves other response fields
+        # search must not be forwarded to the API as a query param
+        assert "search" not in mock_request.call_args[0][0]
+
+
+class TestCreateProject:
+    @patch.object(TodoistApiClient, "_request")
+    def test_posts_payload(self, mock_request):
+        mock_request.return_value = {"id": "p1", "name": "Reading"}
+        client = TodoistApiClient(api_key="test-key")
+
+        client.create_project({"name": "Reading", "color": None})
+
+        url, method, payload = mock_request.call_args[0][:3]
+        assert url == f"{TODOIST_REST_BASE_URL}/projects"
+        assert method == "POST"
+        # None-valued fields are dropped before sending.
+        assert payload == {"name": "Reading"}

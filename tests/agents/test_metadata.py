@@ -31,6 +31,13 @@ class TestGetMeta:
         assert get_meta("add_todoist_task").label == "Add task"
         assert get_meta("complete_task").label == "Complete task"
 
+    def test_create_project_meta(self):
+        meta = get_meta("create_project")
+        assert meta.verb == "adding"
+        assert meta.label == "Add project"
+        assert meta.service == "todoist"
+        assert meta.highlight_arg == "name"
+
 
 class TestGetService:
     @pytest.mark.parametrize(
@@ -75,6 +82,7 @@ class TestIrreversibleTools:
         assert "add_todoist_task" not in irrev
         assert "update_todoist_task" not in irrev
         assert "complete_task" not in irrev
+        assert "create_project" not in irrev
 
 
 class TestAlwaysRiskyTools:
@@ -84,6 +92,7 @@ class TestAlwaysRiskyTools:
         assert "add_todoist_task" not in risky
         assert "update_todoist_task" not in risky
         assert "complete_task" not in risky
+        assert "create_project" not in risky
 
     def test_matches_risk_module(self):
         from agents.agent_api.app.graph.risk import RISKY_TOOLS

@@ -93,6 +93,12 @@ class FakeTodoistClient:
     def get_labels(self, arguments: Dict[str, Any]) -> Any:
         return self._record("get_labels", arguments)
 
+    def get_projects(self, arguments: Dict[str, Any]) -> Any:
+        return {"results": [self._record("get_projects", arguments)], "next_cursor": None}
+
+    def create_project(self, arguments: Dict[str, Any]) -> Any:
+        return self._record("create_project", arguments)
+
 
 class SeededTodoistClient(FakeTodoistClient):
     """Fake client whose reads return tasks with real ids.
