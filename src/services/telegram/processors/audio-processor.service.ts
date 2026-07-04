@@ -90,7 +90,6 @@ export class AudioProcessorService {
           threadId: result.threadId,
           blocked: result.blocked,
           bufferedMessage: result.bufferedMessage,
-          consumedAwaitingMessageId: result.consumedAwaitingMessageId,
           consumedClarificationMessageId: result.consumedClarificationMessageId,
           consumedClarificationQuestion: result.consumedClarificationQuestion,
           resolvedPendingPause: result.resolvedPendingPause,
@@ -184,7 +183,8 @@ export class AudioProcessorService {
           threadId: result.threadId,
           blocked: result.blocked,
           bufferedMessage: result.bufferedMessage,
-          consumedAwaitingMessageId: result.consumedAwaitingMessageId,
+          consumedClarificationMessageId: result.consumedClarificationMessageId,
+          consumedClarificationQuestion: result.consumedClarificationQuestion,
           resolvedPendingPause: result.resolvedPendingPause,
         };
       } catch (processingError) {

@@ -161,10 +161,10 @@ const telegramConfig: TelegramConfig = {
 
 export const botService = new TelegramBotService(telegramConfig, handlers);
 
-// When a conversation gate times out, notify the user, remove any lingering "Awaiting…" indicator,
+// When a conversation gate times out, notify the user, collapse any active clarification,
 // and mark the matching pending clarification 'expired' (gateKey === pendingKey). Resumption is
 // already blocked by the store's expires_at filter; this keeps the persisted status accurate and the
-// chat clean. Read the record before clearing so we still have its indicator message_id.
+// chat clean. Read the record before clearing so we still have its clarification message id.
 conversationGate.setOnExpiry((gateKey, chatId) => {
   botService
     .sendRichMessage(chatId, '⏱ Request timed out. Send a new message to try again.', { chatId, gateKey })
@@ -172,9 +172,6 @@ conversationGate.setOnExpiry((gateKey, chatId) => {
   pendingStore
     .get(gateKey)
     .then(async (pending) => {
-      if (pending?.awaitingMessageId !== undefined) {
-        await botService.deleteMessage(chatId, pending.awaitingMessageId);
-      }
       if (pending?.clarificationMessageId !== undefined) {
         await botService.collapseClarification(
           chatId,

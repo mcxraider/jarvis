@@ -19,12 +19,6 @@ export interface TextProcessorResult {
   threadId?: string;
   blocked?: boolean;
   bufferedMessage?: string;
-  // message_id of an "Awaiting…" indicator that this turn consumed (i.e. the pending record it
-  // resolved or superseded carried one). The handler deletes it — the processor stays
-  // Telegram-agnostic. Undefined when no pending record was consumed or it had no indicator.
-  // Set for either persistent rich or plain indicators when no immediate acceptance hook handled
-  // deletion (for example, a /new supersede path).
-  consumedAwaitingMessageId?: number;
   consumedClarificationMessageId?: number;
   consumedClarificationQuestion?: string;
   // True when this turn resolved or superseded a pending pause (a pending record left 'pending').
@@ -45,18 +39,14 @@ export interface TextProcessorOptions {
 }
 
 export interface PendingPausePresentation {
-  awaitingMessageId?: number;
   clarificationMessageId?: number;
   question: string;
 }
 
 export type AbandonOutcome = 'idle' | 'running' | 'abandoned';
 
-// Internal result of abandonIfWaiting: the outcome plus the awaiting-indicator message_id of the
-// record that was superseded (if any), so callers can tear the indicator down.
 interface AbandonResult {
   outcome: AbandonOutcome;
-  awaitingMessageId?: number;
   clarificationMessageId?: number;
   question?: string;
 }
@@ -123,8 +113,6 @@ export class TextProcessorService {
 
       // /new: drop any pending clarify/confirm and fall through to the fresh acquire+invoke
       // path below. Refuse if the agent is mid-flight so we never run two invokes on one gate.
-      // Remember the superseded record's awaiting-indicator id so it can be torn down on the result.
-      let supersededAwaitingMessageId: number | undefined;
       let supersededClarificationMessageId: number | undefined;
       let supersededClarificationQuestion: string | undefined;
       let supersededPause = false;
@@ -137,10 +125,7 @@ export class TextProcessorService {
             blocked: true,
           };
         }
-        // 'abandoned' means a waiting pause was actually cleared — its indicator (plain or rich)
-        // must be torn down. 'idle' means nothing was pending, so nothing to tear down.
         supersededPause = abandon.outcome === 'abandoned';
-        supersededAwaitingMessageId = abandon.awaitingMessageId;
         supersededClarificationMessageId = abandon.clarificationMessageId;
         supersededClarificationQuestion = abandon.question;
       }
@@ -236,7 +221,6 @@ export class TextProcessorService {
         interruptType: resultInterruptType,
         threadId: agentResponse.threadId,
         bufferedMessage: buffered,
-        consumedAwaitingMessageId: supersededAwaitingMessageId,
         consumedClarificationMessageId: supersededClarificationMessageId,
         consumedClarificationQuestion: supersededClarificationQuestion,
         resolvedPendingPause: supersededPause,
@@ -278,14 +262,13 @@ export class TextProcessorService {
       return { outcome: 'running' };
     }
     if (status === 'waiting_for_clarification') {
-      // Read the record before clearing so we can surface its awaiting-indicator id for teardown.
+      // Read the record before clearing so its clarification block can be collapsed.
       const pending = await this.pendingClarificationStore.get(gateKey).catch(() => undefined);
       await this.conversationGate.release(gateKey).catch(() => {});
       await this.pendingClarificationStore.clear(gateKey, 'superseded').catch(() => {});
       logger.info('conversation_gate.superseded', { ...logContext, gateKey });
       return {
         outcome: 'abandoned',
-        awaitingMessageId: pending?.awaitingMessageId,
         clarificationMessageId: pending?.clarificationMessageId,
         question: pending?.question,
       };
@@ -326,21 +309,17 @@ export class TextProcessorService {
     }
 
     let pausePresentationHandled = options?.pendingPauseAcceptedNotified ?? false;
-    if (!pausePresentationHandled && (
-      pending.awaitingMessageId !== undefined || pending.clarificationMessageId !== undefined
-    )) {
+    if (!pausePresentationHandled && pending.clarificationMessageId !== undefined) {
       try {
         await options?.onPendingPauseAccepted?.({
-          awaitingMessageId: pending.awaitingMessageId,
           clarificationMessageId: pending.clarificationMessageId,
           question: pending.question,
         });
         pausePresentationHandled = Boolean(options?.onPendingPauseAccepted);
       } catch (error) {
-        logger.warn('telegram.awaiting.acceptance_hook_failed', {
+        logger.warn('telegram.clarification.acceptance_hook_failed', {
           ...logContext,
           gateKey,
-          awaitingMessageId: pending.awaitingMessageId,
           clarificationMessageId: pending.clarificationMessageId,
           error: error instanceof Error ? error.message : String(error),
         });
@@ -387,10 +366,6 @@ export class TextProcessorService {
         interruptType: resultInterruptType,
         threadId: agentResponse.threadId,
         bufferedMessage: buffered,
-        // Consumed the pending record above (clear '…completed'), so its indicator must be torn down
-        // — whether this turn ended or re-interrupted (a fresh indicator is sent for the new pause).
-        // consumedAwaitingMessageId drives fallback deletion when no acceptance hook was supplied.
-        consumedAwaitingMessageId: pausePresentationHandled ? undefined : pending.awaitingMessageId,
         consumedClarificationMessageId: pausePresentationHandled ? undefined : pending.clarificationMessageId,
         consumedClarificationQuestion: pausePresentationHandled ? undefined : pending.question,
         resolvedPendingPause: true,
