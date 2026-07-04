@@ -7,7 +7,7 @@ import { PendingClarificationRecord, PendingClarificationStore } from '../pendin
 import { ConversationGateStore } from '../conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
-import { deleteAwaitingIndicator, showAwaitingIndicator, stopAwaitingIndicator } from '../awaiting-indicator';
+import { deleteAwaitingIndicator, showAwaitingIndicator } from '../awaiting-indicator';
 
 const CONFIRM_PREFIX = 'confirm:';
 const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
@@ -88,10 +88,8 @@ export class CallbackHandler {
 
       await ctx.answerCbQuery(decision === 'approve' ? 'Approved!' : 'Declined.');
 
-      // The button tap resolves the pause: remove its "Awaiting confirmation" indicator now, before
-      // the resume's new thinking block appears. Rich mode animates via a keepalive (no message_id) —
-      // stop it by gate key; plain mode persisted a real message — delete it.
-      stopAwaitingIndicator(gateKey);
+      // The button tap resolves the pause. Rich mode was only a one-shot preview, while plain mode
+      // persisted a real message whose id is stored on the pending record.
       if (pending.awaitingMessageId && chatId !== undefined && 'deleteMessage' in ctx.telegram) {
         await deleteAwaitingIndicator(ctx.telegram, chatId, pending.awaitingMessageId, logContext);
       }
@@ -143,6 +141,15 @@ export class CallbackHandler {
         const interruptType = agentResponse.interrupt?.type === 'confirm' ? 'confirm' : 'clarify';
         await this.conversationGate.transitionToWaiting(gateKey, this.waitingTtlMs);
         await this.savePendingRecord(gateKey, agentResponse, internalUserId, userId, chatId, requestId, interruptType);
+        const awaitingMessageId = await showAwaitingIndicator(
+          ctx,
+          gateKey,
+          interruptType,
+          logContext,
+        );
+        if (awaitingMessageId !== undefined) {
+          await this.pendingStore.attachAwaitingMessageId(gateKey, awaitingMessageId).catch(() => {});
+        }
         if (interruptType === 'confirm') {
           await this.sendConfirmReply(ctx, agentResponse.response, agentResponse.threadId, requestId);
         } else {
@@ -150,13 +157,12 @@ export class CallbackHandler {
             requestId,
           });
         }
-        // The resume produced a fresh pause — show a new "Awaiting…" indicator. Rich mode animates a
-        // keepalive draft (returns undefined, nothing to store); plain mode returns a message_id to
-        // record on the fresh record for the next turn's teardown.
-        const awaitingMessageId = await showAwaitingIndicator(ctx, gateKey, interruptType, logContext);
-        if (awaitingMessageId !== undefined) {
-          await this.pendingStore.attachAwaitingMessageId(gateKey, awaitingMessageId).catch(() => {});
-        }
+        logger.info('telegram.interrupt.prompt_presented', {
+          ...logContext,
+          gateKey,
+          interruptType,
+          presentationOrder: 'awaiting_then_prompt',
+        });
       } else {
         const buffered = await this.conversationGate.getAndClearBufferedMessage(gateKey).catch(() => undefined);
         await this.conversationGate.release(gateKey).catch(() => {});

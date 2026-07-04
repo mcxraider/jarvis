@@ -157,10 +157,8 @@ export async function sendRichMessageToChat(
 
 /**
  * Context-free twin of {@link sendRichDraft}: streams an ephemeral rich draft to a chat by id
- * when no Telegraf `Context` is available. The persistent "Awaiting…" indicator's keepalive timer
- * (see awaiting-indicator.ts) re-sends the same `draftId` on an interval to keep the shimmer alive
- * across a multi-minute HITL wait, and those ticks run outside any `Context`. Throws on failure so
- * the caller can fall back (the initial send) or log-and-continue (a keepalive tick).
+ * when no Telegraf `Context` is available. The one-shot "Awaiting…" preview uses this immediately
+ * before its persistent interrupt prompt. Throws on failure so the caller can fall back.
  */
 export async function sendRichMessageDraftToChat(
   telegram: Telegram,

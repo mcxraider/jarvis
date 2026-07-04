@@ -25,8 +25,7 @@ export interface TextProcessorResult {
   // Only set for plain-mode indicators; rich-mode indicators are drafts with no message_id.
   consumedAwaitingMessageId?: number;
   // True when this turn resolved or superseded a pending pause (a pending record left 'pending').
-  // The handler keys "Awaiting…" teardown off this — rich mode has no message_id to signal
-  // resolution, so this flag is what tells the handler to stop the keepalive draft.
+  // The handler uses this to distinguish a consumed plain indicator id from unrelated result data.
   resolvedPendingPause?: boolean;
 }
 
@@ -327,8 +326,7 @@ export class TextProcessorService {
         bufferedMessage: buffered,
         // Consumed the pending record above (clear '…completed'), so its indicator must be torn down
         // — whether this turn ended or re-interrupted (a fresh indicator is sent for the new pause).
-        // resolvedPendingPause drives rich-mode keepalive teardown; consumedAwaitingMessageId drives
-        // the plain-mode message delete.
+        // consumedAwaitingMessageId drives the plain-mode message delete.
         consumedAwaitingMessageId: pending.awaitingMessageId,
         resolvedPendingPause: true,
       };

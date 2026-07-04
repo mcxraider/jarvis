@@ -1,6 +1,6 @@
 import { MessageHandlers } from '../../../../../src/services/telegram/handlers/message-handlers';
 import { TELEGRAM_ONBOARDING_MESSAGE } from '../../../../../src/services/telegram/onboarding-message';
-import * as awaitingIndicator from '../../../../../src/services/telegram/awaiting-indicator';
+import { setRichMessagesEnabled } from '../../../../../src/services/telegram/formatters/telegram-rich';
 
 // Minimal PendingClarificationStore mock. `get` defaults to "no pending record"; tests that exercise
 // teardown override it. `attachAwaitingMessageId` is the signal that an "Awaiting…" indicator was
@@ -17,9 +17,9 @@ function makePendingStore(overrides: Record<string, any> = {}) {
 }
 
 describe('MessageHandlers', () => {
-  // Some tests spy on the shared awaiting-indicator module; restore between tests so spy call
-  // history doesn't leak across cases (module-level singletons persist within a test file).
+  // Rich-mode enablement is module-level state, so reset it between cases.
   afterEach(() => {
+    setRichMessagesEnabled(false);
     jest.restoreAllMocks();
   });
 
@@ -487,6 +487,63 @@ describe('MessageHandlers', () => {
       expect(pendingStore.attachAwaitingMessageId).toHaveBeenCalledWith(expect.any(String), 77);
     });
 
+    it('sends the rich Awaiting preview before the clarification prompt', async () => {
+      setRichMessagesEnabled(true);
+      const messageProcessor = {
+        processTextMessage: jest.fn().mockResolvedValue({
+          response: 'Which project?',
+          interruptType: 'clarify',
+          threadId: 'tg_order_clarify',
+        }),
+      } as any;
+      const { handlers } = createHandlers({ messageProcessor });
+      const ctx = createContext({ text: 'add a task', message_id: 12 });
+      ctx.telegram.callApi = jest.fn().mockResolvedValue(undefined);
+
+      await handlers.handleText(ctx);
+
+      expect(ctx.telegram.callApi.mock.calls.map((call: unknown[]) => call[0])).toEqual([
+        'sendRichMessageDraft',
+        'sendRichMessageDraft',
+        'sendRichMessage',
+      ]);
+      const awaitingDraftCall = ctx.telegram.callApi.mock.calls[1][1];
+      expect(awaitingDraftCall.rich_message.markdown).toContain('Awaiting clarification');
+      expect(ctx.telegram.callApi.mock.invocationCallOrder[1]).toBeLessThan(
+        ctx.telegram.callApi.mock.invocationCallOrder[2],
+      );
+    });
+
+    it('sends the rich Awaiting preview before a confirmation prompt with buttons', async () => {
+      setRichMessagesEnabled(true);
+      const messageProcessor = {
+        processTextMessage: jest.fn().mockResolvedValue({
+          response: 'Delete 5 tasks?',
+          interruptType: 'confirm',
+          threadId: 'tg_order_confirm',
+        }),
+      } as any;
+      const { handlers } = createHandlers({ messageProcessor });
+      const ctx = createContext({ text: 'delete everything', message_id: 13 });
+      ctx.telegram.callApi = jest.fn().mockResolvedValue(undefined);
+
+      await handlers.handleText(ctx);
+
+      const awaitingCallIndex = ctx.telegram.callApi.mock.calls.findIndex(
+        (call: unknown[]) =>
+          call[0] === 'sendRichMessageDraft' &&
+          String((call[1] as any).rich_message.markdown).includes('Awaiting confirmation'),
+      );
+      expect(awaitingCallIndex).toBeGreaterThanOrEqual(0);
+      const confirmCall = ctx.reply.mock.calls.findIndex(
+        (call: unknown[]) => Boolean((call[1] as any)?.reply_markup?.inline_keyboard),
+      );
+      expect(confirmCall).toBeGreaterThanOrEqual(0);
+      expect(ctx.telegram.callApi.mock.invocationCallOrder[awaitingCallIndex]).toBeLessThan(
+        ctx.reply.mock.invocationCallOrder[confirmCall],
+      );
+    });
+
     it('does not send an indicator for a plain final answer', async () => {
       const messageProcessor = {
         processTextMessage: jest.fn().mockResolvedValue({ response: 'Done.' }),
@@ -500,13 +557,10 @@ describe('MessageHandlers', () => {
       expect(pendingStore.attachAwaitingMessageId).not.toHaveBeenCalled();
     });
 
-    it('tears down a resolved pause: stops the keepalive and deletes the plain-mode indicator', async () => {
-      const stopSpy = jest.spyOn(awaitingIndicator, 'stopAwaitingIndicator');
+    it('deletes the plain-mode indicator when a pause resolves', async () => {
       const messageProcessor = {
         processTextMessage: jest.fn().mockResolvedValue({
           response: 'Done.',
-          // The processor surfaces both together: the flag drives rich-mode keepalive teardown,
-          // the id drives the plain-mode message delete.
           resolvedPendingPause: true,
           consumedAwaitingMessageId: 555,
         }),
@@ -517,12 +571,10 @@ describe('MessageHandlers', () => {
 
       await handlers.handleText(ctx);
 
-      expect(stopSpy).toHaveBeenCalledWith(expect.any(String));
       expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 555);
     });
 
     it('does not tear down when no pause was resolved', async () => {
-      const stopSpy = jest.spyOn(awaitingIndicator, 'stopAwaitingIndicator');
       const messageProcessor = {
         // A plain final answer that resolved nothing: an id present without the flag must be ignored.
         processTextMessage: jest.fn().mockResolvedValue({ response: 'Done.', consumedAwaitingMessageId: 555 }),
@@ -533,7 +585,6 @@ describe('MessageHandlers', () => {
 
       await handlers.handleText(ctx);
 
-      expect(stopSpy).not.toHaveBeenCalled();
       expect(ctx.telegram.deleteMessage).not.toHaveBeenCalledWith(456, 555);
     });
   });

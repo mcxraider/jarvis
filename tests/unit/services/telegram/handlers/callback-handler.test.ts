@@ -2,7 +2,7 @@ import { CallbackHandler } from '../../../../../src/services/telegram/handlers/c
 import { MemoryConversationGateStore } from '../../../../../src/services/telegram/conversation-gate.store';
 import { MemoryPendingClarificationStore } from '../../../../../src/services/telegram/pending-clarification.store';
 import { buildConversationKey } from '../../../../../src/services/telegram/conversation-key';
-import * as awaitingIndicator from '../../../../../src/services/telegram/awaiting-indicator';
+import { setRichMessagesEnabled } from '../../../../../src/services/telegram/formatters/telegram-rich';
 
 function makeCtx(callbackData: string, userId = 42, chatId = 100) {
   return {
@@ -56,8 +56,9 @@ async function setupWaitingGate(
 }
 
 describe('CallbackHandler', () => {
-  // Restore spies between tests so awaiting-indicator spy history doesn't leak.
+  // Rich-mode enablement is module-level state, so reset it between cases.
   afterEach(() => {
+    setRichMessagesEnabled(false);
     jest.restoreAllMocks();
   });
 
@@ -373,29 +374,6 @@ describe('CallbackHandler', () => {
     },
   );
 
-  it('stops the rich-mode keepalive on a button tap (by gate key)', async () => {
-    const stopSpy = jest.spyOn(awaitingIndicator, 'stopAwaitingIndicator');
-    const agentClient = {
-      resume: jest.fn().mockResolvedValue({
-        status: 'completed',
-        threadId: 'tg_abc_msg123',
-        response: 'Done.',
-        toolResults: [],
-      }),
-    };
-    const pendingStore = new MemoryPendingClarificationStore();
-    const gateStore = new MemoryConversationGateStore();
-    await setupWaitingGate(gateStore, pendingStore);
-
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
-    const ctx = makeCtx('confirm:approve:tg_abc_msg123');
-
-    await handler.handleCallbackQuery(ctx);
-
-    // Rich mode has no message_id on the record; teardown must go through stopAwaitingIndicator(gateKey).
-    expect(stopSpy).toHaveBeenCalledWith(getGateKey());
-  });
-
   it('does not delete an indicator when the pending record has none', async () => {
     const agentClient = {
       resume: jest.fn().mockResolvedValue({
@@ -441,5 +419,40 @@ describe('CallbackHandler', () => {
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(100, 777);
     const pending = await pendingStore.get(getGateKey());
     expect(pending?.awaitingMessageId).toBe(88);
+  });
+
+  it('sends a one-shot Awaiting preview before a callback-triggered re-interrupt prompt', async () => {
+    setRichMessagesEnabled(true);
+    const agentClient = {
+      resume: jest.fn().mockResolvedValue({
+        status: 'interrupted',
+        threadId: 'tg_abc_msg123',
+        response: 'Also delete the project?',
+        interrupt: { type: 'confirm' },
+        toolResults: [],
+      }),
+    };
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateStore = new MemoryConversationGateStore();
+    await setupWaitingGate(gateStore, pendingStore);
+    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore);
+    const ctx = makeCtx('confirm:approve:tg_abc_msg123');
+    ctx.telegram.callApi = jest.fn().mockResolvedValue(undefined);
+
+    await handler.handleCallbackQuery(ctx);
+
+    const awaitingCallIndex = ctx.telegram.callApi.mock.calls.findIndex(
+      (call: unknown[]) =>
+        call[0] === 'sendRichMessageDraft' &&
+        String((call[1] as any).rich_message.markdown).includes('Awaiting confirmation'),
+    );
+    const reInterruptPromptIndex = ctx.reply.mock.calls.findIndex(
+      (call: unknown[]) => Boolean((call[1] as any)?.reply_markup?.inline_keyboard),
+    );
+    expect(awaitingCallIndex).toBeGreaterThanOrEqual(0);
+    expect(reInterruptPromptIndex).toBeGreaterThanOrEqual(0);
+    expect(ctx.telegram.callApi.mock.invocationCallOrder[awaitingCallIndex]).toBeLessThan(
+      ctx.reply.mock.invocationCallOrder[reInterruptPromptIndex],
+    );
   });
 });
