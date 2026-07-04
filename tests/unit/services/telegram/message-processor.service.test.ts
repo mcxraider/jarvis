@@ -143,7 +143,11 @@ describe('MessageProcessorService', () => {
       { onPendingPauseAccepted },
     );
 
-    expect(onPendingPauseAccepted).toHaveBeenCalledWith(444);
+    expect(onPendingPauseAccepted).toHaveBeenCalledWith({
+      awaitingMessageId: 444,
+      clarificationMessageId: undefined,
+      question: 'Which task?',
+    });
     expect(onPendingPauseAccepted.mock.invocationCallOrder[0]).toBeLessThan(
       audioProcessor.processAudioMessage.mock.invocationCallOrder[0],
     );

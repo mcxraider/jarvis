@@ -1,5 +1,10 @@
 import { logger } from '../../utils/logger';
-import { AbandonOutcome, TextProcessorResult, TextProcessorService } from './processors/text-processor.service';
+import {
+  AbandonOutcome,
+  PendingPausePresentation,
+  TextProcessorResult,
+  TextProcessorService,
+} from './processors/text-processor.service';
 import { AudioProcessingHooks, AudioProcessorService } from './processors/audio-processor.service';
 import { LogContext } from '../../utils/logger';
 import { LangGraphProgressCallback } from '../ai/langgraph-agent-client.service';
@@ -35,7 +40,7 @@ export class MessageProcessorService {
     onProgress?: LangGraphProgressCallback,
     options?: {
       forceFresh?: boolean;
-      onPendingPauseAccepted?: (messageId: number) => void | Promise<void>;
+      onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
     },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
@@ -195,7 +200,7 @@ export class MessageProcessorService {
     },
     userId?: number,
     logContext: LogContext = {},
-    options?: { onPendingPauseAccepted?: (messageId: number) => void | Promise<void> },
+    options?: { onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void> },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
@@ -296,7 +301,7 @@ export class MessageProcessorService {
     gateKey: string,
     gateStatus: ConversationGateStatus,
     logContext: LogContext,
-    onPendingPauseAccepted?: (messageId: number) => void | Promise<void>,
+    onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>,
   ): Promise<
     | { reserved: true; kind: 'fresh' | 'clarification'; pauseAcceptedNotified?: boolean }
     | { reserved: false; gateStatus: ConversationGateStatus }
@@ -310,15 +315,22 @@ export class MessageProcessorService {
       logger.info('conversation_gate.audio_resume_reserved', { ...logContext, gateKey });
       const pending = await this.pendingStore?.get(gateKey).catch(() => undefined);
       let pauseAcceptedNotified = false;
-      if (pending?.interruptType !== 'confirm' && pending?.awaitingMessageId !== undefined) {
+      if (pending?.interruptType !== 'confirm' && (
+        pending?.awaitingMessageId !== undefined || pending?.clarificationMessageId !== undefined
+      )) {
         try {
-          await onPendingPauseAccepted?.(pending.awaitingMessageId);
+          await onPendingPauseAccepted?.({
+            awaitingMessageId: pending.awaitingMessageId,
+            clarificationMessageId: pending.clarificationMessageId,
+            question: pending.question,
+          });
           pauseAcceptedNotified = Boolean(onPendingPauseAccepted);
         } catch (error) {
           logger.warn('telegram.awaiting.acceptance_hook_failed', {
             ...logContext,
             gateKey,
-            messageId: pending.awaitingMessageId,
+            awaitingMessageId: pending.awaitingMessageId,
+            clarificationMessageId: pending.clarificationMessageId,
             error: error instanceof Error ? error.message : String(error),
           });
         }

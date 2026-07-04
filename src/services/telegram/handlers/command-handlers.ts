@@ -3,7 +3,7 @@ import { logger } from '../../../utils/logger';
 import { BotActivityService } from '../bot-activity.service';
 import { BotStatusService } from '../bot-status.service';
 import { replyWithMarkdown } from '../formatters/telegram-markdown';
-import { sendFinalReply } from '../formatters/telegram-rich';
+import { collapseClarification, sendFinalReply } from '../formatters/telegram-rich';
 import { TELEGRAM_ONBOARDING_MESSAGE } from '../onboarding-message';
 import { ConversationGateStore } from '../conversation-gate.store';
 import { PendingClarificationStore } from '../pending-clarification.store';
@@ -74,8 +74,39 @@ export class CommandHandlers {
       return;
     }
 
+    const pending = await this.pendingStore.get(gateKey).catch(() => undefined);
     await this.conversationGate.release(gateKey);
     await this.pendingStore.clear(gateKey, 'failed').catch(() => {});
+
+    if (pending?.awaitingMessageId !== undefined && chatId !== undefined) {
+      try {
+        await ctx.telegram.deleteMessage(chatId, pending.awaitingMessageId);
+      } catch (error) {
+        logger.warn('telegram.cancel.awaiting_delete_failed', {
+          userId,
+          chatId,
+          awaitingMessageId: pending.awaitingMessageId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    if (pending?.clarificationMessageId !== undefined && chatId !== undefined) {
+      try {
+        await collapseClarification(
+          ctx.telegram,
+          chatId,
+          pending.clarificationMessageId,
+          pending.question,
+        );
+      } catch (error) {
+        logger.warn('telegram.cancel.clarification_collapse_failed', {
+          userId,
+          chatId,
+          clarificationMessageId: pending.clarificationMessageId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
 
     logger.info('conversation_gate.manual_cancel', {
       userId, chatId, gateKey, previousStatus: status,

@@ -9,11 +9,15 @@ import { createRequestId, LogContext, logger, truncateForLog } from '../../../ut
 import { FileService } from '../file.service';
 import { MessageProcessorService } from '../message-processor.service';
 import { BotActivityService, BotActivityType } from '../bot-activity.service';
-import { sendFinalReply } from '../formatters/telegram-rich';
+import {
+  collapseClarification,
+  sendClarificationReply,
+  sendFinalReply,
+} from '../formatters/telegram-rich';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
 import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service';
-import { TextProcessorResult } from '../processors/text-processor.service';
+import { PendingPausePresentation, TextProcessorResult } from '../processors/text-processor.service';
 import { PendingClarificationStore } from '../pending-clarification.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { deleteAwaitingIndicator, showAwaitingIndicator } from '../awaiting-indicator';
@@ -85,6 +89,7 @@ export class MessageHandlers {
         if (pending?.awaitingMessageId && ctx.chat && 'deleteMessage' in ctx.telegram) {
           await deleteAwaitingIndicator(ctx.telegram, ctx.chat.id, pending.awaitingMessageId, logContext);
         }
+        await this.collapsePendingClarification(ctx, pending, logContext);
       }
       await ctx.reply('Starting fresh — send your next message.');
       return;
@@ -118,8 +123,8 @@ export class MessageHandlers {
         },
         {
           ...options,
-          onPendingPauseAccepted: (messageId) =>
-            this.deleteAcceptedAwaitingIndicator(ctx, messageId, logContext),
+          onPendingPauseAccepted: (presentation) =>
+            this.resolvePausePresentation(ctx, presentation, logContext),
         },
       );
       await progressReporter.complete(this.completionStatus(lastProgressStage));
@@ -194,8 +199,8 @@ export class MessageHandlers {
         userId,
         logContext,
         {
-          onPendingPauseAccepted: (messageId) =>
-            this.deleteAcceptedAwaitingIndicator(ctx, messageId, logContext),
+          onPendingPauseAccepted: (presentation) =>
+            this.resolvePausePresentation(ctx, presentation, logContext),
         },
       );
       await this.sendResult(ctx, result, logContext);
@@ -281,8 +286,8 @@ export class MessageHandlers {
         onTranscription: (text) => this.sendTranscription(ctx, reporter, text, logContext),
         onTranscribed,
         onProgress,
-        onPendingPauseAccepted: (messageId) =>
-          this.deleteAcceptedAwaitingIndicator(ctx, messageId, logContext),
+        onPendingPauseAccepted: (presentation) =>
+          this.resolvePausePresentation(ctx, presentation, logContext),
       });
     }, 'Something went wrong processing your audio document. Please try again.');
   }
@@ -337,8 +342,8 @@ export class MessageHandlers {
         onTranscription: (text) => this.sendTranscription(ctx, reporter, text, logContext),
         onTranscribed,
         onProgress,
-        onPendingPauseAccepted: (messageId) =>
-          this.deleteAcceptedAwaitingIndicator(ctx, messageId, logContext),
+        onPendingPauseAccepted: (presentation) =>
+          this.resolvePausePresentation(ctx, presentation, logContext),
       });
     }, `Something went wrong processing your ${messageType} message. Please try again.`);
   }
@@ -418,10 +423,21 @@ export class MessageHandlers {
       if (result.consumedAwaitingMessageId && ctx.chat && 'deleteMessage' in ctx.telegram) {
         await deleteAwaitingIndicator(ctx.telegram, ctx.chat.id, result.consumedAwaitingMessageId, logContext);
       }
+      if (result.consumedClarificationMessageId && result.consumedClarificationQuestion) {
+        await this.collapsePendingClarification(ctx, {
+          clarificationMessageId: result.consumedClarificationMessageId,
+          question: result.consumedClarificationQuestion,
+        }, logContext);
+      }
     }
 
     if (result.interruptType === 'confirm' && result.threadId) {
       await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
+    } else if (result.interruptType === 'clarify' && result.threadId) {
+      const clarificationMessageId = await sendClarificationReply(ctx, result.response, logContext);
+      if (clarificationMessageId !== undefined) {
+        await this.attachClarificationMessageId(gateKey, clarificationMessageId, logContext);
+      }
     } else {
       await sendFinalReply(ctx, result.response, logContext);
     }
@@ -444,6 +460,21 @@ export class MessageHandlers {
     }
   }
 
+  private async attachClarificationMessageId(
+    gateKey: string,
+    messageId: number,
+    logContext: LogContext,
+  ): Promise<void> {
+    await this.pendingStore.attachClarificationMessageId(gateKey, messageId).catch((error) => {
+      logger.warn('telegram.clarification.attach_failed', {
+        ...logContext,
+        gateKey,
+        clarificationMessageId: messageId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
   private async attachAwaitingMessageId(
     ctx: Context,
     gateKey: string,
@@ -455,17 +486,48 @@ export class MessageHandlers {
         ...logContext,
         error: error instanceof Error ? error.message : String(error),
       });
-      await this.deleteAcceptedAwaitingIndicator(ctx, messageId, logContext);
+      if (ctx.chat && 'deleteMessage' in ctx.telegram) {
+        await deleteAwaitingIndicator(ctx.telegram, ctx.chat.id, messageId, logContext);
+      }
     });
   }
 
-  private async deleteAcceptedAwaitingIndicator(
+  private async resolvePausePresentation(
     ctx: Context,
-    messageId: number,
+    presentation: PendingPausePresentation,
     logContext: LogContext,
   ): Promise<void> {
-    if (ctx.chat && 'deleteMessage' in ctx.telegram) {
-      await deleteAwaitingIndicator(ctx.telegram, ctx.chat.id, messageId, logContext);
+    if (presentation.awaitingMessageId !== undefined && ctx.chat && 'deleteMessage' in ctx.telegram) {
+      await deleteAwaitingIndicator(
+        ctx.telegram,
+        ctx.chat.id,
+        presentation.awaitingMessageId,
+        logContext,
+      );
+    }
+    await this.collapsePendingClarification(ctx, presentation, logContext);
+  }
+
+  private async collapsePendingClarification(
+    ctx: Context,
+    presentation: Pick<PendingPausePresentation, 'clarificationMessageId' | 'question'> | undefined,
+    logContext: LogContext,
+  ): Promise<void> {
+    if (presentation?.clarificationMessageId === undefined || !ctx.chat) return;
+    try {
+      await collapseClarification(
+        ctx.telegram,
+        ctx.chat.id,
+        presentation.clarificationMessageId,
+        presentation.question,
+      );
+    } catch (error) {
+      logger.warn('telegram.clarification.collapse_failed', {
+        ...logContext,
+        method: 'editMessageText',
+        clarificationMessageId: presentation.clarificationMessageId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

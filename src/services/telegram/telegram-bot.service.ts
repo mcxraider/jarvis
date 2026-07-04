@@ -8,7 +8,7 @@ import { Message } from 'telegraf/typings/core/types/typegram';
 import { TelegramHandlers } from './handlers/telegram-handlers';
 import { TelegramConfig } from '../../types/telegram.types';
 import { sendMessageWithMarkdown } from './formatters/telegram-markdown';
-import { sendRichMessageToChat } from './formatters/telegram-rich';
+import { collapseClarification, sendRichMessageToChat } from './formatters/telegram-rich';
 
 export class TelegramBotService {
   public readonly bot: Telegraf<Context>;
@@ -223,6 +223,19 @@ export class TelegramBotService {
         chatId,
         messageId,
         error: (error as Error).message,
+      });
+    }
+  }
+
+  async collapseClarification(chatId: number, messageId: number, question: string): Promise<void> {
+    try {
+      await collapseClarification(this.bot.telegram, chatId, messageId, question);
+    } catch (error) {
+      logger.warn('telegram.clarification.collapse_failed', {
+        chatId,
+        messageId,
+        method: 'editMessageText',
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }

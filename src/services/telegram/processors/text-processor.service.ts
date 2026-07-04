@@ -25,6 +25,8 @@ export interface TextProcessorResult {
   // Set for either persistent rich or plain indicators when no immediate acceptance hook handled
   // deletion (for example, a /new supersede path).
   consumedAwaitingMessageId?: number;
+  consumedClarificationMessageId?: number;
+  consumedClarificationQuestion?: string;
   // True when this turn resolved or superseded a pending pause (a pending record left 'pending').
   // The handler uses this to distinguish a consumed plain indicator id from unrelated result data.
   resolvedPendingPause?: boolean;
@@ -33,13 +35,19 @@ export interface TextProcessorResult {
 export interface TextProcessorOptions {
   gatePreAcquired?: boolean;
   pendingClarificationPreReserved?: boolean;
-  onPendingPauseAccepted?: (messageId: number) => void | Promise<void>;
+  onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
   pendingPauseAcceptedNotified?: boolean;
   // When set, abandon any pending clarify/confirm interrupt for this conversation and start
   // a brand-new agent thread for `text`. Used by the /new command. If the agent is actively
   // running (not just waiting on the user), the request is refused rather than started
   // concurrently — see abandonIfWaiting().
   forceFresh?: boolean;
+}
+
+export interface PendingPausePresentation {
+  awaitingMessageId?: number;
+  clarificationMessageId?: number;
+  question: string;
 }
 
 export type AbandonOutcome = 'idle' | 'running' | 'abandoned';
@@ -49,6 +57,8 @@ export type AbandonOutcome = 'idle' | 'running' | 'abandoned';
 interface AbandonResult {
   outcome: AbandonOutcome;
   awaitingMessageId?: number;
+  clarificationMessageId?: number;
+  question?: string;
 }
 
 export class TextProcessorService {
@@ -115,6 +125,8 @@ export class TextProcessorService {
       // path below. Refuse if the agent is mid-flight so we never run two invokes on one gate.
       // Remember the superseded record's awaiting-indicator id so it can be torn down on the result.
       let supersededAwaitingMessageId: number | undefined;
+      let supersededClarificationMessageId: number | undefined;
+      let supersededClarificationQuestion: string | undefined;
       let supersededPause = false;
       if (options?.forceFresh && !gateAcquired) {
         const abandon = await this.abandonIfWaiting(gateKey, logContext);
@@ -129,6 +141,8 @@ export class TextProcessorService {
         // must be torn down. 'idle' means nothing was pending, so nothing to tear down.
         supersededPause = abandon.outcome === 'abandoned';
         supersededAwaitingMessageId = abandon.awaitingMessageId;
+        supersededClarificationMessageId = abandon.clarificationMessageId;
+        supersededClarificationQuestion = abandon.question;
       }
 
       if (!gateAcquired) {
@@ -223,6 +237,8 @@ export class TextProcessorService {
         threadId: agentResponse.threadId,
         bufferedMessage: buffered,
         consumedAwaitingMessageId: supersededAwaitingMessageId,
+        consumedClarificationMessageId: supersededClarificationMessageId,
+        consumedClarificationQuestion: supersededClarificationQuestion,
         resolvedPendingPause: supersededPause,
       };
     } catch (error) {
@@ -267,7 +283,12 @@ export class TextProcessorService {
       await this.conversationGate.release(gateKey).catch(() => {});
       await this.pendingClarificationStore.clear(gateKey, 'superseded').catch(() => {});
       logger.info('conversation_gate.superseded', { ...logContext, gateKey });
-      return { outcome: 'abandoned', awaitingMessageId: pending?.awaitingMessageId };
+      return {
+        outcome: 'abandoned',
+        awaitingMessageId: pending?.awaitingMessageId,
+        clarificationMessageId: pending?.clarificationMessageId,
+        question: pending?.question,
+      };
     }
     return { outcome: 'idle' };
   }
@@ -282,7 +303,7 @@ export class TextProcessorService {
     onProgress?: LangGraphProgressCallback,
     options?: {
       alreadyRunning?: boolean;
-      onPendingPauseAccepted?: (messageId: number) => void | Promise<void>;
+      onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
       pendingPauseAcceptedNotified?: boolean;
     },
   ): Promise<TextProcessorResult> {
@@ -304,16 +325,23 @@ export class TextProcessorService {
       }
     }
 
-    let awaitingIndicatorHandled = options?.pendingPauseAcceptedNotified ?? false;
-    if (!awaitingIndicatorHandled && pending.awaitingMessageId !== undefined) {
+    let pausePresentationHandled = options?.pendingPauseAcceptedNotified ?? false;
+    if (!pausePresentationHandled && (
+      pending.awaitingMessageId !== undefined || pending.clarificationMessageId !== undefined
+    )) {
       try {
-        await options?.onPendingPauseAccepted?.(pending.awaitingMessageId);
-        awaitingIndicatorHandled = Boolean(options?.onPendingPauseAccepted);
+        await options?.onPendingPauseAccepted?.({
+          awaitingMessageId: pending.awaitingMessageId,
+          clarificationMessageId: pending.clarificationMessageId,
+          question: pending.question,
+        });
+        pausePresentationHandled = Boolean(options?.onPendingPauseAccepted);
       } catch (error) {
         logger.warn('telegram.awaiting.acceptance_hook_failed', {
           ...logContext,
           gateKey,
-          messageId: pending.awaitingMessageId,
+          awaitingMessageId: pending.awaitingMessageId,
+          clarificationMessageId: pending.clarificationMessageId,
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -362,7 +390,9 @@ export class TextProcessorService {
         // Consumed the pending record above (clear '…completed'), so its indicator must be torn down
         // — whether this turn ended or re-interrupted (a fresh indicator is sent for the new pause).
         // consumedAwaitingMessageId drives fallback deletion when no acceptance hook was supplied.
-        consumedAwaitingMessageId: awaitingIndicatorHandled ? undefined : pending.awaitingMessageId,
+        consumedAwaitingMessageId: pausePresentationHandled ? undefined : pending.awaitingMessageId,
+        consumedClarificationMessageId: pausePresentationHandled ? undefined : pending.clarificationMessageId,
+        consumedClarificationQuestion: pausePresentationHandled ? undefined : pending.question,
         resolvedPendingPause: true,
       };
     } catch (error) {

@@ -2,7 +2,7 @@ import { Context } from 'telegraf';
 import { createRequestId, logger, LogContext } from '../../../utils/logger';
 import { LangGraphAgentClient, LangGraphAgentResponse } from '../../ai/langgraph-agent-client.service';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
-import { sendFinalReply } from '../formatters/telegram-rich';
+import { sendClarificationReply, sendFinalReply } from '../formatters/telegram-rich';
 import { PendingClarificationRecord, PendingClarificationStore } from '../pending-clarification.store';
 import { ConversationGateStore } from '../conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
@@ -144,9 +144,23 @@ export class CallbackHandler {
         if (interruptType === 'confirm') {
           await this.sendConfirmReply(ctx, agentResponse.response, agentResponse.threadId, requestId);
         } else {
-          await sendFinalReply(ctx, agentResponse.response, {
-            requestId,
-          });
+          const clarificationMessageId = await sendClarificationReply(
+            ctx,
+            agentResponse.response,
+            { requestId },
+          );
+          if (clarificationMessageId !== undefined) {
+            await this.pendingStore
+              .attachClarificationMessageId(gateKey, clarificationMessageId)
+              .catch((error) => {
+                logger.warn('telegram.clarification.attach_failed', {
+                  ...logContext,
+                  gateKey,
+                  clarificationMessageId,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              });
+          }
           const awaitingMessageId = await showAwaitingIndicator(ctx, gateKey, logContext);
           if (awaitingMessageId !== undefined) {
             await this.pendingStore.attachAwaitingMessageId(gateKey, awaitingMessageId).catch(async (error) => {

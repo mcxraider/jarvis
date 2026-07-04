@@ -789,7 +789,11 @@ describe('TextProcessorService', () => {
         { onPendingPauseAccepted },
       );
 
-      expect(onPendingPauseAccepted).toHaveBeenCalledWith(321);
+      expect(onPendingPauseAccepted).toHaveBeenCalledWith({
+        awaitingMessageId: 321,
+        clarificationMessageId: undefined,
+        question: 'Which task?',
+      });
       expect(onPendingPauseAccepted.mock.invocationCallOrder[0]).toBeLessThan(
         agentClient.resume.mock.invocationCallOrder[0],
       );
