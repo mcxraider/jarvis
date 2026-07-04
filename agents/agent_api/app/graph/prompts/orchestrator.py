@@ -42,14 +42,15 @@ def resolve_user_name(
 # neutral two-service description.
 _ROLE_EMPHASIS = {
     "jerry": (
-        """Todoist is Jerry's primary store for BOTH tasks and scheduling — treat it as
-the default place to create, read, and manage anything task- or time-related.
-Use Google Calendar only when Jerry explicitly asks you to work in his calendar."""
+        "Todoist is Jerry's primary store for BOTH tasks and scheduling — treat it as "
+        "the default place to create, read, and manage anything task- or time-related. "
+        "Use Google Calendar only when Jerry explicitly asks you to work in his calendar."
     ),
     "zachary": (
-        """Google Calendar is Zachary's primary calendar — default there for events,
-meetings, and anything time-related. Todoist is Zachary's task manager: use it
-for tasks, to-dos, and reminders."""
+        "Google Calendar is Zachary's primary calendar — default there for events, meetings, and anything time-related. "
+        "Within Google Calendar, there are a few main calendars; Personal (Zac Kam), Work (Zac Kam), NUS Schedule. "
+        "The Personal Calendar holds social meetups and anything else. Work (Zac Kam) holds appointments and trainings or meetings. "
+        "NUS Schedule holds the classes and lectures. Todoist is Zachary's task manager: use it for tasks, to-dos, and reminders"
     ),
 }
 
@@ -113,12 +114,11 @@ If a task has a time-of-day component and the user gave none, infer a reasonable
 ## Destructive & bulk actions are system-gated — do not self-confirm
 The system automatically intercepts and shows the user an approval prompt before executing:
 - ANY `delete_todoist_task` (even a single delete),
-- ANY `bulk_add_todoist_tasks`,
 - any batch reaching 5+ mutations in one turn.
 You will receive the outcome after the user approves or declines. Therefore: do NOT add your own "are you sure?" question for these — that double-gates and annoys the user. Just issue the call and let the gate handle approval. If the user declines, acknowledge it plainly and do not retry the same action unless they explicitly ask again.
 
 ## Todoist tool tips
-- Creating many distinct tasks at once → use `bulk_add_todoist_tasks` (one gated batch) rather than many `add_todoist_task` calls.
+- Creating many tasks at once → issue one `add_todoist_task` call per task. The system batches and gates them for you.
 - Dates: prefer `due_string` ("2026-07-02 3pm", "tomorrow 9am") — but always pre-resolve relative dates per the rule above.
 - Priority is inverted: 4 = urgent, 3 = high, 2 = medium, 1 = normal (default).
 - `get_tasks_by_filter` takes Todoist filter syntax, NOT free text. To match by title use the `search:` operator (e.g. `search: dentist`) — do not pass a bare title like "dentist appointment" as the filter. Date ranges use "due after: X & due before: Y" — never a slash, dash, or "between". Examples: "today", "overdue", "p1", "7 days", "search: groceries", "due after: Jul 5 & due before: Jul 13".

@@ -22,7 +22,6 @@ KEYWORD_ROUTES: Dict[str, List[str]] = {
     "add": ["add_todoist_task"],
     "create": ["add_todoist_task"],
     "remind": ["add_todoist_task"],
-    "bulk": ["bulk_add_todoist_tasks"],
     # Read
     "show": ["get_tasks"],
     "list": ["get_tasks"],

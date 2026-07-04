@@ -17,7 +17,6 @@ class TestGetMeta:
     def test_known_tools(self):
         assert get_meta("delete_todoist_task").verb == "deleting"
         assert get_meta("add_todoist_task").verb == "adding"
-        assert get_meta("bulk_add_todoist_tasks").verb == "adding"
         assert get_meta("update_todoist_task").verb == "updating"
         assert get_meta("complete_task").verb == "completing"
 
@@ -38,7 +37,6 @@ class TestGetService:
         "tool_name,expected",
         [
             ("delete_todoist_task", "todoist"),
-            ("bulk_add_todoist_tasks", "todoist"),
             ("add_todoist_task", "todoist"),
             ("update_todoist_task", "todoist"),
             ("complete_task", "todoist"),
@@ -61,7 +59,6 @@ class TestGetVerb:
         [
             ("delete_todoist_task", "deleting"),
             ("add_todoist_task", "adding"),
-            ("bulk_add_todoist_tasks", "adding"),
             ("update_todoist_task", "updating"),
             ("complete_task", "completing"),
             ("unknown_tool", "modifying"),
@@ -78,14 +75,12 @@ class TestIrreversibleTools:
         assert "add_todoist_task" not in irrev
         assert "update_todoist_task" not in irrev
         assert "complete_task" not in irrev
-        assert "bulk_add_todoist_tasks" not in irrev
 
 
 class TestAlwaysRiskyTools:
     def test_risky_set(self):
         risky = always_risky_tools()
         assert "delete_todoist_task" in risky
-        assert "bulk_add_todoist_tasks" in risky
         assert "add_todoist_task" not in risky
         assert "update_todoist_task" not in risky
         assert "complete_task" not in risky
