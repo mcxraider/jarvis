@@ -142,7 +142,13 @@ def _log_usage(
     model: str,
 ) -> None:
     """Write usage telemetry to Supabase. Fire-and-forget."""
-    if telegram_user_id is None or not usage.total_tokens:
+    if telegram_user_id is None:
+        return
+    if not usage.total_tokens:
+        _builder_logger.warning(
+            "Usage logging skipped because token usage is absent.",
+            extra={"thread_id": thread_id, "model": model},
+        )
         return
     prompt_tokens = usage.prompt_tokens or 0
     cached_tokens: Optional[int] = usage.cached_tokens or 0
@@ -190,7 +196,6 @@ def _log_usage(
                         %s,
                         %s,
                         %s,
-                        %s,
                         %s
                     )
                     """,
@@ -209,7 +214,11 @@ def _log_usage(
     except Exception as exc:
         _builder_logger.warning(
             "Usage logging failed (non-fatal).",
-            extra={"thread_id": thread_id, "error": type(exc).__name__},
+            extra={
+                "thread_id": thread_id,
+                "error": type(exc).__name__,
+                "error_message": str(exc),
+            },
         )
 
 
