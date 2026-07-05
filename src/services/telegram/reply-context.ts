@@ -2,6 +2,16 @@ import { Message } from 'telegraf/typings/core/types/typegram';
 
 const MAX_QUOTE_LEN = 700;
 
+function extractRichMessageText(richMessage: unknown): string | undefined {
+  if (typeof richMessage === 'string') return richMessage;
+  if (richMessage && typeof richMessage === 'object') {
+    const rm = richMessage as Record<string, unknown>;
+    if (typeof rm.markdown === 'string') return rm.markdown;
+    if (typeof rm.text === 'string') return rm.text;
+  }
+  return undefined;
+}
+
 /**
  * Formats useful text from the Telegram message being replied to for inclusion
  * in a fresh agent request.
@@ -15,7 +25,7 @@ export function formatReplyContext(
   const raw =
     ('text' in replied && replied.text) ||
     ('caption' in replied && replied.caption) ||
-    ('rich_message' in replied && (replied as any).rich_message?.markdown) ||
+    ('rich_message' in replied && extractRichMessageText((replied as any).rich_message)) ||
     ('poll' in replied && (replied as any).poll?.question && `[Poll: ${(replied as any).poll.question}]`) ||
     ('sticker' in replied && (replied as any).sticker?.emoji && `[Sticker: ${(replied as any).sticker.emoji}]`) ||
     ('contact' in replied && (replied as any).contact?.first_name && `[Contact: ${(replied as any).contact.first_name}]`) ||

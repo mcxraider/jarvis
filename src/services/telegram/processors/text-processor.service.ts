@@ -162,7 +162,7 @@ export class TextProcessorService {
               userId,
               logContext,
               onProgress,
-              { onPendingPauseAccepted: options?.onPendingPauseAccepted },
+              { onPendingPauseAccepted: options?.onPendingPauseAccepted, replyContext: options?.replyContext },
             );
           }
         }
@@ -297,6 +297,7 @@ export class TextProcessorService {
       alreadyRunning?: boolean;
       onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
       pendingPauseAcceptedNotified?: boolean;
+      replyContext?: string;
     },
   ): Promise<TextProcessorResult> {
     if (pending.interruptType === 'confirm' && !this.isConfirmDecision(text)) {
@@ -336,7 +337,7 @@ export class TextProcessorService {
     }
 
     const agentRequest = {
-      message: text,
+      message: options?.replyContext ? `${options.replyContext}\n\n${text}` : text,
       userId: internalUserId,
       source: 'telegram',
       telegramUserId: userId,

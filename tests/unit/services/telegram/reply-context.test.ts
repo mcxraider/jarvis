@@ -99,6 +99,28 @@ describe('formatReplyContext', () => {
     );
   });
 
+  it('extracts rich_message when it is a plain string', () => {
+    const replied = asMessage({
+      rich_message: 'Which dates would you like?',
+      from: { id: 10, is_bot: true, first_name: 'Jarvis' },
+    });
+
+    expect(formatReplyContext(replied, 10)).toBe(
+      '[In reply to your earlier message: "Which dates would you like?"]',
+    );
+  });
+
+  it('extracts rich_message.text as fallback', () => {
+    const replied = asMessage({
+      rich_message: { text: 'Which dates would you like?' },
+      from: { id: 10, is_bot: true, first_name: 'Jarvis' },
+    });
+
+    expect(formatReplyContext(replied, 10)).toBe(
+      '[In reply to your earlier message: "Which dates would you like?"]',
+    );
+  });
+
   it('extracts poll question as fallback', () => {
     const replied = asMessage({
       poll: { question: 'Where should we eat?' },
