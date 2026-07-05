@@ -1174,3 +1174,13 @@
     {
       "error": "Bot is not running!"
     }
+[2026-07-05 17:08:25] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-05 17:10:19] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }

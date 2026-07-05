@@ -4198,3 +4198,27 @@
 {"level":"info","message":"server.started","timestamp":"2026-07-05 17:07:16","url":"http://localhost:3000"}
 {"level":"info","message":"telegram.webhook.awaiting_updates","path":"/webhook/:secret","timestamp":"2026-07-05 17:07:16"}
 {"baseUrl":"https://0a62-116-87-102-52.ngrok-free.app","level":"info","message":"telegram.webhook.configured","path":"/webhook/[REDACTED]","timestamp":"2026-07-05 17:07:17"}
+{"level":"info","message":"app.startup.validation_completed","nodeEnv":"development","requiredEnvVars":5,"timestamp":"2026-07-05 17:07:44"}
+{"emergencyDeniedUsers":0,"level":"info","message":"telegram.authorization.configured","store":"postgres","timestamp":"2026-07-05 17:07:44"}
+{"enforceEnglishOnly":true,"language":"en","level":"info","maxFileSizeMB":25,"message":"WhisperService initialized","model":"whisper-large-v3","promptLength":166,"qualityMonitoringEnabled":true,"qualityThresholds":{"maxCompressionRatio":2.4,"maxNoSpeechProb":0.6,"minAvgLogprob":-0.5,"minCompressionRatio":0.8},"responseFormat":"verbose_json","timestamp":"2026-07-05 17:07:44"}
+{"level":"info","message":"telegram.pending_store.configured","store":"postgres","timestamp":"2026-07-05 17:07:44"}
+{"level":"info","message":"telegram.gate_store.configured","store":"postgres","timestamp":"2026-07-05 17:07:44"}
+{"level":"info","message":"telegram.bot.initialized","timestamp":"2026-07-05 17:07:44"}
+{"audioTranscriptionConfigured":true,"langGraphAgentConfigured":true,"level":"info","message":"app.services.initialized","telegramConfigured":true,"telegramPendingStoreConfigured":true,"timestamp":"2026-07-05 17:07:44"}
+{"baseUrl":"https://0a62-116-87-102-52.ngrok-free.app","level":"info","message":"telegram.webhook.setup_started","path":"/webhook/[REDACTED]","timestamp":"2026-07-05 17:07:44"}
+{"level":"info","message":"server.started","timestamp":"2026-07-05 17:07:44","url":"http://localhost:3000"}
+{"level":"info","message":"telegram.webhook.awaiting_updates","path":"/webhook/:secret","timestamp":"2026-07-05 17:07:44"}
+{"baseUrl":"https://0a62-116-87-102-52.ngrok-free.app","level":"info","message":"telegram.webhook.configured","path":"/webhook/[REDACTED]","timestamp":"2026-07-05 17:07:45"}
+{"level":"info","message":"server.shutdown.started","signal":"SIGTERM","timestamp":"2026-07-05 17:08:25"}
+{"level":"info","message":"app.startup.validation_completed","nodeEnv":"development","requiredEnvVars":5,"timestamp":"2026-07-05 17:09:19"}
+{"emergencyDeniedUsers":0,"level":"info","message":"telegram.authorization.configured","store":"postgres","timestamp":"2026-07-05 17:09:19"}
+{"enforceEnglishOnly":true,"language":"en","level":"info","maxFileSizeMB":25,"message":"WhisperService initialized","model":"whisper-large-v3","promptLength":166,"qualityMonitoringEnabled":true,"qualityThresholds":{"maxCompressionRatio":2.4,"maxNoSpeechProb":0.6,"minAvgLogprob":-0.5,"minCompressionRatio":0.8},"responseFormat":"verbose_json","timestamp":"2026-07-05 17:09:19"}
+{"level":"info","message":"telegram.pending_store.configured","store":"postgres","timestamp":"2026-07-05 17:09:19"}
+{"level":"info","message":"telegram.gate_store.configured","store":"postgres","timestamp":"2026-07-05 17:09:19"}
+{"level":"info","message":"telegram.bot.initialized","timestamp":"2026-07-05 17:09:19"}
+{"audioTranscriptionConfigured":true,"langGraphAgentConfigured":true,"level":"info","message":"app.services.initialized","telegramConfigured":true,"telegramPendingStoreConfigured":true,"timestamp":"2026-07-05 17:09:19"}
+{"baseUrl":"https://d485-116-87-102-52.ngrok-free.app","level":"info","message":"telegram.webhook.setup_started","path":"/webhook/[REDACTED]","timestamp":"2026-07-05 17:09:19"}
+{"level":"info","message":"server.started","timestamp":"2026-07-05 17:09:19","url":"http://localhost:3000"}
+{"level":"info","message":"telegram.webhook.awaiting_updates","path":"/webhook/:secret","timestamp":"2026-07-05 17:09:19"}
+{"baseUrl":"https://d485-116-87-102-52.ngrok-free.app","level":"info","message":"telegram.webhook.configured","path":"/webhook/[REDACTED]","timestamp":"2026-07-05 17:09:20"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:10:19"}

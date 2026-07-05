@@ -101,3 +101,5 @@
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-04 23:43:26"}
 {"error":"read ECONNRESET","level":"error","message":"process.uncaught_exception","stack":"Error: read ECONNRESET\n    at TCP.onStreamRead (node:internal/stream_base_commons:218:20)","timestamp":"2026-07-05 02:53:47"}
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-05 09:52:32"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-05 17:08:25"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:10:19"}
