@@ -45,8 +45,12 @@ function extractTextFromBlocks(blocks: unknown[]): string | undefined {
       const inlineText = b.content
         .map((item: unknown) => {
           if (typeof item === 'string') return item;
-          if (item && typeof item === 'object' && typeof (item as any).text === 'string') {
-            return (item as any).text;
+          if (
+            item &&
+            typeof item === 'object' &&
+            typeof (item as Record<string, unknown>).text === 'string'
+          ) {
+            return (item as Record<string, unknown>).text as string;
           }
           return '';
         })
@@ -79,18 +83,22 @@ export function formatReplyContext(
     ('text' in replied && replied.text) ||
     ('caption' in replied && replied.caption) ||
     ('rich_message' in replied && extractRichMessageText((replied as any).rich_message)) ||
-    ('poll' in replied && (replied as any).poll?.question && `[Poll: ${(replied as any).poll.question}]`) ||
-    ('sticker' in replied && (replied as any).sticker?.emoji && `[Sticker: ${(replied as any).sticker.emoji}]`) ||
-    ('contact' in replied && (replied as any).contact?.first_name && `[Contact: ${(replied as any).contact.first_name}]`) ||
+    ('poll' in replied &&
+      (replied as any).poll?.question &&
+      `[Poll: ${(replied as any).poll.question}]`) ||
+    ('sticker' in replied &&
+      (replied as any).sticker?.emoji &&
+      `[Sticker: ${(replied as any).sticker.emoji}]`) ||
+    ('contact' in replied &&
+      (replied as any).contact?.first_name &&
+      `[Contact: ${(replied as any).contact.first_name}]`) ||
     ('location' in replied && '[Shared location]') ||
     undefined;
   if (!raw || !raw.trim()) return undefined;
 
-  const quote =
-    raw.length > MAX_QUOTE_LEN ? `${raw.slice(0, MAX_QUOTE_LEN)}…` : raw;
+  const quote = raw.length > MAX_QUOTE_LEN ? `${raw.slice(0, MAX_QUOTE_LEN)}…` : raw;
   const fromBot =
-    replied.from?.is_bot === true ||
-    (botId !== undefined && replied.from?.id === botId);
+    replied.from?.is_bot === true || (botId !== undefined && replied.from?.id === botId);
   const who = fromBot
     ? 'your earlier message'
     : `an earlier message from ${replied.from?.first_name ?? 'the user'}`;

@@ -17,7 +17,10 @@ import {
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
 import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service';
-import { PendingPausePresentation, TextProcessorResult } from '../processors/text-processor.service';
+import {
+  PendingPausePresentation,
+  TextProcessorResult,
+} from '../processors/text-processor.service';
 import { PendingClarificationStore } from '../pending-clarification.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { formatReplyContext } from '../reply-context';
@@ -44,10 +47,7 @@ export class MessageHandlers {
     const userId = ctx.from?.id;
     const logContext = this.createLogContext(ctx, 'text');
     const startedAt = Date.now();
-    const replied =
-      'reply_to_message' in ctx.message
-        ? ctx.message.reply_to_message
-        : undefined;
+    const replied = 'reply_to_message' in ctx.message ? ctx.message.reply_to_message : undefined;
     const replyContext = formatReplyContext(replied, ctx.botInfo?.id);
 
     if (replied) {
@@ -63,7 +63,7 @@ export class MessageHandlers {
         fromIsBot: replied.from?.is_bot,
         fromId: replied.from?.id,
         messageId: replied.message_id,
-        keys: Object.keys(replied).filter(k => !['entities', 'from', 'chat', 'date'].includes(k)),
+        keys: Object.keys(replied).filter((k) => !['entities', 'from', 'chat', 'date'].includes(k)),
       });
     }
 
@@ -92,7 +92,11 @@ export class MessageHandlers {
     const startedAt = Date.now();
     const remainder = this.stripCommandPrefix(ctx.message.text);
 
-    logger.info('telegram.command.new', { ...logContext, userId, hasMessage: remainder.length > 0 });
+    logger.info('telegram.command.new', {
+      ...logContext,
+      userId,
+      hasMessage: remainder.length > 0,
+    });
     this.activityService.recordActivity('command_new');
 
     if (!remainder) {
@@ -111,7 +115,11 @@ export class MessageHandlers {
       if (outcome === 'abandoned') {
         await this.collapsePendingClarification(ctx, pending, logContext);
       }
-      await sendFinalReply(ctx, 'We\'re in a new conversation — send your next message.', logContext);
+      await sendFinalReply(
+        ctx,
+        "We're in a new conversation — send your next message.",
+        logContext,
+      );
       return;
     }
 
@@ -190,7 +198,7 @@ export class MessageHandlers {
     await this.rejectUnsupportedMedia(
       ctx,
       'photo',
-      "Images are currently not supported - please send a text message, a voice note, or an audio file.",
+      'Images are currently not supported - please send a text message, a voice note, or an audio file.',
     );
   }
 
@@ -199,7 +207,7 @@ export class MessageHandlers {
     await this.rejectUnsupportedMedia(
       ctx,
       'sticker',
-      "Stickers are currently not supported. Please send text, audio, or voice.",
+      'Stickers are currently not supported. Please send text, audio, or voice.',
     );
   }
 
@@ -208,7 +216,7 @@ export class MessageHandlers {
     await this.rejectUnsupportedMedia(
       ctx,
       'video_note',
-      "Telebubbles are currently not supported. Please send text, audio, or voice.",
+      'Telebubbles are currently not supported. Please send text, audio, or voice.',
     );
   }
 
@@ -217,7 +225,7 @@ export class MessageHandlers {
     await this.rejectUnsupportedMedia(
       ctx,
       'animation',
-      "GIFs are currently not supported. Please send text, audio, or voice.",
+      'GIFs are currently not supported. Please send text, audio, or voice.',
     );
   }
 
@@ -236,7 +244,9 @@ export class MessageHandlers {
         mimeType: document.mime_type,
         fileName: document.file_name,
       });
-      await ctx.reply('I only process audio files, voice notes, and text messages. Please send one of those.');
+      await ctx.reply(
+        'I only process audio files, voice notes, and text messages. Please send one of those.',
+      );
       return;
     }
 
@@ -245,10 +255,7 @@ export class MessageHandlers {
     const mimeType = document.mime_type || 'application/octet-stream';
     const logContext = this.createLogContext(ctx, 'document');
     const startedAt = Date.now();
-    const replied =
-      'reply_to_message' in ctx.message
-        ? ctx.message.reply_to_message
-        : undefined;
+    const replied = 'reply_to_message' in ctx.message ? ctx.message.reply_to_message : undefined;
     const replyContext = formatReplyContext(replied, ctx.botInfo?.id);
 
     logger.info('telegram.message.received', {
@@ -260,16 +267,31 @@ export class MessageHandlers {
       hasReplyContext: Boolean(replyContext),
     });
 
-    await this.runWithAudioProgress(ctx, logContext, userId, startedAt, async (reporter, onTranscribed, onProgress) => {
-      const fileUrl = await this.fileService.getFileUrl(document.file_id);
-      return this.messageProcessor.processAudioDocument(fileUrl, fileName, mimeType, userId, logContext, {
-        onTranscription: (text) => this.sendTranscription(ctx, reporter, text, logContext),
-        onTranscribed,
-        onProgress,
-        onPendingPauseAccepted: (presentation) =>
-          this.resolvePausePresentation(ctx, presentation, logContext),
-      }, { replyContext });
-    }, 'Something went wrong processing your audio document. Please try again.');
+    await this.runWithAudioProgress(
+      ctx,
+      logContext,
+      userId,
+      startedAt,
+      async (reporter, onTranscribed, onProgress) => {
+        const fileUrl = await this.fileService.getFileUrl(document.file_id);
+        return this.messageProcessor.processAudioDocument(
+          fileUrl,
+          fileName,
+          mimeType,
+          userId,
+          logContext,
+          {
+            onTranscription: (text) => this.sendTranscription(ctx, reporter, text, logContext),
+            onTranscribed,
+            onProgress,
+            onPendingPauseAccepted: (presentation) =>
+              this.resolvePausePresentation(ctx, presentation, logContext),
+          },
+          { replyContext },
+        );
+      },
+      'Something went wrong processing your audio document. Please try again.',
+    );
   }
 
   // Catch-all for unrecognized message types (e.g. contacts, locations, polls).
@@ -309,9 +331,7 @@ export class MessageHandlers {
     const logContext = this.createLogContext(ctx, messageType);
     const startedAt = Date.now();
     const replied =
-      ctx.message && 'reply_to_message' in ctx.message
-        ? ctx.message.reply_to_message
-        : undefined;
+      ctx.message && 'reply_to_message' in ctx.message ? ctx.message.reply_to_message : undefined;
     const replyContext = formatReplyContext(replied, ctx.botInfo?.id);
 
     logger.info('telegram.message.received', {
@@ -322,16 +342,29 @@ export class MessageHandlers {
       hasReplyContext: Boolean(replyContext),
     });
 
-    await this.runWithAudioProgress(ctx, logContext, userId, startedAt, async (reporter, onTranscribed, onProgress) => {
-      const fileUrl = await this.fileService.getFileUrl(audioFile.file_id);
-      return this.messageProcessor.processAudioMessage(fileUrl, userId, logContext, {
-        onTranscription: (text) => this.sendTranscription(ctx, reporter, text, logContext),
-        onTranscribed,
-        onProgress,
-        onPendingPauseAccepted: (presentation) =>
-          this.resolvePausePresentation(ctx, presentation, logContext),
-      }, { replyContext });
-    }, `Something went wrong processing your ${messageType} message. Please try again.`);
+    await this.runWithAudioProgress(
+      ctx,
+      logContext,
+      userId,
+      startedAt,
+      async (reporter, onTranscribed, onProgress) => {
+        const fileUrl = await this.fileService.getFileUrl(audioFile.file_id);
+        return this.messageProcessor.processAudioMessage(
+          fileUrl,
+          userId,
+          logContext,
+          {
+            onTranscription: (text) => this.sendTranscription(ctx, reporter, text, logContext),
+            onTranscribed,
+            onProgress,
+            onPendingPauseAccepted: (presentation) =>
+              this.resolvePausePresentation(ctx, presentation, logContext),
+          },
+          { replyContext },
+        );
+      },
+      `Something went wrong processing your ${messageType} message. Please try again.`,
+    );
   }
 
   // Shared progress-reporting wrapper for all audio-based message types. Shows a
@@ -397,16 +430,24 @@ export class MessageHandlers {
 
   // Routes the final response to the appropriate reply method. Confirm-type interrupts
   // get inline Approve/Decline buttons; everything else goes as a plain rich/markdown reply.
-  private async sendResult(ctx: Context, result: TextProcessorResult, logContext: LogContext): Promise<void> {
+  private async sendResult(
+    ctx: Context,
+    result: TextProcessorResult,
+    logContext: LogContext,
+  ): Promise<void> {
     const userId = ctx.from?.id;
     const gateKey = buildConversationKey(userId, mapTelegramUserId(userId), ctx.chat?.id);
 
     if (result.resolvedPendingPause) {
       if (result.consumedClarificationMessageId && result.consumedClarificationQuestion) {
-        await this.collapsePendingClarification(ctx, {
-          clarificationMessageId: result.consumedClarificationMessageId,
-          question: result.consumedClarificationQuestion,
-        }, logContext);
+        await this.collapsePendingClarification(
+          ctx,
+          {
+            clarificationMessageId: result.consumedClarificationMessageId,
+            question: result.consumedClarificationQuestion,
+          },
+          logContext,
+        );
       }
     }
 
@@ -477,7 +518,11 @@ export class MessageHandlers {
     }
   }
 
-  private async rejectUnsupportedMedia(ctx: Context, messageType: string, replyText: string): Promise<void> {
+  private async rejectUnsupportedMedia(
+    ctx: Context,
+    messageType: string,
+    replyText: string,
+  ): Promise<void> {
     logger.info('telegram.message.unsupported', {
       ...this.createLogContext(ctx, messageType),
       userId: ctx.from?.id,
@@ -520,7 +565,10 @@ export class MessageHandlers {
       ],
     };
     try {
-      await ctx.reply(toTelegramMarkdownV2(text), { parse_mode: 'MarkdownV2', reply_markup: replyMarkup });
+      await ctx.reply(toTelegramMarkdownV2(text), {
+        parse_mode: 'MarkdownV2',
+        reply_markup: replyMarkup,
+      });
     } catch (error) {
       logger.warn('telegram.confirm_reply.markdown_parse_failed', {
         ...logContext,
@@ -530,11 +578,17 @@ export class MessageHandlers {
     }
   }
 
-  private completionStatus(lastProgressStage: string): 'Done' | 'Paused for confirmation' | 'Paused for clarification' {
+  private completionStatus(
+    lastProgressStage: string,
+  ): 'Done' | 'Paused for confirmation' | 'Paused for clarification' {
     if (lastProgressStage === 'paused_confirm') {
       return 'Paused for confirmation';
     }
-    if (lastProgressStage === 'paused_clarify' || lastProgressStage === 'paused' || lastProgressStage.includes('clarification')) {
+    if (
+      lastProgressStage === 'paused_clarify' ||
+      lastProgressStage === 'paused' ||
+      lastProgressStage.includes('clarification')
+    ) {
       return 'Paused for clarification';
     }
     return 'Done';
