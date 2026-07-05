@@ -1146,3 +1146,31 @@
     {
       "error": "Bot is not running!"
     }
+[2026-07-04 20:03:03] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-04 20:41:51] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-04 23:43:26] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-05 02:53:47] ERROR process.uncaught_exception
+  details:
+    {
+      "error": "read ECONNRESET"
+    }
+  stack:
+    Error: read ECONNRESET
+        at TCP.onStreamRead (node:internal/stream_base_commons:218:20)
+[2026-07-05 09:52:32] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
