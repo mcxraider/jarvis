@@ -59,9 +59,7 @@ export class MessageHandlers {
         hasRichMessage: richMsg !== undefined,
         richMessageType: typeof richMsg,
         richMessageKeys: richMsg && typeof richMsg === 'object' ? Object.keys(richMsg) : undefined,
-        richMessagePreview: typeof richMsg === 'string'
-          ? richMsg.slice(0, 100)
-          : richMsg?.markdown?.slice?.(0, 100) ?? richMsg?.text?.slice?.(0, 100),
+        richMessageDump: richMsg ? JSON.stringify(richMsg).slice(0, 500) : undefined,
         fromIsBot: replied.from?.is_bot,
         fromId: replied.from?.id,
         messageId: replied.message_id,
