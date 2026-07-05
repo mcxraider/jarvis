@@ -1724,3 +1724,198 @@
       "clarificationMessageId": 1047,
       "error": "permission denied for schema public"
     }
+[2026-07-05 18:25:17] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 18:25:17] ERROR conversation_gate.acquire_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 18:25:19] ERROR conversation_gate.release_failed
+  requestId: tg_update_564452414
+  updateId: 564452414
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1048
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:25:38] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:26:38] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:27:38] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:28:27] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-05 18:29:00] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 18:29:00] ERROR conversation_gate.acquire_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 18:29:06] ERROR conversation_gate.interrupt_save_failed
+  requestId: tg_update_564452415
+  updateId: 564452415
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1050
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:29:07] WARN telegram.clarification.attach_failed
+  requestId: tg_update_564452415
+  updateId: 564452415
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1050
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "clarificationMessageId": 1051,
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:29:32] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:29:52] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 18:29:52] ERROR conversation_gate.acquire_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 18:29:54] ERROR conversation_gate.release_failed
+  requestId: tg_update_564452416
+  updateId: 564452416
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1052
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:30:18] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 18:30:18] ERROR conversation_gate.acquire_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 18:30:24] ERROR conversation_gate.release_failed
+  requestId: tg_update_564452417
+  updateId: 564452417
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1054
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:30:32] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:31:32] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:32:15] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 18:32:15] ERROR conversation_gate.acquire_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 18:32:19] ERROR conversation_gate.release_failed
+  requestId: tg_update_564452418
+  updateId: 564452418
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1056
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:32:32] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:33:32] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
