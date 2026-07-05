@@ -12,12 +12,6 @@
 
 ### LLM
 
-- Prompt caching: once the orchestrator has determined the tool call for an initial
-  prompt, cache the prompt and tool-call output so matching requests can skip the
-  decision layer.
-- Tiered model routing: investigate how to estimate task difficulty and route each
-  request to an appropriately capable model.
-
 ### Formatting (UI)
 
 
