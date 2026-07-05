@@ -212,6 +212,7 @@ describe('MessageHandlers', () => {
         onProgress: expect.any(Function),
         onPendingPauseAccepted: expect.any(Function),
       }),
+      { replyContext: undefined },
     );
     expect(messageProcessor.processAudioMessage).not.toHaveBeenCalled();
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_document');
@@ -266,6 +267,7 @@ describe('MessageHandlers', () => {
         onTranscribed: expect.any(Function),
         onProgress: expect.any(Function),
       }),
+      { replyContext: undefined },
     );
     expect(ctx.reply).toHaveBeenCalledWith('🗣️: transcribed text', {
       parse_mode: 'MarkdownV2',

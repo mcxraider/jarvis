@@ -67,6 +67,7 @@ export class MessageProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
+    extraOptions?: { replyContext?: string },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
@@ -103,18 +104,20 @@ export class MessageProcessorService {
     }
 
     try {
+      const audioOptions = reservation.kind === 'clarification'
+        ? {
+            pendingClarificationPreReserved: true,
+            onPendingPauseAccepted: hooks?.onPendingPauseAccepted,
+            pendingPauseAcceptedNotified: reservation.pauseAcceptedNotified,
+            replyContext: extraOptions?.replyContext,
+          }
+        : { gatePreAcquired: true, replyContext: extraOptions?.replyContext };
       const result = await this.audioProcessor.processAudioMessage(
         fileUrl,
         userId,
         logContext,
         hooks,
-        reservation.kind === 'clarification'
-          ? {
-              pendingClarificationPreReserved: true,
-              onPendingPauseAccepted: hooks?.onPendingPauseAccepted,
-              pendingPauseAcceptedNotified: reservation.pauseAcceptedNotified,
-            }
-          : { gatePreAcquired: true },
+        audioOptions,
       );
       await this.restoreAudioGateIfUnprocessed(gateKey, reservation.kind, result);
       return result;
@@ -131,6 +134,7 @@ export class MessageProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
+    extraOptions?: { replyContext?: string },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
@@ -168,6 +172,14 @@ export class MessageProcessorService {
     }
 
     try {
+      const docOptions = reservation.kind === 'clarification'
+        ? {
+            pendingClarificationPreReserved: true,
+            onPendingPauseAccepted: hooks?.onPendingPauseAccepted,
+            pendingPauseAcceptedNotified: reservation.pauseAcceptedNotified,
+            replyContext: extraOptions?.replyContext,
+          }
+        : { gatePreAcquired: true, replyContext: extraOptions?.replyContext };
       const result = await this.audioProcessor.processAudioDocument(
         fileUrl,
         fileName,
@@ -175,13 +187,7 @@ export class MessageProcessorService {
         userId,
         logContext,
         hooks,
-        reservation.kind === 'clarification'
-          ? {
-              pendingClarificationPreReserved: true,
-              onPendingPauseAccepted: hooks?.onPendingPauseAccepted,
-              pendingPauseAcceptedNotified: reservation.pauseAcceptedNotified,
-            }
-          : { gatePreAcquired: true },
+        docOptions,
       );
       await this.restoreAudioGateIfUnprocessed(gateKey, reservation.kind, result);
       return result;

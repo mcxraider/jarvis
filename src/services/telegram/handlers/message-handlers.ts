@@ -50,6 +50,18 @@ export class MessageHandlers {
         : undefined;
     const replyContext = formatReplyContext(replied, ctx.botInfo?.id);
 
+    if (replied) {
+      logger.debug('telegram.reply_to_message.shape', {
+        ...logContext,
+        hasText: 'text' in replied && Boolean((replied as any).text),
+        hasCaption: 'caption' in replied && Boolean((replied as any).caption),
+        fromIsBot: replied.from?.is_bot,
+        fromId: replied.from?.id,
+        messageId: replied.message_id,
+        keys: Object.keys(replied).filter(k => !['entities', 'from', 'chat', 'date'].includes(k)),
+      });
+    }
+
     logger.info('telegram.message.received', {
       ...logContext,
       userId,
@@ -228,6 +240,11 @@ export class MessageHandlers {
     const mimeType = document.mime_type || 'application/octet-stream';
     const logContext = this.createLogContext(ctx, 'document');
     const startedAt = Date.now();
+    const replied =
+      'reply_to_message' in ctx.message
+        ? ctx.message.reply_to_message
+        : undefined;
+    const replyContext = formatReplyContext(replied, ctx.botInfo?.id);
 
     logger.info('telegram.message.received', {
       ...logContext,
@@ -235,6 +252,7 @@ export class MessageHandlers {
       fileName,
       mimeType,
       fileSize: document.file_size,
+      hasReplyContext: Boolean(replyContext),
     });
 
     await this.runWithAudioProgress(ctx, logContext, userId, startedAt, async (reporter, onTranscribed, onProgress) => {
@@ -245,7 +263,7 @@ export class MessageHandlers {
         onProgress,
         onPendingPauseAccepted: (presentation) =>
           this.resolvePausePresentation(ctx, presentation, logContext),
-      });
+      }, { replyContext });
     }, 'Something went wrong processing your audio document. Please try again.');
   }
 
@@ -285,12 +303,18 @@ export class MessageHandlers {
     const userId = ctx.from?.id;
     const logContext = this.createLogContext(ctx, messageType);
     const startedAt = Date.now();
+    const replied =
+      ctx.message && 'reply_to_message' in ctx.message
+        ? ctx.message.reply_to_message
+        : undefined;
+    const replyContext = formatReplyContext(replied, ctx.botInfo?.id);
 
     logger.info('telegram.message.received', {
       ...logContext,
       userId,
       fileSize: audioFile.file_size,
       duration: audioFile.duration,
+      hasReplyContext: Boolean(replyContext),
     });
 
     await this.runWithAudioProgress(ctx, logContext, userId, startedAt, async (reporter, onTranscribed, onProgress) => {
@@ -301,7 +325,7 @@ export class MessageHandlers {
         onProgress,
         onPendingPauseAccepted: (presentation) =>
           this.resolvePausePresentation(ctx, presentation, logContext),
-      });
+      }, { replyContext });
     }, `Something went wrong processing your ${messageType} message. Please try again.`);
   }
 
