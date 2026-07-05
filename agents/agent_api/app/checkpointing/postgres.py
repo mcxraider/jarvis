@@ -7,7 +7,7 @@ tests can keep using in-memory checkpointing without a database dependency.
 from typing import Any, Optional
 
 
-def create_postgres_checkpointer(dsn: Optional[str]) -> Any:
+def create_postgres_checkpointer(dsn: Optional[str], *, run_setup: bool = False) -> Any:
     if not dsn:
         raise RuntimeError("JARVIS_POSTGRES_DSN or DATABASE_URL is required for Postgres checkpointing.")
     try:
@@ -23,6 +23,6 @@ def create_postgres_checkpointer(dsn: Optional[str]) -> Any:
         kwargs={"autocommit": True, "prepare_threshold": None},
     )
     checkpointer = PostgresSaver(pool)
-    if hasattr(checkpointer, "setup"):
+    if run_setup and hasattr(checkpointer, "setup"):
         checkpointer.setup()
     return checkpointer

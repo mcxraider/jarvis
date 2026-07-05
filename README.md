@@ -70,3 +70,15 @@ The CLI loads `.env` from the repository root. When `JARVIS_POSTGRES_DSN` and a
 CLI Telegram identity are configured, it resolves that user's integrations from
 Supabase. Avoid invoking the runner with system `python3`, which may not contain
 the dependencies installed in `venv`.
+
+### Postgres checkpoint setup
+
+Normal agent startup does not run LangGraph checkpoint DDL. Keep
+`JARVIS_RUN_CHECKPOINT_SETUP` unset or set to `false` when
+`JARVIS_POSTGRES_DSN` uses the least-privilege runtime role.
+
+To create or upgrade the checkpoint tables, launch the agent once with
+`JARVIS_RUN_CHECKPOINT_SETUP=true` and a privileged direct-connection DSN.
+Supply those values only for that command; do not save the privileged DSN in
+`.env`. Stop the administrative launch afterward, restore the runtime DSN, and
+start the services normally.
