@@ -1,5 +1,4 @@
 import { Message } from 'telegraf/typings/core/types/typegram';
-import { logger } from '../../utils/logger';
 
 const MAX_QUOTE_LEN = 700;
 
@@ -25,11 +24,6 @@ function extractRichMessageText(richMessage: unknown): string | undefined {
  * arrays of inline elements with a `text` field.
  */
 function extractTextFromBlocks(blocks: unknown[]): string | undefined {
-  logger.debug('reply-context.blocks.raw', {
-    blockCount: blocks.length,
-    dump: JSON.stringify(blocks).slice(0, 2000),
-  });
-
   const parts: string[] = [];
 
   for (const block of blocks) {
@@ -83,12 +77,6 @@ function extractTextFromBlocks(blocks: unknown[]): string | undefined {
   }
 
   const result = parts.join('\n').trim();
-  if (!result) {
-    logger.debug('reply-context.blocks.extraction_failed', {
-      blockCount: blocks.length,
-      firstBlockKeys: blocks[0] && typeof blocks[0] === 'object' ? Object.keys(blocks[0]) : undefined,
-    });
-  }
   return result || undefined;
 }
 

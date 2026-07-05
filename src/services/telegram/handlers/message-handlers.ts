@@ -50,23 +50,6 @@ export class MessageHandlers {
     const replied = 'reply_to_message' in ctx.message ? ctx.message.reply_to_message : undefined;
     const replyContext = formatReplyContext(replied, ctx.botInfo?.id);
 
-    if (replied) {
-      const richMsg = 'rich_message' in replied ? (replied as any).rich_message : undefined;
-      logger.debug('telegram.reply_to_message.shape', {
-        ...logContext,
-        hasText: 'text' in replied && Boolean((replied as any).text),
-        hasCaption: 'caption' in replied && Boolean((replied as any).caption),
-        hasRichMessage: richMsg !== undefined,
-        richMessageType: typeof richMsg,
-        richMessageKeys: richMsg && typeof richMsg === 'object' ? Object.keys(richMsg) : undefined,
-        richMessageDump: richMsg ? JSON.stringify(richMsg).slice(0, 500) : undefined,
-        fromIsBot: replied.from?.is_bot,
-        fromId: replied.from?.id,
-        messageId: replied.message_id,
-        keys: Object.keys(replied).filter((k) => !['entities', 'from', 'chat', 'date'].includes(k)),
-      });
-    }
-
     logger.info('telegram.message.received', {
       ...logContext,
       userId,

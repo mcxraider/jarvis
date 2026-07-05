@@ -203,17 +203,42 @@ grant select, insert, update, delete on
   public.usage_logs,
   public.telegram_pending_clarifications,
   public.telegram_conversation_gates,
-  public.telegram_onboarding_seen,
-  public.idempotency_results,
-  public.checkpoints,
-  public.checkpoint_blobs,
-  public.checkpoint_writes
+  public.telegram_onboarding_seen
 to jarvis_runtime;
 
 grant select on
-  public.checkpoint_migrations,
   public.usage_daily
 to jarvis_runtime;
+
+-- Runtime tables (checkpoints, idempotency_results) are created outside
+-- migrations by a privileged setup DSN, so they may not exist yet on a fresh
+-- rebuild. Grant only when present; the rls_auto_enable event trigger grants
+-- them automatically at creation time otherwise.
+do $$
+declare
+  rec record;
+begin
+  for rec in
+    select *
+    from (
+      values
+        ('idempotency_results', 'select, insert, update, delete'),
+        ('checkpoints', 'select, insert, update, delete'),
+        ('checkpoint_blobs', 'select, insert, update, delete'),
+        ('checkpoint_writes', 'select, insert, update, delete'),
+        ('checkpoint_migrations', 'select')
+    ) as t(table_name, privileges)
+  loop
+    if to_regclass('public.' || rec.table_name) is not null then
+      execute format(
+        'grant %s on public.%I to jarvis_runtime',
+        rec.privileges,
+        rec.table_name
+      );
+    end if;
+  end loop;
+end
+$$;
 
 grant usage, select on all sequences in schema public to jarvis_runtime;
 
@@ -254,13 +279,14 @@ begin
     'checkpoint_migrations'
   ]
   loop
-    if not exists (
-      select 1
-      from pg_policies
-      where schemaname = 'public'
-        and tablename = table_name
-        and policyname = table_name || '_jarvis_runtime_all'
-    ) then
+    if to_regclass('public.' || table_name) is not null
+      and not exists (
+        select 1
+        from pg_policies
+        where schemaname = 'public'
+          and tablename = table_name
+          and policyname = table_name || '_jarvis_runtime_all'
+      ) then
       execute format(
         'create policy %I on public.%I for all to jarvis_runtime using (true) with check (true)',
         table_name || '_jarvis_runtime_all',

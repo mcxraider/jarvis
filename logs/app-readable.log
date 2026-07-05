@@ -47905,3 +47905,2625 @@
     {
       "durationMs": 4902
     }
+[2026-07-05 18:49:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:50:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:51:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:52:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:53:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:54:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:55:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:56:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:57:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:58:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 18:59:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:00:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:01:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:02:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:03:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:04:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:05:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:06:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:07:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:08:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:09:40] INFO telegram.webhook.received
+  requestId: tg_update_564452421
+  updateId: 564452421
+  messageType: text
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-05 19:09:40] INFO telegram.update.handling_started
+  requestId: tg_update_564452421
+  updateId: 564452421
+[2026-07-05 19:09:40] INFO telegram.message.received
+  requestId: tg_update_564452421
+  updateId: 564452421
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1062
+  messageType: text
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "username": "zackam",
+      "messageLength": 28,
+      "messagePreview": "What are my tasks for today?",
+      "hasReplyContext": false
+    }
+[2026-07-05 19:09:41] INFO processor.route.selected
+  requestId: tg_update_564452421
+  updateId: 564452421
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1062
+  messageType: text
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "messageLength": 28,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-07-05 19:09:41] INFO text_processor.started
+  requestId: tg_update_564452421
+  updateId: 564452421
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1062
+  messageType: text
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "messageLength": 28
+    }
+[2026-07-05 19:09:41] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:26accd1e1db9bdc5812d06534574dc1c",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 19:09:41] ERROR conversation_gate.acquire_error
+  details:
+    {
+      "gateKey": "telegram-chat:26accd1e1db9bdc5812d06534574dc1c",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 19:09:41] INFO langgraph.stream.started
+  requestId: tg_update_564452421
+  updateId: 564452421
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1062
+  messageType: text
+  threadId: tg_tg_update_564452421
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-07-05 19:09:41] INFO langgraph.stream.completed
+  requestId: tg_update_564452421
+  updateId: 564452421
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1062
+  messageType: text
+  threadId: 
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "path": "/invoke/stream",
+      "status": "failed",
+      "requestedThreadId": "tg_tg_update_564452421",
+      "durationMs": 128
+    }
+[2026-07-05 19:09:41] ERROR conversation_gate.release_failed
+  requestId: tg_update_564452421
+  updateId: 564452421
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1062
+  messageType: text
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:09:41] INFO conversation_gate.released
+  requestId: tg_update_564452421
+  updateId: 564452421
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1062
+  messageType: text
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "gateKey": "telegram-chat:26accd1e1db9bdc5812d06534574dc1c",
+      "hadBufferedMessage": false
+    }
+[2026-07-05 19:09:41] INFO text_processor.completed
+  requestId: tg_update_564452421
+  updateId: 564452421
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1062
+  messageType: text
+  threadId: 
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "messageLength": 28,
+      "responseLength": 64,
+      "agentStatus": "failed",
+      "requestedThreadId": "tg_tg_update_564452421",
+      "durationMs": 131
+    }
+[2026-07-05 19:09:41] INFO telegram.reply.sent
+  requestId: tg_update_564452421
+  updateId: 564452421
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1062
+  messageType: text
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "responseLength": 64,
+      "totalDurationMs": 1278
+    }
+[2026-07-05 19:09:41] INFO telegram.update.handling_completed
+  requestId: tg_update_564452421
+  updateId: 564452421
+  details:
+    {
+      "durationMs": 1423
+    }
+[2026-07-05 19:09:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:10:30] INFO telegram.webhook.received
+  requestId: tg_update_564452422
+  updateId: 564452422
+  messageType: text
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-05 19:10:30] INFO telegram.update.handling_started
+  requestId: tg_update_564452422
+  updateId: 564452422
+[2026-07-05 19:10:30] INFO telegram.message.received
+  requestId: tg_update_564452422
+  updateId: 564452422
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1064
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 2,
+      "messagePreview": "hi",
+      "hasReplyContext": false
+    }
+[2026-07-05 19:10:31] INFO processor.route.selected
+  requestId: tg_update_564452422
+  updateId: 564452422
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1064
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 2,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-07-05 19:10:31] INFO text_processor.started
+  requestId: tg_update_564452422
+  updateId: 564452422
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1064
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 2
+    }
+[2026-07-05 19:10:31] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 19:10:31] ERROR conversation_gate.acquire_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 19:10:31] INFO langgraph.stream.started
+  requestId: tg_update_564452422
+  updateId: 564452422
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1064
+  messageType: text
+  threadId: tg_tg_update_564452422
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-07-05 19:10:33] INFO langgraph.stream.completed
+  requestId: tg_update_564452422
+  updateId: 564452422
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1064
+  messageType: text
+  threadId: tg_tg_update_564452422
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "status": "completed",
+      "requestedThreadId": "tg_tg_update_564452422",
+      "durationMs": 2424
+    }
+[2026-07-05 19:10:33] ERROR conversation_gate.release_failed
+  requestId: tg_update_564452422
+  updateId: 564452422
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1064
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:10:33] INFO conversation_gate.released
+  requestId: tg_update_564452422
+  updateId: 564452422
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1064
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "hadBufferedMessage": false
+    }
+[2026-07-05 19:10:33] INFO text_processor.completed
+  requestId: tg_update_564452422
+  updateId: 564452422
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1064
+  messageType: text
+  threadId: tg_tg_update_564452422
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 2,
+      "responseLength": 39,
+      "agentStatus": "completed",
+      "requestedThreadId": "tg_tg_update_564452422",
+      "durationMs": 2434
+    }
+[2026-07-05 19:10:34] INFO telegram.reply.sent
+  requestId: tg_update_564452422
+  updateId: 564452422
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1064
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 39,
+      "totalDurationMs": 3559
+    }
+[2026-07-05 19:10:34] INFO telegram.update.handling_completed
+  requestId: tg_update_564452422
+  updateId: 564452422
+  details:
+    {
+      "durationMs": 3701
+    }
+[2026-07-05 19:10:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:11:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:12:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:13:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:14:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:15:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:16:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:17:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:18:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:19:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:20:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:21:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:22:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:23:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:24:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:25:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:26:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:27:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:28:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:29:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:30:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:31:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:32:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:33:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:34:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:35:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:36:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:37:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:38:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:39:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:40:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:41:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:42:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:43:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:44:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:45:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:46:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:47:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:48:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:49:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:50:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:51:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:52:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:53:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:54:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:55:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:56:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:57:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:58:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 19:59:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:00:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:01:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:02:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:03:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:04:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:05:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:06:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:07:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:08:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:09:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:10:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:11:16] INFO telegram.webhook.received
+  requestId: tg_update_564452423
+  updateId: 564452423
+  messageType: text
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-05 20:11:16] INFO telegram.update.handling_started
+  requestId: tg_update_564452423
+  updateId: 564452423
+[2026-07-05 20:11:17] INFO telegram.message.received
+  requestId: tg_update_564452423
+  updateId: 564452423
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1066
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 24,
+      "messagePreview": "show me my overdue tasks",
+      "hasReplyContext": false
+    }
+[2026-07-05 20:11:17] INFO processor.route.selected
+  requestId: tg_update_564452423
+  updateId: 564452423
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1066
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 24,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-07-05 20:11:17] INFO text_processor.started
+  requestId: tg_update_564452423
+  updateId: 564452423
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1066
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 24
+    }
+[2026-07-05 20:11:17] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 20:11:17] ERROR conversation_gate.acquire_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 20:11:17] INFO langgraph.stream.started
+  requestId: tg_update_564452423
+  updateId: 564452423
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1066
+  messageType: text
+  threadId: tg_tg_update_564452423
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-07-05 20:11:22] INFO langgraph.stream.completed
+  requestId: tg_update_564452423
+  updateId: 564452423
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1066
+  messageType: text
+  threadId: tg_tg_update_564452423
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "status": "completed",
+      "requestedThreadId": "tg_tg_update_564452423",
+      "durationMs": 5149
+    }
+[2026-07-05 20:11:22] ERROR conversation_gate.release_failed
+  requestId: tg_update_564452423
+  updateId: 564452423
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1066
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:11:22] INFO conversation_gate.released
+  requestId: tg_update_564452423
+  updateId: 564452423
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1066
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "hadBufferedMessage": false
+    }
+[2026-07-05 20:11:22] INFO text_processor.completed
+  requestId: tg_update_564452423
+  updateId: 564452423
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1066
+  messageType: text
+  threadId: tg_tg_update_564452423
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 24,
+      "responseLength": 70,
+      "agentStatus": "completed",
+      "requestedThreadId": "tg_tg_update_564452423",
+      "durationMs": 5154
+    }
+[2026-07-05 20:11:23] INFO telegram.reply.sent
+  requestId: tg_update_564452423
+  updateId: 564452423
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1066
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 70,
+      "totalDurationMs": 6676
+    }
+[2026-07-05 20:11:23] INFO telegram.update.handling_completed
+  requestId: tg_update_564452423
+  updateId: 564452423
+  details:
+    {
+      "durationMs": 6952
+    }
+[2026-07-05 20:11:38] INFO telegram.webhook.received
+  requestId: tg_update_564452424
+  updateId: 564452424
+  messageType: text
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-05 20:11:38] INFO telegram.update.handling_started
+  requestId: tg_update_564452424
+  updateId: 564452424
+[2026-07-05 20:11:38] INFO telegram.message.received
+  requestId: tg_update_564452424
+  updateId: 564452424
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1068
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 25,
+      "messagePreview": "show me today’s due stuff",
+      "hasReplyContext": false
+    }
+[2026-07-05 20:11:38] INFO processor.route.selected
+  requestId: tg_update_564452424
+  updateId: 564452424
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1068
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 25,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-07-05 20:11:38] INFO text_processor.started
+  requestId: tg_update_564452424
+  updateId: 564452424
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1068
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 25
+    }
+[2026-07-05 20:11:38] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 20:11:38] ERROR conversation_gate.acquire_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 20:11:38] INFO langgraph.stream.started
+  requestId: tg_update_564452424
+  updateId: 564452424
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1068
+  messageType: text
+  threadId: tg_tg_update_564452424
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-07-05 20:11:44] INFO langgraph.stream.completed
+  requestId: tg_update_564452424
+  updateId: 564452424
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1068
+  messageType: text
+  threadId: tg_tg_update_564452424
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "status": "completed",
+      "requestedThreadId": "tg_tg_update_564452424",
+      "durationMs": 5134
+    }
+[2026-07-05 20:11:44] ERROR conversation_gate.release_failed
+  requestId: tg_update_564452424
+  updateId: 564452424
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1068
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:11:44] INFO conversation_gate.released
+  requestId: tg_update_564452424
+  updateId: 564452424
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1068
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "hadBufferedMessage": false
+    }
+[2026-07-05 20:11:44] INFO text_processor.completed
+  requestId: tg_update_564452424
+  updateId: 564452424
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1068
+  messageType: text
+  threadId: tg_tg_update_564452424
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 25,
+      "responseLength": 375,
+      "agentStatus": "completed",
+      "requestedThreadId": "tg_tg_update_564452424",
+      "durationMs": 5138
+    }
+[2026-07-05 20:11:44] INFO telegram.reply.sent
+  requestId: tg_update_564452424
+  updateId: 564452424
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1068
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 375,
+      "totalDurationMs": 5875
+    }
+[2026-07-05 20:11:44] INFO telegram.update.handling_completed
+  requestId: tg_update_564452424
+  updateId: 564452424
+  details:
+    {
+      "durationMs": 6002
+    }
+[2026-07-05 20:11:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:12:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:13:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:14:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:15:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:16:46] INFO telegram.webhook.received
+  requestId: tg_update_564452425
+  updateId: 564452425
+  messageType: voice
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-05 20:16:46] INFO telegram.update.handling_started
+  requestId: tg_update_564452425
+  updateId: 564452425
+[2026-07-05 20:16:46] INFO telegram.message.received
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "fileSize": 7536,
+      "duration": 1,
+      "hasReplyContext": false
+    }
+[2026-07-05 20:16:47] INFO processor.route.selected
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "processor": "AudioProcessorService",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-07-05 20:16:47] INFO audio_processor.started
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-07-05 20:16:47] INFO whisper.transcription.started
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-07-05 20:16:47] DEBUG whisper.download.started
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-07-05 20:16:48] WARN whisper.download.unexpected_content_type
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-07-05 20:16:48] DEBUG whisper.download.completed
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "sizeBytes": 7536,
+      "durationMs": 584,
+      "contentType": "application/octet-stream"
+    }
+[2026-07-05 20:16:48] INFO audio.transcription.direct_selected
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg"
+    }
+[2026-07-05 20:16:48] INFO audio.conversion.skipped
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg",
+      "reason": "groq_direct_format"
+    }
+[2026-07-05 20:16:48] INFO whisper.api.request
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "model": "whisper-large-v3",
+      "language": "en",
+      "responseFormat": "verbose_json",
+      "promptLength": 166,
+      "fileSizeBytes": 7536,
+      "fileExtension": "ogg",
+      "temperature": 0
+    }
+[2026-07-05 20:16:48] INFO whisper.api.response
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "detectedLanguage": "English",
+      "segmentCount": 1,
+      "textLength": 7,
+      "durationMs": 629
+    }
+[2026-07-05 20:16:48] WARN whisper.transcription.quality_flagged
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "flaggedSegments": 1,
+      "totalSegments": 1,
+      "flags": [
+        {
+          "segmentId": 0,
+          "start": 0,
+          "end": 1.7199999,
+          "reason": "low_avg_logprob",
+          "value": -0.5075863,
+          "threshold": -0.5,
+          "textPreview": " Hello."
+        },
+        {
+          "segmentId": 0,
+          "start": 0,
+          "end": 1.7199999,
+          "reason": "low_compression_ratio",
+          "value": 0.46666667,
+          "threshold": 0.8,
+          "textPreview": " Hello."
+        }
+      ],
+      "worstValues": {
+        "minAvgLogprob": -0.5075863,
+        "maxNoSpeechProb": 0.03189087,
+        "minCompressionRatio": 0.46666667,
+        "maxCompressionRatio": 0.46666667
+      },
+      "thresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-07-05 20:16:48] INFO whisper.transcription.completed
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "textPreview": " Hello.",
+      "textLength": 7,
+      "processingTimeMs": 1225,
+      "fileSizeBytes": 7536,
+      "qualityFlaggedSegments": 1,
+      "qualityTotalSegments": 1
+    }
+[2026-07-05 20:16:49] INFO text_processor.started
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 6
+    }
+[2026-07-05 20:16:49] INFO langgraph.stream.started
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  threadId: tg_tg_update_564452425
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-07-05 20:16:52] INFO langgraph.stream.completed
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  threadId: tg_tg_update_564452425
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "status": "completed",
+      "requestedThreadId": "tg_tg_update_564452425",
+      "durationMs": 2611
+    }
+[2026-07-05 20:16:52] ERROR conversation_gate.release_failed
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:16:52] INFO conversation_gate.released
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "hadBufferedMessage": false
+    }
+[2026-07-05 20:16:52] INFO text_processor.completed
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  threadId: tg_tg_update_564452425
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 6,
+      "responseLength": 284,
+      "agentStatus": "completed",
+      "requestedThreadId": "tg_tg_update_564452425",
+      "durationMs": 2616
+    }
+[2026-07-05 20:16:52] INFO audio_processor.completed
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "durationMs": 4572,
+      "transcriptionTextLength": 7,
+      "hasTranscription": true
+    }
+[2026-07-05 20:16:52] INFO telegram.reply.sent
+  requestId: tg_update_564452425
+  updateId: 564452425
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1070
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 284,
+      "totalDurationMs": 5907
+    }
+[2026-07-05 20:16:52] INFO telegram.update.handling_completed
+  requestId: tg_update_564452425
+  updateId: 564452425
+  details:
+    {
+      "durationMs": 6031
+    }
+[2026-07-05 20:16:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:17:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:18:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:19:18] INFO telegram.webhook.received
+  requestId: tg_update_564452426
+  updateId: 564452426
+  messageType: text
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-05 20:19:18] INFO telegram.update.handling_started
+  requestId: tg_update_564452426
+  updateId: 564452426
+[2026-07-05 20:19:18] INFO telegram.message.received
+  requestId: tg_update_564452426
+  updateId: 564452426
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1073
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 130,
+      "messagePreview": "tell me my availablility in first half month of aug, last week july. tell me. Th...",
+      "hasReplyContext": false
+    }
+[2026-07-05 20:19:19] INFO processor.route.selected
+  requestId: tg_update_564452426
+  updateId: 564452426
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1073
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 130,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-07-05 20:19:19] INFO text_processor.started
+  requestId: tg_update_564452426
+  updateId: 564452426
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1073
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 130
+    }
+[2026-07-05 20:19:19] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 20:19:19] ERROR conversation_gate.acquire_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 20:19:19] INFO langgraph.stream.started
+  requestId: tg_update_564452426
+  updateId: 564452426
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1073
+  messageType: text
+  threadId: tg_tg_update_564452426
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-07-05 20:19:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:20:03] INFO langgraph.stream.completed
+  requestId: tg_update_564452426
+  updateId: 564452426
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1073
+  messageType: text
+  threadId: tg_tg_update_564452426
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "status": "completed",
+      "requestedThreadId": "tg_tg_update_564452426",
+      "durationMs": 44464
+    }
+[2026-07-05 20:20:03] ERROR conversation_gate.release_failed
+  requestId: tg_update_564452426
+  updateId: 564452426
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1073
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:20:03] INFO conversation_gate.released
+  requestId: tg_update_564452426
+  updateId: 564452426
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1073
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "hadBufferedMessage": false
+    }
+[2026-07-05 20:20:03] INFO text_processor.completed
+  requestId: tg_update_564452426
+  updateId: 564452426
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1073
+  messageType: text
+  threadId: tg_tg_update_564452426
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 130,
+      "responseLength": 1844,
+      "agentStatus": "completed",
+      "requestedThreadId": "tg_tg_update_564452426",
+      "durationMs": 44467
+    }
+[2026-07-05 20:20:04] INFO telegram.reply.sent
+  requestId: tg_update_564452426
+  updateId: 564452426
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1073
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 1844,
+      "totalDurationMs": 45228
+    }
+[2026-07-05 20:20:04] INFO telegram.update.handling_completed
+  requestId: tg_update_564452426
+  updateId: 564452426
+  details:
+    {
+      "durationMs": 45308
+    }
+[2026-07-05 20:20:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:21:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:22:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:23:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:24:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:25:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:26:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:27:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:28:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:29:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:30:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:31:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:32:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:33:01] INFO telegram.webhook.received
+  requestId: tg_update_564452427
+  updateId: 564452427
+  messageType: text
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-05 20:33:01] INFO telegram.update.handling_started
+  requestId: tg_update_564452427
+  updateId: 564452427
+[2026-07-05 20:33:01] INFO telegram.message.received
+  requestId: tg_update_564452427
+  updateId: 564452427
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1075
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 26,
+      "messagePreview": "what’s on for me next week",
+      "hasReplyContext": false
+    }
+[2026-07-05 20:33:02] INFO processor.route.selected
+  requestId: tg_update_564452427
+  updateId: 564452427
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1075
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 26,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-07-05 20:33:02] INFO text_processor.started
+  requestId: tg_update_564452427
+  updateId: 564452427
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1075
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 26
+    }
+[2026-07-05 20:33:02] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 20:33:02] ERROR conversation_gate.acquire_error
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "error": "permission denied for schema public",
+      "strategy": "fail_open"
+    }
+[2026-07-05 20:33:02] INFO langgraph.stream.started
+  requestId: tg_update_564452427
+  updateId: 564452427
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1075
+  messageType: text
+  threadId: tg_tg_update_564452427
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-07-05 20:33:31] INFO langgraph.stream.completed
+  requestId: tg_update_564452427
+  updateId: 564452427
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1075
+  messageType: text
+  threadId: tg_tg_update_564452427
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "status": "completed",
+      "requestedThreadId": "tg_tg_update_564452427",
+      "durationMs": 29759
+    }
+[2026-07-05 20:33:31] ERROR conversation_gate.release_failed
+  requestId: tg_update_564452427
+  updateId: 564452427
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1075
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:33:31] INFO conversation_gate.released
+  requestId: tg_update_564452427
+  updateId: 564452427
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1075
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "hadBufferedMessage": false
+    }
+[2026-07-05 20:33:31] INFO text_processor.completed
+  requestId: tg_update_564452427
+  updateId: 564452427
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1075
+  messageType: text
+  threadId: tg_tg_update_564452427
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 26,
+      "responseLength": 1000,
+      "agentStatus": "completed",
+      "requestedThreadId": "tg_tg_update_564452427",
+      "durationMs": 29777
+    }
+[2026-07-05 20:33:32] INFO telegram.reply.sent
+  requestId: tg_update_564452427
+  updateId: 564452427
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1075
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 1000,
+      "totalDurationMs": 30927
+    }
+[2026-07-05 20:33:32] INFO telegram.update.handling_completed
+  requestId: tg_update_564452427
+  updateId: 564452427
+  details:
+    {
+      "durationMs": 31092
+    }
+[2026-07-05 20:33:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:34:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:35:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:36:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:37:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:38:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:39:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:40:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:41:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:42:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:43:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:44:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:45:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:46:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:47:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:48:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:49:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:50:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:51:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:52:58] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "permission denied for schema public"
+    }
+[2026-07-05 20:53:27] INFO server.shutdown.started
+  details:
+    {
+      "signal": "SIGTERM"
+    }
+[2026-07-05 20:53:34] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 5,
+      "nodeEnv": "development"
+    }
+[2026-07-05 20:53:34] INFO telegram.authorization.configured
+  details:
+    {
+      "store": "postgres",
+      "emergencyDeniedUsers": 0
+    }
+[2026-07-05 20:53:34] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 166,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-07-05 20:53:34] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-07-05 20:53:34] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-07-05 20:53:34] INFO telegram.bot.initialized
+[2026-07-05 20:53:34] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-07-05 20:53:34] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-07-05 20:53:34] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-07-05 20:53:35] INFO database.runtime.ready
+  details:
+    {
+      "role": "jarvis_app",
+      "inheritedRole": "jarvis_runtime",
+      "requiredTables": 6
+    }
+[2026-07-05 20:53:35] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://c0ea-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-07-05 20:53:36] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://c0ea-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-07-05 20:53:59] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 5,
+      "nodeEnv": "development"
+    }
+[2026-07-05 20:53:59] INFO telegram.authorization.configured
+  details:
+    {
+      "store": "postgres",
+      "emergencyDeniedUsers": 0
+    }
+[2026-07-05 20:53:59] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 166,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-07-05 20:53:59] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-07-05 20:53:59] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-07-05 20:53:59] INFO telegram.bot.initialized
+[2026-07-05 20:53:59] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-07-05 20:53:59] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-07-05 20:53:59] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-07-05 20:53:59] INFO database.runtime.ready
+  details:
+    {
+      "role": "jarvis_app",
+      "inheritedRole": "jarvis_runtime",
+      "requiredTables": 6
+    }
+[2026-07-05 20:53:59] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://c0ea-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-07-05 20:54:00] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://c0ea-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-07-05 21:02:09] INFO telegram.webhook.received
+  requestId: tg_update_564452428
+  updateId: 564452428
+  messageType: text
+  details:
+    {
+      "hasReplyToMessage": true
+    }
+[2026-07-05 21:02:09] INFO telegram.update.handling_started
+  requestId: tg_update_564452428
+  updateId: 564452428
+[2026-07-05 21:02:09] DEBUG reply-context.blocks.raw
+  details:
+    {
+      "blockCount": 3,
+      "dump": "[{\"type\":\"paragraph\",\"text\":\"Here's what's due today (Sunday, 5 July 2026):\"},{\"type\":\"table\",\"cells\":[[{\"text\":\"Task\",\"is_header\":true,\"align\":\"center\",\"valign\":\"middle\"},{\"text\":\"Due\",\"is_header\":true,\"align\":\"center\",\"valign\":\"middle\"},{\"text\":\"Priority\",\"is_header\":true,\"align\":\"center\",\"valign\":\"middle\"},{\"text\":\"Project\",\"is_header\":true,\"align\":\"center\",\"valign\":\"middle\"}],[{\"text\":[\"📋 \",{\"type\":\"bold\",\"text\":\"finish PSEA application\"}],\"align\":\"left\",\"valign\":\"middle\"},{\"text\":\"Today at 3:00 PM\",\"align\":\"left\",\"valign\":\"middle\"},{\"text\":\"Normal (P4)\",\"align\":\"left\",\"valign\":\"middle\"},{\"text\":\"— (Inbox)\",\"align\":\"left\",\"valign\":\"middle\"}]],\"is_bordered\":true,\"is_striped\":true},{\"type\":\"paragraph\",\"text\":\"1 task due today. Nothing overdue or urgent — just the PSEA application to wrap up by 3 PM. Would you like me to mark it complete, reschedule it, or do anything else with it?\"}]"
+    }
+[2026-07-05 21:02:09] DEBUG telegram.reply_to_message.shape
+  requestId: tg_update_564452428
+  updateId: 564452428
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1069
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "hasText": false,
+      "hasCaption": false,
+      "hasRichMessage": true,
+      "richMessageType": "object",
+      "richMessageKeys": [
+        "blocks"
+      ],
+      "richMessageDump": "{\"blocks\":[{\"type\":\"paragraph\",\"text\":\"Here's what's due today (Sunday, 5 July 2026):\"},{\"type\":\"table\",\"cells\":[[{\"text\":\"Task\",\"is_header\":true,\"align\":\"center\",\"valign\":\"middle\"},{\"text\":\"Due\",\"is_header\":true,\"align\":\"center\",\"valign\":\"middle\"},{\"text\":\"Priority\",\"is_header\":true,\"align\":\"center\",\"valign\":\"middle\"},{\"text\":\"Project\",\"is_header\":true,\"align\":\"center\",\"valign\":\"middle\"}],[{\"text\":[\"📋 \",{\"type\":\"bold\",\"text\":\"finish PSEA application\"}],\"align\":\"left\",\"valign\":\"middle\"},{\"text\"",
+      "fromIsBot": true,
+      "fromId": "[REDACTED_ID]",
+      "keys": [
+        "message_id",
+        "rich_message"
+      ]
+    }
+[2026-07-05 21:02:09] INFO telegram.message.received
+  requestId: tg_update_564452428
+  updateId: 564452428
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1077
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 29,
+      "messagePreview": "trying out the reply function",
+      "hasReplyContext": true
+    }
+[2026-07-05 21:02:10] INFO processor.route.selected
+  requestId: tg_update_564452428
+  updateId: 564452428
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1077
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 29,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-07-05 21:02:10] INFO text_processor.started
+  requestId: tg_update_564452428
+  updateId: 564452428
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1077
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 29
+    }
+[2026-07-05 21:02:10] INFO langgraph.stream.started
+  requestId: tg_update_564452428
+  updateId: 564452428
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1077
+  messageType: text
+  threadId: tg_tg_update_564452428
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-07-05 21:02:15] INFO langgraph.stream.completed
+  requestId: tg_update_564452428
+  updateId: 564452428
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1077
+  messageType: text
+  threadId: tg_tg_update_564452428
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "status": "completed",
+      "requestedThreadId": "tg_tg_update_564452428",
+      "durationMs": 5035
+    }
+[2026-07-05 21:02:15] INFO conversation_gate.released
+  requestId: tg_update_564452428
+  updateId: 564452428
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1077
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "hadBufferedMessage": false
+    }
+[2026-07-05 21:02:15] INFO text_processor.completed
+  requestId: tg_update_564452428
+  updateId: 564452428
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1077
+  messageType: text
+  threadId: tg_tg_update_564452428
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 29,
+      "responseLength": 422,
+      "agentStatus": "completed",
+      "requestedThreadId": "tg_tg_update_564452428",
+      "durationMs": 5156
+    }
+[2026-07-05 21:02:16] INFO telegram.reply.sent
+  requestId: tg_update_564452428
+  updateId: 564452428
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1077
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 422,
+      "totalDurationMs": 6338
+    }
+[2026-07-05 21:02:16] INFO telegram.update.handling_completed
+  requestId: tg_update_564452428
+  updateId: 564452428
+  details:
+    {
+      "durationMs": 6629
+    }
+[2026-07-05 21:52:31] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 5,
+      "nodeEnv": "development"
+    }
+[2026-07-05 21:52:31] INFO telegram.authorization.configured
+  details:
+    {
+      "store": "postgres",
+      "emergencyDeniedUsers": 0
+    }
+[2026-07-05 21:52:31] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 166,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-07-05 21:52:31] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-07-05 21:52:31] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-07-05 21:52:31] INFO telegram.bot.initialized
+[2026-07-05 21:52:31] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-07-05 21:52:31] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-07-05 21:52:31] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-07-05 21:52:31] INFO database.runtime.ready
+  details:
+    {
+      "role": "jarvis_app",
+      "inheritedRole": "jarvis_runtime",
+      "requiredTables": 6
+    }
+[2026-07-05 21:52:31] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://c0ea-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-07-05 21:52:32] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://c0ea-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-07-05 22:56:20] INFO telegram.webhook.received
+  requestId: tg_update_564452429
+  updateId: 564452429
+  messageType: text
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-05 22:56:20] INFO telegram.update.handling_started
+  requestId: tg_update_564452429
+  updateId: 564452429
+[2026-07-05 22:56:21] INFO telegram.message.received
+  requestId: tg_update_564452429
+  updateId: 564452429
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1079
+  messageType: text
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "username": "zackam",
+      "messageLength": 28,
+      "messagePreview": "What are my tasks for today?",
+      "hasReplyContext": false
+    }
+[2026-07-05 22:56:21] INFO processor.route.selected
+  requestId: tg_update_564452429
+  updateId: 564452429
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1079
+  messageType: text
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "messageLength": 28,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-07-05 22:56:21] INFO text_processor.started
+  requestId: tg_update_564452429
+  updateId: 564452429
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1079
+  messageType: text
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "messageLength": 28
+    }
+[2026-07-05 22:56:21] INFO langgraph.stream.started
+  requestId: tg_update_564452429
+  updateId: 564452429
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1079
+  messageType: text
+  threadId: tg_tg_update_564452429
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "path": "/invoke/stream",
+      "hasTelegramUserId": true,
+      "hasThreadId": true
+    }
+[2026-07-05 22:56:21] INFO langgraph.stream.completed
+  requestId: tg_update_564452429
+  updateId: 564452429
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1079
+  messageType: text
+  threadId: 
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "path": "/invoke/stream",
+      "status": "failed",
+      "requestedThreadId": "tg_tg_update_564452429",
+      "durationMs": 315
+    }
+[2026-07-05 22:56:21] INFO conversation_gate.released
+  requestId: tg_update_564452429
+  updateId: 564452429
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1079
+  messageType: text
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "gateKey": "telegram-chat:26accd1e1db9bdc5812d06534574dc1c",
+      "hadBufferedMessage": false
+    }
+[2026-07-05 22:56:21] INFO text_processor.completed
+  requestId: tg_update_564452429
+  updateId: 564452429
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1079
+  messageType: text
+  threadId: 
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "messageLength": 28,
+      "responseLength": 64,
+      "agentStatus": "failed",
+      "requestedThreadId": "tg_tg_update_564452429",
+      "durationMs": 452
+    }
+[2026-07-05 22:56:22] INFO telegram.reply.sent
+  requestId: tg_update_564452429
+  updateId: 564452429
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1079
+  messageType: text
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "responseLength": 64,
+      "totalDurationMs": 1218
+    }
+[2026-07-05 22:56:22] INFO telegram.update.handling_completed
+  requestId: tg_update_564452429
+  updateId: 564452429
+  details:
+    {
+      "durationMs": 1951
+    }
+[2026-07-05 22:57:12] INFO server.shutdown.started
+  details:
+    {
+      "signal": "SIGTERM"
+    }
+[2026-07-05 22:57:18] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 5,
+      "nodeEnv": "development"
+    }
+[2026-07-05 22:57:18] INFO telegram.authorization.configured
+  details:
+    {
+      "store": "postgres",
+      "emergencyDeniedUsers": 0
+    }
+[2026-07-05 22:57:18] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 166,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      }
+    }
+[2026-07-05 22:57:18] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-07-05 22:57:18] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-07-05 22:57:18] INFO telegram.bot.initialized
+[2026-07-05 22:57:18] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-07-05 22:57:18] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-07-05 22:57:18] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-07-05 22:57:19] INFO database.runtime.ready
+  details:
+    {
+      "role": "jarvis_app",
+      "inheritedRole": "jarvis_runtime",
+      "requiredTables": 6
+    }
+[2026-07-05 22:57:19] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://9eee-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-07-05 22:57:20] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://9eee-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
