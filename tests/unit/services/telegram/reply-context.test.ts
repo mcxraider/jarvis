@@ -121,6 +121,47 @@ describe('formatReplyContext', () => {
     );
   });
 
+  it('extracts rich_message.blocks with text fields', () => {
+    const replied = asMessage({
+      rich_message: {
+        blocks: [
+          { text: 'Which dates would you like?' },
+          { text: 'I can help schedule it.' },
+        ],
+      },
+      from: { id: 10, is_bot: true, first_name: 'Jarvis' },
+    });
+
+    expect(formatReplyContext(replied, 10)).toBe(
+      '[In reply to your earlier message: "Which dates would you like?\nI can help schedule it."]',
+    );
+  });
+
+  it('extracts rich_message.blocks with content arrays (inline elements)', () => {
+    const replied = asMessage({
+      rich_message: {
+        blocks: [
+          { content: [{ text: 'Hello ' }, { text: 'world' }] },
+          { content: 'Simple string content' },
+        ],
+      },
+      from: { id: 10, is_bot: true, first_name: 'Jarvis' },
+    });
+
+    expect(formatReplyContext(replied, 10)).toBe(
+      '[In reply to your earlier message: "Hello world\nSimple string content"]',
+    );
+  });
+
+  it('returns undefined for rich_message.blocks with no extractable text', () => {
+    const replied = asMessage({
+      rich_message: { blocks: [{ type: 'image', url: 'https://...' }] },
+      from: { id: 10, is_bot: true, first_name: 'Jarvis' },
+    });
+
+    expect(formatReplyContext(replied, 10)).toBeUndefined();
+  });
+
   it('extracts poll question as fallback', () => {
     const replied = asMessage({
       poll: { question: 'Where should we eat?' },
