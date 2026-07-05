@@ -103,3 +103,31 @@
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-05 09:52:32"}
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-05 17:08:25"}
 {"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:10:19"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:11:19"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:12:19"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-05 17:12:46"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-05 17:13:16"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:15:11"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:16:10"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-05 17:16:12"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:17:18"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:18:18"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:19:18"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:20:18"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:21:18"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:22:18"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:23:18"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:24:18"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:25:18"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-05 17:25:22"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:26:28"}
+{"error":"permission denied for schema public","gateKey":"telegram-chat:ad23af2c30b2333d242fa95bb136bf67","level":"error","message":"conversation_gate.store_error","strategy":"fail_open","timestamp":"2026-07-05 17:26:33"}
+{"error":"permission denied for schema public","gateKey":"telegram-chat:ad23af2c30b2333d242fa95bb136bf67","level":"error","message":"conversation_gate.acquire_error","strategy":"fail_open","timestamp":"2026-07-05 17:26:33"}
+{"chatId":"[REDACTED_ID]","error":"permission denied for schema public","level":"error","message":"conversation_gate.release_failed","messageId":1038,"messageType":"text","requestId":"tg_update_564452409","telegramFirstName":"jerry","telegramUsername":"jer_jerryyy","timestamp":"2026-07-05 17:26:37","updateId":564452409,"userId":"[REDACTED_ID]"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:27:28"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:28:28"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:29:28"}
+{"error":"permission denied for schema public","gateKey":"telegram-chat:ad23af2c30b2333d242fa95bb136bf67","level":"error","message":"conversation_gate.store_error","strategy":"fail_open","timestamp":"2026-07-05 17:29:46"}
+{"error":"permission denied for schema public","gateKey":"telegram-chat:ad23af2c30b2333d242fa95bb136bf67","level":"error","message":"conversation_gate.acquire_error","strategy":"fail_open","timestamp":"2026-07-05 17:29:46"}
+{"chatId":"[REDACTED_ID]","error":"permission denied for schema public","level":"error","message":"conversation_gate.release_failed","messageId":1040,"messageType":"text","requestId":"tg_update_564452410","telegramFirstName":"jerry","telegramUsername":"jer_jerryyy","timestamp":"2026-07-05 17:29:52","updateId":564452410,"userId":"[REDACTED_ID]"}
+{"error":"permission denied for schema public","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-05 17:30:28"}
