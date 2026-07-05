@@ -84,6 +84,7 @@ class Settings:
     postgres_dsn: Optional[str]
     redis_url: Optional[str]
     checkpoint_backend: str
+    run_checkpoint_setup: bool
     idempotency_request_ttl_seconds: int
     idempotency_operation_ttl_seconds: int
     idempotency_lease_seconds: int
@@ -166,6 +167,7 @@ def load_settings() -> Settings:
         postgres_dsn=postgres_dsn,
         redis_url=os.getenv("JARVIS_REDIS_URL") or os.getenv("REDIS_URL"),
         checkpoint_backend=checkpoint_backend,
+        run_checkpoint_setup=_bool_env("JARVIS_RUN_CHECKPOINT_SETUP", False),
         idempotency_request_ttl_seconds=idempotency_request_ttl_seconds,
         idempotency_operation_ttl_seconds=idempotency_operation_ttl_seconds,
         idempotency_lease_seconds=idempotency_lease_seconds,
