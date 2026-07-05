@@ -88,6 +88,17 @@ describe('formatReplyContext', () => {
     );
   });
 
+  it('extracts rich_message.markdown from bot rich messages', () => {
+    const replied = asMessage({
+      rich_message: { markdown: 'Which dates would you like?' },
+      from: { id: 10, is_bot: true, first_name: 'Jarvis' },
+    });
+
+    expect(formatReplyContext(replied, 10)).toBe(
+      '[In reply to your earlier message: "Which dates would you like?"]',
+    );
+  });
+
   it('extracts poll question as fallback', () => {
     const replied = asMessage({
       poll: { question: 'Where should we eat?' },
