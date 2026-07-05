@@ -4,12 +4,65 @@ const MAX_QUOTE_LEN = 700;
 
 function extractRichMessageText(richMessage: unknown): string | undefined {
   if (typeof richMessage === 'string') return richMessage;
-  if (richMessage && typeof richMessage === 'object') {
-    const rm = richMessage as Record<string, unknown>;
-    if (typeof rm.markdown === 'string') return rm.markdown;
-    if (typeof rm.text === 'string') return rm.text;
-  }
+  if (!richMessage || typeof richMessage !== 'object') return undefined;
+
+  const rm = richMessage as Record<string, unknown>;
+
+  // Shape 1: { markdown: "..." } — what we send
+  if (typeof rm.markdown === 'string') return rm.markdown;
+  // Shape 2: { text: "..." }
+  if (typeof rm.text === 'string') return rm.text;
+  // Shape 3: { blocks: [...] } — what Telegram actually returns
+  if (Array.isArray(rm.blocks)) return extractTextFromBlocks(rm.blocks);
+
   return undefined;
+}
+
+/**
+ * Recursively extracts text content from Telegram rich_message blocks.
+ * Block structure varies but commonly contains `text`, `content`, or nested
+ * arrays of inline elements with a `text` field.
+ */
+function extractTextFromBlocks(blocks: unknown[]): string | undefined {
+  const parts: string[] = [];
+
+  for (const block of blocks) {
+    if (!block || typeof block !== 'object') continue;
+    const b = block as Record<string, unknown>;
+
+    // Direct text field on block
+    if (typeof b.text === 'string') {
+      parts.push(b.text);
+      continue;
+    }
+    // Content field (string)
+    if (typeof b.content === 'string') {
+      parts.push(b.content);
+      continue;
+    }
+    // Content field (array of inline elements)
+    if (Array.isArray(b.content)) {
+      const inlineText = b.content
+        .map((item: unknown) => {
+          if (typeof item === 'string') return item;
+          if (item && typeof item === 'object' && typeof (item as any).text === 'string') {
+            return (item as any).text;
+          }
+          return '';
+        })
+        .join('');
+      if (inlineText) parts.push(inlineText);
+      continue;
+    }
+    // Nested blocks
+    if (Array.isArray(b.blocks)) {
+      const nested = extractTextFromBlocks(b.blocks);
+      if (nested) parts.push(nested);
+    }
+  }
+
+  const result = parts.join('\n').trim();
+  return result || undefined;
 }
 
 /**
