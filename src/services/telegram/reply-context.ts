@@ -15,6 +15,10 @@ export function formatReplyContext(
   const raw =
     ('text' in replied && replied.text) ||
     ('caption' in replied && replied.caption) ||
+    ('poll' in replied && (replied as any).poll?.question && `[Poll: ${(replied as any).poll.question}]`) ||
+    ('sticker' in replied && (replied as any).sticker?.emoji && `[Sticker: ${(replied as any).sticker.emoji}]`) ||
+    ('contact' in replied && (replied as any).contact?.first_name && `[Contact: ${(replied as any).contact.first_name}]`) ||
+    ('location' in replied && '[Shared location]') ||
     undefined;
   if (!raw || !raw.trim()) return undefined;
 

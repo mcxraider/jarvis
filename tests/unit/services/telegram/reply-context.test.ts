@@ -87,4 +87,48 @@ describe('formatReplyContext', () => {
       `[In reply to an earlier message from Alex: "${text}"]`,
     );
   });
+
+  it('extracts poll question as fallback', () => {
+    const replied = asMessage({
+      poll: { question: 'Where should we eat?' },
+      from: { id: 22, first_name: 'Alex' },
+    });
+
+    expect(formatReplyContext(replied, 10)).toBe(
+      '[In reply to an earlier message from Alex: "[Poll: Where should we eat?]"]',
+    );
+  });
+
+  it('extracts sticker emoji as fallback', () => {
+    const replied = asMessage({
+      sticker: { emoji: '👍', file_id: 'sticker-1' },
+      from: { id: 10, is_bot: true, first_name: 'Jarvis' },
+    });
+
+    expect(formatReplyContext(replied, 10)).toBe(
+      '[In reply to your earlier message: "[Sticker: 👍]"]',
+    );
+  });
+
+  it('extracts contact name as fallback', () => {
+    const replied = asMessage({
+      contact: { first_name: 'John', phone_number: '+1234' },
+      from: { id: 22, first_name: 'Alex' },
+    });
+
+    expect(formatReplyContext(replied, 10)).toBe(
+      '[In reply to an earlier message from Alex: "[Contact: John]"]',
+    );
+  });
+
+  it('extracts location as fallback', () => {
+    const replied = asMessage({
+      location: { latitude: 25.0, longitude: 121.5 },
+      from: { id: 22, first_name: 'Alex' },
+    });
+
+    expect(formatReplyContext(replied, 10)).toBe(
+      '[In reply to an earlier message from Alex: "[Shared location]"]',
+    );
+  });
 });
