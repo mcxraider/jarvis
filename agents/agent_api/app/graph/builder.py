@@ -3,6 +3,7 @@
 import logging
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Optional
 
 from langgraph.types import Command
@@ -42,7 +43,7 @@ from agents.agent_api.app.graph.prompts import (
 from agents.agent_api.app.graph.state import JarvisState, enrich_interrupt_status
 from agents.agent_api.app.idempotency import DEFAULT_IDEMPOTENCY_STORE, IdempotencyStore
 from agents.agent_api.app.pricing import (
-    calculate_cost_microcents,
+    calculate_cost_usd,
     derive_uncached_input_tokens,
 )
 from agents.agent_api.app.run_logging import (
@@ -154,16 +155,16 @@ def _log_usage(
     cached_tokens: Optional[int] = usage.cached_tokens or 0
     output_tokens = usage.completion_tokens or 0
     uncached_tokens: Optional[int] = None
-    cost_microcents: Optional[int] = None
+    cost_usd: Optional[Decimal] = None
     try:
         uncached_tokens = derive_uncached_input_tokens(prompt_tokens, cached_tokens)
-        cost_microcents = calculate_cost_microcents(
+        cost_usd = calculate_cost_usd(
             model,
             prompt_tokens,
             cached_tokens,
             output_tokens,
         )
-        if cost_microcents is None:
+        if cost_usd is None:
             _builder_logger.warning(
                 "Usage cost unavailable for unpriced model.",
                 extra={"thread_id": thread_id, "model": model},
@@ -185,7 +186,7 @@ def _log_usage(
                     INSERT INTO usage_logs (user_id, thread_id, event_type, model,
                                            input_tokens, cached_input_tokens,
                                            uncached_input_tokens, output_tokens,
-                                           cost_microcents, latency_ms)
+                                           cost_usd, latency_ms)
                     VALUES (
                         public.resolve_user_id(%s),
                         %s,
@@ -207,7 +208,7 @@ def _log_usage(
                         cached_tokens,
                         uncached_tokens,
                         output_tokens,
-                        cost_microcents,
+                        cost_usd,
                         latency_ms,
                     ),
                 )

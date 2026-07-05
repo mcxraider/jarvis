@@ -23,6 +23,7 @@ import { TelegramHandlers } from './services/telegram/handlers/telegram-handlers
 import { TelegramBotService } from './services/telegram/telegram-bot.service';
 import { createUserAuthorizationStore } from './services/telegram/user-authorization.store';
 import { setRichMessagesEnabled } from './services/telegram/formatters/telegram-rich';
+import { verifyDatabaseRuntime } from './services/database/database-runtime-readiness';
 
 // --- Environment validation ---
 // All of these must be set before the app can start. A missing variable
@@ -65,6 +66,20 @@ setRichMessagesEnabled(RICH_MESSAGES_ENABLED);
 
 const bot = new Telegraf<Context>(BOT_TOKEN);
 const userAuthorizationStore = createUserAuthorizationStore();
+const runtimeDsn = process.env.JARVIS_POSTGRES_DSN || process.env.DATABASE_URL!;
+export const databaseReadiness = verifyDatabaseRuntime(runtimeDsn).then((result) => {
+  logger.info('database.runtime.ready', {
+    role: result.role,
+    inheritedRole: result.inheritedRole,
+    requiredTables: result.tables.length,
+  });
+  return result;
+}).catch((error) => {
+  logger.error('database.runtime.not_ready', {
+    error: error instanceof Error ? error.message : String(error),
+  });
+  throw error;
+});
 
 // AI services: the LangGraph agent client talks to the Python FastAPI backend,
 // and WhisperService handles Groq-hosted audio transcription.

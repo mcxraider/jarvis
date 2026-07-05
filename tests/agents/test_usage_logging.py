@@ -2,6 +2,7 @@
 
 import logging
 from dataclasses import dataclass
+from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
@@ -107,7 +108,7 @@ class TestLogUsageInsert:
             40,
             60,
             50,
-            2_251,
+            Decimal("0.0000"),
             1234,
         )
         assert sql.count("%s") == len(params)

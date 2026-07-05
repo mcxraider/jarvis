@@ -6,7 +6,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { logger } from './utils/logger';
 import { createWebhookRouter } from './controllers/webhook.controller';
-import { botService } from './app';
+import { botService, databaseReadiness } from './app';
 
 const NGROK_URL = process.env.NGROK_URL!;
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
@@ -15,6 +15,7 @@ const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
 // This is idempotent — Telegram ignores the call if the URL hasn't changed.
 (async () => {
   try {
+    await databaseReadiness;
     await botService.setupWebhook(NGROK_URL, TELEGRAM_SECRET_TOKEN);
   } catch (err) {
     logger.error('telegram.webhook.setup_failed', {
@@ -40,6 +41,13 @@ const HEALTH_CHECK_TIMEOUT_MS = 5000;
 
 app.get('/health', async (_req: Request, res: Response, _next: NextFunction) => {
   const dependencies: Record<string, string> = {};
+
+  try {
+    await databaseReadiness;
+    dependencies.database = 'ok';
+  } catch {
+    dependencies.database = 'not ready';
+  }
 
   try {
     const controller = new AbortController();

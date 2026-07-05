@@ -5,8 +5,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Mapping, Optional
 
 
-MICROCENTS_PER_DOLLAR = Decimal("100000000")
 TOKENS_PER_RATE_UNIT = Decimal("1000000")
+USD_QUANTUM = Decimal("0.0001")
 
 
 @dataclass(frozen=True)
@@ -44,13 +44,13 @@ def derive_uncached_input_tokens(prompt_tokens: int, cached_tokens: int) -> int:
     return prompt_tokens - cached_tokens
 
 
-def calculate_cost_microcents(
+def calculate_cost_usd(
     model: str,
     prompt_tokens: int,
     cached_tokens: int,
     output_tokens: int,
-) -> Optional[int]:
-    """Calculate run cost, rounded once to the nearest microcent.
+) -> Optional[Decimal]:
+    """Calculate run cost in USD, rounded to four decimal places.
 
     Returns ``None`` when the model has no maintained pricing entry. Invalid
     token metadata raises ``ValueError`` so callers cannot record a misleading
@@ -69,13 +69,12 @@ def calculate_cost_microcents(
         + Decimal(uncached_tokens) * rates.uncached_input
         + Decimal(output_tokens) * rates.output
     ) / TOKENS_PER_RATE_UNIT
-    cost_microcents = cost_usd * MICROCENTS_PER_DOLLAR
-    return int(cost_microcents.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    return cost_usd.quantize(USD_QUANTUM, rounding=ROUND_HALF_UP)
 
 
 __all__ = [
     "DEEPSEEK_TOKEN_RATES",
     "TokenRates",
-    "calculate_cost_microcents",
+    "calculate_cost_usd",
     "derive_uncached_input_tokens",
 ]

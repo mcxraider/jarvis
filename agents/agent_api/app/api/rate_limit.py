@@ -28,7 +28,7 @@ def check_rate_limit(telegram_user_id: Optional[int]) -> None:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    UPDATE rate_limits rl
+                    UPDATE public.rate_limits rl
                     SET daily_requests_used = CASE
                             WHEN rl.reset_at <= NOW() THEN 1
                             ELSE LEAST(rl.daily_requests_used + 1,
@@ -40,7 +40,7 @@ def check_rate_limit(telegram_user_id: Optional[int]) -> None:
                             ELSE rl.reset_at
                         END,
                         updated_at = NOW()
-                    FROM users u
+                    FROM public.users u
                     WHERE u.id = rl.user_id
                       AND u.id = public.resolve_user_id(%s)
                     RETURNING rl.daily_requests_used, rl.daily_request_limit
