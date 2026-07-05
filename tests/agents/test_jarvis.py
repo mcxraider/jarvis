@@ -469,9 +469,11 @@ class FakeOpenAIClient:
 
 class ToolSelectionTests(unittest.TestCase):
     def _registry(self):
-        from agents.agent_api.app.tools.registry_factory import build_default_registry
+        from agents.agent_api.app.tools.registry_factory import (
+            build_registry_from_clients,
+        )
 
-        return build_default_registry(FakeTodoistClient())
+        return build_registry_from_clients(FakeTodoistClient())
 
     def test_static_selector_returns_full_catalogue(self) -> None:
         from agents.agent_api.app.tools.selection import StaticToolSelector
@@ -597,13 +599,11 @@ class JarvisGraphTests(unittest.TestCase):
     def test_system_prompt_uses_orchestrator_contract(self) -> None:
         prompt = jarvis.get_system_prompt()
 
-        self.assertIn("You are Jarvis, Jerry's personal assistant agent.", prompt)
+        self.assertIn("You are Jarvis, Jerry's personal assistant agent", prompt)
+        self.assertIn("connected services listed in Runtime context", prompt)
         self.assertIn("ask_user", prompt)
-        self.assertIn(
-            "End ANSWER at the requested deliverable; do not append offers for further help",
-            prompt,
-        )
-        self.assertIn("Max 20 loop iterations per user turn", prompt)
+        self.assertIn("End at the requested deliverable", prompt)
+        self.assertIn("Maximum 20 loop iterations per user turn", prompt)
 
     def test_worker_prompt_available_for_worker_nodes(self) -> None:
         prompt = jarvis.get_worker_prompt()
@@ -1582,6 +1582,53 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(result["next"], "end")
         self.assertEqual(result["final_response"], jarvis.LLM_FAILURE_MESSAGE)
         self.assertEqual(json.loads(result["error"]), payload)
+
+
+class ContextGateTests(unittest.TestCase):
+    """The runtime user gate must reject before any model invocation (#4).
+
+    When a Telegram id is present and a DSN is configured, ``run_jarvis`` resolves the
+    canonical user first. An unknown/disabled user makes ``resolve_runtime_context``
+    raise, and that must abort the run before the agent client is ever called.
+    """
+
+    def test_rejected_user_never_reaches_the_model(self) -> None:
+        agent_client = FakeDeepSeekAgentClient([{"role": "assistant", "content": "hi"}])
+
+        # ``settings`` is a frozen dataclass; the gate raises before any other
+        # settings field is read, so a minimal stand-in with a truthy DSN suffices.
+        with patch.object(
+            builder_module, "settings", SimpleNamespace(postgres_dsn="postgresql://fake")
+        ), patch.object(
+            builder_module,
+            "resolve_runtime_context",
+            side_effect=PermissionError("No active Jarvis user for this identity."),
+        ):
+            with self.assertRaises(PermissionError):
+                jarvis.run_jarvis(
+                    user_prompt="do something",
+                    agent_client=agent_client,
+                    todoist_client=FakeTodoistClient(),
+                    tracer=jarvis.NULL_TRACE,
+                    telegram_user_id=999,
+                )
+
+        # The gate fired before the model: the fake LLM recorded no calls.
+        self.assertEqual(agent_client.calls, [])
+        self.assertEqual(agent_client.tool_calls, [])
+
+    def test_resolved_user_reaches_the_model(self) -> None:
+        # Non-vacuity companion: on the normal (ungated) path the client IS invoked.
+        agent_client = FakeDeepSeekAgentClient([{"role": "assistant", "content": "hi"}])
+
+        jarvis.run_jarvis(
+            user_prompt="do something",
+            agent_client=agent_client,
+            todoist_client=FakeTodoistClient(),
+            tracer=jarvis.NULL_TRACE,
+        )
+
+        self.assertTrue(agent_client.calls)
 
 
 if __name__ == "__main__":

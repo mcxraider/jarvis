@@ -35,13 +35,17 @@ from agents.agent_api.app.graph.builder import run_jarvis
 from agents.agent_api.app.graph.nodes.orchestrator import DeepSeekAgentClient
 from agents.agent_api.app.graph.prompts import USER_PROMPT, USER_PROMPTS
 from agents.agent_api.app.graph.state import JarvisState
-from agents.agent_api.app.tools.todoist.client import TodoistApiClient
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 CLI_USER_ALIAS_ENV = {
     "user_1": "JARVIS_CLI_USER_1_TELEGRAM_ID",
     "user_2": "JARVIS_CLI_USER_2_TELEGRAM_ID",
 }
+
+# Default CLI identity when no --telegram-user-id / --user-* is supplied. Lets a
+# plain `runner.py "..."` resolve integrations from Supabase (requires a Postgres
+# DSN); falls back to keyless offline mode only when this is unset too.
+CLI_DEFAULT_TELEGRAM_ID_ENV = "JARVIS_CLI_DEFAULT_TELEGRAM_ID"
 
 
 def send_clarification_message_to_user(payload: Dict[str, Any]) -> None:
@@ -88,10 +92,8 @@ def run_jarvis_with_local_clarifications(
     checkpointer = checkpointer or DEFAULT_CHECKPOINTER
     thread_id = str(uuid.uuid4())
     agent_client = agent_client or DeepSeekAgentClient(tracer=tracer)
-    todoist_client = todoist_client or TodoistApiClient(
-        tracer=tracer,
-        telegram_user_id=telegram_user_id,
-    )
+    # Clients are resolved inside run_jarvis from the user's runtime context;
+    # only an explicitly injected client is threaded through here.
 
     result = run_jarvis(
         user_prompt=user_prompt,
@@ -145,10 +147,6 @@ def run_jarvis_sequence(
 
     tracer = tracer if tracer is not None else TracePrinter()
     agent_client = agent_client or DeepSeekAgentClient(tracer=tracer)
-    todoist_client = todoist_client or TodoistApiClient(
-        tracer=tracer,
-        telegram_user_id=telegram_user_id,
-    )
     results: List[JarvisState] = []
 
     for index, prompt in enumerate(prompts, start=1):
@@ -220,8 +218,24 @@ def collect_cli_prompts(args: argparse.Namespace) -> List[str]:
     return [prompt for prompt in prompts if prompt.strip()] or USER_PROMPTS
 
 
+def _parse_telegram_id(raw_value: str, env_var: str) -> int:
+    """Parse a Telegram user ID from an env value, validating it is positive."""
+
+    try:
+        telegram_user_id = int(raw_value)
+    except ValueError as error:
+        raise ValueError(f"{env_var} must be a numeric Telegram user ID.") from error
+    if telegram_user_id <= 0:
+        raise ValueError(f"{env_var} must be a positive Telegram user ID.")
+    return telegram_user_id
+
+
 def resolve_cli_telegram_user_id(args: argparse.Namespace) -> Optional[int]:
-    """Resolve temporary CLI user aliases to Telegram IDs for Todoist routing."""
+    """Resolve the CLI run's Telegram ID for Supabase integration routing.
+
+    Precedence: explicit ``--telegram-user-id`` > ``--user-*`` alias env >
+    ``JARVIS_CLI_DEFAULT_TELEGRAM_ID`` > ``None`` (keyless offline mode).
+    """
 
     selected_aliases = [
         alias
@@ -234,21 +248,19 @@ def resolve_cli_telegram_user_id(args: argparse.Namespace) -> Optional[int]:
         raise ValueError("Use either --telegram-user-id or a --user-* alias, not both.")
     if args.telegram_user_id is not None:
         return args.telegram_user_id
+
     if not selected_aliases:
-        return None
+        raw_default = os.getenv(CLI_DEFAULT_TELEGRAM_ID_ENV, "").strip()
+        if not raw_default:
+            return None
+        return _parse_telegram_id(raw_default, CLI_DEFAULT_TELEGRAM_ID_ENV)
 
     alias = selected_aliases[0]
     env_var = CLI_USER_ALIAS_ENV[alias]
     raw_value = os.getenv(env_var, "").strip()
     if not raw_value:
         raise ValueError(f"{env_var} must be set to use --{alias.replace('_', '-')}.")
-    try:
-        telegram_user_id = int(raw_value)
-    except ValueError as error:
-        raise ValueError(f"{env_var} must be a numeric Telegram user ID.") from error
-    if telegram_user_id <= 0:
-        raise ValueError(f"{env_var} must be a positive Telegram user ID.")
-    return telegram_user_id
+    return _parse_telegram_id(raw_value, env_var)
 
 
 def result_to_json_summary(result: JarvisState, prompt: str, index: int) -> Dict[str, Any]:
@@ -351,8 +363,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--telegram-user-id",
         type=int,
         help=(
-            "Run as this Telegram user ID so Todoist uses "
-            "TODOIST_API_KEYS_BY_TELEGRAM_USER_ID."
+            "Run as this Telegram user ID so integrations resolve from "
+            "Supabase user_identities and integration_connections."
         ),
     )
     parser.add_argument(

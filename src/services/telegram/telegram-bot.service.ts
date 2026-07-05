@@ -9,17 +9,24 @@ import { TelegramHandlers } from './handlers/telegram-handlers';
 import { TelegramConfig } from '../../types/telegram.types';
 import { sendMessageWithMarkdown } from './formatters/telegram-markdown';
 import { collapseClarification, sendRichMessageToChat } from './formatters/telegram-rich';
+import {
+  StaticUserAuthorizationStore,
+  UserAuthorizationStore,
+} from './user-authorization.store';
 
 export class TelegramBotService {
   public readonly bot: Telegraf<Context>;
-  private readonly allowedUserIds: Set<number>;
+  private readonly authorizationStore: UserAuthorizationStore;
 
   constructor(
     private readonly config: TelegramConfig,
     private readonly handlers: TelegramHandlers,
+    authorizationStore?: UserAuthorizationStore,
   ) {
-    // Store allowed user IDs in a Set for O(1) authorization lookups.
-    this.allowedUserIds = new Set(config.allowedUserIds);
+    // Production injects the database-backed store. The static implementation
+    // remains as a constructor default for isolated tests and embedded callers.
+    this.authorizationStore = authorizationStore ??
+      new StaticUserAuthorizationStore(config.allowedUserIds ?? []);
     this.bot = new Telegraf(config.token);
 
     // Wire up all command/message/callback handlers onto the Telegraf instance.
@@ -108,7 +115,7 @@ export class TelegramBotService {
         updateId: update.update_id,
       });
 
-      if (!senderId || !this.allowedUserIds.has(senderId)) {
+      if (!senderId || !(await this.authorizationStore.isAuthorized(senderId))) {
         logger.warn('telegram.update.denied', {
           requestId,
           updateId: update.update_id,

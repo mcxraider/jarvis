@@ -75,6 +75,36 @@ describe('TextProcessorService', () => {
     expect(agentClient.resume).not.toHaveBeenCalled();
   });
 
+  it('prepends reply context to fresh agent requests after normalizing the new text', async () => {
+    const agentClient = {
+      invoke: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'thread-1',
+        response: 'Done.',
+        toolResults: [],
+      }),
+      resume: jest.fn(),
+    };
+    const service = createService(agentClient);
+    const replyContext = '[In reply to your earlier message: "Created task: Buy milk"]';
+
+    await service.processTextMessage(
+      ' \n add a due date of tomorrow \t ',
+      42,
+      { requestId: 'req-reply', chatId: 100 },
+      undefined,
+      { replyContext },
+    );
+
+    expect(agentClient.invoke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: `${replyContext}\n\nadd a due date of tomorrow`,
+      }),
+      expect.any(Object),
+    );
+    expect(agentClient.resume).not.toHaveBeenCalled();
+  });
+
   it('rejects whitespace-only text without calling or acquiring resources for the agent', async () => {
     const agentClient = {
       invoke: jest.fn(),
@@ -244,6 +274,39 @@ describe('TextProcessorService', () => {
         telegramFirstName: 'Test',
         threadId: 'thread-hitl',
       },
+    );
+  });
+
+  it('does not inject reply context into a HITL clarification answer', async () => {
+    const agentClient = {
+      invoke: jest.fn().mockResolvedValue({
+        status: 'interrupted',
+        threadId: 'thread-hitl',
+        response: 'Which task should I update?',
+        interrupt: { type: 'clarify', question: 'Which task should I update?' },
+        toolResults: [],
+      }),
+      resume: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'thread-hitl',
+        response: 'Updated.',
+        toolResults: [],
+      }),
+    };
+    const service = createService(agentClient);
+
+    await service.processTextMessage('update my task', 42, { chatId: 100, messageId: 10 });
+    await service.processTextMessage(
+      ' \n the dentist task \t ',
+      42,
+      { chatId: 100, messageId: 11 },
+      undefined,
+      { replyContext: '[In reply to your earlier message: "Which task should I update?"]' },
+    );
+
+    expect(agentClient.resume).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'the dentist task', threadId: 'thread-hitl' }),
+      expect.objectContaining({ threadId: 'thread-hitl' }),
     );
   });
 

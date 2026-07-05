@@ -40,6 +40,39 @@ from agents.agent_api.app.tools.todoist.schemas import (
 from agents.agent_api.app.tracing import TracePrinter
 
 
+# --- Prompt contributions -----------------------------------------------------
+# A domain owns its own prompt text so the orchestrator never has to know Todoist
+# exists. ``domain_adapters.py`` wires these onto the Todoist DomainAdapter, and
+# the prompt composer appends the fragment (and the grounding note) only when the
+# domain is active for this user. Adding a domain is one adapter entry — no edits
+# to the orchestrator prompt.
+
+TODOIST_GROUNDING_NOTE = (
+    "Todoist: mutations (`update_todoist_task`, `complete_task`, `uncomplete_task`, "
+    "`delete_todoist_task`, `add_comment`) require a real `task_id` returned by a prior "
+    "read (`get_tasks`, `get_tasks_by_filter`, `get_todoist_task`) in this same "
+    "conversation. The same applies to `project_id`: to route a task into a named "
+    "project, call `get_projects` first to resolve the name to its id, THEN "
+    "`add_todoist_task` with that id in a SEPARATE turn — never guess a `project_id`; "
+    "omit it to use the Inbox."
+)
+
+TODOIST_PROMPT_FRAGMENT = """\
+## Todoist tool tips
+- Creating many tasks at once → issue one `add_todoist_task` call per task. The system batches and gates them for you.
+- Dates: prefer `due_string` ("2026-07-02 3pm", "tomorrow 9am") — but always pre-resolve relative dates per the rule above.
+- Priority is inverted: 4 = urgent, 3 = high, 2 = medium, 1 = normal (default).
+- `get_tasks_by_filter` takes Todoist filter syntax, NOT free text. To match by title use the `search:` operator (e.g. `search: dentist`) — do not pass a bare title like "dentist appointment" as the filter. Date ranges use "due after: X & due before: Y" — never a slash, dash, or "between". Examples: "today", "overdue", "p1", "7 days", "search: groceries", "due after: Jul 5 & due before: Jul 13".
+- After scheduling a task that has a specific time, check for clashes with other timed tasks that day; if any overlap, tell the user and ask whether to reschedule.
+- Never fabricate task IDs — fetch first (see Grounding).
+- Do not retry `add_todoist_task` on timeout — it may have succeeded. Verify with `get_tasks_by_filter` to avoid duplicates.
+- Pagination: a `next_cursor` field appears in results. If it is null, you have everything — stop. Only pass a cursor value received verbatim from a prior response.
+
+## Todoist project tips
+- `get_projects` lists projects (pass `search` to filter by name substring). Use it to turn a project name into an `id` before adding a task there — this is a distinct step: find the project in one turn, then add the task by its id in the next (see Grounding).
+- `create_project` makes a NEW project (only `name` is required). A single create runs without a confirmation prompt — do NOT add your own "are you sure?"; just issue the call. Only create a project when the user clearly asks for a new one; otherwise search existing projects first."""
+
+
 class UpdateTodoistTaskInput(BaseModel):
     """Validated update arguments that retain which nullable fields were supplied."""
 
@@ -437,6 +470,8 @@ class TodoistToolDispatcher(ToolDispatcher):
 
 __all__ = [
     # Todoist-specific
+    "TODOIST_GROUNDING_NOTE",
+    "TODOIST_PROMPT_FRAGMENT",
     "TodoistToolDispatcher",
     "UpdateTodoistTaskInput",
     "build_todoist_langchain_tools",

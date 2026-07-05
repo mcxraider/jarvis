@@ -11,12 +11,11 @@ import pytest
 
 from agents.agent_api.app.tools.calendar.auth import (
     GoogleCalendarApiError,
-    is_calendar_configured,
-    is_calendar_enabled,
     load_credentials,
 )
 
 CREDS_FACTORY = "google.oauth2.credentials.Credentials.from_authorized_user_file"
+INFO_CREDS_FACTORY = "google.oauth2.credentials.Credentials.from_authorized_user_info"
 
 
 class FakeCreds:
@@ -25,6 +24,7 @@ class FakeCreds:
         self.expired = expired
         self.refresh_token = refresh_token
         self.token = token
+        self.expiry = None
         self.refreshed = False
 
     @property
@@ -82,6 +82,39 @@ def test_expired_token_refreshes_and_persists(monkeypatch, tmp_path):
     assert fake.refreshed is False
 
 
+def test_valid_vault_json_does_not_touch_files(monkeypatch):
+    fake = FakeCreds(valid=True, expired=False, refresh_token="r")
+    monkeypatch.setattr(INFO_CREDS_FACTORY, lambda info, scopes: fake)
+
+    creds = load_credentials(credential_json='{"refresh_token": "redacted"}')
+
+    assert creds is fake
+    assert fake.refreshed is False
+
+
+def test_expired_vault_json_refreshes_through_callback(monkeypatch):
+    fake = FakeCreds(valid=False, expired=True, refresh_token="r")
+    monkeypatch.setattr(INFO_CREDS_FACTORY, lambda info, scopes: fake)
+    persisted = []
+
+    load_credentials(
+        credential_json='{"refresh_token": "redacted"}',
+        persist_callback=lambda payload, expiry: persisted.append((payload, expiry)),
+    )
+
+    assert fake.refreshed is True
+    assert len(persisted) == 1
+    assert json.loads(persisted[0][0])["token"] == "new-token"
+
+
+def test_expired_vault_json_without_callback_fails_closed(monkeypatch):
+    fake = FakeCreds(valid=False, expired=True, refresh_token="r")
+    monkeypatch.setattr(INFO_CREDS_FACTORY, lambda info, scopes: fake)
+
+    with pytest.raises(GoogleCalendarApiError):
+        load_credentials(credential_json='{"refresh_token": "redacted"}')
+
+
 def test_refresh_failure_raises_reconnect(monkeypatch, tmp_path):
     token = tmp_path / "token.json"
     token.write_text("{}")
@@ -110,34 +143,3 @@ def test_expired_without_refresh_token_raises_reconnect(monkeypatch, tmp_path):
     with pytest.raises(GoogleCalendarApiError) as excinfo:
         load_credentials()
     assert excinfo.value.reconnect is True
-
-
-def test_is_calendar_configured_tracks_token_file(monkeypatch, tmp_path):
-    token = tmp_path / "token.json"
-    monkeypatch.setenv("GOOGLE_TOKEN_PATH", str(token))
-    monkeypatch.delenv("GOOGLE_CALENDAR_ENABLED", raising=False)  # default on
-    assert is_calendar_configured() is False
-    token.write_text("{}")
-    assert is_calendar_configured() is True
-
-
-def test_is_calendar_enabled_toggle(monkeypatch):
-    monkeypatch.delenv("GOOGLE_CALENDAR_ENABLED", raising=False)
-    assert is_calendar_enabled() is True  # default on
-    for off in ("false", "0", "no", "off", "FALSE", "Off"):
-        monkeypatch.setenv("GOOGLE_CALENDAR_ENABLED", off)
-        assert is_calendar_enabled() is False, off
-    for on in ("true", "1", "yes", "on", ""):
-        monkeypatch.setenv("GOOGLE_CALENDAR_ENABLED", on)
-        assert is_calendar_enabled() is True, on
-
-
-def test_toggle_off_disables_even_with_token(monkeypatch, tmp_path):
-    # The token stays on disk; the toggle alone disables the domain.
-    token = tmp_path / "token.json"
-    token.write_text("{}")
-    monkeypatch.setenv("GOOGLE_TOKEN_PATH", str(token))
-    monkeypatch.setenv("GOOGLE_CALENDAR_ENABLED", "false")
-    assert is_calendar_configured() is False
-    monkeypatch.setenv("GOOGLE_CALENDAR_ENABLED", "true")
-    assert is_calendar_configured() is True  # token untouched; flips right back on

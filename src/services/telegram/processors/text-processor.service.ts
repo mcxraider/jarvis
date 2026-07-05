@@ -29,6 +29,7 @@ export interface TextProcessorResult {
 export interface TextProcessorOptions {
   gatePreAcquired?: boolean;
   pendingClarificationPreReserved?: boolean;
+  replyContext?: string;
   onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
   pendingPauseAcceptedNotified?: boolean;
   // When set, abandon any pending clarify/confirm interrupt for this conversation and start
@@ -179,8 +180,11 @@ export class TextProcessorService {
 
       const threadId = `tg_${logContext.requestId || randomUUID()}`;
       const requestContext = { ...logContext, threadId };
+      const message = options?.replyContext
+        ? `${options.replyContext}\n\n${normalizedText}`
+        : normalizedText;
       const agentRequest = {
-        message: normalizedText,
+        message,
         userId: internalUserId,
         source: 'telegram',
         telegramUserId: userId,

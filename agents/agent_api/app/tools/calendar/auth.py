@@ -16,14 +16,17 @@ Never log token contents — only ``service`` and error ``kind`` (CLAUDE.md).
 
 import logging
 import os
-from typing import Dict, List, Optional
+import json
+from datetime import datetime
+from typing import Callable, List, Optional
 
 from agents.agent_api.app.tools.errors import ClassifiedApiError
 
 logger = logging.getLogger(__name__)
 
+CredentialPersistCallback = Callable[[str, Optional[datetime]], None]
+
 DEFAULT_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar"
-GOOGLE_TOKEN_MAP_ENV = "GOOGLE_TOKEN_PATHS_BY_TELEGRAM_USER_ID"
 
 
 class GoogleCalendarApiError(ClassifiedApiError):
@@ -80,88 +83,6 @@ def get_token_path() -> str:
     return os.getenv("GOOGLE_TOKEN_PATH", "token.json")
 
 
-def _env_flag(name: str, default: bool) -> bool:
-    """Read a boolean env toggle. Unset/blank → default; only explicit off-values
-    ("0", "false", "no", "off", case-insensitive) turn it off — anything else is on."""
-
-    raw = os.getenv(name)
-    if raw is None or not raw.strip():
-        return default
-    return raw.strip().lower() not in ("0", "false", "no", "off")
-
-
-def is_calendar_enabled() -> bool:
-    """The explicit on/off config toggle for the Calendar domain (default on).
-
-    Independent of whether a token exists — flip ``GOOGLE_CALENDAR_ENABLED=false``
-    to disable calendar while keeping ``token.json`` in place.
-    """
-
-    return _env_flag("GOOGLE_CALENDAR_ENABLED", True)
-
-
-def is_calendar_configured() -> bool:
-    """Whether the Calendar domain should run this session.
-
-    Two independent gates, both required:
-    1. ``is_calendar_enabled()`` — the ``GOOGLE_CALENDAR_ENABLED`` config toggle.
-    2. A local token file exists (it embeds client id/secret + refresh token, so
-       it is necessary and sufficient *at runtime*).
-
-    The builder calls this to decide whether to register calendar tools, so a run
-    with the toggle off — or no token — never sees tools that would only fail.
-    """
-
-    return is_calendar_enabled() and os.path.exists(get_token_path())
-
-
-def _parse_google_token_map(raw_value: Optional[str]) -> Dict[str, str]:
-    """Parse the per-user token-path map from the environment variable.
-
-    Format: ``telegram_user_id:/path/to/token.json,...``
-    """
-
-    if not raw_value:
-        return {}
-    mapping: Dict[str, str] = {}
-    for entry in raw_value.split(","):
-        cleaned = entry.strip()
-        if not cleaned:
-            continue
-        telegram_user_id, separator, path = cleaned.partition(":")
-        if not separator or not telegram_user_id.strip() or not path.strip():
-            raise ValueError(
-                f"{GOOGLE_TOKEN_MAP_ENV} entries must use telegram_user_id:token_path"
-            )
-        mapping[telegram_user_id.strip()] = path.strip()
-    return mapping
-
-
-def get_token_path_for_user(telegram_user_id: Optional[int] = None) -> str:
-    """Resolve the token path for the given Telegram user.
-
-    Checks the per-user map first (``GOOGLE_TOKEN_PATHS_BY_TELEGRAM_USER_ID``);
-    falls back to the global ``get_token_path()``.
-    """
-
-    if telegram_user_id is not None:
-        token_map = _parse_google_token_map(os.getenv(GOOGLE_TOKEN_MAP_ENV))
-        path = token_map.get(str(telegram_user_id))
-        if path:
-            return path
-    return get_token_path()
-
-
-def is_calendar_configured_for_user(telegram_user_id: Optional[int] = None) -> bool:
-    """Whether the Calendar domain should run for the given user.
-
-    Same two-gate check as :func:`is_calendar_configured`, but resolves the token
-    path via the per-user map when a ``telegram_user_id`` is provided.
-    """
-
-    return is_calendar_enabled() and os.path.exists(get_token_path_for_user(telegram_user_id))
-
-
 def _write_token(token_path: str, creds) -> None:
     """Persist the (possibly refreshed) credential back to disk as JSON."""
 
@@ -169,8 +90,13 @@ def _write_token(token_path: str, creds) -> None:
         handle.write(creds.to_json())
 
 
-def load_credentials(token_path: Optional[str] = None):
-    """Load local OAuth credentials, refreshing + persisting the token if expired.
+def load_credentials(
+    token_path: Optional[str] = None,
+    *,
+    credential_json: Optional[str] = None,
+    persist_callback: Optional[CredentialPersistCallback] = None,
+):
+    """Load OAuth credentials from Vault JSON or a legacy local token file.
 
     Raises :class:`GoogleCalendarApiError` (kind="auth", reconnect=True) when the
     token is missing or cannot be refreshed, so the agent tells the user to
@@ -180,21 +106,31 @@ def load_credentials(token_path: Optional[str] = None):
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
 
-    token_path = token_path or get_token_path()
     scopes = get_calendar_scopes()
-
-    if not os.path.exists(token_path):
-        raise GoogleCalendarApiError(
-            kind="auth",
-            message=(
-                "Google Calendar is not connected. Run "
-                "scripts/connect_google_calendar.py to authorize."
-            ),
-            reconnect=True,
-            operation="calendar.auth",
-        )
-
-    creds = Credentials.from_authorized_user_file(token_path, scopes)
+    if credential_json is not None:
+        try:
+            credential_info = json.loads(credential_json)
+            creds = Credentials.from_authorized_user_info(credential_info, scopes)
+        except (ValueError, TypeError) as exc:
+            raise GoogleCalendarApiError(
+                kind="auth",
+                message="Google Calendar credentials are invalid. Reconnect the account.",
+                reconnect=True,
+                operation="calendar.auth",
+            ) from exc
+    else:
+        token_path = token_path or get_token_path()
+        if not os.path.exists(token_path):
+            raise GoogleCalendarApiError(
+                kind="auth",
+                message=(
+                    "Google Calendar is not connected. Run "
+                    "scripts/connect_google_calendar.py to authorize."
+                ),
+                reconnect=True,
+                operation="calendar.auth",
+            )
+        creds = Credentials.from_authorized_user_file(token_path, scopes)
 
     if creds.valid:
         return creds
@@ -216,7 +152,17 @@ def load_credentials(token_path: Optional[str] = None):
                 reconnect=True,
                 operation="calendar.auth",
             ) from exc
-        _write_token(token_path, creds)
+        if credential_json is not None:
+            if persist_callback is None:
+                raise GoogleCalendarApiError(
+                    kind="auth",
+                    message="Google Calendar credential refresh could not be persisted.",
+                    reconnect=True,
+                    operation="calendar.auth",
+                )
+            persist_callback(creds.to_json(), creds.expiry)
+        else:
+            _write_token(token_path, creds)
         return creds
 
     raise GoogleCalendarApiError(
@@ -230,7 +176,12 @@ def load_credentials(token_path: Optional[str] = None):
     )
 
 
-def build_calendar_service(token_path: Optional[str] = None):
+def build_calendar_service(
+    token_path: Optional[str] = None,
+    *,
+    credential_json: Optional[str] = None,
+    persist_callback: Optional[CredentialPersistCallback] = None,
+):
     """Build a Google Calendar v3 discovery service from local credentials."""
 
     from googleapiclient.discovery import build
@@ -238,21 +189,20 @@ def build_calendar_service(token_path: Optional[str] = None):
     return build(
         "calendar",
         "v3",
-        credentials=load_credentials(token_path),
+        credentials=load_credentials(
+            token_path,
+            credential_json=credential_json,
+            persist_callback=persist_callback,
+        ),
         cache_discovery=False,
     )
 
 
 __all__ = [
     "DEFAULT_CALENDAR_SCOPE",
-    "GOOGLE_TOKEN_MAP_ENV",
     "GoogleCalendarApiError",
     "build_calendar_service",
     "get_calendar_scopes",
     "get_token_path",
-    "get_token_path_for_user",
-    "is_calendar_configured",
-    "is_calendar_configured_for_user",
-    "is_calendar_enabled",
     "load_credentials",
 ]

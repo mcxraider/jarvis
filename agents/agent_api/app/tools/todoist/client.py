@@ -1,7 +1,6 @@
 """Todoist REST API client using only the Python standard library."""
 
 import json
-import os
 import random
 import re
 import time
@@ -23,8 +22,6 @@ TODOIST_REST_BASE_URL = settings.todoist_rest_base_url
 TODOIST_COMPLETED_BY_COMPLETION_DATE_URL = (
     f"{TODOIST_REST_BASE_URL}/tasks/completed/by_completion_date"
 )
-TODOIST_TOKEN_MAP_ENV = "TODOIST_API_KEYS_BY_TELEGRAM_USER_ID"
-TODOIST_KEY_FILE_MAP_ENV = "TODOIST_KEY_FILES_BY_TELEGRAM_USER_ID"
 
 # Path segments that look like Todoist resource identifiers (task/section/project
 # IDs are numeric or alphanumeric strings). Collapse them to {id} so traces never
@@ -76,87 +73,6 @@ TODOIST_ERROR_MESSAGES = {
 }
 
 
-def _parse_todoist_token_map(raw_value: Optional[str]) -> Dict[str, str]:
-    if not raw_value:
-        return {}
-    mapping: Dict[str, str] = {}
-    for entry in raw_value.split(","):
-        cleaned = entry.strip()
-        if not cleaned:
-            continue
-        telegram_user_id, separator, token = cleaned.partition(":")
-        if not separator or not telegram_user_id.strip() or not token.strip():
-            raise ValueError(
-                f"{TODOIST_TOKEN_MAP_ENV} entries must use telegram_user_id:todoist_token"
-            )
-        mapping[telegram_user_id.strip()] = token.strip()
-    return mapping
-
-
-def _parse_todoist_key_file_map(raw_value: Optional[str]) -> Dict[str, str]:
-    """Parse the per-user file-based key map from the environment variable.
-
-    Format: ``telegram_user_id:/path/to/keyfile,...``
-    """
-
-    if not raw_value:
-        return {}
-    mapping: Dict[str, str] = {}
-    for entry in raw_value.split(","):
-        cleaned = entry.strip()
-        if not cleaned:
-            continue
-        telegram_user_id, separator, path = cleaned.partition(":")
-        if not separator or not telegram_user_id.strip() or not path.strip():
-            raise ValueError(
-                f"{TODOIST_KEY_FILE_MAP_ENV} entries must use telegram_user_id:path_to_keyfile"
-            )
-        mapping[telegram_user_id.strip()] = path.strip()
-    return mapping
-
-
-def _read_todoist_key_file(path: str) -> Optional[str]:
-    """Read a Todoist API key from a file, stripping whitespace/newlines."""
-
-    if not os.path.isfile(path):
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            key = f.read().strip()
-        return key if key else None
-    except OSError:
-        return None
-
-
-def todoist_api_key_for_telegram_user(telegram_user_id: Optional[int]) -> Optional[str]:
-    """Resolve the Todoist API key for a Telegram user.
-
-    Resolution chain (first wins):
-    1. Database credential (user_credentials table)
-    2. Inline env var map (TODOIST_API_KEYS_BY_TELEGRAM_USER_ID)
-    3. File-based key map (TODOIST_KEY_FILES_BY_TELEGRAM_USER_ID)
-    4. Fallback single-user key (TODOIST_API_KEY)
-    """
-
-    from agents.agent_api.app.credentials import get_credential
-
-    db_key = get_credential(telegram_user_id, service="todoist")
-    if db_key:
-        return db_key
-
-    token_map = _parse_todoist_token_map(os.getenv(TODOIST_TOKEN_MAP_ENV))
-    if telegram_user_id is not None and token_map:
-        return token_map.get(str(telegram_user_id))
-
-    file_map = _parse_todoist_key_file_map(os.getenv(TODOIST_KEY_FILE_MAP_ENV))
-    if telegram_user_id is not None and file_map:
-        path = file_map.get(str(telegram_user_id))
-        if path:
-            return _read_todoist_key_file(path)
-
-    return os.getenv("TODOIST_API_KEY")
-
-
 @dataclass
 class TodoistApiError(ClassifiedApiError):
     """Structured Todoist failure safe to route through tool results.
@@ -201,9 +117,8 @@ class TodoistApiClient:
         self,
         api_key: Optional[str] = None,
         tracer: Optional[TracePrinter] = None,
-        telegram_user_id: Optional[int] = None,
     ):
-        self.api_key = api_key or todoist_api_key_for_telegram_user(telegram_user_id)
+        self.api_key = api_key
         self.tracer = tracer or NULL_TRACE
 
     @traceable(
@@ -616,6 +531,5 @@ __all__ = [
     "TODOIST_REST_BASE_URL",
     "TodoistApiError",
     "TodoistApiClient",
-    "todoist_api_key_for_telegram_user",
     "todoist_endpoint_template",
 ]
