@@ -151,3 +151,127 @@ Then: python generate_friend_token.py
 > 8. That's it! I'll set it up on my end.
 >
 > **For Todoist:** Go to todoist.com/app/settings/integrations/developer → copy your API token → send it to me.
+
+
+Ask the user enough to fill these **4 sections only**:
+
+```json id="c6ef8a"
+{
+  "domains": {
+    "todoist": {
+      "usage": ""
+    },
+    "google_calendar": {
+      "usage": "",
+      "event_category_defaults": {}
+    }
+  },
+  "routing": {
+    "task_provider": "",
+    "reminder_provider": "",
+    "event_provider": "",
+    "time_related_provider": "",
+    "calendar_usage": ""
+  },
+  "communication": {
+    "tone": "",
+    "verbosity": ""
+  }
+}
+```
+
+The onboarding questions should be:
+
+1. What should I use as your default task manager?
+Example: Todoist
+
+2. What should I use for reminders?
+Example: Todoist
+
+3. What should I use by default for events, meetings, and time-related scheduling?
+Example: Google Calendar / Todoist
+
+4. Should Google Calendar be used by default, or only when you explicitly ask?
+Options:
+- default
+- explicit_only
+
+5. If you use Google Calendar, what are your main calendars and what should each be used for?
+Example:
+- Personal Calendar → social meetups and personal events
+- Work Calendar → work meetings and appointments
+- School Calendar → classes and lectures
+
+6. What tone should I use?
+Example: casual / professional / friendly / direct
+
+7. How verbose should I be?
+Example: concise / normal / detailed
+```
+
+Then convert their answers into this format:
+
+{
+  "domains": {
+    "todoist": {
+      "usage": "tasks_todos_reminders"
+    },
+    "google_calendar": {
+      "usage": "events_meetings_time_related_items",
+      "event_category_defaults": {
+        "work": "Work Calendar",
+        "social": "Personal Calendar",
+        "classes": "School Calendar"
+      }
+    }
+  },
+  "routing": {
+    "task_provider": "todoist",
+    "reminder_provider": "todoist",
+    "event_provider": "google_calendar",
+    "time_related_provider": "google_calendar",
+    "calendar_usage": "default"
+  },
+  "communication": {
+    "tone": "casual",
+    "verbosity": "concise"
+  }
+}
+
+For a Jerry-style user where Todoist owns both tasks and scheduling:
+
+{
+  "domains": {
+    "todoist": {
+      "usage": "tasks_and_scheduling"
+    },
+    "google_calendar": {
+      "usage": "explicit_only",
+      "event_category_defaults": {}
+    }
+  },
+  "routing": {
+    "task_provider": "todoist",
+    "reminder_provider": "todoist",
+    "event_provider": "todoist",
+    "time_related_provider": "todoist",
+    "calendar_usage": "explicit_only"
+  },
+  "communication": {
+    "tone": "casual",
+    "verbosity": "concise"
+  }
+}
+
+Minimum required fields to ask:
+
+task_provider
+reminder_provider
+event_provider
+time_related_provider
+calendar_usage
+event_category_defaults
+tone
+verbosity
+
+Everything else can be inferred.

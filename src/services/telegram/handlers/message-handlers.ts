@@ -20,6 +20,7 @@ import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service'
 import { PendingPausePresentation, TextProcessorResult } from '../processors/text-processor.service';
 import { PendingClarificationStore } from '../pending-clarification.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
+import { formatReplyContext } from '../reply-context';
 
 export class MessageHandlers {
   constructor(
@@ -43,6 +44,11 @@ export class MessageHandlers {
     const userId = ctx.from?.id;
     const logContext = this.createLogContext(ctx, 'text');
     const startedAt = Date.now();
+    const replied =
+      'reply_to_message' in ctx.message
+        ? ctx.message.reply_to_message
+        : undefined;
+    const replyContext = formatReplyContext(replied, ctx.botInfo?.id);
 
     logger.info('telegram.message.received', {
       ...logContext,
@@ -50,10 +56,11 @@ export class MessageHandlers {
       username: ctx.from?.username,
       messageLength: messageText.length,
       messagePreview: truncateForLog(messageText),
+      hasReplyContext: Boolean(replyContext),
     });
     this.activityService.recordActivity('message_text');
 
-    await this.runFreshText(ctx, messageText, logContext, startedAt);
+    await this.runFreshText(ctx, messageText, logContext, startedAt, { replyContext });
   }
 
   // /new <message> — abandon any pending clarify/confirm interrupt and process <message> as
@@ -101,7 +108,7 @@ export class MessageHandlers {
     text: string,
     logContext: LogContext,
     startedAt: number,
-    options?: { forceFresh?: boolean },
+    options?: { forceFresh?: boolean; replyContext?: string },
   ): Promise<void> {
     const userId = ctx.from?.id;
     const progressReporter = new TelegramProgressReporter(ctx, logContext);

@@ -3,8 +3,7 @@
 Run this once to authorize Jarvis against your Google account. It opens a
 browser for consent, then writes the authorized-user credential to the local
 token file that ``tools/calendar/auth.py`` loads at runtime. After it succeeds,
-``is_calendar_configured()`` returns ``True`` and the agent exposes calendar
-tools.
+the token can be imported into the database-backed integration connection.
 
     python -m scripts.connect_google_calendar          # from the repo root
     python scripts/connect_google_calendar.py          # equivalent

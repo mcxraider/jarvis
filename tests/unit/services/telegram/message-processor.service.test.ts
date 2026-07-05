@@ -45,6 +45,27 @@ describe('MessageProcessorService', () => {
     expect(spy).toHaveBeenCalledWith('hello world', 7, {});
   });
 
+  it('forwards reply context to the text processor', async () => {
+    const textProcessor = (service as any).textProcessor;
+    const replyContext = '[In reply to your earlier message: "Created task: Buy milk"]';
+
+    await service.processTextMessage(
+      'add a due date',
+      7,
+      { requestId: 'req-1' },
+      undefined,
+      { replyContext },
+    );
+
+    expect(textProcessor.processTextMessage).toHaveBeenCalledWith(
+      'add a due date',
+      7,
+      { requestId: 'req-1' },
+      undefined,
+      { replyContext },
+    );
+  });
+
   it('routes audio messages to the audio processor', async () => {
     const spy = jest.spyOn(service, 'processAudioMessage').mockResolvedValue({ response: 'audio response' });
 

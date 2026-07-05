@@ -100,6 +100,21 @@ describe('telegram-rich sendFinalReply', () => {
     expect(ctx.reply).not.toHaveBeenCalled();
   });
 
+  it('normalizes compact Markdown tables before sending', async () => {
+    setRichMessagesEnabled(true);
+    const callApi = jest.fn().mockResolvedValue({ message_id: 9 });
+    const ctx = createContext(callApi);
+
+    await sendFinalReply(ctx, 'Tuesday | Time | Event || --- | --- || 10:00 | Stand-up |');
+
+    expect(callApi).toHaveBeenCalledWith('sendRichMessage', {
+      chat_id: 123,
+      rich_message: {
+        markdown: 'Tuesday\n| Time | Event |\n| --- | --- |\n| 10:00 | Stand-up |',
+      },
+    });
+  });
+
   it('falls back to the MarkdownV2 reply path when the rich call fails', async () => {
     setRichMessagesEnabled(true);
     const callApi = jest.fn().mockRejectedValue(new Error('400 Bad Request'));

@@ -157,7 +157,7 @@ def load_settings() -> Settings:
         executor_batch_timeout_seconds=_float_env("JARVIS_EXECUTOR_BATCH_TIMEOUT_SECONDS", 45.0),
         executor_circuit_breaker_threshold=_int_env("JARVIS_EXECUTOR_CIRCUIT_BREAKER_THRESHOLD", 2),
         executor_throttle_enabled=_bool_env("JARVIS_EXECUTOR_THROTTLE_ENABLED", True),
-        user_timezone=os.getenv("JARVIS_USER_TIMEZONE", "Asia/Taipei"),
+        user_timezone=os.getenv("JARVIS_USER_TIMEZONE", "Asia/Singapore"),
         debug_trace=_bool_env("JARVIS_DEBUG", True),
         debug_payloads=_bool_env("JARVIS_DEBUG_PAYLOADS", True),
         # Raw prompts/outputs are hidden from LangSmith by default. Set

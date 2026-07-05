@@ -30,18 +30,16 @@ def validate_thread_ownership(
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT u.telegram_user_id
+                    SELECT t.user_id = public.resolve_user_id(%s)
                     FROM threads t
-                    JOIN users u ON u.id = t.user_id
                     WHERE t.thread_id = %s
                     """,
-                    (thread_id,),
+                    (str(telegram_user_id), thread_id),
                 )
                 row = cur.fetchone()
                 if row is None:
                     return
-                owner_telegram_id = int(row[0]) if row[0] is not None else None
-                if owner_telegram_id is not None and owner_telegram_id != telegram_user_id:
+                if not row[0]:
                     raise HTTPException(
                         status_code=403,
                         detail="Thread belongs to a different user.",

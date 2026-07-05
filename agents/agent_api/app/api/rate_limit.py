@@ -42,7 +42,7 @@ def check_rate_limit(telegram_user_id: Optional[int]) -> None:
                         updated_at = NOW()
                     FROM users u
                     WHERE u.id = rl.user_id
-                      AND u.telegram_user_id = %s
+                      AND u.id = public.resolve_user_id(%s)
                     RETURNING rl.daily_requests_used, rl.daily_request_limit
                     """,
                     (str(telegram_user_id),),

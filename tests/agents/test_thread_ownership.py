@@ -78,7 +78,7 @@ class TestOwnershipAllow:
             validate_thread_ownership("legacy-thread", 42)
 
     def test_allows_when_owner_matches(self):
-        cursor = FakeCursor(row=(42,))
+        cursor = FakeCursor(row=(True,))
         pool = FakePool(cursor)
         with patch(
             "agents.agent_api.app.api.thread_ownership.settings",
@@ -89,7 +89,7 @@ class TestOwnershipAllow:
 
 class TestOwnershipReject:
     def test_raises_403_when_owner_differs(self):
-        cursor = FakeCursor(row=(99,))
+        cursor = FakeCursor(row=(False,))
         pool = FakePool(cursor)
         with patch(
             "agents.agent_api.app.api.thread_ownership.settings",
@@ -114,7 +114,7 @@ class TestOwnershipFailOpen:
         assert "Thread ownership check failed" in caplog.text
 
     def test_http_exception_is_not_swallowed(self):
-        cursor = FakeCursor(row=(99,))
+        cursor = FakeCursor(row=(False,))
         pool = FakePool(cursor)
         with patch(
             "agents.agent_api.app.api.thread_ownership.settings",

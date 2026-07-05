@@ -1,6 +1,7 @@
 import { Context, Telegram } from 'telegraf';
 import { Message } from 'telegraf/typings/core/types/typegram';
 import { logger } from '../../../utils/logger';
+import { normalizeMarkdownTables } from './markdown-table-normalizer';
 import { replyWithMarkdown, sendMessageWithMarkdown } from './telegram-markdown';
 import { splitMessage } from './message-splitter';
 
@@ -94,7 +95,8 @@ export async function sendFinalReply(
   text: string,
   logContext: object = {},
 ): Promise<void> {
-  const chunks = splitMessage(text);
+  const normalizedText = normalizeMarkdownTables(text);
+  const chunks = splitMessage(normalizedText);
 
   for (const chunk of chunks) {
     if (richEnabled && ctx.chat) {
@@ -177,12 +179,13 @@ export async function sendRichMessageToChat(
   // reach Bot API 10.1's untyped `sendRichMessage` through the loosened RawTelegram
   // shape — same cast as rawCallApi() above.
   const raw = telegram as unknown as RawTelegram;
+  const normalizedText = normalizeMarkdownTables(text);
 
   if (richEnabled) {
     try {
       await raw.callApi('sendRichMessage', {
         chat_id: chatId,
-        rich_message: { markdown: text },
+        rich_message: { markdown: normalizedText },
       });
       return;
     } catch (error) {
@@ -197,7 +200,7 @@ export async function sendRichMessageToChat(
   await sendMessageWithMarkdown(
     raw.sendMessage.bind(raw),
     chatId,
-    text,
+    normalizedText,
     {},
     logContext,
   );

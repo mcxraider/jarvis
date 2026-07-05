@@ -1,6 +1,7 @@
 import { MessageHandlers } from '../../../../../src/services/telegram/handlers/message-handlers';
 import { TELEGRAM_ONBOARDING_MESSAGE } from '../../../../../src/services/telegram/onboarding-message';
 import { setRichMessagesEnabled } from '../../../../../src/services/telegram/formatters/telegram-rich';
+import { logger } from '../../../../../src/utils/logger';
 
 // Minimal PendingClarificationStore mock. `get` defaults to "no pending record".
 function makePendingStore(overrides: Record<string, any> = {}) {
@@ -102,6 +103,61 @@ describe('MessageHandlers', () => {
       expect.any(Object),
     );
     expect(ctx.reply).toHaveBeenCalledWith('processed text', { parse_mode: 'MarkdownV2' });
+  });
+
+  it('forwards reply context without logging the quoted content', async () => {
+    const { handlers, messageProcessor } = createHandlers();
+    const info = jest.spyOn(logger, 'info').mockImplementation();
+    const ctx = createContext({
+      text: 'add a due date of tomorrow',
+      message_id: 99,
+      reply_to_message: {
+        text: 'Created task: Buy milk',
+        from: { id: 999, is_bot: true, first_name: 'Jarvis' },
+      },
+    });
+
+    await handlers.handleText(ctx);
+
+    expect(messageProcessor.processTextMessage).toHaveBeenCalledWith(
+      'add a due date of tomorrow',
+      123,
+      expect.any(Object),
+      expect.any(Function),
+      expect.objectContaining({
+        replyContext: '[In reply to your earlier message: "Created task: Buy milk"]',
+      }),
+    );
+    expect(info).toHaveBeenCalledWith(
+      'telegram.message.received',
+      expect.objectContaining({ hasReplyContext: true }),
+    );
+    const receivedLog = info.mock.calls.find(
+      ([event]) => (event as unknown) === 'telegram.message.received',
+    );
+    expect(JSON.stringify(receivedLog)).not.toContain('Created task: Buy milk');
+  });
+
+  it('does not attach unusable reply context', async () => {
+    const { handlers, messageProcessor } = createHandlers();
+    const ctx = createContext({
+      text: 'hello',
+      message_id: 99,
+      reply_to_message: {
+        photo: [{ file_id: 'photo-1' }],
+        from: { id: 456, first_name: 'Alex' },
+      },
+    });
+
+    await handlers.handleText(ctx);
+
+    expect(messageProcessor.processTextMessage).toHaveBeenCalledWith(
+      'hello',
+      123,
+      expect.any(Object),
+      expect.any(Function),
+      expect.objectContaining({ replyContext: undefined }),
+    );
   });
 
   it('keeps the onboarding copy compact and task-focused', () => {

@@ -40,6 +40,7 @@ export class MessageProcessorService {
     onProgress?: LangGraphProgressCallback,
     options?: {
       forceFresh?: boolean;
+      replyContext?: string;
       onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
     },
   ): Promise<TextProcessorResult> {

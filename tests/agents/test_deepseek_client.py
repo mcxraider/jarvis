@@ -34,7 +34,13 @@ with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
 NO_SLEEP = lambda _: None  # noqa: E731 — skip real delays in retry loops
 
 
-def make_response(content="Hello", tool_calls=None, prompt_tokens=10, completion_tokens=5):
+def make_response(
+    content="Hello",
+    tool_calls=None,
+    prompt_tokens=10,
+    completion_tokens=5,
+    cached_tokens=0,
+):
     """Build a mock OpenAI-compatible chat completion response."""
     message = MagicMock()
     message.content = content
@@ -50,7 +56,7 @@ def make_response(content="Hello", tool_calls=None, prompt_tokens=10, completion
     usage.prompt_tokens = prompt_tokens
     usage.completion_tokens = completion_tokens
     usage.total_tokens = prompt_tokens + completion_tokens
-    usage.prompt_cache_hit_tokens = 0
+    usage.prompt_cache_hit_tokens = cached_tokens
     usage.completion_tokens_details = None
 
     response = MagicMock()
@@ -248,8 +254,18 @@ class TestUsageAccumulation:
     def test_usage_accumulates_across_calls(self):
         """Two successful calls -> usage.prompt_tokens is the sum of both."""
         client = build_client(max_retry_attempts=3)
-        response_1 = make_response(content="first", prompt_tokens=10, completion_tokens=5)
-        response_2 = make_response(content="second", prompt_tokens=20, completion_tokens=8)
+        response_1 = make_response(
+            content="first",
+            prompt_tokens=10,
+            completion_tokens=5,
+            cached_tokens=4,
+        )
+        response_2 = make_response(
+            content="second",
+            prompt_tokens=20,
+            completion_tokens=8,
+            cached_tokens=7,
+        )
         with patch.object(
             client.client.chat.completions,
             "create",
@@ -260,6 +276,7 @@ class TestUsageAccumulation:
         assert client.usage.prompt_tokens == 30
         assert client.usage.completion_tokens == 13
         assert client.usage.total_tokens == 43
+        assert client.usage.cached_tokens == 11
 
 
 class TestSuccessfulResponse:

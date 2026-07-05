@@ -68,20 +68,19 @@ def _check_deepseek() -> Dict[str, Any]:
 def _check_todoist(telegram_user_id: Optional[int]) -> Dict[str, Any]:
     """Per-user Todoist reachability probe.
 
-    Resolves the caller's token through the same chain the agent uses
-    (``todoist_api_key_for_telegram_user``), then does a single short-timeout GET
-    on ``/projects``. Deliberately a minimal, read-only request rather than a full
+    Resolves the caller's token through the same Vault building block the runtime
+    uses (``resolve_connection_secret``), then does a single short-timeout GET on
+    ``/projects``. Deliberately a minimal, read-only request rather than a full
     ``TodoistApiClient`` call so it fails fast instead of inheriting client retries.
     """
     try:
-        from agents.agent_api.app.tools.todoist.client import (
-            TODOIST_REST_BASE_URL,
-            todoist_api_key_for_telegram_user,
-        )
+        from agents.agent_api.app.tools.todoist.client import TODOIST_REST_BASE_URL
+        from agents.agent_api.app.user_context.secrets import resolve_connection_secret
 
-        token = todoist_api_key_for_telegram_user(telegram_user_id)
-        if not token:
+        credential = resolve_connection_secret(telegram_user_id, "todoist")
+        if not credential:
             return {"ok": False, "detail": "no token for user"}
+        token = credential.secret
 
         request = urllib.request.Request(
             f"{TODOIST_REST_BASE_URL}/projects",

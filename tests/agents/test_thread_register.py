@@ -62,7 +62,7 @@ class TestRegisterThreadInsert:
         sql, params = pool.cursor_instance.statements[0]
         assert "INSERT INTO threads" in sql
         assert "ON CONFLICT (thread_id) DO UPDATE" in sql
-        assert params == ("t-123", "create a task", "completed", "42")
+        assert params == ("t-123", "42", "create a task", "completed")
 
     def test_non_resume_passes_user_prompt_for_title(self):
         pool = FakePool()
@@ -71,7 +71,7 @@ class TestRegisterThreadInsert:
 
         sql, params = pool.cursor_instance.statements[0]
         assert "LEFT(%s, 100)" in sql
-        assert params[1] == "a very long prompt"
+        assert params[2] == "a very long prompt"
 
 
 class TestRegisterThreadResume:

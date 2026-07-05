@@ -45,3 +45,28 @@ Every graph node is stateless. Persistence and external IO live in shared single
 | **DB pool** | Connection threads and usage tracking |
 | **Observability** | LangSmith tracing and structured logs |
 | **External APIs** | DeepSeek (LLM) and Todoist (task CRUD) |
+
+## Local agent CLI
+
+Create the repository Python environment once:
+
+```bash
+python3 -m venv venv && venv/bin/pip install -r requirements.txt
+```
+
+Run the agent through the repository wrapper so it always uses that environment:
+
+```bash
+npm run agent -- "what tasks do I have today?"
+```
+
+Pass runner options after `--`, for example:
+
+```bash
+npm run agent -- --no-mutations --user-1 "what tasks do I have today?"
+```
+
+The CLI loads `.env` from the repository root. When `JARVIS_POSTGRES_DSN` and a
+CLI Telegram identity are configured, it resolves that user's integrations from
+Supabase. Avoid invoking the runner with system `python3`, which may not contain
+the dependencies installed in `venv`.
