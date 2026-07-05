@@ -8,8 +8,6 @@ Jarvis should support one-time reminders such as:
 
 The agent interprets the request and stores a durable reminder in Supabase. A scheduled Supabase Edge Function finds due reminders and sends them directly to the user's Telegram chat. Normal reminder delivery does not invoke the LangGraph agent because the reminder text is already known.
 
-This is separate from a future `daily-brief-dispatch` function. Daily briefs are recurring, generated summaries; reminders are individually scheduled messages.
-
 ## Goals
 
 - Create, list, update, and cancel reminders through natural-language Jarvis tools.
@@ -27,17 +25,17 @@ Telegram user
     |
     v
 Node webhook -> Python LangGraph agent -> reminder tool -> Supabase reminders
-                                                        |
-                                                  pg_cron (1 minute)
-                                                        |
-                                                        v
-                                          reminder-dispatch Edge Function
-                                                        |
-                                                        v
-                                               Telegram Bot API
-                                                        |
-                                                        v
-                                                  Telegram user
+                                                                  |
+                                                            pg_cron (1 minute)
+                                                                  |
+                                                                  v
+                                                    reminder-dispatch Edge Function
+                                                                  |
+                                                                  v
+                                                        Telegram Bot API
+                                                                  |
+                                                                  v
+                                                            Telegram user
 ```
 
 ### Responsibility split
