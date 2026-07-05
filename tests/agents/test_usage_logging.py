@@ -29,6 +29,12 @@ class FakeCursor:
 
     def execute(self, statement, params=None):
         normalized = " ".join(statement.split())
+        parameter_count = len(params) if params is not None else 0
+        placeholder_count = normalized.count("%s")
+        if placeholder_count != parameter_count:
+            raise ValueError(
+                f"SQL has {placeholder_count} placeholders but {parameter_count} parameters"
+            )
         self.statements.append((normalized, params))
 
 
@@ -60,17 +66,21 @@ class TestLogUsageNoop:
             _log_usage(None, "t-1", FakeUsage(total_tokens=100), 500, "deepseek")
         mock_pool.assert_not_called()
 
-    def test_noop_when_total_tokens_is_zero(self):
+    def test_noop_when_total_tokens_is_zero(self, caplog):
         with patch("agents.agent_api.app.db.get_pool") as mock_pool:
-            _log_usage(42, "t-1", FakeUsage(total_tokens=0), 500, "deepseek")
+            with caplog.at_level(logging.WARNING):
+                _log_usage(42, "t-1", FakeUsage(total_tokens=0), 500, "deepseek")
         mock_pool.assert_not_called()
+        assert "token usage is absent" in caplog.text
 
-    def test_noop_when_total_tokens_is_falsy(self):
+    def test_noop_when_total_tokens_is_falsy(self, caplog):
         usage = FakeUsage()
         usage.total_tokens = None  # type: ignore[assignment]
         with patch("agents.agent_api.app.db.get_pool") as mock_pool:
-            _log_usage(42, "t-1", usage, 500, "deepseek")
+            with caplog.at_level(logging.WARNING):
+                _log_usage(42, "t-1", usage, 500, "deepseek")
         mock_pool.assert_not_called()
+        assert "token usage is absent" in caplog.text
 
 
 class TestLogUsageInsert:
@@ -100,6 +110,7 @@ class TestLogUsageInsert:
             2_251,
             1234,
         )
+        assert sql.count("%s") == len(params)
 
     def test_defaults_none_token_values_to_zero(self):
         pool = FakePool()
@@ -146,6 +157,7 @@ class TestLogUsageFireAndForget:
                 _log_usage(42, "t-1", FakeUsage(total_tokens=100), 500, "model")
 
         assert "Usage logging failed" in caplog.text
+        assert caplog.records[-1].error_message == "db down"
 
     def test_cursor_exception_is_swallowed(self, caplog):
         pool = FakePool()
@@ -157,3 +169,4 @@ class TestLogUsageFireAndForget:
                 _log_usage(42, "t-1", FakeUsage(total_tokens=100), 500, "model")
 
         assert "Usage logging failed" in caplog.text
+        assert caplog.records[-1].error_message == "bad sql"
