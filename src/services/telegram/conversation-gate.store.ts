@@ -132,7 +132,6 @@ export class MemoryConversationGateStore implements ConversationGateStore {
 
 export class PostgresConversationGateStore implements ConversationGateStore {
   private readonly pool: Pool;
-  private setupPromise?: Promise<void>;
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private readonly chatIds = new Map<string, number>();
   private onExpiryCallback?: GateExpiryCallback;
@@ -146,10 +145,9 @@ export class PostgresConversationGateStore implements ConversationGateStore {
   }
 
   async tryAcquire(gateKey: string, ttlMs: number, chatId?: number): Promise<boolean> {
-    await this.ensureTable();
     const result = await this.pool.query(
       `
-      INSERT INTO telegram_conversation_gates (gate_key, status, started_at, expires_at, updated_at)
+      INSERT INTO public.telegram_conversation_gates (gate_key, status, started_at, expires_at, updated_at)
       VALUES ($1, 'running', NOW(), NOW() + $2 * INTERVAL '1 millisecond', NOW())
       ON CONFLICT (gate_key) DO UPDATE
         SET status = 'running',
@@ -157,8 +155,8 @@ export class PostgresConversationGateStore implements ConversationGateStore {
             expires_at = NOW() + $2 * INTERVAL '1 millisecond',
             updated_at = NOW(),
             buffered_message = NULL
-        WHERE telegram_conversation_gates.status = 'idle'
-           OR telegram_conversation_gates.expires_at <= NOW()
+        WHERE public.telegram_conversation_gates.status = 'idle'
+           OR public.telegram_conversation_gates.expires_at <= NOW()
       RETURNING gate_key
       `,
       [gateKey, ttlMs],
@@ -172,9 +170,8 @@ export class PostgresConversationGateStore implements ConversationGateStore {
   }
 
   async getStatus(gateKey: string): Promise<ConversationGateStatus> {
-    await this.ensureTable();
     const result = await this.pool.query(
-      `SELECT status, expires_at FROM telegram_conversation_gates WHERE gate_key = $1`,
+      `SELECT status, expires_at FROM public.telegram_conversation_gates WHERE gate_key = $1`,
       [gateKey],
     );
     const row = result.rows[0];
@@ -186,15 +183,13 @@ export class PostgresConversationGateStore implements ConversationGateStore {
   async release(gateKey: string): Promise<void> {
     this.cancelExpiry(gateKey);
     this.chatIds.delete(gateKey);
-    await this.ensureTable();
-    await this.pool.query(`DELETE FROM telegram_conversation_gates WHERE gate_key = $1`, [gateKey]);
+    await this.pool.query(`DELETE FROM public.telegram_conversation_gates WHERE gate_key = $1`, [gateKey]);
   }
 
   async transitionToWaiting(gateKey: string, ttlMs: number): Promise<void> {
-    await this.ensureTable();
     await this.pool.query(
       `
-      UPDATE telegram_conversation_gates
+      UPDATE public.telegram_conversation_gates
       SET status = 'waiting_for_clarification',
           expires_at = NOW() + $2 * INTERVAL '1 millisecond',
           updated_at = NOW()
@@ -207,10 +202,9 @@ export class PostgresConversationGateStore implements ConversationGateStore {
   }
 
   async transitionToRunning(gateKey: string, ttlMs: number): Promise<boolean> {
-    await this.ensureTable();
     const result = await this.pool.query(
       `
-      UPDATE telegram_conversation_gates
+      UPDATE public.telegram_conversation_gates
       SET status = 'running',
           expires_at = NOW() + $2 * INTERVAL '1 millisecond',
           updated_at = NOW()
@@ -229,18 +223,16 @@ export class PostgresConversationGateStore implements ConversationGateStore {
   }
 
   async setBufferedMessage(gateKey: string, message: string): Promise<void> {
-    await this.ensureTable();
     await this.pool.query(
-      `UPDATE telegram_conversation_gates SET buffered_message = $2, updated_at = NOW() WHERE gate_key = $1`,
+      `UPDATE public.telegram_conversation_gates SET buffered_message = $2, updated_at = NOW() WHERE gate_key = $1`,
       [gateKey, message.slice(0, 4096)],
     );
   }
 
   async getAndClearBufferedMessage(gateKey: string): Promise<string | undefined> {
-    await this.ensureTable();
     const result = await this.pool.query(
       `
-      UPDATE telegram_conversation_gates
+      UPDATE public.telegram_conversation_gates
       SET buffered_message = NULL, updated_at = NOW()
       WHERE gate_key = $1
       RETURNING buffered_message
@@ -273,21 +265,6 @@ export class PostgresConversationGateStore implements ConversationGateStore {
     }
   }
 
-  private async ensureTable(): Promise<void> {
-    if (!this.setupPromise) {
-      this.setupPromise = this.pool.query(`
-        CREATE TABLE IF NOT EXISTS telegram_conversation_gates (
-          gate_key TEXT PRIMARY KEY,
-          status TEXT NOT NULL DEFAULT 'idle',
-          started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          expires_at TIMESTAMPTZ NOT NULL,
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          buffered_message TEXT
-        )
-      `).then(() => undefined);
-    }
-    return this.setupPromise;
-  }
 }
 
 export function createConversationGateStore(): ConversationGateStore {

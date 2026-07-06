@@ -3,6 +3,9 @@
   "user_id": "user_123",
   "thread_id": "thread_abc123",
   "source": "telegram",
-  "telegram_user_id": 12345,
+  "telegram_identity": {
+    "telegram_id": 12345,
+    "username": "tester"
+  },
   "allow_mutations": true
 }

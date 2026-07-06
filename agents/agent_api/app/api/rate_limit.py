@@ -6,18 +6,19 @@ from typing import Optional
 from fastapi import HTTPException
 
 from agents.agent_api.app.config import settings
+from agents.agent_api.app.user_context.identity import TelegramIdentity
 
 logger = logging.getLogger(__name__)
 
 
-def check_rate_limit(telegram_user_id: Optional[int]) -> None:
+def check_rate_limit(identity: Optional[TelegramIdentity]) -> None:
     """Atomic check-and-increment against the rate_limits table.
 
-    No-ops when: postgres_dsn unset, telegram_user_id is None, or no
+    No-ops when: postgres_dsn unset, identity is None, or no
     rate_limits row exists for the user (unlimited by default).
     Raises HTTPException(429) when over limit.
     """
-    if not settings.postgres_dsn or telegram_user_id is None:
+    if not settings.postgres_dsn or identity is None:
         return
 
     try:
@@ -28,7 +29,7 @@ def check_rate_limit(telegram_user_id: Optional[int]) -> None:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    UPDATE rate_limits rl
+                    UPDATE public.rate_limits rl
                     SET daily_requests_used = CASE
                             WHEN rl.reset_at <= NOW() THEN 1
                             ELSE LEAST(rl.daily_requests_used + 1,
@@ -40,12 +41,12 @@ def check_rate_limit(telegram_user_id: Optional[int]) -> None:
                             ELSE rl.reset_at
                         END,
                         updated_at = NOW()
-                    FROM users u
+                    FROM public.users u
                     WHERE u.id = rl.user_id
-                      AND u.telegram_user_id = %s
+                      AND u.id = public.resolve_user_id(%s)
                     RETURNING rl.daily_requests_used, rl.daily_request_limit
                     """,
-                    (str(telegram_user_id),),
+                    (identity.telegram_id,),
                 )
                 row = cur.fetchone()
                 if row is None:

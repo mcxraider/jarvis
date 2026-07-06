@@ -27,6 +27,7 @@ class ToolDisplayMeta:
 
     verb: str
     label: str
+    service: str = ""  # human-facing service name, e.g. "todoist", "google calendar"
     irreversible: bool = False
     always_risky: bool = False
     needs_task_context: bool = False
@@ -43,16 +44,6 @@ def _render_task_with_context(held_call: dict) -> str:
         return f'{meta.label} "{task_content}".'
     task_id = held_call.get("args", {}).get("task_id", "unknown")
     return f"{meta.label} (id={task_id})."
-
-
-def _render_bulk_add(held_call: dict) -> str:
-    args = held_call.get("args", {})
-    content = args.get("content", "")
-    count = args.get("count", "?")
-    meta = _REGISTRY["bulk_add_todoist_tasks"]
-    if content:
-        return f'{meta.label}: {count}× "{content}".'
-    return f"{meta.label}: {count} tasks."
 
 
 def _render_update(held_call: dict) -> str:
@@ -96,31 +87,35 @@ _REGISTRY: Dict[str, ToolDisplayMeta] = {
     "delete_todoist_task": ToolDisplayMeta(
         verb="deleting",
         label="Delete task",
+        service="todoist",
         irreversible=True,
         always_risky=True,
         needs_task_context=True,
         render_fn=_render_task_with_context,
     ),
-    "bulk_add_todoist_tasks": ToolDisplayMeta(
-        verb="adding",
-        label="Bulk-add tasks",
-        always_risky=True,
-        render_fn=_render_bulk_add,
-    ),
     "add_todoist_task": ToolDisplayMeta(
         verb="adding",
         label="Add task",
+        service="todoist",
         highlight_arg="content",
+    ),
+    "create_project": ToolDisplayMeta(
+        verb="adding",
+        label="Add project",
+        service="todoist",
+        highlight_arg="name",
     ),
     "update_todoist_task": ToolDisplayMeta(
         verb="updating",
         label="Update task",
+        service="todoist",
         needs_task_context=True,
         render_fn=_render_update,
     ),
     "complete_task": ToolDisplayMeta(
         verb="completing",
         label="Complete task",
+        service="todoist",
         needs_task_context=True,
         render_fn=_render_task_with_context,
     ),
@@ -130,6 +125,7 @@ _REGISTRY: Dict[str, ToolDisplayMeta] = {
     "delete_calendar_event": ToolDisplayMeta(
         verb="deleting",
         label="Delete event",
+        service="google calendar",
         irreversible=True,
         always_risky=True,
         needs_event_context=True,
@@ -138,11 +134,13 @@ _REGISTRY: Dict[str, ToolDisplayMeta] = {
     "create_calendar_event": ToolDisplayMeta(
         verb="adding",
         label="Add event",
+        service="google calendar",
         highlight_arg="summary",
     ),
     "update_calendar_event": ToolDisplayMeta(
         verb="updating",
         label="Update event",
+        service="google calendar",
         needs_event_context=True,
         render_fn=_render_calendar_update,
     ),
@@ -170,6 +168,15 @@ def get_verb(tool_name: str) -> str:
     return get_meta(tool_name).verb
 
 
+def get_service(tool_name: str) -> str:
+    """Human-facing service label for a tool ('todoist', 'google calendar').
+
+    Returns '' for tools with no declared service (e.g. DEFAULT_META), so the
+    confirm gate can skip the '(service)' suffix rather than render '(unknown)'.
+    """
+    return get_meta(tool_name).service
+
+
 def irreversible_tools() -> frozenset:
     """Tools whose effects cannot be undone (drives suffix text in confirmations)."""
     return _IRREVERSIBLE_TOOLS
@@ -192,7 +199,9 @@ def needs_event_context_tools() -> frozenset:
 
 # Prior-read ID validation: entity-ID args that must have been surfaced by a prior
 # read before a mutation runs. Tools absent from this map skip validation (fail-open).
-# v1 validates `task_id` only; project/section/parent ids have no read tool to emit them.
+# v1 validates `task_id` only. `get_projects` now surfaces project ids, but project_id
+# grounding is enforced via the prompt rather than structurally, so add_todoist_task can
+# still target the Inbox or a known id without a prior read (see orchestrator prompt).
 _ENTITY_REQUIREMENTS: Dict[str, Tuple[EntityRef, ...]] = {
     "complete_task": (EntityRef("task_id", "task"),),
     "uncomplete_task": (EntityRef("task_id", "task"),),
@@ -215,6 +224,7 @@ __all__ = [
     "always_risky_tools",
     "entity_requirements",
     "get_meta",
+    "get_service",
     "get_verb",
     "irreversible_tools",
     "needs_event_context_tools",

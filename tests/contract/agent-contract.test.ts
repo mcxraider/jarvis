@@ -11,6 +11,7 @@ import * as path from 'path';
 
 import {
   AgentResponseSchema,
+  TelegramIdentitySchema,
   LangGraphInterruptSchema,
   StreamEventSchema,
   StreamFinalEventSchema,
@@ -150,6 +151,7 @@ describe('Agent API contract — InvokeRequest fixture', () => {
     expect(typeof data.user_id).toBe('string');
     expect((data.message as string).length).toBeGreaterThan(0);
     expect((data.user_id as string).length).toBeGreaterThan(0);
+    expect(TelegramIdentitySchema.safeParse(data.telegram_identity).success).toBe(true);
   });
 
   it('resume-request fixture has all required fields', () => {
@@ -164,5 +166,6 @@ describe('Agent API contract — InvokeRequest fixture', () => {
     expect((data.message as string).length).toBeGreaterThan(0);
     expect((data.user_id as string).length).toBeGreaterThan(0);
     expect((data.thread_id as string).length).toBeGreaterThan(0);
+    expect(TelegramIdentitySchema.safeParse(data.telegram_identity).success).toBe(true);
   });
 });

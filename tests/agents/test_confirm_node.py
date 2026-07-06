@@ -56,7 +56,7 @@ class TestRenderActionSummary:
             "context": {"task_content": "Submit expense report"},
         }
         result = render_action_summary(held)
-        assert result == 'Update task "Submit expense report": due_string.'
+        assert result == 'Update task "Submit expense report": due_string (todoist).'
         assert "id=1" not in result
 
     def test_calendar_delete_with_event_context(self):
@@ -66,13 +66,13 @@ class TestRenderActionSummary:
             "context": {"event_summary": "Team sync"},
         }
         result = render_action_summary(held)
-        assert result == 'Delete event "Team sync".'
+        assert result == 'Delete event "Team sync" (google calendar).'
         assert "id=" not in result
 
     def test_calendar_delete_without_context_falls_back_to_id(self):
         held = {"tool_name": "delete_calendar_event", "args": {"event_id": "evt_1"}}
         result = render_action_summary(held)
-        assert result == "Delete event (id=evt_1)."
+        assert result == "Delete event (id=evt_1) (google calendar)."
 
     def test_calendar_update_with_event_context(self):
         held = {
@@ -81,7 +81,7 @@ class TestRenderActionSummary:
             "context": {"event_summary": "Team sync"},
         }
         result = render_action_summary(held)
-        assert result == 'Update event "Team sync": location.'
+        assert result == 'Update event "Team sync": location (google calendar).'
         assert "id=" not in result
 
     def test_calendar_update_without_context_falls_back_to_id(self):
@@ -90,7 +90,7 @@ class TestRenderActionSummary:
             "args": {"event_id": "evt_1", "location": "Room 4"},
         }
         result = render_action_summary(held)
-        assert result == "Update event (id=evt_1): location."
+        assert result == "Update event (id=evt_1): location (google calendar)."
 
     def test_truly_generic_tool(self):
         held = {"tool_name": "some_unknown_tool", "args": {"foo": "bar", "baz": 42}}
@@ -136,6 +136,7 @@ class TestConfirmNode:
         assert payload["type"] == "confirm"
         assert "hc_1" in payload["held_call_ids"]
         assert "delete_todoist_task" in payload["tool_names"]
+        assert payload["services"] == ["todoist"]
 
     @patch("agents.agent_api.app.graph.nodes.confirm.interrupt")
     def test_decline_flow(self, mock_interrupt):
@@ -232,8 +233,8 @@ class TestRenderBatchSummary:
         ]
         summary = render_batch_summary(held_calls)
         assert "I'm updating 2 items:" in summary
-        assert 'Update task "First task": content.' in summary
-        assert 'Update task "Second task": priority.' in summary
+        assert 'Update task "First task": content (todoist).' in summary
+        assert 'Update task "Second task": priority (todoist).' in summary
         assert "Please confirm to proceed." in summary
 
     def test_mixed_batch_uses_modifying(self):
@@ -261,6 +262,25 @@ class TestRenderBatchSummary:
         summary = render_batch_summary(held_calls)
         assert "Please confirm to proceed." in summary
         assert "irreversible" not in summary.lower()
+
+    def test_mixed_service_batch_labels_each_service(self):
+        held_calls = [
+            {
+                "tool_name": "delete_todoist_task",
+                "args": {"task_id": "1"},
+                "context": {"task_content": "Buy milk"},
+            },
+            {
+                "tool_name": "delete_calendar_event",
+                "args": {"event_id": "evt_1"},
+                "context": {"event_summary": "Team sync"},
+            },
+        ]
+        summary = render_batch_summary(held_calls)
+        assert '(todoist)' in summary
+        assert '(google calendar)' in summary
+        assert 'Buy milk' in summary
+        assert 'Team sync' in summary
 
     def test_complete_task_batch(self):
         held_calls = [

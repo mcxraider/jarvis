@@ -7,7 +7,12 @@
 import { LogContext, logger } from '../../../utils/logger';
 import { WhisperService } from '../../ai/whisper.service';
 import { LangGraphProgressCallback } from '../../ai/langgraph-agent-client.service';
-import { TextProcessorOptions, TextProcessorResult, TextProcessorService } from './text-processor.service';
+import {
+  PendingPausePresentation,
+  TextProcessorOptions,
+  TextProcessorResult,
+  TextProcessorService,
+} from './text-processor.service';
 import { classifyError } from '../errors/classified-error';
 
 // Lifecycle hooks for audio processing — used by MessageHandlers to send the
@@ -17,6 +22,7 @@ export interface AudioProcessingHooks {
   onTranscription?: (text: string) => void | Promise<void>;
   onTranscribed?: () => void | Promise<void>;
   onProgress?: LangGraphProgressCallback;
+  onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
 }
 
 export class AudioProcessorService {
@@ -84,6 +90,9 @@ export class AudioProcessorService {
           threadId: result.threadId,
           blocked: result.blocked,
           bufferedMessage: result.bufferedMessage,
+          consumedClarificationMessageId: result.consumedClarificationMessageId,
+          consumedClarificationQuestion: result.consumedClarificationQuestion,
+          resolvedPendingPause: result.resolvedPendingPause,
         };
       } catch (processingError) {
         logger.warn('audio_processor.text_processing_failed', {
@@ -174,6 +183,9 @@ export class AudioProcessorService {
           threadId: result.threadId,
           blocked: result.blocked,
           bufferedMessage: result.bufferedMessage,
+          consumedClarificationMessageId: result.consumedClarificationMessageId,
+          consumedClarificationQuestion: result.consumedClarificationQuestion,
+          resolvedPendingPause: result.resolvedPendingPause,
         };
       } catch (processingError) {
         logger.warn('audio_processor.document_text_processing_failed', {

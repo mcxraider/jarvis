@@ -15,7 +15,7 @@ import logging
 import random
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from agents.agent_api.app.tools.calendar.auth import (
     GoogleCalendarApiError,
@@ -134,11 +134,15 @@ class GoogleCalendarClient:
         tracer: Optional[TracePrinter] = None,
         service: Any = None,
         token_path: Optional[str] = None,
+        credential_json: Optional[str] = None,
+        persist_callback: Optional[Callable[..., None]] = None,
     ):
         self.tracer = tracer or NULL_TRACE
         # Injected in tests; lazily built from local credentials in production.
         self._service = service
         self._token_path = token_path
+        self._credential_json = credential_json
+        self._persist_callback = persist_callback
         # ToolNode runs a batch of tool calls on a ThreadPoolExecutor, so several
         # threads share this one client. The underlying httplib2.Http/OpenSSL
         # socket is NOT thread-safe: concurrent request.execute() calls corrupt
@@ -155,7 +159,11 @@ class GoogleCalendarClient:
         if self._service is None:
             with self._lock:
                 if self._service is None:
-                    self._service = build_calendar_service(self._token_path)
+                    self._service = build_calendar_service(
+                        self._token_path,
+                        credential_json=self._credential_json,
+                        persist_callback=self._persist_callback,
+                    )
         return self._service
 
     # -- shared execution wrapper -------------------------------------------------

@@ -1,21 +1,23 @@
 """Prompt context and message builders shared across roles.
 
-Also home to the (currently unused) ``available_tools_line`` helper: it can render
-the orchestrator's "Available tools" line from a :class:`ToolRegistry` so the
-prompt stays correct as domains are added. The shipped orchestrator prompt keeps
-its static wording for now; wire this in when more domains go live.
+The "Available tools" line is rendered by the orchestrator from the runtime
+snapshot's registered tool names (or an explicit ``registered_tools`` list for
+offline/DI runs), so the prompt's capability claims always match the live
+:class:`ToolRegistry`.
 """
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
+from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 USER_PROMPTS: List[str] = [
+    # "help me find out what projects i have in todoist, ill ask u to add a task to a one after that"
     # "set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of priority based on when im most free"
-    # "search phoebe calendar hows her availability next monday?"
-    #"when am i free next week?"
-    "delete my dinner with zac in my cal monday 8pm"
+    # "check phoebe google calendar and my calendar tell me when good day to have dinner with her next week"
+    # "when am i free next week?"
+    # "delete my dinner with zac in my cal monday 8pm"
     # "meeting zac at night on friday, add it in" # always add it in first, then check for conflicts and report back if conflict else end.
     # "i alr did romans 7 in the train this morning uhm but not romans 8 yet, shift romans 8 to tonight"
     # "Go through my tasks, check everything that does not have a time, that is also not a birthday. Tell me first and then I will ask you to make edits",
@@ -29,7 +31,7 @@ USER_PROMPTS: List[str] = [
     # "Delete all tasks on Tuesday."
 
     # --- Regression test prompts (test on Telegram) --- Always test this flow...
-    # 1. Bulk add (tests bulk_add_todoist_tasks + confirm gate rendering)
+    # 1. Multi-add (tests the 5+ mutation confirm gate)
     # "add 24 tasks titled 'hehehehehehhe' due tomorrow",
     # 2. Summarizer trigger (tests route_after_tools → summarize node on large results)
     # "show me all my tasks for today and tmr",
@@ -155,7 +157,7 @@ USER_PROMPTS: List[str] = [
     # "Add a team check-in next Tuesday 11am.",
     # "I land in London Tuesday morning. If the Tokyo leg is still on my calendar, leave next week alone; otherwise shift Tuesday's calls to after 2pm local.",  # conditional branch in one turn + '2pm local' TZ conversion; A=no changes, B=shift after 2pm London
     
-    # --16 -- stress testing the bulk add of many tasks, and the summarizer for large results, and the count query bypass, and the concurrent executor with confirm, and the pagination with large result handling
+    # --16 -- stress testing multi-add, large-result summarization, count-query bypass, concurrent execution with confirmation, and pagination
     # part a
     # '''Add these 20 different items into my Todoist task calendar:
     #     1. Submit internship timesheet tomorrow at 9am
@@ -240,16 +242,6 @@ USER_PROMPTS: List[str] = [
 
 USER_PROMPT = USER_PROMPTS[0] if USER_PROMPTS else ""
 
-def available_tools_line(registry: Any) -> str:
-    """Render an 'Available tools' line from a registry (for future prompt use)."""
-
-    names = [
-        schema.get("function", {}).get("name", "")
-        for schema in registry.openai_schemas()
-    ]
-    names = [name for name in names if name]
-    return "Available tools: " + (", ".join(names) if names else "none")
-
 
 def build_user_prompt_with_request_datetime(user_prompt: str) -> str:
     """Add the current request timestamp to the user message content."""
@@ -269,14 +261,20 @@ def build_initial_messages(
     user_prompt: str,
     timezone: Optional[str] = None,
     user_name: Optional[str] = None,
-    calendar_enabled: bool = True,
+    runtime_context: Optional[RuntimeContextSnapshot] = None,
+    registered_tools: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """Create the raw message list used by the DeepSeek API."""
 
     return [
         {
             "role": "system",
-            "content": get_system_prompt(timezone, user_name=user_name, calendar_enabled=calendar_enabled),
+            "content": get_system_prompt(
+                timezone,
+                user_name=user_name,
+                runtime_context=runtime_context,
+                registered_tools=registered_tools,
+            ),
         },
         {"role": "user", "content": build_user_prompt_with_request_datetime(user_prompt)},
     ]
@@ -285,7 +283,6 @@ def build_initial_messages(
 __all__ = [
     "USER_PROMPT",
     "USER_PROMPTS",
-    "available_tools_line",
     "build_initial_messages",
     "build_user_prompt_with_request_datetime",
 ]

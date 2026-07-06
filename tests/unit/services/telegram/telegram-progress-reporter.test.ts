@@ -1,7 +1,8 @@
 import { TelegramProgressReporter } from '../../../../src/services/telegram/telegram-progress-reporter';
 import { setRichMessagesEnabled } from '../../../../src/services/telegram/formatters/telegram-rich';
+import { logger } from '../../../../src/utils/logger';
 
-const ROTATION_INTERVAL_MS = 10_000;
+const DOT_INTERVAL_MS = 800;
 
 describe('TelegramProgressReporter', () => {
   beforeEach(() => {
@@ -13,6 +14,7 @@ describe('TelegramProgressReporter', () => {
     setRichMessagesEnabled(false);
     jest.clearAllTimers();
     jest.useRealTimers();
+    jest.restoreAllMocks();
   });
 
   function createContext() {
@@ -26,32 +28,23 @@ describe('TelegramProgressReporter', () => {
     } as any;
   }
 
-  it('rotates the plain status every 10 seconds and deletes it on completion', async () => {
+  it('animates the ellipsis on a fixed Thinking base and deletes it on completion', async () => {
     const ctx = createContext();
     const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
 
     await reporter.start();
-    expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.\\.\\.', { parse_mode: 'MarkdownV2' });
+    expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.', { parse_mode: 'MarkdownV2' });
 
-    await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS);
+    await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
     expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
       123,
       77,
       undefined,
-      'Fetching',
+      'Thinking\\.\\.',
       { parse_mode: 'MarkdownV2' },
     );
 
-    await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS);
-    expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
-      123,
-      77,
-      undefined,
-      'Writing',
-      { parse_mode: 'MarkdownV2' },
-    );
-
-    await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS);
+    await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
     expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
       123,
       77,
@@ -60,11 +53,21 @@ describe('TelegramProgressReporter', () => {
       { parse_mode: 'MarkdownV2' },
     );
 
+    // Fourth frame wraps back to a single dot.
+    await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
+    expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
+      123,
+      77,
+      undefined,
+      'Thinking\\.',
+      { parse_mode: 'MarkdownV2' },
+    );
+
     await reporter.complete('Done');
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(123, 77);
 
     const editsAtCompletion = ctx.telegram.editMessageText.mock.calls.length;
-    await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS * 2);
+    await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS * 2);
     expect(ctx.telegram.editMessageText).toHaveBeenCalledTimes(editsAtCompletion);
   });
 
@@ -73,11 +76,12 @@ describe('TelegramProgressReporter', () => {
     const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
 
     await reporter.startTranscribing();
-    expect(ctx.reply).toHaveBeenCalledWith('Transcribing\\.\\.\\.', {
+    expect(ctx.reply).toHaveBeenCalledWith('Transcribing\\.', {
       parse_mode: 'MarkdownV2',
     });
 
-    await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS * 2);
+    // No dot timer runs during transcription, so nothing is edited.
+    await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS * 3);
     expect(ctx.telegram.editMessageText).not.toHaveBeenCalled();
 
     await reporter.beginAgentPhase();
@@ -85,20 +89,22 @@ describe('TelegramProgressReporter', () => {
       123,
       77,
       undefined,
-      'Thinking\\.\\.\\.',
+      'Thinking\\.',
       { parse_mode: 'MarkdownV2' },
     );
 
-    await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS);
+    await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
     expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
       123,
       77,
       undefined,
-      'Fetching',
+      'Thinking\\.\\.',
       { parse_mode: 'MarkdownV2' },
     );
+
+    // The base never rotates to the transcription phrase once thinking starts.
     expect(ctx.telegram.editMessageText.mock.calls.flat()).not.toContain(
-      'Transcribing\\.\\.\\.',
+      'Transcribing\\.',
     );
 
     await reporter.complete('Done');
@@ -115,7 +121,7 @@ describe('TelegramProgressReporter', () => {
 
     await reporter.complete('Done');
     await reporter.beginAgentPhase();
-    await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS);
+    await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
     expect(ctx.telegram.editMessageText).toHaveBeenCalledTimes(1);
   });
 
@@ -142,7 +148,7 @@ describe('TelegramProgressReporter', () => {
     const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
 
     await reporter.start();
-    await expect(jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS)).resolves.toBeUndefined();
+    await expect(jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS)).resolves.toBeUndefined();
     await expect(reporter.complete('Something went wrong')).resolves.toBeUndefined();
   });
 
@@ -159,14 +165,14 @@ describe('TelegramProgressReporter', () => {
       } as any;
     }
 
-    it('rotates one ephemeral thinking draft without persisting a status message', async () => {
+    it('animates one ephemeral thinking draft without persisting a status message', async () => {
       setRichMessagesEnabled(true);
       const ctx = createRichContext();
       const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
 
       await reporter.start();
-      await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS);
-      await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS);
+      await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
+      await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
       await reporter.complete('Done');
 
       expect(ctx.reply).not.toHaveBeenCalled();
@@ -180,9 +186,9 @@ describe('TelegramProgressReporter', () => {
         'sendRichMessageDraft',
       ]);
       expect(calls.map((call: any[]) => call[1].rich_message.markdown)).toEqual([
+        '<tg-thinking><tg-emoji emoji-id="5573333417954639880">😀</tg-emoji> Thinking.</tg-thinking>',
+        '<tg-thinking><tg-emoji emoji-id="5573333417954639880">😀</tg-emoji> Thinking..</tg-thinking>',
         '<tg-thinking><tg-emoji emoji-id="5573333417954639880">😀</tg-emoji> Thinking...</tg-thinking>',
-        '<tg-thinking><tg-emoji emoji-id="5573333417954639880">😀</tg-emoji> Fetching</tg-thinking>',
-        '<tg-thinking><tg-emoji emoji-id="5573333417954639880">😀</tg-emoji> Writing</tg-thinking>',
       ]);
 
       const draftIds = calls.map((call: any[]) => call[1].draft_id);
@@ -190,40 +196,40 @@ describe('TelegramProgressReporter', () => {
       expect(new Set(draftIds).size).toBe(1);
     });
 
-    it('reuses one rich draft for transcribing and agent rotation', async () => {
+    it('reuses one rich draft for transcribing and agent animation', async () => {
       setRichMessagesEnabled(true);
       const ctx = createRichContext();
       const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
 
       await reporter.startTranscribing();
       await reporter.beginAgentPhase();
-      await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS);
+      await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
       await reporter.complete('Done');
 
       const calls = ctx.telegram.callApi.mock.calls;
       expect(calls.map((call: any[]) => call[1].rich_message.markdown)).toEqual([
-        expect.stringContaining('Transcribing...'),
-        expect.stringContaining('Thinking...'),
-        expect.stringContaining('Fetching'),
+        expect.stringContaining('Transcribing.'),
+        expect.stringContaining('Thinking.'),
+        expect.stringContaining('Thinking..'),
       ]);
       expect(new Set(calls.map((call: any[]) => call[1].draft_id)).size).toBe(1);
     });
 
-    it('falls back to a rotating plain status when the first draft fails', async () => {
+    it('falls back to an animated plain status when the first draft fails', async () => {
       setRichMessagesEnabled(true);
       const ctx = createRichContext();
       ctx.telegram.callApi.mockRejectedValueOnce(new Error('404 method not found'));
       const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
 
       await reporter.start();
-      expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.\\.\\.', { parse_mode: 'MarkdownV2' });
+      expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.', { parse_mode: 'MarkdownV2' });
 
-      await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS);
+      await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
       expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
         123,
         77,
         undefined,
-        'Fetching',
+        'Thinking\\.\\.',
         { parse_mode: 'MarkdownV2' },
       );
 
@@ -232,7 +238,7 @@ describe('TelegramProgressReporter', () => {
       expect(ctx.telegram.callApi).toHaveBeenCalledTimes(1);
     });
 
-    it('switches to plain rotation when a later rich draft update fails', async () => {
+    it('switches to plain animation when a later rich draft update fails', async () => {
       setRichMessagesEnabled(true);
       const ctx = createRichContext();
       ctx.telegram.callApi
@@ -241,21 +247,41 @@ describe('TelegramProgressReporter', () => {
       const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
 
       await reporter.start();
-      await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS);
+      await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
 
-      expect(ctx.reply).toHaveBeenCalledWith('Fetching', { parse_mode: 'MarkdownV2' });
+      expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.\\.', { parse_mode: 'MarkdownV2' });
 
-      await jest.advanceTimersByTimeAsync(ROTATION_INTERVAL_MS);
+      await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
       expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
         123,
         77,
         undefined,
-        'Writing',
+        'Thinking\\.\\.\\.',
         { parse_mode: 'MarkdownV2' },
       );
 
       await reporter.complete('Done');
       expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(123, 77);
+    });
+
+    it('handles a non-Error rejection from a detached rich animation tick', async () => {
+      setRichMessagesEnabled(true);
+      const ctx = createRichContext();
+      const warn = jest.spyOn(logger, 'warn').mockImplementation();
+      ctx.telegram.callApi
+        .mockResolvedValueOnce(true)
+        .mockRejectedValueOnce(undefined);
+      const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
+
+      await reporter.start();
+      await expect(jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS)).resolves.toBeUndefined();
+
+      expect(warn).toHaveBeenCalledWith(
+        'telegram.rich.fallback',
+        expect.objectContaining({ stage: 'progress.update', error: 'undefined' }),
+      );
+      expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.\\.', { parse_mode: 'MarkdownV2' });
+      await reporter.complete('Done');
     });
   });
 });

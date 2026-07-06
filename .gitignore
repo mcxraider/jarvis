@@ -27,6 +27,9 @@ tokens/
 credentials.json
 google_client_secret*.json
 
+# Generated onboarding dossiers contain personal data (never credentials).
+/onboard/private/
+
 # next.js
 /.next/
 /out/

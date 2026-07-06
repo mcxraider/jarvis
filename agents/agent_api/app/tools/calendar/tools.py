@@ -18,6 +18,31 @@ from agents.agent_api.app.tools.calendar.schemas import (
 )
 
 
+# --- Prompt contributions -----------------------------------------------------
+# See tools/todoist/tools.py for the rationale: the domain owns its prompt text,
+# wired onto the Google Calendar DomainAdapter and emitted only when the domain is
+# active for this user. Kept self-contained (no cross-domain references) so the
+# fragment reads correctly even when Todoist is unavailable.
+
+CALENDAR_GROUNDING_NOTE = (
+    "Google Calendar: never invent an `event_id` — fetch events "
+    "(`list_calendar_events` / `get_calendar_event`) first, then update or delete "
+    "by a returned id."
+)
+
+CALENDAR_PROMPT_FRAGMENT = """\
+## Google Calendar tool tips
+- All datetimes use RFC 3339 with timezone offset (e.g. 2026-07-02T14:00:00+08:00). Resolve relative dates to concrete ISO first, using the user's timezone from Runtime context.
+- Timed events need BOTH start_datetime and end_datetime. If the user gives only a start, infer a duration (default 1h; "coffee" ~30min, "dinner" ~2h).
+- All-day events use start_date/end_date; end is exclusive (a 1-day event on Jul 2 → start_date=2026-07-02, end_date=2026-07-03).
+- calendar_id defaults to "primary" — pass it only when the user names another calendar.
+- Before creating a timed event, call get_freebusy for that slot and warn of conflicts. Do not silently double-book.
+- Deleting an event (`delete_calendar_event`) is system-gated like every delete: just issue the call and let the approval prompt handle confirmation — do NOT add your own "are you sure?". Calendar creates/updates count toward the same 5+ mutations-per-turn bulk gate.
+- Recurring events use RRULE strings in the recurrence array (e.g. ["RRULE:FREQ=WEEKLY;BYDAY=TU,TH;COUNT=10"]).
+- Attendees are email addresses. If the user gives a name without an email, ask for it.
+- When listing events, keep single_events=true so recurrences expand into instances."""
+
+
 def get_calendar_tool_specs(calendar_client: Any) -> List[ToolSpec]:
     """Build one :class:`ToolSpec` per Calendar tool (schema + handler + mutating)."""
 
@@ -206,4 +231,9 @@ def build_calendar_langchain_tools(dispatch: DispatchFn) -> List[Any]:
     ]
 
 
-__all__ = ["build_calendar_langchain_tools", "get_calendar_tool_specs"]
+__all__ = [
+    "CALENDAR_GROUNDING_NOTE",
+    "CALENDAR_PROMPT_FRAGMENT",
+    "build_calendar_langchain_tools",
+    "get_calendar_tool_specs",
+]

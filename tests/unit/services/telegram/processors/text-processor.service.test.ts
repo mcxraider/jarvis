@@ -43,7 +43,7 @@ describe('TextProcessorService', () => {
     const service = createService(agentClient);
 
     await expect(
-      service.processTextMessage('add milk', 701122767, {
+      service.processTextMessage(' \n add milk \t ', 701122767, {
         requestId: 'tg_test',
         chatId: 555,
         messageId: 42,
@@ -57,9 +57,10 @@ describe('TextProcessorService', () => {
         message: 'add milk',
         userId: 'jerry',
         source: 'telegram',
-        telegramUserId: 701122767,
-        telegramUsername: 'jerry',
-        telegramFirstName: 'Jerry',
+        telegramIdentity: {
+          telegramId: 701122767,
+          username: 'jerry',
+        },
         requestId: 'tg_test',
         threadId: 'tg_tg_test',
       },
@@ -72,6 +73,56 @@ describe('TextProcessorService', () => {
         threadId: 'tg_tg_test',
       },
     );
+    expect(agentClient.resume).not.toHaveBeenCalled();
+  });
+
+  it('prepends reply context to fresh agent requests after normalizing the new text', async () => {
+    const agentClient = {
+      invoke: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'thread-1',
+        response: 'Done.',
+        toolResults: [],
+      }),
+      resume: jest.fn(),
+    };
+    const service = createService(agentClient);
+    const replyContext = '[In reply to your earlier message: "Created task: Buy milk"]';
+
+    await service.processTextMessage(
+      ' \n add a due date of tomorrow \t ',
+      42,
+      { requestId: 'req-reply', chatId: 100 },
+      undefined,
+      { replyContext },
+    );
+
+    expect(agentClient.invoke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: `${replyContext}\n\nadd a due date of tomorrow`,
+      }),
+      expect.any(Object),
+    );
+    expect(agentClient.resume).not.toHaveBeenCalled();
+  });
+
+  it('rejects whitespace-only text without calling or acquiring resources for the agent', async () => {
+    const agentClient = {
+      invoke: jest.fn(),
+      resume: jest.fn(),
+    };
+    const gateStore = new MemoryConversationGateStore();
+    const getStatus = jest.spyOn(gateStore, 'getStatus');
+    const tryAcquire = jest.spyOn(gateStore, 'tryAcquire');
+    const service = createService(agentClient, undefined, gateStore);
+
+    await expect(service.processTextMessage(' \n\t ', 42, { chatId: 100 })).resolves.toEqual({
+      response: 'Please send a message with some text.',
+    });
+
+    expect(getStatus).not.toHaveBeenCalled();
+    expect(tryAcquire).not.toHaveBeenCalled();
+    expect(agentClient.invoke).not.toHaveBeenCalled();
     expect(agentClient.resume).not.toHaveBeenCalled();
   });
 
@@ -198,7 +249,7 @@ describe('TextProcessorService', () => {
       service.processTextMessage('update my task', 42, { chatId: 100, messageId: 10 }),
     ).resolves.toHaveProperty('response', 'Which task should I update?');
     await expect(
-      service.processTextMessage('the dentist task', 42, {
+      service.processTextMessage(' \n the dentist task \t ', 42, {
         chatId: 100,
         messageId: 11,
         telegramUsername: 'tester',
@@ -211,9 +262,10 @@ describe('TextProcessorService', () => {
         message: 'the dentist task',
         userId: 'telegram:42',
         source: 'telegram',
-        telegramUserId: 42,
-        telegramUsername: 'tester',
-        telegramFirstName: 'Test',
+        telegramIdentity: {
+          telegramId: 42,
+          username: 'tester',
+        },
         requestId: undefined,
         threadId: 'thread-hitl',
       },
@@ -224,6 +276,39 @@ describe('TextProcessorService', () => {
         telegramFirstName: 'Test',
         threadId: 'thread-hitl',
       },
+    );
+  });
+
+  it('does not inject reply context into a HITL clarification answer', async () => {
+    const agentClient = {
+      invoke: jest.fn().mockResolvedValue({
+        status: 'interrupted',
+        threadId: 'thread-hitl',
+        response: 'Which task should I update?',
+        interrupt: { type: 'clarify', question: 'Which task should I update?' },
+        toolResults: [],
+      }),
+      resume: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'thread-hitl',
+        response: 'Updated.',
+        toolResults: [],
+      }),
+    };
+    const service = createService(agentClient);
+
+    await service.processTextMessage('update my task', 42, { chatId: 100, messageId: 10 });
+    await service.processTextMessage(
+      ' \n the dentist task \t ',
+      42,
+      { chatId: 100, messageId: 11 },
+      undefined,
+      { replyContext: '[In reply to your earlier message: "Which task should I update?"]' },
+    );
+
+    expect(agentClient.resume).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'the dentist task', threadId: 'thread-hitl' }),
+      expect.objectContaining({ threadId: 'thread-hitl' }),
     );
   });
 
@@ -716,5 +801,170 @@ describe('TextProcessorService', () => {
     const pending = await store.get(gateKey);
     expect(pending?.threadId).toBe('thread-clarify');
     expect(await gateStore.getStatus(gateKey)).toBe('waiting_for_clarification');
+  });
+
+  describe('consumed clarification presentation', () => {
+    // Seeds a pending record and puts the gate into the waiting state so the next message resumes it.
+    async function seedPending(
+      store: MemoryPendingClarificationStore,
+      gateStore: MemoryConversationGateStore,
+      interruptType: 'clarify' | 'confirm',
+      clarificationMessageId = 321,
+    ) {
+      const gateKey = buildConversationKey(42, 'telegram:42', 100);
+      await gateStore.tryAcquire(gateKey, 60000);
+      await gateStore.transitionToWaiting(gateKey, 60000);
+      const now = Date.now();
+      await store.save({
+        pendingKey: gateKey,
+        threadId: 'thread-hitl',
+        question: 'Which task?',
+        telegramUserId: 42,
+        chatId: 100,
+        userId: 'telegram:42',
+        interruptType,
+        clarificationMessageId: interruptType === 'clarify' ? clarificationMessageId : undefined,
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: now + 30 * 60 * 1000,
+      });
+      return gateKey;
+    }
+
+    it('surfaces the clarification id when a clarify reply resolves the pause', async () => {
+      const store = new MemoryPendingClarificationStore();
+      const gateStore = new MemoryConversationGateStore();
+      await seedPending(store, gateStore, 'clarify');
+      const agentClient = {
+        invoke: jest.fn(),
+        resume: jest.fn().mockResolvedValue({ status: 'completed', threadId: 'thread-hitl', response: 'Updated.', toolResults: [] }),
+      };
+      const service = createService(agentClient, store, gateStore);
+
+      const result = await service.processTextMessage('the dentist task', 42, { chatId: 100, messageId: 11 });
+
+      expect(result.consumedClarificationMessageId).toBe(321);
+      // The flag confirms that the pending pause—not unrelated result data—was consumed.
+      expect(result.resolvedPendingPause).toBe(true);
+    });
+
+    it('notifies acceptance after winning the gate and before resuming the agent', async () => {
+      const store = new MemoryPendingClarificationStore();
+      const gateStore = new MemoryConversationGateStore();
+      await seedPending(store, gateStore, 'clarify');
+      const onPendingPauseAccepted = jest.fn().mockResolvedValue(undefined);
+      const agentClient = {
+        invoke: jest.fn(),
+        resume: jest.fn().mockResolvedValue({
+          status: 'completed',
+          threadId: 'thread-hitl',
+          response: 'Updated.',
+          toolResults: [],
+        }),
+      };
+      const service = createService(agentClient, store, gateStore);
+
+      const result = await service.processTextMessage(
+        'the dentist task',
+        42,
+        { chatId: 100, messageId: 11 },
+        undefined,
+        { onPendingPauseAccepted },
+      );
+
+      expect(onPendingPauseAccepted).toHaveBeenCalledWith({
+        clarificationMessageId: 321,
+        question: 'Which task?',
+      });
+      expect(onPendingPauseAccepted.mock.invocationCallOrder[0]).toBeLessThan(
+        agentClient.resume.mock.invocationCallOrder[0],
+      );
+      expect(result.consumedClarificationMessageId).toBeUndefined();
+      expect(result.resolvedPendingPause).toBe(true);
+    });
+
+    it('does not notify acceptance for invalid typed confirmation text', async () => {
+      const store = new MemoryPendingClarificationStore();
+      const gateStore = new MemoryConversationGateStore();
+      await seedPending(store, gateStore, 'confirm');
+      const onPendingPauseAccepted = jest.fn();
+      const agentClient = { invoke: jest.fn(), resume: jest.fn() };
+      const service = createService(agentClient, store, gateStore);
+
+      await service.processTextMessage(
+        'maybe later',
+        42,
+        { chatId: 100, messageId: 11 },
+        undefined,
+        { onPendingPauseAccepted },
+      );
+
+      expect(onPendingPauseAccepted).not.toHaveBeenCalled();
+      expect(agentClient.resume).not.toHaveBeenCalled();
+    });
+
+    it('resolves a typed confirmation without clarification presentation data', async () => {
+      const store = new MemoryPendingClarificationStore();
+      const gateStore = new MemoryConversationGateStore();
+      await seedPending(store, gateStore, 'confirm');
+      const agentClient = {
+        invoke: jest.fn(),
+        resume: jest.fn().mockResolvedValue({ status: 'completed', threadId: 'thread-hitl', response: 'Deleted.', toolResults: [] }),
+      };
+      const service = createService(agentClient, store, gateStore);
+
+      const result = await service.processTextMessage('yes', 42, { chatId: 100, messageId: 11 });
+
+      expect(result.consumedClarificationMessageId).toBeUndefined();
+      expect(result.resolvedPendingPause).toBe(true);
+    });
+
+    it('does NOT surface the id when a non-decision is refused on a confirm pause', async () => {
+      const store = new MemoryPendingClarificationStore();
+      const gateStore = new MemoryConversationGateStore();
+      await seedPending(store, gateStore, 'confirm');
+      const agentClient = { invoke: jest.fn(), resume: jest.fn() };
+      const service = createService(agentClient, store, gateStore);
+
+      const result = await service.processTextMessage('maybe later', 42, { chatId: 100, messageId: 11 });
+
+      expect(result.consumedClarificationMessageId).toBeUndefined();
+      expect(result.resolvedPendingPause).toBeFalsy();
+      expect(agentClient.resume).not.toHaveBeenCalled();
+    });
+
+    it('surfaces the superseded clarification id on /new (forceFresh)', async () => {
+      const store = new MemoryPendingClarificationStore();
+      const gateStore = new MemoryConversationGateStore();
+      await seedPending(store, gateStore, 'clarify', 654);
+      const agentClient = {
+        invoke: jest.fn().mockResolvedValue({ status: 'completed', threadId: 'thread-fresh', response: 'Fresh.', toolResults: [] }),
+        resume: jest.fn(),
+      };
+      const service = createService(agentClient, store, gateStore);
+
+      const result = await service.processTextMessage('start over', 42, { chatId: 100, messageId: 12 }, undefined, { forceFresh: true });
+
+      expect(result.consumedClarificationMessageId).toBe(654);
+      expect(result.resolvedPendingPause).toBe(true);
+      expect(agentClient.invoke).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT flag a resolved pause on a fresh message with nothing pending', async () => {
+      const store = new MemoryPendingClarificationStore();
+      const gateStore = new MemoryConversationGateStore();
+      const agentClient = {
+        invoke: jest.fn().mockResolvedValue({ status: 'completed', threadId: 'thread-new', response: 'Ok.', toolResults: [] }),
+        resume: jest.fn(),
+      };
+      const service = createService(agentClient, store, gateStore);
+
+      // forceFresh with no waiting pause → 'idle' abandon outcome → nothing was superseded.
+      const result = await service.processTextMessage('do a thing', 42, { chatId: 100, messageId: 13 }, undefined, { forceFresh: true });
+
+      expect(result.resolvedPendingPause).toBeFalsy();
+      expect(result.consumedClarificationMessageId).toBeUndefined();
+    });
   });
 });

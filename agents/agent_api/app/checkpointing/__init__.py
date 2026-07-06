@@ -18,7 +18,10 @@ def create_default_checkpointer() -> Any:
     """Create the configured checkpoint backend for API/runtime defaults."""
 
     if settings.checkpoint_backend == "postgres":
-        return create_postgres_checkpointer(settings.postgres_dsn)
+        return create_postgres_checkpointer(
+            settings.postgres_dsn,
+            run_setup=settings.run_checkpoint_setup,
+        )
     if settings.checkpoint_backend == "redis":
         return create_redis_checkpointer(settings.redis_url)
     if settings.checkpoint_backend == "memory":

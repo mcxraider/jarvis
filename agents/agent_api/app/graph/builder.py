@@ -3,6 +3,7 @@
 import logging
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Optional
 
 from langgraph.types import Command
@@ -35,79 +36,56 @@ from agents.agent_api.app.graph.nodes.prepare_confirm import create_prepare_conf
 from agents.agent_api.app.graph.nodes.summarize import create_summarize_node
 from agents.agent_api.app.graph.nodes.tools import create_tools_node
 from agents.agent_api.app.graph.nodes.validate_entities import create_validate_entities_node
-from agents.agent_api.app.graph.prompts import USER_PROMPT, build_initial_messages
+from agents.agent_api.app.graph.prompts import (
+    USER_PROMPT,
+    build_initial_messages,
+)
 from agents.agent_api.app.graph.state import JarvisState, enrich_interrupt_status
 from agents.agent_api.app.idempotency import DEFAULT_IDEMPOTENCY_STORE, IdempotencyStore
+from agents.agent_api.app.pricing import (
+    calculate_cost_usd,
+    derive_uncached_input_tokens,
+)
 from agents.agent_api.app.run_logging import (
     FileLoggingTracer,
     RunLogIdentity,
     format_singapore_log_iso,
     open_run_log,
 )
-from agents.agent_api.app.tools.calendar.auth import (
-    get_token_path_for_user,
-    is_calendar_configured_for_user,
-)
-from agents.agent_api.app.tools.calendar.client import GoogleCalendarClient
+from agents.agent_api.app.tools.base import ToolRegistry
 from agents.agent_api.app.tools.dispatcher import ToolDispatcher
-from agents.agent_api.app.tools.registry_factory import build_default_registry
+from agents.agent_api.app.tools.registry_factory import (
+    apply_registered_tools,
+    build_registry_from_clients,
+    build_runtime_registry,
+)
 from agents.agent_api.app.tools.selection import ToolSelector, get_selector
 from agents.agent_api.app.tools.todoist.client import TodoistApiClient
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
+from agents.agent_api.app.user_context.resolver import (
+    load_thread_runtime_context,
+    resolve_runtime_context,
+    store_thread_context,
+)
+from agents.agent_api.app.user_context.identity import TelegramIdentity, telegram_identity
+from agents.agent_api.app.user_context.runtime import (
+    ResolvedRuntimeContext,
+    RuntimeContextSnapshot,
+)
 
 
 _builder_logger = logging.getLogger(__name__)
 
 
-def _ensure_user(
-    telegram_user_id: Optional[int],
-    telegram_username: Optional[str] = None,
-    telegram_first_name: Optional[str] = None,
-) -> None:
-    """Ensure FK-dependent writes have a users row. Fire-and-forget."""
-    if telegram_user_id is None:
-        return
-    try:
-        from agents.agent_api.app.db import get_pool
-
-        pool = get_pool()
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO users (
-                        telegram_user_id,
-                        telegram_username,
-                        telegram_first_name
-                    )
-                    VALUES (%s, %s, %s)
-                    ON CONFLICT (telegram_user_id) DO NOTHING
-                    """,
-                    (
-                        str(telegram_user_id),
-                        telegram_username,
-                        telegram_first_name,
-                    ),
-                )
-    except Exception as exc:
-        _builder_logger.warning(
-            "User provisioning failed (non-fatal).",
-            extra={
-                "telegram_user_id": telegram_user_id,
-                "error": type(exc).__name__,
-            },
-        )
-
-
 def _register_thread(
     thread_id: str,
-    telegram_user_id: Optional[int],
+    identity: Optional[TelegramIdentity],
     user_prompt: str,
     status: str,
     resuming: bool,
 ) -> None:
     """Upsert thread metadata. Fire-and-forget — never crashes the request."""
-    if telegram_user_id is None:
+    if identity is None:
         return
     try:
         from agents.agent_api.app.db import get_pool
@@ -129,16 +107,27 @@ def _register_thread(
                 else:
                     cur.execute(
                         """
-                        INSERT INTO threads (thread_id, user_id, title, status, message_count)
-                        SELECT %s, u.id, LEFT(%s, 100), %s, 1
-                        FROM users u
-                        WHERE u.telegram_user_id = %s
+                        INSERT INTO threads (
+                            thread_id, user_id, title, status, message_count
+                        )
+                        VALUES (
+                            %s,
+                            public.resolve_user_id(%s),
+                            LEFT(%s, 100),
+                            %s,
+                            1
+                        )
                         ON CONFLICT (thread_id) DO UPDATE
                         SET message_count = threads.message_count + 1,
                             status = EXCLUDED.status,
                             updated_at = NOW()
                         """,
-                        (thread_id, user_prompt, status, str(telegram_user_id)),
+                        (
+                            thread_id,
+                            identity.telegram_id,
+                            user_prompt,
+                            status,
+                        ),
                     )
     except Exception as exc:
         _builder_logger.warning(
@@ -148,15 +137,45 @@ def _register_thread(
 
 
 def _log_usage(
-    telegram_user_id: Optional[int],
+    identity: Optional[TelegramIdentity],
     thread_id: str,
     usage: "UsageSummary",
     latency_ms: int,
     model: str,
 ) -> None:
     """Write usage telemetry to Supabase. Fire-and-forget."""
-    if telegram_user_id is None or not usage.total_tokens:
+    if identity is None:
         return
+    if not usage.total_tokens:
+        _builder_logger.warning(
+            "Usage logging skipped because token usage is absent.",
+            extra={"thread_id": thread_id, "model": model},
+        )
+        return
+    prompt_tokens = usage.prompt_tokens or 0
+    cached_tokens: Optional[int] = usage.cached_tokens or 0
+    output_tokens = usage.completion_tokens or 0
+    uncached_tokens: Optional[int] = None
+    cost_usd: Optional[Decimal] = None
+    try:
+        uncached_tokens = derive_uncached_input_tokens(prompt_tokens, cached_tokens)
+        cost_usd = calculate_cost_usd(
+            model,
+            prompt_tokens,
+            cached_tokens,
+            output_tokens,
+        )
+        if cost_usd is None:
+            _builder_logger.warning(
+                "Usage cost unavailable for unpriced model.",
+                extra={"thread_id": thread_id, "model": model},
+            )
+    except ValueError as exc:
+        cached_tokens = None
+        _builder_logger.warning(
+            "Usage cost unavailable for invalid token metadata.",
+            extra={"thread_id": thread_id, "model": model, "error": str(exc)},
+        )
     try:
         from agents.agent_api.app.db import get_pool
 
@@ -166,24 +185,42 @@ def _log_usage(
                 cur.execute(
                     """
                     INSERT INTO usage_logs (user_id, thread_id, event_type, model,
-                                           input_tokens, output_tokens, latency_ms)
-                    SELECT u.id, %s, 'run', %s, %s, %s, %s
-                    FROM users u
-                    WHERE u.telegram_user_id = %s
+                                           input_tokens, cached_input_tokens,
+                                           uncached_input_tokens, output_tokens,
+                                           cost_usd, latency_ms)
+                    VALUES (
+                        public.resolve_user_id(%s),
+                        %s,
+                        'run',
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s
+                    )
                     """,
                     (
+                        identity.telegram_id,
                         thread_id,
                         model,
-                        usage.prompt_tokens or 0,
-                        usage.completion_tokens or 0,
+                        prompt_tokens,
+                        cached_tokens,
+                        uncached_tokens,
+                        output_tokens,
+                        cost_usd,
                         latency_ms,
-                        str(telegram_user_id),
                     ),
                 )
     except Exception as exc:
         _builder_logger.warning(
             "Usage logging failed (non-fatal).",
-            extra={"thread_id": thread_id, "error": type(exc).__name__},
+            extra={
+                "thread_id": thread_id,
+                "error": type(exc).__name__,
+                "error_message": str(exc),
+            },
         )
 
 
@@ -271,14 +308,19 @@ def build_initial_state(
     request_source: str = "api",
     timezone: Optional[str] = None,
     user_name: Optional[str] = None,
-    calendar_enabled: bool = True,
+    runtime_context: Optional[RuntimeContextSnapshot] = None,
+    registered_tools: Optional[list] = None,
 ) -> JarvisState:
     """Create a fresh state object for one Jarvis run."""
 
     thread_id = thread_id or str(uuid.uuid4())
     return {
         "messages": build_initial_messages(
-            user_prompt, timezone=timezone, user_name=user_name, calendar_enabled=calendar_enabled
+            user_prompt,
+            timezone=timezone,
+            user_name=user_name,
+            runtime_context=runtime_context,
+            registered_tools=registered_tools,
         ),
         "user_prompt": user_prompt,
         "user_id": user_id,
@@ -297,6 +339,33 @@ def build_initial_state(
         "pending_interrupt": None,
         "confirm_decision": None,
         "consumed_call_ids": [],
+        "runtime_context": (
+            runtime_context.model_dump(mode="json")
+            if runtime_context is not None
+            else {}
+        ),
+    }
+
+
+def _build_runtime_metadata(
+    runtime_context: Optional[ResolvedRuntimeContext],
+    registry: ToolRegistry,
+) -> dict:
+    """Return the secret-free runtime fields attached to trace metadata."""
+
+    if runtime_context is None:
+        return {
+            "runtime_context_schema": None,
+            "preference_revision": None,
+            "active_domains": [],
+            "registered_tools": [spec.name for spec in registry.specs],
+        }
+    snapshot = runtime_context.snapshot
+    return {
+        "runtime_context_schema": snapshot.schema_version,
+        "preference_revision": snapshot.preference_revision,
+        "active_domains": sorted(snapshot.active_providers()),
+        "registered_tools": list(snapshot.registered_tools),
     }
 
 
@@ -310,6 +379,8 @@ def run_jarvis(
     max_agent_turns: int = MAX_AGENT_TURNS,
     tracer: Optional[TracePrinter] = None,
     thread_id: Optional[str] = None,
+    identity: Optional[TelegramIdentity] = None,
+    # Deprecated compatibility inputs; API callers should send ``identity``.
     telegram_user_id: Optional[int] = None,
     telegram_username: Optional[str] = None,
     telegram_first_name: Optional[str] = None,
@@ -328,6 +399,12 @@ def run_jarvis(
 
     if clarification_reply is not None and not thread_id:
         raise ValueError("thread_id is required when resuming with clarification_reply.")
+    if identity is None and telegram_user_id is not None:
+        identity = telegram_identity(
+            telegram_user_id,
+            telegram_username,
+            telegram_first_name,
+        )
     thread_id = thread_id or str(uuid.uuid4())
     request_id = request_id or str(uuid.uuid4())
     checkpointer = checkpointer or DEFAULT_CHECKPOINTER
@@ -340,11 +417,18 @@ def run_jarvis(
     run_name = f"jarvis.{invocation_type}"
     started_at = datetime.now()
 
-    _ensure_user(telegram_user_id, telegram_username, telegram_first_name)
+    runtime_context = None
+    if identity is not None and settings.postgres_dsn:
+        runtime_context = (
+            load_thread_runtime_context(thread_id, identity)
+            if resuming
+            else resolve_runtime_context(identity)
+        )
 
     base_tracer = tracer if tracer is not None else TracePrinter()
     run_log_identity = RunLogIdentity(
         request_source=request_source,
+        identity=identity,
         telegram_user_id=telegram_user_id,
         telegram_username=telegram_username,
         telegram_first_name=telegram_first_name,
@@ -356,6 +440,8 @@ def run_jarvis(
             request_id=request_id,
             thread_id=thread_id,
             user_id=user_id,
+            telegram_id=identity.telegram_id if identity else None,
+            identity_username=identity.username if identity else None,
             telegram_user_id=telegram_user_id,
             telegram_username=telegram_username,
             telegram_first_name=telegram_first_name,
@@ -385,28 +471,29 @@ def run_jarvis(
     tracer.payload("runtime.prompt", "user_prompt", user_prompt)
 
     agent_client = agent_client or DeepSeekAgentClient(tracer=tracer)
-    todoist_client = todoist_client or TodoistApiClient(
-        tracer=tracer,
-        telegram_user_id=telegram_user_id,
-    )
-
-    calendar_enabled = is_calendar_configured_for_user(telegram_user_id)
-    calendar_client = (
-        GoogleCalendarClient(
-            tracer=tracer,
-            token_path=get_token_path_for_user(telegram_user_id),
+    offline_tool_names: Optional[list] = None
+    if runtime_context is not None:
+        registry, run_clients, tool_names_by_provider = build_runtime_registry(
+            runtime_context, tracer
         )
-        if calendar_enabled
-        else None
-    )
+        apply_registered_tools(runtime_context, registry, tool_names_by_provider)
+        if not resuming:
+            store_thread_context(thread_id, user_prompt, runtime_context.snapshot)
+    else:
+        # Offline / dependency-injection path: run with caller-supplied clients.
+        # No credential resolution happens here — production always resolves a
+        # runtime context above.
+        todoist_client = todoist_client or TodoistApiClient(tracer=tracer)
+        registry = build_registry_from_clients(todoist_client=todoist_client)
+        run_clients = [todoist_client]
+        offline_tool_names = [spec.name for spec in registry.specs]
 
     # Caller-provided clients (e.g. the CLI runner) are built before run_jarvis
     # wraps the tracer, so retarget them at this run's tracer to keep their
     # agent.* / todoist.* / calendar.* events flowing into the per-run file log.
-    for client in (agent_client, todoist_client, calendar_client):
+    for client in (agent_client, *run_clients):
         if client is not None and getattr(client, "tracer", None) is not None:
             client.tracer = tracer
-    registry = build_default_registry(todoist_client, calendar_client=calendar_client)
     dispatcher = ToolDispatcher(
         registry,
         allow_mutations=allow_mutations,
@@ -434,13 +521,13 @@ def run_jarvis(
             "thread_id": thread_id,
             "invocation_type": invocation_type,
             "user_id": user_id,
-            "telegram_user_id": telegram_user_id,
-            "telegram_username": telegram_username,
-            "telegram_first_name": telegram_first_name,
+            "telegram_id": identity.telegram_id if identity else None,
+            "telegram_username": identity.username if identity else None,
             "request_source": request_source,
             "model": DEEPSEEK_MODEL,
             "allow_mutations": allow_mutations,
             "max_agent_turns": max_agent_turns,
+            **_build_runtime_metadata(runtime_context, registry),
         },
     }
     tracer.event(
@@ -452,28 +539,35 @@ def run_jarvis(
     if resuming:
         result = app.invoke(Command(resume=clarification_reply), config)
     else:
-        user_timezone: Optional[str] = None
-        if telegram_user_id is not None:
-            from agents.agent_api.app.credentials import get_user_preferences
-
-            prefs = get_user_preferences(telegram_user_id)
-            user_timezone = prefs.get("timezone")
         result = app.invoke(
             build_initial_state(
                 user_prompt,
                 user_id=user_id,
                 thread_id=thread_id,
                 request_source=request_source,
-                timezone=user_timezone,
-                user_name=telegram_first_name,
-                calendar_enabled=calendar_enabled,
+                timezone=(
+                    runtime_context.snapshot.timezone
+                    if runtime_context is not None
+                    else None
+                ),
+                user_name=(
+                    runtime_context.snapshot.display_name
+                    if runtime_context is not None
+                    else None
+                ),
+                runtime_context=(
+                    runtime_context.snapshot
+                    if runtime_context is not None
+                    else None
+                ),
+                registered_tools=offline_tool_names,
             ),
             config,
         )
     result = enrich_interrupt_status(result, thread_id)
 
     thread_status = "interrupted" if result.get("interrupted") else "completed"
-    _register_thread(thread_id, telegram_user_id, user_prompt, thread_status, resuming)
+    _register_thread(thread_id, identity, user_prompt, thread_status, resuming)
 
     usage: UsageSummary = getattr(agent_client, "usage", None) or UsageSummary()
     finished_at = datetime.now()
@@ -512,7 +606,7 @@ def run_jarvis(
         result["run_log_path"] = str(run_log.path.resolve())
 
     duration_ms = int((finished_at - started_at).total_seconds() * 1000)
-    _log_usage(telegram_user_id, thread_id, usage, duration_ms, DEEPSEEK_MODEL)
+    _log_usage(identity, thread_id, usage, duration_ms, DEEPSEEK_MODEL)
 
     return result
 

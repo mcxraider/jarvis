@@ -201,7 +201,6 @@ class _FakeAgentClientWithTracer:
 
 _TODOIST_METHODS = (
     "add_todoist_task",
-    "bulk_add_todoist_tasks",
     "get_todoist_task",
     "get_tasks",
     "get_tasks_by_filter",
@@ -213,6 +212,8 @@ _TODOIST_METHODS = (
     "get_comments",
     "add_comment",
     "get_labels",
+    "get_projects",
+    "create_project",
 )
 
 

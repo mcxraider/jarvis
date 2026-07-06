@@ -1,16 +1,12 @@
 """Todoist REST API client using only the Python standard library."""
 
-import contextvars
 import json
-import os
 import random
 import re
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -19,12 +15,6 @@ from typing import Any, Dict, Optional
 from langsmith import traceable
 
 from agents.agent_api.app.config import settings
-from agents.agent_api.app.constants import (
-    EXECUTOR_BATCH_TIMEOUT_SECONDS,
-    EXECUTOR_CIRCUIT_BREAKER_THRESHOLD,
-    EXECUTOR_MAX_WORKERS,
-)
-from agents.agent_api.app.graph.resilience import BatchCircuitBreaker, BatchThrottle
 from agents.agent_api.app.tools.errors import ClassifiedApiError
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
@@ -32,8 +22,6 @@ TODOIST_REST_BASE_URL = settings.todoist_rest_base_url
 TODOIST_COMPLETED_BY_COMPLETION_DATE_URL = (
     f"{TODOIST_REST_BASE_URL}/tasks/completed/by_completion_date"
 )
-TODOIST_TOKEN_MAP_ENV = "TODOIST_API_KEYS_BY_TELEGRAM_USER_ID"
-TODOIST_KEY_FILE_MAP_ENV = "TODOIST_KEY_FILES_BY_TELEGRAM_USER_ID"
 
 # Path segments that look like Todoist resource identifiers (task/section/project
 # IDs are numeric or alphanumeric strings). Collapse them to {id} so traces never
@@ -85,87 +73,6 @@ TODOIST_ERROR_MESSAGES = {
 }
 
 
-def _parse_todoist_token_map(raw_value: Optional[str]) -> Dict[str, str]:
-    if not raw_value:
-        return {}
-    mapping: Dict[str, str] = {}
-    for entry in raw_value.split(","):
-        cleaned = entry.strip()
-        if not cleaned:
-            continue
-        telegram_user_id, separator, token = cleaned.partition(":")
-        if not separator or not telegram_user_id.strip() or not token.strip():
-            raise ValueError(
-                f"{TODOIST_TOKEN_MAP_ENV} entries must use telegram_user_id:todoist_token"
-            )
-        mapping[telegram_user_id.strip()] = token.strip()
-    return mapping
-
-
-def _parse_todoist_key_file_map(raw_value: Optional[str]) -> Dict[str, str]:
-    """Parse the per-user file-based key map from the environment variable.
-
-    Format: ``telegram_user_id:/path/to/keyfile,...``
-    """
-
-    if not raw_value:
-        return {}
-    mapping: Dict[str, str] = {}
-    for entry in raw_value.split(","):
-        cleaned = entry.strip()
-        if not cleaned:
-            continue
-        telegram_user_id, separator, path = cleaned.partition(":")
-        if not separator or not telegram_user_id.strip() or not path.strip():
-            raise ValueError(
-                f"{TODOIST_KEY_FILE_MAP_ENV} entries must use telegram_user_id:path_to_keyfile"
-            )
-        mapping[telegram_user_id.strip()] = path.strip()
-    return mapping
-
-
-def _read_todoist_key_file(path: str) -> Optional[str]:
-    """Read a Todoist API key from a file, stripping whitespace/newlines."""
-
-    if not os.path.isfile(path):
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            key = f.read().strip()
-        return key if key else None
-    except OSError:
-        return None
-
-
-def todoist_api_key_for_telegram_user(telegram_user_id: Optional[int]) -> Optional[str]:
-    """Resolve the Todoist API key for a Telegram user.
-
-    Resolution chain (first wins):
-    1. Database credential (user_credentials table)
-    2. Inline env var map (TODOIST_API_KEYS_BY_TELEGRAM_USER_ID)
-    3. File-based key map (TODOIST_KEY_FILES_BY_TELEGRAM_USER_ID)
-    4. Fallback single-user key (TODOIST_API_KEY)
-    """
-
-    from agents.agent_api.app.credentials import get_credential
-
-    db_key = get_credential(telegram_user_id, service="todoist")
-    if db_key:
-        return db_key
-
-    token_map = _parse_todoist_token_map(os.getenv(TODOIST_TOKEN_MAP_ENV))
-    if telegram_user_id is not None and token_map:
-        return token_map.get(str(telegram_user_id))
-
-    file_map = _parse_todoist_key_file_map(os.getenv(TODOIST_KEY_FILE_MAP_ENV))
-    if telegram_user_id is not None and file_map:
-        path = file_map.get(str(telegram_user_id))
-        if path:
-            return _read_todoist_key_file(path)
-
-    return os.getenv("TODOIST_API_KEY")
-
-
 @dataclass
 class TodoistApiError(ClassifiedApiError):
     """Structured Todoist failure safe to route through tool results.
@@ -210,9 +117,8 @@ class TodoistApiClient:
         self,
         api_key: Optional[str] = None,
         tracer: Optional[TracePrinter] = None,
-        telegram_user_id: Optional[int] = None,
     ):
-        self.api_key = api_key or todoist_api_key_for_telegram_user(telegram_user_id)
+        self.api_key = api_key
         self.tracer = tracer or NULL_TRACE
 
     @traceable(
@@ -331,72 +237,6 @@ class TodoistApiClient:
         _validate_duration_pair(payload)
         return self._request(f"{TODOIST_REST_BASE_URL}/tasks", "POST", payload)
 
-    def bulk_add_todoist_tasks(self, arguments: Dict[str, Any]) -> Any:
-        """Add multiple identical tasks concurrently with batch resilience."""
-        arguments = dict(arguments)
-        count = arguments.pop("count")
-        single_args = _without_none(arguments)
-        _validate_duration_pair(single_args)
-
-        if count == 1:
-            task = self._request(f"{TODOIST_REST_BASE_URL}/tasks", "POST", single_args)
-            return {"created_count": 1, "requested_count": 1, "tasks": [task], "errors": None}
-
-        max_workers = min(count, EXECUTOR_MAX_WORKERS)
-        batch_deadline = time.monotonic() + EXECUTOR_BATCH_TIMEOUT_SECONDS
-        throttle = BatchThrottle()
-        breaker = BatchCircuitBreaker(threshold=EXECUTOR_CIRCUIT_BREAKER_THRESHOLD)
-
-        results = [None] * count
-        errors = []
-
-        def _execute_one(idx: int) -> None:
-            if breaker.is_open():
-                errors.append({"index": idx, "error": f"Skipped: circuit breaker tripped ({breaker.open_reason()})", "skipped": True})
-                return
-
-            remaining = max(0.0, batch_deadline - time.monotonic())
-            throttle.wait_if_paused(timeout=remaining)
-
-            if breaker.is_open():
-                errors.append({"index": idx, "error": f"Skipped: circuit breaker tripped ({breaker.open_reason()})", "skipped": True})
-                return
-
-            try:
-                results[idx] = self._request(f"{TODOIST_REST_BASE_URL}/tasks", "POST", dict(single_args))
-                breaker.record_success()
-            except TodoistApiError as exc:
-                if exc.kind in ("transient", "rate-limit"):
-                    breaker.record_failure(exc.kind)
-                if exc.kind == "rate-limit" and exc.retry_after_seconds:
-                    throttle.signal_backoff(exc.retry_after_seconds)
-                errors.append({"index": idx, "error": str(exc)})
-            except Exception as exc:
-                errors.append({"index": idx, "error": str(exc)})
-
-        pool = ThreadPoolExecutor(max_workers=max_workers)
-        futures = {pool.submit(contextvars.copy_context().run, _execute_one, i): i for i in range(count)}
-        remaining_timeout = max(0.001, batch_deadline - time.monotonic())
-        done: set = set()
-        try:
-            for future in as_completed(futures, timeout=remaining_timeout):
-                done.add(future)
-                future.result()
-        except FuturesTimeoutError:
-            for future, idx in futures.items():
-                if future not in done and results[idx] is None and not any(e["index"] == idx for e in errors):
-                    errors.append({"index": idx, "error": "Batch timeout exceeded.", "timeout": True})
-        finally:
-            pool.shutdown(wait=False, cancel_futures=True)
-
-        created = [r for r in results if r is not None]
-        return {
-            "created_count": len(created),
-            "requested_count": count,
-            "tasks": created,
-            "errors": errors if errors else None,
-        }
-
     def get_todoist_task(self, arguments: Dict[str, Any]) -> Any:
         return self._request(f"{TODOIST_REST_BASE_URL}/tasks/{arguments['task_id']}")
 
@@ -460,7 +300,21 @@ class TodoistApiClient:
         data = self._request(f"{TODOIST_REST_BASE_URL}/labels{suffix}")
         if search is None:
             return data
-        return _filter_labels_by_name(data, search)
+        return _filter_by_name(data, search)
+
+    def get_projects(self, arguments: Dict[str, Any]) -> Any:
+        arguments = dict(arguments)
+        search = arguments.pop("search", None)
+        params = _query_params(_without_none(arguments))
+        suffix = f"?{params}" if params else ""
+        data = self._request(f"{TODOIST_REST_BASE_URL}/projects{suffix}")
+        if search is None:
+            return data
+        return _filter_by_name(data, search)
+
+    def create_project(self, arguments: Dict[str, Any]) -> Any:
+        payload = _without_none(arguments)
+        return self._request(f"{TODOIST_REST_BASE_URL}/projects", "POST", payload)
 
 
 def _without_none(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -493,9 +347,10 @@ def _validate_comment_target(data: Dict[str, Any]) -> None:
         raise ValueError("add_comment requires exactly one of task_id or project_id")
 
 
-def _filter_labels_by_name(data: Any, search: str) -> Any:
-    """Filter a labels response to names containing ``search`` (case-insensitive).
+def _filter_by_name(data: Any, search: str) -> Any:
+    """Filter a labels/projects response to names containing ``search`` (case-insensitive).
 
+    Works for any resource whose items carry a ``name`` field (labels, projects).
     Handles both the paginated ``{"results": [...], "next_cursor": ...}`` shape and a
     bare list, so the tool keeps working if the API response shape varies.
     """
@@ -676,6 +531,5 @@ __all__ = [
     "TODOIST_REST_BASE_URL",
     "TodoistApiError",
     "TodoistApiClient",
-    "todoist_api_key_for_telegram_user",
     "todoist_endpoint_template",
 ]

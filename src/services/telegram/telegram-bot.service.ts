@@ -8,17 +8,25 @@ import { Message } from 'telegraf/typings/core/types/typegram';
 import { TelegramHandlers } from './handlers/telegram-handlers';
 import { TelegramConfig } from '../../types/telegram.types';
 import { sendMessageWithMarkdown } from './formatters/telegram-markdown';
+import { collapseClarification, sendRichMessageToChat } from './formatters/telegram-rich';
+import {
+  StaticUserAuthorizationStore,
+  UserAuthorizationStore,
+} from './user-authorization.store';
 
 export class TelegramBotService {
   public readonly bot: Telegraf<Context>;
-  private readonly allowedUserIds: Set<number>;
+  private readonly authorizationStore: UserAuthorizationStore;
 
   constructor(
     private readonly config: TelegramConfig,
     private readonly handlers: TelegramHandlers,
+    authorizationStore?: UserAuthorizationStore,
   ) {
-    // Store allowed user IDs in a Set for O(1) authorization lookups.
-    this.allowedUserIds = new Set(config.allowedUserIds);
+    // Production injects the database-backed store. The static implementation
+    // remains as a constructor default for isolated tests and embedded callers.
+    this.authorizationStore = authorizationStore ??
+      new StaticUserAuthorizationStore(config.allowedUserIds ?? []);
     this.bot = new Telegraf(config.token);
 
     // Wire up all command/message/callback handlers onto the Telegraf instance.
@@ -107,7 +115,13 @@ export class TelegramBotService {
         updateId: update.update_id,
       });
 
-      if (!senderId || !this.allowedUserIds.has(senderId)) {
+      const senderIdentity = senderId
+        ? { telegramId: senderId }
+        : undefined;
+      if (
+        !senderIdentity
+        || !(await this.authorizationStore.isAuthorized(senderIdentity))
+      ) {
         logger.warn('telegram.update.denied', {
           requestId,
           updateId: update.update_id,
@@ -204,6 +218,41 @@ export class TelegramBotService {
     }
   }
 
+  // Sends a message to a chat via the Rich Messages transport (Bot API 10.1) when
+  // enabled, degrading to the MarkdownV2 sendMessage path otherwise or on failure.
+  // Used for proactive notifications that have no Telegraf Context — e.g. the
+  // conversation-gate timeout notice fired from a timer callback.
+  async sendRichMessage(chatId: number, text: string, logContext?: object): Promise<void> {
+    await sendRichMessageToChat(this.bot.telegram, chatId, text, logContext);
+  }
+
+  // Deletes a message by id. Used for context-less cleanup — e.g. removing a lingering "Awaiting…"
+  // indicator when a conversation gate times out. Best-effort: the message may already be gone.
+  async deleteMessage(chatId: number, messageId: number): Promise<void> {
+    try {
+      await this.bot.telegram.deleteMessage(chatId, messageId);
+    } catch (error) {
+      logger.warn('telegram.delete_message.failed', {
+        chatId,
+        messageId,
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  async collapseClarification(chatId: number, messageId: number, question: string): Promise<void> {
+    try {
+      await collapseClarification(this.bot.telegram, chatId, messageId, question);
+    } catch (error) {
+      logger.warn('telegram.clarification.collapse_failed', {
+        chatId,
+        messageId,
+        method: 'editMessageText',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   async getBotInfo(): Promise<any> {
     try {
       const botInfo = await this.bot.telegram.getMe();
@@ -238,6 +287,9 @@ export class TelegramBotService {
   // Publishes the bot's command menu to Telegram so users see autocomplete hints.
   private async syncCommands(): Promise<void> {
     await this.bot.telegram.setMyCommands([
+      { command: 'start', description: 'Start Jarvis and show onboarding' },
+      { command: 'new', description: 'Abandon the current step and start a new request' },
+      { command: 'cancel', description: 'Cancel the current operation' },
       { command: 'help', description: 'Show available commands and supported inputs' },
       { command: 'status', description: 'Show bot health, uptime, and dependency status' },
     ]);

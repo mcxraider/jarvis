@@ -148,7 +148,7 @@ describe('Confirm flow: text → buttons → callback → reply', () => {
     } as any);
 
     expect(ctx.editMessageReplyMarkup).toHaveBeenCalledWith(undefined);
-    expect(ctx.reply).toHaveBeenCalledWith('✅ Approved');
+    expect(ctx.reply).toHaveBeenCalledWith('✅ Approved', { parse_mode: 'MarkdownV2' });
     expect(ctx.editMessageText).not.toHaveBeenCalled();
   });
 
@@ -164,7 +164,7 @@ describe('Confirm flow: text → buttons → callback → reply', () => {
 
     expect(ctx.answerCbQuery).toHaveBeenCalledWith('Declined.');
     expect(ctx.editMessageReplyMarkup).toHaveBeenCalledWith(undefined);
-    expect(ctx.reply).toHaveBeenCalledWith('❌ Declined');
+    expect(ctx.reply).toHaveBeenCalledWith('❌ Declined', { parse_mode: 'MarkdownV2' });
     expect(ctx.editMessageText).not.toHaveBeenCalled();
   });
 });

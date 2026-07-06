@@ -1,7 +1,8 @@
-import { Context } from 'telegraf';
+import { Context, Telegram } from 'telegraf';
 import { Message } from 'telegraf/typings/core/types/typegram';
 import { logger } from '../../../utils/logger';
-import { replyWithMarkdown } from './telegram-markdown';
+import { normalizeMarkdownTables } from './markdown-table-normalizer';
+import { replyWithMarkdown, sendMessageWithMarkdown } from './telegram-markdown';
 import { splitMessage } from './message-splitter';
 
 /**
@@ -27,7 +28,15 @@ export function isRichMessagesEnabled(): boolean {
   return richEnabled;
 }
 
-type RawTelegram = { callApi: (method: string, payload: Record<string, unknown>) => Promise<unknown> };
+type RawTelegram = {
+  callApi: (method: string, payload: Record<string, unknown>) => Promise<unknown>;
+  sendMessage: (chatId: number | string, text: string, options?: unknown) => Promise<Message.TextMessage>;
+};
+
+export function renderClarificationBlock(question: string, expanded: boolean): string {
+  const open = expanded ? ' open' : '';
+  return `<details${open}><summary>Clarification</summary>\n\n${question}\n\n</details>`;
+}
 
 function rawCallApi(
   ctx: Context,
@@ -43,6 +52,40 @@ export function newDraftId(): number {
   return id === 0 ? 1 : id;
 }
 
+// Custom animated "thinking" emoji (Telegram premium emoji id) with a plain fallback for clients
+// that can't render it. Shared by the transient progress block and the persistent "Awaiting…"
+// indicator so both look identical.
+const THINKING_CUSTOM_EMOJI_ID = '5573333417954639880';
+const THINKING_CUSTOM_EMOJI_FALLBACK = '🤔';
+
+/** Renders one custom emoji for use in rich Markdown. */
+export function renderCustomEmoji(customEmojiId: string, fallback: string): string {
+  return `<tg-emoji emoji-id="${customEmojiId}">${fallback}</tg-emoji>`;
+}
+
+/** Renders a thinking block with a caller-selected custom emoji. */
+export function renderThinkingLabelWithEmoji(
+  label: string,
+  customEmojiId: string,
+  fallback: string,
+): string {
+  const emoji = renderCustomEmoji(customEmojiId, fallback);
+  return `<tg-thinking>${emoji} ${label}</tg-thinking>`;
+}
+
+/**
+ * Renders a label inside Telegram's `<tg-thinking>` widget with the shared custom emoji. Single
+ * source of truth for the thinking-style markup, reused by {@link TelegramProgressReporter} (as an
+ * ephemeral draft) and the persistent "Awaiting…" indicator (as a real rich message).
+ */
+export function renderThinkingLabel(label: string): string {
+  return renderThinkingLabelWithEmoji(
+    label,
+    THINKING_CUSTOM_EMOJI_ID,
+    THINKING_CUSTOM_EMOJI_FALLBACK,
+  );
+}
+
 /**
  * Sends the agent's final answer. Rich mode persists it via `sendRichMessage`;
  * otherwise (or on failure) falls back to the MarkdownV2 reply path.
@@ -52,7 +95,8 @@ export async function sendFinalReply(
   text: string,
   logContext: object = {},
 ): Promise<void> {
-  const chunks = splitMessage(text);
+  const normalizedText = normalizeMarkdownTables(text);
+  const chunks = splitMessage(normalizedText);
 
   for (const chunk of chunks) {
     if (richEnabled && ctx.chat) {
@@ -73,6 +117,93 @@ export async function sendFinalReply(
 
     await replyWithMarkdown(ctx.reply.bind(ctx), chunk, logContext);
   }
+}
+
+/**
+ * Sends a clarification as one expanded rich details block and returns its message id.
+ * Plain-mode and rich-send fallback messages deliberately return undefined because they
+ * cannot later be collapsed with a rich-message edit.
+ */
+export async function sendClarificationReply(
+  ctx: Context,
+  question: string,
+  logContext: object = {},
+): Promise<number | undefined> {
+  if (richEnabled && ctx.chat) {
+    try {
+      const message = await sendRichMessage(ctx, renderClarificationBlock(question, true));
+      return message.message_id;
+    } catch (error) {
+      logger.warn('telegram.rich.fallback', {
+        ...logContext,
+        method: 'sendRichMessage',
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  await replyWithMarkdown(ctx.reply.bind(ctx), question, logContext);
+  return undefined;
+}
+
+/** Collapses a previously sent rich clarification block. */
+export async function collapseClarification(
+  telegram: Telegram,
+  chatId: number,
+  messageId: number,
+  question: string,
+): Promise<void> {
+  const raw = telegram as unknown as RawTelegram;
+  await raw.callApi('editMessageText', {
+    chat_id: chatId,
+    message_id: messageId,
+    rich_message: {
+      markdown: renderClarificationBlock(question, false),
+    },
+  });
+}
+
+/**
+ * Context-free twin of {@link sendFinalReply}: sends a message to a chat by id when no
+ * Telegraf `Context` is available (e.g. from a timer callback such as the conversation
+ * gate expiry notice). Rich mode persists via `sendRichMessage`; otherwise, or on any
+ * failure, falls back to the MarkdownV2 `sendMessage` path so delivery never regresses.
+ */
+export async function sendRichMessageToChat(
+  telegram: Telegram,
+  chatId: number,
+  text: string,
+  logContext: object = {},
+): Promise<void> {
+  // Telegraf's Telegram.callApi is generically constrained to known method names, so
+  // reach Bot API 10.1's untyped `sendRichMessage` through the loosened RawTelegram
+  // shape — same cast as rawCallApi() above.
+  const raw = telegram as unknown as RawTelegram;
+  const normalizedText = normalizeMarkdownTables(text);
+
+  if (richEnabled) {
+    try {
+      await raw.callApi('sendRichMessage', {
+        chat_id: chatId,
+        rich_message: { markdown: normalizedText },
+      });
+      return;
+    } catch (error) {
+      logger.warn('telegram.rich.fallback', {
+        ...logContext,
+        method: 'sendRichMessage',
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  await sendMessageWithMarkdown(
+    raw.sendMessage.bind(raw),
+    chatId,
+    normalizedText,
+    {},
+    logContext,
+  );
 }
 
 /**

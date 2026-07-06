@@ -35,7 +35,8 @@ class TestInvokeRequest:
         assert req.message == "Add a task to buy groceries"
         assert req.user_id == "user_123"
         assert req.source == "telegram"
-        assert req.telegram_user_id == 12345
+        assert req.telegram_identity is not None
+        assert req.telegram_identity.telegram_id == 12345
         assert req.thread_id == "thread_abc123"
         assert req.allow_mutations is True
 
@@ -69,6 +70,56 @@ class TestInvokeRequest:
         with pytest.raises(ValidationError):
             InvokeRequest.model_validate(data)
 
+    def test_accepts_legacy_telegram_fields(self):
+        req = InvokeRequest.model_validate(
+            {
+                "message": "hello",
+                "user_id": "legacy",
+                "telegram_user_id": 12345,
+                "telegram_username": "tester",
+                "telegram_first_name": "Test",
+            }
+        )
+        assert req.telegram_identity is not None
+        assert req.telegram_identity.telegram_id == 12345
+        assert req.telegram_identity.username == "tester"
+
+    def test_accepts_matching_dual_identity_payload(self):
+        data = load_fixture("invoke-request.json")
+        data.update(
+            {
+                "identity": {
+                    "provider": "telegram",
+                    "subject": "12345",
+                    "username": "tester",
+                },
+                "telegram_user_id": 12345,
+                "telegram_username": "tester",
+                "telegram_first_name": "Test",
+            }
+        )
+        assert InvokeRequest.model_validate(data).telegram_identity is not None
+
+    def test_rejects_conflicting_dual_identity_payload(self):
+        data = load_fixture("invoke-request.json")
+        data["telegram_user_id"] = 999
+        with pytest.raises(ValidationError, match="conflicts"):
+            InvokeRequest.model_validate(data)
+
+    @pytest.mark.parametrize(
+        "telegram_identity",
+        [
+            {"telegram_id": 0},
+            {"telegram_id": -1},
+            {"telegram_id": "not-a-number"},
+        ],
+    )
+    def test_rejects_invalid_identity(self, telegram_identity):
+        data = load_fixture("invoke-request.json")
+        data["telegram_identity"] = telegram_identity
+        with pytest.raises(ValidationError):
+            InvokeRequest.model_validate(data)
+
 
 # --- ResumeRequest ---
 
@@ -81,7 +132,8 @@ class TestResumeRequest:
         assert req.user_id == "user_123"
         assert req.thread_id == "thread_abc123"
         assert req.source == "telegram"
-        assert req.telegram_user_id == 12345
+        assert req.telegram_identity is not None
+        assert req.telegram_identity.telegram_id == 12345
         assert req.allow_mutations is True
 
     def test_rejects_empty_message(self):

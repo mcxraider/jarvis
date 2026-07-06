@@ -4,6 +4,11 @@
 
 import { z } from 'zod';
 
+export const TelegramIdentitySchema = z.object({
+  telegram_id: z.number().int().positive(),
+  username: z.string().optional(),
+});
+
 // Interrupt metadata sent when the agent pauses for human input. Contains the
 // interrupt type (clarify or confirm) and context about what the agent needs.
 export const LangGraphInterruptSchema = z.object({
@@ -52,6 +57,7 @@ export const StreamEventSchema = z.discriminatedUnion('type', [
 ]);
 
 export type LangGraphInterrupt = z.infer<typeof LangGraphInterruptSchema>;
+export type TelegramIdentityPayload = z.infer<typeof TelegramIdentitySchema>;
 export type AgentResponse = z.infer<typeof AgentResponseSchema>;
 export type StreamProgressEvent = z.infer<typeof StreamProgressEventSchema>;
 export type StreamFinalEvent = z.infer<typeof StreamFinalEventSchema>;

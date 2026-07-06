@@ -14,16 +14,24 @@ jest.mock('../../../../src/services/telegram/processors/audio-processor.service'
 import { MessageProcessorService } from '../../../../src/services/telegram/message-processor.service';
 import { MemoryConversationGateStore } from '../../../../src/services/telegram/conversation-gate.store';
 import { buildConversationKey } from '../../../../src/services/telegram/conversation-key';
+import { MemoryPendingClarificationStore } from '../../../../src/services/telegram/pending-clarification.store';
 
 describe('MessageProcessorService', () => {
   let service: MessageProcessorService;
   let gateStore: MemoryConversationGateStore;
+  let pendingStore: MemoryPendingClarificationStore;
 
   beforeEach(() => {
     const { TextProcessorService } = require('../../../../src/services/telegram/processors/text-processor.service');
     const { AudioProcessorService } = require('../../../../src/services/telegram/processors/audio-processor.service');
     gateStore = new MemoryConversationGateStore();
-    service = new MessageProcessorService(new TextProcessorService(), new AudioProcessorService(), gateStore);
+    pendingStore = new MemoryPendingClarificationStore();
+    service = new MessageProcessorService(
+      new TextProcessorService(),
+      new AudioProcessorService(),
+      gateStore,
+      pendingStore,
+    );
   });
 
   it('routes text messages to the text processor', async () => {
@@ -35,6 +43,27 @@ describe('MessageProcessorService', () => {
     );
 
     expect(spy).toHaveBeenCalledWith('hello world', 7, {});
+  });
+
+  it('forwards reply context to the text processor', async () => {
+    const textProcessor = (service as any).textProcessor;
+    const replyContext = '[In reply to your earlier message: "Created task: Buy milk"]';
+
+    await service.processTextMessage(
+      'add a due date',
+      7,
+      { requestId: 'req-1' },
+      undefined,
+      { replyContext },
+    );
+
+    expect(textProcessor.processTextMessage).toHaveBeenCalledWith(
+      'add a due date',
+      7,
+      { requestId: 'req-1' },
+      undefined,
+      { replyContext },
+    );
   });
 
   it('routes audio messages to the audio processor', async () => {
@@ -97,7 +126,57 @@ describe('MessageProcessorService', () => {
       7,
       { chatId: 100, messageId: 2 },
       undefined,
-      { pendingClarificationPreReserved: true },
+      {
+        pendingClarificationPreReserved: true,
+        onPendingPauseAccepted: undefined,
+        pendingPauseAcceptedNotified: false,
+      },
+    );
+  });
+
+  it('notifies clarification acceptance immediately after audio wins the gate', async () => {
+    const audioProcessor = (service as any).audioProcessor;
+    audioProcessor.processAudioMessage.mockResolvedValueOnce({ response: 'Done.', threadId: 'thread-hitl' });
+    const gateKey = buildConversationKey(7, 'telegram:7', 100);
+    await gateStore.tryAcquire(gateKey, 60000, 100);
+    await gateStore.transitionToWaiting(gateKey, 60000);
+    const now = Date.now();
+    await pendingStore.save({
+      pendingKey: gateKey,
+      threadId: 'thread-hitl',
+      question: 'Which task?',
+      telegramUserId: 7,
+      chatId: 100,
+      userId: 'telegram:7',
+      interruptType: 'clarify',
+      clarificationMessageId: 444,
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + 60000,
+    });
+    const onPendingPauseAccepted = jest.fn().mockResolvedValue(undefined);
+
+    await service.processAudioMessage(
+      'https://example.com/audio.ogg',
+      7,
+      { chatId: 100, messageId: 2 },
+      { onPendingPauseAccepted },
+    );
+
+    expect(onPendingPauseAccepted).toHaveBeenCalledWith({
+      clarificationMessageId: 444,
+      question: 'Which task?',
+    });
+    expect(onPendingPauseAccepted.mock.invocationCallOrder[0]).toBeLessThan(
+      audioProcessor.processAudioMessage.mock.invocationCallOrder[0],
+    );
+    expect(audioProcessor.processAudioMessage).toHaveBeenCalledWith(
+      expect.any(String),
+      7,
+      expect.any(Object),
+      expect.objectContaining({ onPendingPauseAccepted }),
+      expect.objectContaining({ pendingPauseAcceptedNotified: true }),
     );
   });
 
