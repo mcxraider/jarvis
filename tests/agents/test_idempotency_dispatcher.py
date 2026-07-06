@@ -179,7 +179,7 @@ class TestOperationLifecycle:
         assert second["success"] is True
         assert attempts == 2
 
-    def test_store_exception_fails_open(self):
+    def test_store_exception_blocks_mutation(self):
         handler = MagicMock(return_value={"ok": True})
         dispatcher = build_dispatcher(
             build_registry(mutating_handler=handler),
@@ -187,6 +187,20 @@ class TestOperationLifecycle:
         )
 
         result = dispatcher.execute_tool("call-1", "mutate", {}, "key")
+
+        assert result["success"] is False
+        assert result["mutation_blocked"] is True
+        assert "mutation safety" in result["error"]
+        handler.assert_not_called()
+
+    def test_store_exception_does_not_block_readonly_tool(self):
+        handler = MagicMock(return_value={"ok": True})
+        dispatcher = build_dispatcher(
+            build_registry(readonly_handler=handler),
+            ExplodingStore(),
+        )
+
+        result = dispatcher.execute_tool("call-1", "read", {}, "key")
 
         assert result["success"] is True
         handler.assert_called_once()

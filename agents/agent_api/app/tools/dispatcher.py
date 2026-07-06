@@ -237,7 +237,26 @@ class ToolDispatcher:
                         owner_token = claim.owner_token
                         self._trace_idempotency("claim_acquired", tool_name, resolved_key, ctx_thread_id, ctx_turn_count)
                     elif claim.state is ClaimState.UNAVAILABLE:
-                        self._trace_idempotency("fail_open", tool_name, resolved_key, ctx_thread_id, ctx_turn_count)
+                        self._trace_idempotency("fail_closed", tool_name, resolved_key, ctx_thread_id, ctx_turn_count)
+                        logger.warning(
+                            "Mutation blocked because idempotency is unavailable.",
+                            extra={
+                                "idempotency_operation": "claim",
+                                "tool_name": tool_name,
+                                "thread_id": ctx_thread_id,
+                                "turn_count": ctx_turn_count,
+                            },
+                        )
+                        return build_tool_result(
+                            tool_call_id,
+                            tool_name,
+                            success=False,
+                            error=(
+                                "This change was not made because mutation safety "
+                                "is temporarily unavailable. Please try again shortly."
+                            ),
+                            mutation_blocked=True,
+                        )
 
             content = self.supported_tools[tool_name](arguments)
             self.tracer.event("tool.done", "Tool call completed.", name=tool_name)
@@ -356,7 +375,7 @@ class ToolDispatcher:
                     if claim.state is ClaimState.COMPLETED
                     else "claim_takeover"
                     if claim.state is ClaimState.ACQUIRED
-                    else "fail_open"
+                    else "fail_closed"
                 )
                 self._trace_idempotency(event, tool_name, key, thread_id, turn_count)
                 return claim
