@@ -58,7 +58,7 @@ def _load_preferences(path: Path, stdin: TextIO) -> Dict[str, Any]:
         raise IntegrationAdminError(
             "Preferences do not match the supported schema."
         ) from exc
-    return validated.model_dump(mode="json")
+    return validated.model_dump(mode="json", exclude_unset=True)
 
 
 def _validate_todoist(secret: str) -> Dict[str, Any]:
