@@ -6,43 +6,18 @@ import { editMessageTextWithMarkdown, replyWithMarkdown } from './formatters/tel
 import {
   isRichMessagesEnabled,
   newDraftId,
+  renderThinkingLabel,
   sendRichDraft,
 } from './formatters/telegram-rich';
 
-// Maps agent progress stages to short, user-facing labels.
-// null = terminal stage (no UI update; completion handles cleanup).
-const STAGE_LABELS: Record<string, string | null> = {
-  run_started: 'Starting...',
-  run_resumed: 'Resuming...',
-  thinking: 'Thinking...',
-  model_request: 'Thinking...',
-  model_tool_decision: 'Planning actions...',
-  model_answer: 'Drafting response...',
-  route_tools: 'Routing to tools...',
-  tools_started: 'Preparing tools...',
-  tools_calling: 'Calling Todoist...',
-  tool_update: 'Updating Todoist...',
-  tool_lookup: 'Checking Todoist...',
-  tool_done: 'Processing results...',
-  tool_issue: 'Handling an issue...',
-  route_agent: 'Continuing...',
-  synthesizing: 'Writing response...',
-  clarifying: 'Preparing question...',
-  done: null,
-  paused: null,
-  paused_confirm: null,
-  paused_clarify: null,
-  failed: null,
-};
-
-// Fallback labels used only when no progress events arrive (non-streaming mode).
-const FALLBACK_LABELS = ['Thinking...', 'Fetching', 'Writing'] as const;
-const TRANSCRIBING_LABEL = 'Transcribing...';
-
-const MIN_UPDATE_INTERVAL_MS = 2_000;
-const HEARTBEAT_INTERVAL_MS = 8_000;
-const THINKING_CUSTOM_EMOJI_ID = '5573333417954639880';
-const THINKING_CUSTOM_EMOJI_FALLBACK = '😀';
+// The status line is deliberately dumb: a fixed base phrase whose only motion is the
+// trailing ellipsis. The phrase never rotates and never reacts to agent stages — the
+// dots cycling on an ~800ms tick are all the "alive" signal we need. Every dot frame is
+// a real Telegram API call, so the interval is kept comfortably under the throttle
+// (~1.25 calls/sec) rather than the snappier-but-riskier sub-second rates.
+const THINKING_LABEL = 'Thinking';
+const TRANSCRIBING_LABEL = 'Transcribing';
+const DOT_INTERVAL_MS = 800;
 
 export class TelegramProgressReporter {
   private statusMessage?: Message.TextMessage;
@@ -52,21 +27,10 @@ export class TelegramProgressReporter {
   private agentPhaseStarted = false;
   private completed = false;
 
-  // Event-driven state
-  private currentLabel = '';
-  private lastPaintTime = 0;
-  private pendingLabel: string | null = null;
-  private debounceTimer?: ReturnType<typeof setTimeout>;
-  private receivedAnyEvent = false;
-
-  // Heartbeat state (replaces the old rotation timer)
-  private heartbeatTimer?: ReturnType<typeof setInterval>;
-  private heartbeatDots = 0;
-
-  // Fallback rotation state (for non-streaming mode)
-  private fallbackTimer?: ReturnType<typeof setInterval>;
-  private fallbackIndex = 0;
-  private rotationInFlight = false;
+  private baseLabel = THINKING_LABEL;
+  private dotFrame = 0;
+  private dotTimer?: ReturnType<typeof setInterval>;
+  private paintInFlight = false;
 
   constructor(
     private readonly ctx: Context,
@@ -80,18 +44,21 @@ export class TelegramProgressReporter {
 
     this.started = true;
     this.agentPhaseStarted = true;
-    this.currentLabel = FALLBACK_LABELS[0];
-    await this.showInitialStatus(this.currentLabel);
-    this.lastPaintTime = Date.now();
-    this.startFallbackRotation();
+    this.baseLabel = THINKING_LABEL;
+    this.dotFrame = 0;
+    await this.showInitialStatus(this.compose());
+    this.startDots();
   }
 
   async startTranscribing(): Promise<void> {
     if (this.started || this.completed) return;
 
     this.started = true;
-    this.currentLabel = TRANSCRIBING_LABEL;
-    await this.showInitialStatus(TRANSCRIBING_LABEL);
+    this.baseLabel = TRANSCRIBING_LABEL;
+    this.dotFrame = 0;
+    // Static on purpose: transcription is short, so we skip the dot timer and its API
+    // chatter until the agent phase begins.
+    await this.showInitialStatus(this.compose());
   }
 
   // Tears down the "Transcribing..." block before the transcription message is
@@ -110,92 +77,57 @@ export class TelegramProgressReporter {
 
     this.started = true;
     this.agentPhaseStarted = true;
-    this.currentLabel = FALLBACK_LABELS[0];
-    await this.paintLabel(this.currentLabel);
-    this.lastPaintTime = Date.now();
-    this.startFallbackRotation();
+    this.baseLabel = THINKING_LABEL;
+    this.dotFrame = 0;
+    await this.paintLabel(this.compose());
+    this.startDots();
   }
 
-  async record(event: LangGraphProgressEvent): Promise<void> {
-    if (this.completed || !this.agentPhaseStarted) return;
-
-    const label = STAGE_LABELS[event.stage];
-    if (label === undefined || label === null) return;
-    if (label === this.currentLabel) return;
-
-    // First event: kill fallback rotation, switch to event-driven mode
-    if (!this.receivedAnyEvent) {
-      this.receivedAnyEvent = true;
-      this.stopFallbackRotation();
-      this.startHeartbeat();
-    }
-
-    this.heartbeatDots = 0;
-    this.scheduleUpdate(label);
+  // The status line no longer reflects agent stages, so progress events are UI-neutral.
+  // The method stays on the public API because callers still invoke it (and derive the
+  // completion status from the stage themselves).
+  async record(_event: LangGraphProgressEvent): Promise<void> {
+    return;
   }
 
   async complete(
     _status: 'Done' | 'Paused for confirmation' | 'Paused for clarification' | 'Something went wrong',
   ): Promise<void> {
     this.completed = true;
-    this.stopFallbackRotation();
-    this.stopHeartbeat();
-    this.clearDebounce();
+    this.stopDots();
     await this.removePlainStatus();
   }
 
-  private scheduleUpdate(label: string): void {
-    const now = Date.now();
-    const elapsed = now - this.lastPaintTime;
-
-    if (elapsed >= MIN_UPDATE_INTERVAL_MS) {
-      this.clearDebounce();
-      this.applyLabel(label);
-    } else {
-      this.pendingLabel = label;
-      if (!this.debounceTimer) {
-        const wait = MIN_UPDATE_INTERVAL_MS - elapsed;
-        this.debounceTimer = setTimeout(() => {
-          this.debounceTimer = undefined;
-          if (this.pendingLabel && !this.completed) {
-            const buffered = this.pendingLabel;
-            this.pendingLabel = null;
-            this.applyLabel(buffered);
-          }
-        }, wait);
-      }
-    }
+  private dots(): string {
+    return '.'.repeat((this.dotFrame % 3) + 1);
   }
 
-  private applyLabel(label: string): void {
-    if (this.completed || label === this.currentLabel) return;
-    this.currentLabel = label;
-    this.lastPaintTime = Date.now();
-    void this.paintLabel(label);
+  private compose(): string {
+    return `${this.baseLabel}${this.dots()}`;
   }
 
-  // Heartbeat: if no events arrive for a while, animate dots to show liveness
-  private heartbeat(): void {
-    if (this.completed) return;
-    this.heartbeatDots = (this.heartbeatDots + 1) % 3;
-
-    const base = this.currentLabel.replace(/\.+$/, '');
-    const dots = '.'.repeat(this.heartbeatDots + 1);
-    void this.paintLabel(`${base}${dots}`);
+  private startDots(): void {
+    if (this.completed || this.dotTimer) return;
+    this.dotTimer = setInterval(() => void this.tickDots(), DOT_INTERVAL_MS);
   }
 
-  // Fallback: timer-based rotation for when no streaming events arrive
-  private async fallbackRotate(): Promise<void> {
-    if (this.completed || this.rotationInFlight || this.receivedAnyEvent) return;
+  private stopDots(): void {
+    if (!this.dotTimer) return;
+    clearInterval(this.dotTimer);
+    this.dotTimer = undefined;
+  }
 
-    this.rotationInFlight = true;
-    this.fallbackIndex = (this.fallbackIndex + 1) % FALLBACK_LABELS.length;
-    this.currentLabel = FALLBACK_LABELS[this.fallbackIndex];
+  // Skip a tick if the previous paint is still in flight, so slow network paints can't
+  // stack up drafts behind the interval.
+  private async tickDots(): Promise<void> {
+    if (this.completed || this.paintInFlight) return;
 
+    this.paintInFlight = true;
+    this.dotFrame += 1;
     try {
-      await this.paintLabel(this.currentLabel);
+      await this.paintLabel(this.compose());
     } finally {
-      this.rotationInFlight = false;
+      this.paintInFlight = false;
     }
   }
 
@@ -206,7 +138,7 @@ export class TelegramProgressReporter {
         await sendRichDraft(this.ctx, this.draftId, this.renderRichLabel(label));
         return;
       } catch (error) {
-        this.disableRichMode('progress.start', error as Error);
+        this.disableRichMode('progress.start', error);
       }
     }
 
@@ -219,7 +151,7 @@ export class TelegramProgressReporter {
         await sendRichDraft(this.ctx, this.draftId, this.renderRichLabel(label));
         return;
       } catch (error) {
-        this.disableRichMode('progress.update', error as Error);
+        this.disableRichMode('progress.update', error);
         if (!this.completed) {
           await this.createPlainStatus(label);
         }
@@ -244,7 +176,7 @@ export class TelegramProgressReporter {
     } catch (error) {
       logger.warn('telegram.progress.start_failed', {
         ...this.logContext,
-        error: (error as Error).message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -266,7 +198,7 @@ export class TelegramProgressReporter {
     } catch (error) {
       logger.warn('telegram.progress.edit_failed', {
         ...this.logContext,
-        error: (error as Error).message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -284,59 +216,22 @@ export class TelegramProgressReporter {
     } catch (error) {
       logger.warn('telegram.progress.delete_failed', {
         ...this.logContext,
-        error: (error as Error).message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
 
-  private disableRichMode(stage: string, error: Error): void {
+  private disableRichMode(stage: string, error: unknown): void {
     this.richActive = false;
     this.draftId = undefined;
     logger.warn('telegram.rich.fallback', {
       ...this.logContext,
       stage,
-      error: error.message,
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 
-  private startHeartbeat(): void {
-    if (this.completed || this.heartbeatTimer) return;
-    this.heartbeatTimer = setInterval(() => this.heartbeat(), HEARTBEAT_INTERVAL_MS);
-  }
-
-  private stopHeartbeat(): void {
-    if (!this.heartbeatTimer) return;
-    clearInterval(this.heartbeatTimer);
-    this.heartbeatTimer = undefined;
-  }
-
-  private startFallbackRotation(): void {
-    if (this.completed || this.fallbackTimer) return;
-    this.fallbackTimer = setInterval(() => {
-      if (!this.rotationInFlight) {
-        void this.fallbackRotate();
-      }
-    }, 10_000);
-  }
-
-  private stopFallbackRotation(): void {
-    if (!this.fallbackTimer) return;
-    clearInterval(this.fallbackTimer);
-    this.fallbackTimer = undefined;
-  }
-
-  private clearDebounce(): void {
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-      this.debounceTimer = undefined;
-    }
-    this.pendingLabel = null;
-  }
-
   private renderRichLabel(label: string): string {
-    const emoji =
-      `<tg-emoji emoji-id="${THINKING_CUSTOM_EMOJI_ID}">` +
-      `${THINKING_CUSTOM_EMOJI_FALLBACK}</tg-emoji>`;
-    return `<tg-thinking>${emoji} ${label}</tg-thinking>`;
+    return renderThinkingLabel(label);
   }
 }

@@ -8,7 +8,6 @@ Re-exports the historical ``graph.prompts`` import surface so existing callers
 from agents.agent_api.app.graph.prompts.context import (
     USER_PROMPT,
     USER_PROMPTS,
-    available_tools_line,
     build_initial_messages,
     build_user_prompt_with_request_datetime,
 )
@@ -17,6 +16,7 @@ from agents.agent_api.app.graph.prompts.orchestrator import (
     ORCHESTRATOR_PROMPT,
     get_orchestrator_prompt,
     get_system_prompt,
+    resolve_user_name,
 )
 from agents.agent_api.app.graph.prompts.worker import WORKER_PROMPT, get_worker_prompt
 
@@ -26,10 +26,10 @@ __all__ = [
     "USER_PROMPT",
     "USER_PROMPTS",
     "WORKER_PROMPT",
-    "available_tools_line",
     "build_initial_messages",
     "build_user_prompt_with_request_datetime",
     "get_orchestrator_prompt",
     "get_system_prompt",
     "get_worker_prompt",
+    "resolve_user_name",
 ]

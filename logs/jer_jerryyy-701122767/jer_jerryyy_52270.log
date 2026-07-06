@@ -1,0 +1,29 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-04T02:35:05+08:00
+request_id: tg_update_564452270
+thread_id: tg_tg_update_564452270
+user_id: telegram:701122767
+telegram_user_id: 701122767
+telegram_username: jer_jerryyy
+telegram_first_name: jerry
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-04 02:35:05.971 | section              | === Jarvis LangGraph Run ===
+2026-07-04 02:35:05.971 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_564452270
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: tg_tg_update_564452270
+      request_source: telegram
+      resuming: false
+2026-07-04 02:35:05.971 | runtime.prompt       | [payload] user_prompt: helllo
+2026-07-04 02:35:06.151 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools

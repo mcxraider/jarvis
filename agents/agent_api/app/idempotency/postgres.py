@@ -1,4 +1,4 @@
-"""Lazy, fail-open Postgres idempotency storage."""
+"""Lazy Postgres idempotency storage with migration-owned schema."""
 
 from __future__ import annotations
 
@@ -14,43 +14,8 @@ logger = logging.getLogger(__name__)
 
 _CLEANUP_ADVISORY_LOCK_ID = 475_271_901
 
-_SETUP_STATEMENTS = (
-    """
-    CREATE TABLE IF NOT EXISTS idempotency_results (
-        idempotency_key TEXT PRIMARY KEY,
-        layer TEXT NOT NULL,
-        tool_name TEXT,
-        status TEXT NOT NULL DEFAULT 'in_progress',
-        owner_token TEXT,
-        result_json JSONB,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        lease_expires_at TIMESTAMPTZ,
-        expires_at TIMESTAMPTZ NOT NULL
-    )
-    """,
-    "ALTER TABLE idempotency_results ALTER COLUMN result_json DROP NOT NULL",
-    (
-        "ALTER TABLE idempotency_results "
-        "ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'in_progress'"
-    ),
-    "ALTER TABLE idempotency_results ADD COLUMN IF NOT EXISTS owner_token TEXT",
-    (
-        "ALTER TABLE idempotency_results "
-        "ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ"
-    ),
-    (
-        "UPDATE idempotency_results SET status = 'completed' "
-        "WHERE result_json IS NOT NULL AND status <> 'completed'"
-    ),
-    (
-        "CREATE INDEX IF NOT EXISTS idx_idempotency_expires "
-        "ON idempotency_results(expires_at)"
-    ),
-)
-
-
 class PostgresIdempotencyStore:
-    """Postgres store that connects and migrates only on first use."""
+    """Postgres store that lazily connects without changing database schema."""
 
     def __init__(
         self,
@@ -62,8 +27,7 @@ class PostgresIdempotencyStore:
         self._dsn = dsn
         self._pool_factory = pool_factory
         self._pool: Optional[Any] = None
-        self._setup_complete = False
-        self._setup_lock = threading.Lock()
+        self._pool_lock = threading.Lock()
 
     def claim(
         self,
@@ -288,35 +252,31 @@ class PostgresIdempotencyStore:
             return 0
 
     def _ensure_pool(self) -> Any:
-        if self._setup_complete and self._pool is not None:
+        if self._pool is not None:
             return self._pool
 
-        with self._setup_lock:
-            if self._setup_complete and self._pool is not None:
+        with self._pool_lock:
+            if self._pool is not None:
                 return self._pool
 
-            if self._pool is None:
-                factory = self._pool_factory
-                if factory is None:
-                    from psycopg_pool import ConnectionPool
+            factory = self._pool_factory
+            if factory is None:
+                from psycopg_pool import ConnectionPool
 
-                    factory = ConnectionPool
-                self._pool = factory(
-                    conninfo=self._dsn,
-                    kwargs={"autocommit": True, "prepare_threshold": None},
-                    open=False,
-                )
-                if hasattr(self._pool, "open"):
-                    self._pool.open()
-                if hasattr(self._pool, "wait"):
-                    self._pool.wait()
-
-            with self._pool.connection() as connection:
-                with connection.transaction():
-                    with connection.cursor() as cursor:
-                        for statement in _SETUP_STATEMENTS:
-                            cursor.execute(statement)
-            self._setup_complete = True
+                factory = ConnectionPool
+            self._pool = factory(
+                conninfo=self._dsn,
+                kwargs={"autocommit": True, "prepare_threshold": None},
+                open=False,
+            )
+            if hasattr(self._pool, "open"):
+                self._pool.open()
+            if hasattr(self._pool, "wait"):
+                self._pool.wait()
+            logger.info(
+                "Idempotency database pool ready.",
+                extra={"idempotency_operation": "connect"},
+            )
             return self._pool
 
     @staticmethod

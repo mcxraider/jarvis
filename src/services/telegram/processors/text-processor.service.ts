@@ -19,11 +19,19 @@ export interface TextProcessorResult {
   threadId?: string;
   blocked?: boolean;
   bufferedMessage?: string;
+  consumedClarificationMessageId?: number;
+  consumedClarificationQuestion?: string;
+  // True when this turn resolved or superseded a pending pause (a pending record left 'pending').
+  // The handler uses this to distinguish a consumed plain indicator id from unrelated result data.
+  resolvedPendingPause?: boolean;
 }
 
 export interface TextProcessorOptions {
   gatePreAcquired?: boolean;
   pendingClarificationPreReserved?: boolean;
+  replyContext?: string;
+  onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
+  pendingPauseAcceptedNotified?: boolean;
   // When set, abandon any pending clarify/confirm interrupt for this conversation and start
   // a brand-new agent thread for `text`. Used by the /new command. If the agent is actively
   // running (not just waiting on the user), the request is refused rather than started
@@ -31,7 +39,18 @@ export interface TextProcessorOptions {
   forceFresh?: boolean;
 }
 
+export interface PendingPausePresentation {
+  clarificationMessageId?: number;
+  question: string;
+}
+
 export type AbandonOutcome = 'idle' | 'running' | 'abandoned';
+
+interface AbandonResult {
+  outcome: AbandonOutcome;
+  clarificationMessageId?: number;
+  question?: string;
+}
 
 export class TextProcessorService {
   private readonly pendingClarificationTtlMs: number;
@@ -55,12 +74,17 @@ export class TextProcessorService {
     onProgress?: LangGraphProgressCallback,
     options?: TextProcessorOptions,
   ): Promise<TextProcessorResult> {
+    const normalizedText = text.trim();
+    if (!normalizedText) {
+      return { response: 'Please send a message with some text.' };
+    }
+
     const startedAt = Date.now();
 
     logger.info('text_processor.started', {
       ...logContext,
       userId,
-      messageLength: text.length,
+      messageLength: normalizedText.length,
     });
 
     const internalUserId = mapTelegramUserId(userId);
@@ -78,35 +102,45 @@ export class TextProcessorService {
           };
         }
         return await this.handlePendingClarification(
-          text,
+          normalizedText,
           pending,
           gateKey,
           internalUserId,
           userId,
           logContext,
           onProgress,
-          { alreadyRunning: true },
+          {
+            alreadyRunning: true,
+            onPendingPauseAccepted: options.onPendingPauseAccepted,
+            pendingPauseAcceptedNotified: options.pendingPauseAcceptedNotified,
+          },
         );
       }
 
       // /new: drop any pending clarify/confirm and fall through to the fresh acquire+invoke
       // path below. Refuse if the agent is mid-flight so we never run two invokes on one gate.
+      let supersededClarificationMessageId: number | undefined;
+      let supersededClarificationQuestion: string | undefined;
+      let supersededPause = false;
       if (options?.forceFresh && !gateAcquired) {
-        const outcome = await this.abandonIfWaiting(gateKey, logContext);
-        if (outcome === 'running') {
+        const abandon = await this.abandonIfWaiting(gateKey, logContext);
+        if (abandon.outcome === 'running') {
           logger.info('conversation_gate.force_fresh_blocked', { ...logContext, gateKey });
           return {
             response: "I'm still finishing your previous request — try /new again in a moment, or /cancel.",
             blocked: true,
           };
         }
+        supersededPause = abandon.outcome === 'abandoned';
+        supersededClarificationMessageId = abandon.clarificationMessageId;
+        supersededClarificationQuestion = abandon.question;
       }
 
       if (!gateAcquired) {
         const gateStatus = await this.safeGetGateStatus(gateKey);
 
         if (gateStatus === 'running') {
-          await this.conversationGate.setBufferedMessage(gateKey, text).catch(() => {});
+          await this.conversationGate.setBufferedMessage(gateKey, normalizedText).catch(() => {});
           logger.info('conversation_gate.blocked', { ...logContext, gateKey });
           return {
             response: "I'm still working on your previous request. Your message has been noted — I'll mention it when I'm done.",
@@ -120,7 +154,16 @@ export class TextProcessorService {
             logger.warn('conversation_gate.inconsistent_state', { ...logContext, gateKey });
             await this.conversationGate.release(gateKey).catch(() => {});
           } else {
-            return await this.handlePendingClarification(text, pending, gateKey, internalUserId, userId, logContext, onProgress);
+            return await this.handlePendingClarification(
+              normalizedText,
+              pending,
+              gateKey,
+              internalUserId,
+              userId,
+              logContext,
+              onProgress,
+              { onPendingPauseAccepted: options?.onPendingPauseAccepted, replyContext: options?.replyContext },
+            );
           }
         }
 
@@ -137,13 +180,19 @@ export class TextProcessorService {
 
       const threadId = `tg_${logContext.requestId || randomUUID()}`;
       const requestContext = { ...logContext, threadId };
+      const message = options?.replyContext
+        ? `${options.replyContext}\n\n${normalizedText}`
+        : normalizedText;
       const agentRequest = {
-        message: text,
+        message,
         userId: internalUserId,
         source: 'telegram',
-        telegramUserId: userId,
-        telegramUsername: logContext.telegramUsername,
-        telegramFirstName: logContext.telegramFirstName,
+        telegramIdentity: userId === undefined
+          ? undefined
+          : {
+              telegramId: userId,
+              username: logContext.telegramUsername,
+            },
         requestId: logContext.requestId,
         threadId,
       };
@@ -170,7 +219,7 @@ export class TextProcessorService {
       logger.info('text_processor.completed', {
         ...logContext,
         userId,
-        messageLength: text.length,
+        messageLength: normalizedText.length,
         responseLength: response.length,
         agentStatus: agentResponse.status,
         threadId: agentResponse.threadId,
@@ -179,7 +228,15 @@ export class TextProcessorService {
         durationMs: Date.now() - startedAt,
       });
 
-      return { response, interruptType: resultInterruptType, threadId: agentResponse.threadId, bufferedMessage: buffered };
+      return {
+        response,
+        interruptType: resultInterruptType,
+        threadId: agentResponse.threadId,
+        bufferedMessage: buffered,
+        consumedClarificationMessageId: supersededClarificationMessageId,
+        consumedClarificationQuestion: supersededClarificationQuestion,
+        resolvedPendingPause: supersededPause,
+      };
     } catch (error) {
       if (gateAcquired) {
         await this.conversationGate.release(gateKey).catch(e =>
@@ -190,7 +247,7 @@ export class TextProcessorService {
       logger.error('text_processor.failed', {
         ...logContext,
         userId,
-        messageLength: text.length,
+        messageLength: normalizedText.length,
         error: (error as Error).message,
         durationMs: Date.now() - startedAt,
       });
@@ -208,21 +265,27 @@ export class TextProcessorService {
   async abandonConversation(userId: number | undefined, logContext: LogContext = {}): Promise<AbandonOutcome> {
     const internalUserId = mapTelegramUserId(userId);
     const gateKey = buildConversationKey(userId, internalUserId, logContext.chatId);
-    return this.abandonIfWaiting(gateKey, logContext);
+    return (await this.abandonIfWaiting(gateKey, logContext)).outcome;
   }
 
-  private async abandonIfWaiting(gateKey: string, logContext: LogContext): Promise<AbandonOutcome> {
+  private async abandonIfWaiting(gateKey: string, logContext: LogContext): Promise<AbandonResult> {
     const status = await this.safeGetGateStatus(gateKey);
     if (status === 'running') {
-      return 'running';
+      return { outcome: 'running' };
     }
     if (status === 'waiting_for_clarification') {
+      // Read the record before clearing so its clarification block can be collapsed.
+      const pending = await this.pendingClarificationStore.get(gateKey).catch(() => undefined);
       await this.conversationGate.release(gateKey).catch(() => {});
       await this.pendingClarificationStore.clear(gateKey, 'superseded').catch(() => {});
       logger.info('conversation_gate.superseded', { ...logContext, gateKey });
-      return 'abandoned';
+      return {
+        outcome: 'abandoned',
+        clarificationMessageId: pending?.clarificationMessageId,
+        question: pending?.question,
+      };
     }
-    return 'idle';
+    return { outcome: 'idle' };
   }
 
   private async handlePendingClarification(
@@ -233,7 +296,12 @@ export class TextProcessorService {
     userId: number | undefined,
     logContext: LogContext,
     onProgress?: LangGraphProgressCallback,
-    options?: { alreadyRunning?: boolean },
+    options?: {
+      alreadyRunning?: boolean;
+      onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
+      pendingPauseAcceptedNotified?: boolean;
+      replyContext?: string;
+    },
   ): Promise<TextProcessorResult> {
     if (pending.interruptType === 'confirm' && !this.isConfirmDecision(text)) {
       if (options?.alreadyRunning) {
@@ -253,13 +321,36 @@ export class TextProcessorService {
       }
     }
 
+    let pausePresentationHandled = options?.pendingPauseAcceptedNotified ?? false;
+    if (!pausePresentationHandled && pending.clarificationMessageId !== undefined) {
+      try {
+        await options?.onPendingPauseAccepted?.({
+          clarificationMessageId: pending.clarificationMessageId,
+          question: pending.question,
+        });
+        pausePresentationHandled = Boolean(options?.onPendingPauseAccepted);
+      } catch (error) {
+        logger.warn('telegram.clarification.acceptance_hook_failed', {
+          ...logContext,
+          gateKey,
+          clarificationMessageId: pending.clarificationMessageId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
     const agentRequest = {
+      // A clarification response must remain the user's answer alone; quoted
+      // Telegram reply context is presentation data, not graph resume input.
       message: text,
       userId: internalUserId,
       source: 'telegram',
-      telegramUserId: userId,
-      telegramUsername: logContext.telegramUsername,
-      telegramFirstName: logContext.telegramFirstName,
+      telegramIdentity: userId === undefined
+        ? undefined
+        : {
+            telegramId: userId,
+            username: logContext.telegramUsername,
+          },
       requestId: logContext.requestId,
       threadId: pending.threadId,
     };
@@ -293,6 +384,9 @@ export class TextProcessorService {
         interruptType: resultInterruptType,
         threadId: agentResponse.threadId,
         bufferedMessage: buffered,
+        consumedClarificationMessageId: pausePresentationHandled ? undefined : pending.clarificationMessageId,
+        consumedClarificationQuestion: pausePresentationHandled ? undefined : pending.question,
+        resolvedPendingPause: true,
       };
     } catch (error) {
       await this.conversationGate.transitionToWaiting(gateKey, this.waitingTtlMs).catch(() => {

@@ -6,20 +6,21 @@ from typing import Optional
 from fastapi import HTTPException
 
 from agents.agent_api.app.config import settings
+from agents.agent_api.app.user_context.identity import TelegramIdentity
 
 logger = logging.getLogger(__name__)
 
 
 def validate_thread_ownership(
     thread_id: str,
-    telegram_user_id: Optional[int],
+    identity: Optional[TelegramIdentity],
 ) -> None:
-    """Raise 403 if thread_id belongs to a different telegram user.
+    """Raise 403 if thread_id belongs to a different external identity.
 
-    No-ops when: postgres_dsn unset, telegram_user_id is None, or thread not
+    No-ops when: postgres_dsn unset, identity is None, or thread not
     found in registry (legacy threads predate registration).
     """
-    if not settings.postgres_dsn or telegram_user_id is None:
+    if not settings.postgres_dsn or identity is None:
         return
 
     try:
@@ -30,18 +31,16 @@ def validate_thread_ownership(
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT u.telegram_user_id
+                    SELECT t.user_id = public.resolve_user_id(%s)
                     FROM threads t
-                    JOIN users u ON u.id = t.user_id
                     WHERE t.thread_id = %s
                     """,
-                    (thread_id,),
+                    (identity.telegram_id, thread_id),
                 )
                 row = cur.fetchone()
                 if row is None:
                     return
-                owner_telegram_id = int(row[0]) if row[0] is not None else None
-                if owner_telegram_id is not None and owner_telegram_id != telegram_user_id:
+                if not row[0]:
                     raise HTTPException(
                         status_code=403,
                         detail="Thread belongs to a different user.",

@@ -71,7 +71,7 @@ describe('TextProcessorService — conversation gate integration', () => {
 
       const agentClient = mockAgentClient();
       const service = createService(agentClient, pendingStore, gateStore);
-      await service.processTextMessage('buffered msg', 42, { chatId: 100, messageId: 2 });
+      await service.processTextMessage(' \n buffered msg \t ', 42, { chatId: 100, messageId: 2 });
 
       // Verify the buffer was set by checking the gate store directly
       const key = 'telegram-chat:' + require('crypto').createHash('sha256').update('100:42').digest('hex').slice(0, 32);

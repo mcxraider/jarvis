@@ -1,0 +1,88 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-04T17:11:31+08:00
+request_id: tg_update_564452341
+thread_id: tg_tg_update_564452341
+user_id: telegram:701122767
+telegram_user_id: 701122767
+telegram_username: jer_jerryyy
+telegram_first_name: jerry
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-04 17:11:32.002 | section              | === Jarvis LangGraph Run ===
+2026-07-04 17:11:32.002 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_564452341
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: tg_tg_update_564452341
+      request_source: telegram
+      resuming: false
+2026-07-04 17:11:32.003 | runtime.prompt       | [payload] user_prompt: ☺️
+2026-07-04 17:11:32.631 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-04 17:11:32.894 | graph.agent          | Entering agent node.
+      turn: 1
+      max_turns: 20
+      messages: 2
+2026-07-04 17:11:32.895 | graph.tools.selected | Selected tools for this turn.
+      available: 21
+      selected: 21
+2026-07-04 17:11:32.898 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 2
+      tools: 21
+2026-07-04 17:11:35.719 | agent.response       | Received assistant message.
+      has_tool_calls: false
+      tool_calls: 0
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 7684
+      completion_tokens: 195
+      total_tokens: 7879
+      cached_tokens: 7552
+      cache_hit_rate: 98.3
+2026-07-04 17:11:35.722 | graph.hitl_upgrade   | Converted text question to ask_user tool call.
+      question_preview:Hey Jerry! 👋
+
+Happy Saturday! I'm here and ready to help. Do you need me to look up any tasks, sched
+2026-07-04 17:11:35.722 | graph.route          | Agent node completed.
+      next: hitl
+      turn: 1
+2026-07-04 17:11:35.729 | graph.hitl           | Interrupting for user clarification.
+      question:Hey Jerry! 👋
+
+Happy Saturday! I'm here and ready to help. Do you need me to look up any tasks, schedule something, or manage anything in Todoist or Google Calendar? Just let me know what you need! 😊
+      deferred_tools: 0
+      extra_questions: 0
+2026-07-04 17:11:35.781 | runtime.done         | Graph invocation completed.
+      request_id: tg_update_564452341
+      turns: 1
+      tool_results: 0
+      has_error: false
+      interrupted: true
+      interrupt_type: clarify
+      total_tokens: 7879
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-07-04T17:11:35+08:00
+duration_seconds: 3.792
+request_id: tg_update_564452341
+turns: 1
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 7684
+completion_tokens: 195
+total_tokens: 7879
+cached_tokens: 7552
+cache_hit_rate: 98.3
+reasoning_tokens: 144
+==============================================================================

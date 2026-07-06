@@ -46,6 +46,7 @@ export function createWebhookRouter(botService: TelegramBotService) {
       requestId,
       updateId: req.body?.update_id,
       messageType: getTelegramMessageType(req.body),
+      hasReplyToMessage: Boolean(req.body?.message?.reply_to_message),
     });
 
     // Respond 200 immediately so Telegram doesn't retry on slow processing.

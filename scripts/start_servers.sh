@@ -21,7 +21,7 @@ sleep 1
 
 echo "==> Checking required .env vars"
 missing=()
-for key in ALLOWED_TELEGRAM_USER_IDS DEEPSEEK_API_KEY LANGGRAPH_AGENT_URL; do
+for key in DEEPSEEK_API_KEY LANGGRAPH_AGENT_URL; do
   if ! grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
     missing+=("$key")
   fi

@@ -23,6 +23,7 @@ class JarvisState(TypedDict, total=False):
     error: str
     run_log_path: str
     next: str
+    runtime_context: Dict[str, Any]
 
     # Confirm gate fields — freeze risky actions for human approval.
     held_calls: Optional[List[Dict[str, Any]]]

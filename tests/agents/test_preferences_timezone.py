@@ -1,111 +1,90 @@
-"""Tests for user preferences lookup and timezone threading."""
+"""Tests for versioned preference validation and timezone threading."""
 
-import logging
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
-from agents.agent_api.app.credentials import get_user_preferences
 from agents.agent_api.app.graph.prompts.orchestrator import (
     _user_timezone,
     get_orchestrator_prompt,
     get_system_prompt,
 )
+from agents.agent_api.app.user_context.preferences import (
+    PreferenceConfigurationError,
+    ResolvedUserPreferences,
+)
 
 
-class FakeCursor:
-    def __init__(self, row=None):
-        self.statements = []
-        self._row = row
+class TestResolvedUserPreferences:
+    valid_preferences = {
+        "communication": {"tone": "casual", "verbosity": "concise"},
+        "routing": {
+            "task_provider": "todoist",
+            "event_provider": "google_calendar",
+            "calendar_usage": "default",
+        },
+        "domains": {
+            "todoist": {},
+            "google_calendar": {"event_category_defaults": {}},
+        },
+    }
 
-    def __enter__(self):
-        return self
+    def test_valid_row_validates(self):
+        resolved = ResolvedUserPreferences.from_database_row(
+            ("user-id", 1, 3, self.valid_preferences)
+        )
+        assert resolved.revision == 3
+        assert resolved.preferences.routing.event_provider == "google_calendar"
 
-    def __exit__(self, *_args):
-        return False
+    def test_live_routing_and_domain_fields_validate(self):
+        preferences = {
+            "communication": {"tone": "casual", "verbosity": "concise"},
+            "routing": {
+                "task_provider": "todoist",
+                "event_provider": "todoist",
+                "reminder_provider": "todoist",
+                "time_related_provider": "todoist",
+                "explicit_calendar_provider": "google_calendar",
+                "calendar_usage": "explicit_only",
+            },
+            "domains": {
+                "todoist": {
+                    "usage": "tasks_and_scheduling",
+                    "default_for": ["tasks", "reminders", "events"],
+                },
+                "google_calendar": {
+                    "usage": "explicit_only",
+                    "event_category_defaults": {},
+                },
+            },
+        }
 
-    def execute(self, statement, params=None):
-        self.statements.append((" ".join(statement.split()), params))
+        resolved = ResolvedUserPreferences.from_database_row(
+            ("user-id", 1, 2, preferences)
+        )
 
-    def fetchone(self):
-        return self._row
+        assert resolved.preferences.routing.reminder_provider == "todoist"
+        assert resolved.preferences.routing.explicit_calendar_provider == "google_calendar"
+        assert resolved.preferences.domains.todoist.default_for == [
+            "tasks",
+            "reminders",
+            "events",
+        ]
 
+    def test_unknown_schema_version_fails_closed(self):
+        with pytest.raises(PreferenceConfigurationError):
+            ResolvedUserPreferences.from_database_row(
+                ("user-id", 2, 1, self.valid_preferences)
+            )
 
-class FakeConnection:
-    def __init__(self, cursor):
-        self._cursor = cursor
+    def test_malformed_preferences_fail_closed(self):
+        with pytest.raises(PreferenceConfigurationError):
+            ResolvedUserPreferences.from_database_row(("user-id", 1, 1, "not a dict"))
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_args):
-        return False
-
-    def cursor(self):
-        return self._cursor
-
-
-class FakePool:
-    def __init__(self, cursor):
-        self._cursor = cursor
-
-    def connection(self):
-        return FakeConnection(self._cursor)
-
-
-class TestGetUserPreferences:
-    def test_returns_empty_dict_when_telegram_user_id_is_none(self):
-        assert get_user_preferences(None) == {}
-
-    def test_returns_empty_dict_when_dsn_is_falsy(self):
-        with patch(
-            "agents.agent_api.app.credentials.settings",
-            SimpleNamespace(postgres_dsn=""),
-        ):
-            assert get_user_preferences(42) == {}
-
-    def test_returns_preferences_dict_from_row(self):
-        prefs = {"timezone": "America/New_York", "language": "en"}
-        cursor = FakeCursor(row=(prefs,))
-        pool = FakePool(cursor)
-        with patch(
-            "agents.agent_api.app.credentials.settings",
-            SimpleNamespace(postgres_dsn="postgresql://fake"),
-        ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            result = get_user_preferences(42)
-        assert result == prefs
-
-    def test_returns_empty_dict_when_no_row(self):
-        cursor = FakeCursor(row=None)
-        pool = FakePool(cursor)
-        with patch(
-            "agents.agent_api.app.credentials.settings",
-            SimpleNamespace(postgres_dsn="postgresql://fake"),
-        ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            assert get_user_preferences(42) == {}
-
-    def test_returns_empty_dict_when_row_value_is_not_dict(self):
-        cursor = FakeCursor(row=("not a dict",))
-        pool = FakePool(cursor)
-        with patch(
-            "agents.agent_api.app.credentials.settings",
-            SimpleNamespace(postgres_dsn="postgresql://fake"),
-        ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            assert get_user_preferences(42) == {}
-
-    def test_returns_empty_dict_on_exception(self, caplog):
-        with patch(
-            "agents.agent_api.app.credentials.settings",
-            SimpleNamespace(postgres_dsn="postgresql://fake"),
-        ), patch(
-            "agents.agent_api.app.db.get_pool",
-            side_effect=RuntimeError("boom"),
-        ):
-            with caplog.at_level(logging.WARNING):
-                result = get_user_preferences(42)
-        assert result == {}
-        assert "Preferences lookup failed" in caplog.text
+    def test_unknown_field_is_rejected(self):
+        bad = {**self.valid_preferences, "unexpected": {"x": 1}}
+        with pytest.raises(PreferenceConfigurationError):
+            ResolvedUserPreferences.from_database_row(("user-id", 1, 1, bad))
 
 
 class TestUserTimezone:

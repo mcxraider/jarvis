@@ -2,7 +2,7 @@ import { Context } from 'telegraf';
 import { createRequestId, logger, LogContext } from '../../../utils/logger';
 import { LangGraphAgentClient, LangGraphAgentResponse } from '../../ai/langgraph-agent-client.service';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
-import { sendFinalReply } from '../formatters/telegram-rich';
+import { sendClarificationReply, sendFinalReply } from '../formatters/telegram-rich';
 import { PendingClarificationRecord, PendingClarificationStore } from '../pending-clarification.store';
 import { ConversationGateStore } from '../conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
@@ -47,6 +47,10 @@ export class CallbackHandler {
     }
 
     const userId = ctx.from?.id;
+    if (userId === undefined) {
+      await ctx.answerCbQuery('This action is not available.');
+      return;
+    }
     const requestId = createRequestId('cb');
     const internalUserId = mapTelegramUserId(userId);
     const chatId = ctx.chat?.id;
@@ -104,7 +108,7 @@ export class CallbackHandler {
       }
 
       // Deliver the decision as its own new message instead of editing the confirm message.
-      await ctx.reply(`${statusEmoji} ${statusText}`);
+      await sendFinalReply(ctx, `${statusEmoji} ${statusText}`, logContext);
 
       await progress.start();
 
@@ -113,9 +117,10 @@ export class CallbackHandler {
           message: decision,
           userId: internalUserId,
           source: 'telegram',
-          telegramUserId: userId,
-          telegramUsername: ctx.from?.username,
-          telegramFirstName: ctx.from?.first_name,
+          telegramIdentity: {
+            telegramId: userId,
+            username: ctx.from?.username,
+          },
           requestId,
           threadId,
         },
@@ -137,8 +142,30 @@ export class CallbackHandler {
         if (interruptType === 'confirm') {
           await this.sendConfirmReply(ctx, agentResponse.response, agentResponse.threadId, requestId);
         } else {
-          await sendFinalReply(ctx, agentResponse.response, { requestId });
+          const clarificationMessageId = await sendClarificationReply(
+            ctx,
+            agentResponse.response,
+            { requestId },
+          );
+          if (clarificationMessageId !== undefined) {
+            await this.pendingStore
+              .attachClarificationMessageId(gateKey, clarificationMessageId)
+              .catch((error) => {
+                logger.warn('telegram.clarification.attach_failed', {
+                  ...logContext,
+                  gateKey,
+                  clarificationMessageId,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              });
+          }
         }
+        logger.info('telegram.interrupt.prompt_presented', {
+          ...logContext,
+          gateKey,
+          interruptType,
+          presentation: interruptType === 'clarify' ? 'clarification_block' : 'prompt_only',
+        });
       } else {
         const buffered = await this.conversationGate.getAndClearBufferedMessage(gateKey).catch(() => undefined);
         await this.conversationGate.release(gateKey).catch(() => {});

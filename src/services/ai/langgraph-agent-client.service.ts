@@ -6,7 +6,11 @@
 // Falls back from stream to standard POST transparently if the stream fails to start.
 
 import { LogContext, logger } from '../../utils/logger';
-import { AgentResponseSchema, StreamEventSchema } from '../../types/agent.types';
+import {
+  AgentResponseSchema,
+  TelegramIdentityPayload,
+  StreamEventSchema,
+} from '../../types/agent.types';
 
 export type LangGraphAgentStatus = 'completed' | 'interrupted' | 'failed';
 export type LangGraphInterruptType = 'clarify' | 'confirm';
@@ -34,13 +38,30 @@ export interface LangGraphProgressEvent {
 
 export type LangGraphProgressCallback = (event: LangGraphProgressEvent) => void | Promise<void>;
 
+// Structured result of the Python /health/detail deep-probe: one entry per
+// downstream dependency (deepseek, todoist) plus the live model name. Surfaced
+// by the Telegram /status card.
+export interface LangGraphDependencyCheck {
+  ok: boolean;
+  detail: string;
+}
+
+export interface LangGraphDependencyHealth {
+  status: 'ok' | 'degraded';
+  model: string;
+  checks: Record<string, LangGraphDependencyCheck>;
+}
+
+export interface TelegramIdentity {
+  telegramId: TelegramIdentityPayload['telegram_id'];
+  username?: TelegramIdentityPayload['username'];
+}
+
 export interface LangGraphAgentRequest {
   message: string;
   userId: string;
   source?: string;
-  telegramUserId?: number;
-  telegramUsername?: string;
-  telegramFirstName?: string;
+  telegramIdentity?: TelegramIdentity;
   requestId?: string;
   threadId?: string;
 }
@@ -53,6 +74,9 @@ export interface LangGraphAgentClientConfig {
 
 const DEFAULT_TIMEOUT_MS = 60000;
 const RETRY_DELAYS_MS = [1000, 3000];
+// Health probes are user-facing (/status) and must fail fast — don't inherit the
+// generous invoke/resume timeout.
+const HEALTH_TIMEOUT_MS = 8000;
 
 export class LangGraphAgentClient {
   private readonly baseUrl: string;
@@ -99,6 +123,33 @@ export class LangGraphAgentClient {
     return this.post('/resume', request, logContext);
   }
 
+  // Probes the Python agent's deep-health endpoint for the /status card. Passes the
+  // requesting Telegram user id so the backend can check that user's Todoist token.
+  // Uses a short, non-retrying timeout; throws on any failure so the caller can
+  // render the agent as unreachable rather than fabricating a healthy card.
+  async fetchDependencyHealth(telegramUserId?: number): Promise<LangGraphDependencyHealth> {
+    const url = new URL(`${this.baseUrl}/health/detail`);
+    if (telegramUserId !== undefined) {
+      url.searchParams.set('telegram_user_id', String(telegramUserId));
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
+    try {
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: this.headers(),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`LangGraph health returned ${response.status}`);
+      }
+      return (await response.json()) as LangGraphDependencyHealth;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   // Standard (non-streaming) POST to the agent API. Uses AbortController for timeout
   // management. On any failure, returns a graceful fallback response rather than throwing.
   private async post(
@@ -113,7 +164,7 @@ export class LangGraphAgentClient {
         ...logContext,
         path,
         userId: request.userId,
-        hasTelegramUserId: request.telegramUserId !== undefined,
+        hasTelegramIdentity: request.telegramIdentity !== undefined,
         hasThreadId: !!request.threadId,
         threadId: request.threadId,
       });
@@ -140,6 +191,7 @@ export class LangGraphAgentClient {
         path,
         userId: request.userId,
         status: normalized.status,
+        agentError: normalized.error,
         threadId: normalized.threadId,
         requestedThreadId: request.threadId,
         durationMs: Date.now() - startedAt,
@@ -178,7 +230,7 @@ export class LangGraphAgentClient {
         ...logContext,
         path: streamPath,
         userId: request.userId,
-        hasTelegramUserId: request.telegramUserId !== undefined,
+        hasTelegramIdentity: request.telegramIdentity !== undefined,
         hasThreadId: !!request.threadId,
         threadId: request.threadId,
       });
@@ -204,6 +256,7 @@ export class LangGraphAgentClient {
         path: streamPath,
         userId: request.userId,
         status: finalResponse.status,
+        agentError: finalResponse.error,
         threadId: finalResponse.threadId,
         requestedThreadId: request.threadId,
         durationMs: Date.now() - startedAt,
@@ -405,9 +458,12 @@ export class LangGraphAgentClient {
       message: request.message,
       user_id: request.userId,
       source: request.source,
-      telegram_user_id: request.telegramUserId,
-      telegram_username: request.telegramUsername,
-      telegram_first_name: request.telegramFirstName,
+      telegram_identity: request.telegramIdentity
+        ? {
+            telegram_id: request.telegramIdentity.telegramId,
+            username: request.telegramIdentity.username,
+          }
+        : undefined,
       request_id: request.requestId,
       thread_id: request.threadId,
     };

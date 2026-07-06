@@ -21,7 +21,9 @@ import { CommandHandlers } from './services/telegram/handlers/command-handlers';
 import { CallbackHandler } from './services/telegram/handlers/callback-handler';
 import { TelegramHandlers } from './services/telegram/handlers/telegram-handlers';
 import { TelegramBotService } from './services/telegram/telegram-bot.service';
+import { createUserAuthorizationStore } from './services/telegram/user-authorization.store';
 import { setRichMessagesEnabled } from './services/telegram/formatters/telegram-rich';
+import { verifyDatabaseRuntime } from './services/database/database-runtime-readiness';
 
 // --- Environment validation ---
 // All of these must be set before the app can start. A missing variable
@@ -31,7 +33,6 @@ const REQUIRED_ENV_VARS = [
   'BOT_TOKEN',
   'NGROK_URL',
   'TELEGRAM_SECRET_TOKEN',
-  'ALLOWED_TELEGRAM_USER_IDS',
   'GROQ_API_KEY',
   'LANGGRAPH_AGENT_URL',
 ];
@@ -54,51 +55,6 @@ const BOT_TOKEN = process.env.BOT_TOKEN!;
 const NGROK_URL = process.env.NGROK_URL!;
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
 
-// Comma-separated list of Telegram numeric user IDs that are allowed to interact.
-// This is the primary access control gate — messages from unlisted users are rejected.
-const ALLOWED_TELEGRAM_USER_IDS = process.env.ALLOWED_TELEGRAM_USER_IDS!
-  .split(',')
-  .map((v) => v.trim())
-  .filter(Boolean)
-  .map(Number);
-
-if (
-  ALLOWED_TELEGRAM_USER_IDS.length === 0 ||
-  ALLOWED_TELEGRAM_USER_IDS.some((id) => !Number.isSafeInteger(id) || id <= 0)
-) {
-  logger.error('app.startup.validation_failed', { invalidEnvVar: 'ALLOWED_TELEGRAM_USER_IDS' });
-  process.exit(1);
-}
-
-const TODOIST_API_KEYS_BY_TELEGRAM_USER_ID = process.env.TODOIST_API_KEYS_BY_TELEGRAM_USER_ID;
-if (TODOIST_API_KEYS_BY_TELEGRAM_USER_ID) {
-  const todoistTokenUserIds = new Set<string>();
-  const invalidEntries = TODOIST_API_KEYS_BY_TELEGRAM_USER_ID
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .filter((entry) => {
-      const [telegramUserId, token, extra] = entry.split(':');
-      const valid = telegramUserId?.trim() && token?.trim() && extra === undefined;
-      if (valid) {
-        todoistTokenUserIds.add(telegramUserId.trim());
-      }
-      return !valid;
-    });
-  const missingTodoistTokens = ALLOWED_TELEGRAM_USER_IDS
-    .map(String)
-    .filter((telegramUserId) => !todoistTokenUserIds.has(telegramUserId));
-
-  if (invalidEntries.length > 0 || missingTodoistTokens.length > 0) {
-    logger.error('app.startup.validation_failed', {
-      invalidEnvVar: 'TODOIST_API_KEYS_BY_TELEGRAM_USER_ID',
-      invalidEntries: invalidEntries.length,
-      missingAllowedTelegramUsers: missingTodoistTokens.length,
-    });
-    process.exit(1);
-  }
-}
-
 // Rich messages use Telegram Bot API 10.1's sendRichMessage/sendRichMessageDraft
 // for animated progress indicators. Falls back to MarkdownV2 if disabled or on error.
 const RICH_MESSAGES_ENABLED = process.env.TELEGRAM_RICH_MESSAGES === 'true';
@@ -109,6 +65,21 @@ setRichMessagesEnabled(RICH_MESSAGES_ENABLED);
 // Each service receives only the collaborators it needs, keeping coupling explicit.
 
 const bot = new Telegraf<Context>(BOT_TOKEN);
+const userAuthorizationStore = createUserAuthorizationStore();
+const runtimeDsn = process.env.JARVIS_POSTGRES_DSN || process.env.DATABASE_URL!;
+export const databaseReadiness = verifyDatabaseRuntime(runtimeDsn).then((result) => {
+  logger.info('database.runtime.ready', {
+    role: result.role,
+    inheritedRole: result.inheritedRole,
+    requiredTables: result.tables.length,
+  });
+  return result;
+}).catch((error) => {
+  logger.error('database.runtime.not_ready', {
+    error: error instanceof Error ? error.message : String(error),
+  });
+  throw error;
+});
 
 // AI services: the LangGraph agent client talks to the Python FastAPI backend,
 // and WhisperService handles Groq-hosted audio transcription.
@@ -130,16 +101,20 @@ const conversationGate = createConversationGateStore();
 // Telegram infrastructure: file downloads, activity metrics, and health reporting.
 const fileService = new FileService(BOT_TOKEN, bot.telegram);
 const activityService = new BotActivityService();
-const statusService = new BotStatusService(activityService);
+// Delegate dependency probing to the Python agent (it owns DeepSeek + per-user
+// Todoist), so /status reflects real downstream health rather than a phantom check.
+const statusService = new BotStatusService(activityService, {
+  agentHealth: (telegramUserId) => agentClient.fetchDependencyHealth(telegramUserId),
+});
 
 // Message processors: text goes to LangGraph, audio gets transcribed first then
 // forwarded through the same text pipeline — so voice and typed share the same path.
 const textProcessor = new TextProcessorService(agentClient, pendingStore, conversationGate);
 const audioProcessor = new AudioProcessorService(whisperService, textProcessor);
-const messageProcessor = new MessageProcessorService(textProcessor, audioProcessor, conversationGate);
+const messageProcessor = new MessageProcessorService(textProcessor, audioProcessor, conversationGate, pendingStore);
 
 // Telegram handlers: commands (/help, /status, /cancel), message types, and inline callbacks.
-const messageHandlers = new MessageHandlers(fileService, messageProcessor, activityService);
+const messageHandlers = new MessageHandlers(fileService, messageProcessor, activityService, pendingStore);
 const commandHandlers = new CommandHandlers(activityService, statusService, conversationGate, pendingStore);
 const callbackHandler = new CallbackHandler(agentClient, pendingStore, conversationGate);
 
@@ -149,20 +124,40 @@ const handlers = new TelegramHandlers(commandHandlers, messageHandlers, callback
 // all handlers, and exposes handleUpdate() for the Express webhook route.
 const telegramConfig: TelegramConfig = {
   token: BOT_TOKEN,
-  allowedUserIds: ALLOWED_TELEGRAM_USER_IDS,
   webhookUrl: NGROK_URL,
   secretToken: TELEGRAM_SECRET_TOKEN,
   richMessages: RICH_MESSAGES_ENABLED,
 };
 
-export const botService = new TelegramBotService(telegramConfig, handlers);
+export const botService = new TelegramBotService(
+  telegramConfig,
+  handlers,
+  userAuthorizationStore,
+);
 
-// When a conversation gate times out, notify the user and actively mark the matching
-// pending clarification 'expired' (gateKey === pendingKey). Resumption is already blocked
-// by the store's expires_at filter; this keeps the persisted status accurate for reports.
+// When a conversation gate times out, notify the user, collapse any active clarification,
+// and mark the matching pending clarification 'expired' (gateKey === pendingKey). Resumption is
+// already blocked by the store's expires_at filter; this keeps the persisted status accurate and the
+// chat clean. Read the record before clearing so we still have its clarification message id.
 conversationGate.setOnExpiry((gateKey, chatId) => {
-  botService.sendMessage(chatId, '⏱ Request timed out. Send a new message to try again.').catch(() => {});
-  pendingStore.clear(gateKey, 'expired').catch(() => {});
+  botService
+    .sendRichMessage(chatId, '⏱ Request timed out. Send a new message to try again.', { chatId, gateKey })
+    .catch(() => {});
+  pendingStore
+    .get(gateKey)
+    .then(async (pending) => {
+      if (pending?.clarificationMessageId !== undefined) {
+        await botService.collapseClarification(
+          chatId,
+          pending.clarificationMessageId,
+          pending.question,
+        );
+      }
+    })
+    .catch(() => {})
+    .finally(() => {
+      pendingStore.clear(gateKey, 'expired').catch(() => {});
+    });
 });
 
 // Periodic safety net: in-process gate timers are lost on restart, so sweep any pending
@@ -171,7 +166,9 @@ conversationGate.setOnExpiry((gateKey, chatId) => {
 const PENDING_SWEEP_INTERVAL_MS = 60 * 1000;
 setInterval(() => {
   pendingStore.sweepExpired().catch((error) => {
-    logger.warn('telegram.pending_store.sweep_failed', { error: (error as Error).message });
+    logger.warn('telegram.pending_store.sweep_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
   });
 }, PENDING_SWEEP_INTERVAL_MS).unref();
 
