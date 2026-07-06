@@ -17,6 +17,7 @@ from agents.agent_api.app.db import get_pool
 from agents.agent_api.app.tools.domain_adapters import DOMAIN_ADAPTERS
 from agents.agent_api.app.user_context.domains import ConnectionRow, classify_domains
 from agents.agent_api.app.user_context.identity import (
+    TelegramIdentity,
     refresh_identity_profile,
     resolve_active_identity,
 )
@@ -64,9 +65,7 @@ def _make_secret_resolver(cursor: Any, user_id: str):
 
 
 def resolve_runtime_context(
-    telegram_user_id: int,
-    telegram_username: Optional[str] = None,
-    telegram_first_name: Optional[str] = None,
+    inbound_identity: TelegramIdentity,
 ) -> ResolvedRuntimeContext:
     """Build a fresh context from canonical user state in one DB connection."""
 
@@ -74,13 +73,8 @@ def resolve_runtime_context(
     with pool.connection() as connection:
         with connection.cursor() as cursor:
             # Gate + refresh, then authoritative read — same connection.
-            refresh_identity_profile(
-                cursor,
-                telegram_user_id,
-                telegram_username,
-                telegram_first_name,
-            )
-            identity = resolve_active_identity(cursor, telegram_user_id)
+            refresh_identity_profile(cursor, inbound_identity)
+            identity = resolve_active_identity(cursor, inbound_identity)
             connections = _load_connections(cursor, identity.user_id)
             domains, credentials = classify_domains(
                 DOMAIN_ADAPTERS,
@@ -149,9 +143,7 @@ def store_thread_context(
 
 def load_thread_runtime_context(
     thread_id: str,
-    telegram_user_id: int,
-    telegram_username: Optional[str] = None,
-    telegram_first_name: Optional[str] = None,
+    inbound_identity: TelegramIdentity,
 ) -> ResolvedRuntimeContext:
     """Reuse an interrupted thread snapshot and rehydrate only its secrets.
 
@@ -163,12 +155,7 @@ def load_thread_runtime_context(
     with pool.connection() as connection:
         with connection.cursor() as cursor:
             # Same active-user gate as a fresh resolution.
-            refresh_identity_profile(
-                cursor,
-                telegram_user_id,
-                telegram_username,
-                telegram_first_name,
-            )
+            refresh_identity_profile(cursor, inbound_identity)
             cursor.execute(
                 """
                 SELECT thread.context_snapshot
@@ -176,7 +163,7 @@ def load_thread_runtime_context(
                 WHERE thread.thread_id = %s
                   AND thread.user_id = public.resolve_user_id(%s)
                 """,
-                (thread_id, str(telegram_user_id)),
+                (thread_id, inbound_identity.telegram_id),
             )
             row = cursor.fetchone()
             if not row or not row[0]:

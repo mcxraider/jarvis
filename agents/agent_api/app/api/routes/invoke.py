@@ -16,6 +16,7 @@ from agents.agent_api.app.errors import require_api_key
 from agents.agent_api.app.idempotency import ClaimState
 from agents.agent_api.app.service import ALLOW_MUTATIONS, MAX_AGENT_TURNS, NULL_TRACE, JarvisState, run_jarvis
 from agents.agent_api.app.tracing import UserProgressTracePrinter
+from agents.agent_api.app.user_context.identity import TelegramIdentity
 
 router = APIRouter()
 
@@ -32,10 +33,10 @@ def allow_bulk_mutations(request_value: Optional[bool]) -> bool:
     return ALLOW_MUTATIONS
 
 
-def request_source(source: Optional[str], telegram_user_id: Optional[int]) -> str:
+def request_source(source: Optional[str], identity: Optional[TelegramIdentity]) -> str:
     if source:
         return source
-    return "telegram" if telegram_user_id is not None else "api"
+    return "telegram" if identity is not None else "api"
 
 
 def to_response(result: JarvisState) -> AgentResponse:
@@ -90,7 +91,7 @@ def begin_idempotent_request(
 ) -> tuple[RequestClaim, Optional[AgentResponse]]:
     claim = request_idempotency.DEFAULT_REQUEST_IDEMPOTENCY_COORDINATOR.begin(
         logical_route,
-        request_source(request.source, request.telegram_user_id),
+        request_source(request.source, request.resolved_telegram_identity()),
         request.user_id,
         request.request_id,
     )
@@ -191,9 +192,10 @@ def invoke(
     require_api_key(x_jarvis_agent_key)
     from agents.agent_api.app.api.rate_limit import check_rate_limit
 
-    check_rate_limit(request.telegram_user_id)
+    identity = request.resolved_telegram_identity()
+    check_rate_limit(identity)
     if request.thread_id:
-        validate_thread_ownership(request.thread_id, request.telegram_user_id)
+        validate_thread_ownership(request.thread_id, identity)
     request_claim, cached_response = begin_idempotent_request("invoke", request)
     if cached_response is not None:
         return cached_response
@@ -201,13 +203,11 @@ def invoke(
         result = run_jarvis(
             user_prompt=request.message,
             user_id=request.user_id,
-            request_source=request_source(request.source, request.telegram_user_id),
+            request_source=request_source(request.source, identity),
             allow_mutations=allow_mutations(request.allow_mutations),
             tracer=NULL_TRACE,
             thread_id=request.thread_id,
-            telegram_user_id=request.telegram_user_id,
-            telegram_username=request.telegram_username,
-            telegram_first_name=request.telegram_first_name,
+            identity=identity,
             request_id=request.request_id,
         )
         response = to_response(result)
@@ -233,9 +233,10 @@ def invoke_stream(
     require_api_key(x_jarvis_agent_key)
     from agents.agent_api.app.api.rate_limit import check_rate_limit
 
-    check_rate_limit(request.telegram_user_id)
+    identity = request.resolved_telegram_identity()
+    check_rate_limit(identity)
     if request.thread_id:
-        validate_thread_ownership(request.thread_id, request.telegram_user_id)
+        validate_thread_ownership(request.thread_id, identity)
     request_claim, cached_response = begin_idempotent_request("invoke", request)
     if cached_response is not None:
         return stream_final_response(cached_response)
@@ -244,13 +245,11 @@ def invoke_stream(
         return run_jarvis(
             user_prompt=request.message,
             user_id=request.user_id,
-            request_source=request_source(request.source, request.telegram_user_id),
+            request_source=request_source(request.source, identity),
             allow_mutations=allow_mutations(request.allow_mutations),
             tracer=tracer,
             thread_id=request.thread_id,
-            telegram_user_id=request.telegram_user_id,
-            telegram_username=request.telegram_username,
-            telegram_first_name=request.telegram_first_name,
+            identity=identity,
             request_id=request.request_id,
         )
 
@@ -265,7 +264,8 @@ def invoke_bulk(
     require_api_key(x_jarvis_agent_key)
     from agents.agent_api.app.api.rate_limit import check_rate_limit
 
-    check_rate_limit(request.telegram_user_id)
+    identity = request.resolved_telegram_identity()
+    check_rate_limit(identity)
     messages = [message.strip() for message in request.messages if message.strip()]
     if not messages:
         raise HTTPException(status_code=422, detail="At least one non-empty message is required.")
@@ -276,13 +276,11 @@ def invoke_bulk(
             result = run_jarvis(
                 user_prompt=message,
                 user_id=request.user_id,
-                request_source=request_source(request.source, request.telegram_user_id),
+                request_source=request_source(request.source, identity),
                 allow_mutations=allow_bulk_mutations(request.allow_mutations),
                 max_agent_turns=request.max_agent_turns or MAX_AGENT_TURNS,
                 tracer=NULL_TRACE,
-                telegram_user_id=request.telegram_user_id,
-                telegram_username=request.telegram_username,
-                telegram_first_name=request.telegram_first_name,
+                identity=identity,
                 request_id=request.request_id,
             )
             results.append(to_response(result))

@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
+from agents.agent_api.app.user_context.identity import TelegramIdentity
+
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 LOG_DIR = _PROJECT_ROOT / "logs"
 SINGAPORE_TIME_ZONE = ZoneInfo("Asia/Singapore")
@@ -28,6 +30,8 @@ _CLI_TELEGRAM_USER_ID = 701122767
 @dataclass(frozen=True)
 class RunLogIdentity:
     request_source: str = "api"
+    identity: Optional[TelegramIdentity] = None
+    # Deprecated compatibility fields for direct callers and historical tests.
     telegram_user_id: Optional[int] = None
     telegram_username: Optional[str] = None
     telegram_first_name: Optional[str] = None
@@ -62,11 +66,17 @@ def sanitize_log_segment(value: Optional[str], fallback: str = "telegram") -> st
     return cleaned or fallback
 
 
-def _log_identity_parts(identity: Optional[RunLogIdentity]) -> tuple[str, int]:
+def _log_identity_parts(identity: Optional[RunLogIdentity]) -> tuple[str, str]:
+    if identity and identity.identity is not None:
+        external = identity.identity
+        display_name = external.username or "telegram"
+        return sanitize_log_segment(display_name), sanitize_log_segment(
+            str(external.telegram_id), fallback="unknown"
+        )
     if identity and identity.request_source == "telegram" and identity.telegram_user_id is not None:
         display_name = identity.telegram_username or identity.telegram_first_name or "telegram"
-        return sanitize_log_segment(display_name), identity.telegram_user_id
-    return _CLI_LOG_NAME, _CLI_TELEGRAM_USER_ID
+        return sanitize_log_segment(display_name), str(identity.telegram_user_id)
+    return _CLI_LOG_NAME, str(_CLI_TELEGRAM_USER_ID)
 
 
 def _thread_suffix(thread_id: str) -> str:
@@ -81,8 +91,8 @@ def build_run_log_path(
 ) -> Path:
     """Build a per-run log path grouped by user identity."""
 
-    safe_name, telegram_user_id = _log_identity_parts(identity)
-    folder = f"{safe_name}-{telegram_user_id}"
+    safe_name, identity_subject = _log_identity_parts(identity)
+    folder = f"{safe_name}-{identity_subject}"
     thread_suffix = sanitize_log_segment(_thread_suffix(thread_id), fallback="norun")
     return LOG_DIR / folder / f"{safe_name}_{thread_suffix}.log"
 

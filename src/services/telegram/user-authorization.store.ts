@@ -1,8 +1,12 @@
 import { Pool } from 'pg';
 import { logger } from '../../utils/logger';
 
+export interface TelegramIdentityReference {
+  telegramId: number;
+}
+
 export interface UserAuthorizationStore {
-  isAuthorized(telegramUserId: number): Promise<boolean>;
+  isAuthorized(identity: TelegramIdentityReference): Promise<boolean>;
 }
 
 type Queryable = Pick<Pool, 'query'>;
@@ -14,8 +18,8 @@ export class StaticUserAuthorizationStore implements UserAuthorizationStore {
     this.allowedUserIds = new Set(allowedUserIds);
   }
 
-  async isAuthorized(telegramUserId: number): Promise<boolean> {
-    return this.allowedUserIds.has(telegramUserId);
+  async isAuthorized(identity: TelegramIdentityReference): Promise<boolean> {
+    return this.allowedUserIds.has(identity.telegramId);
   }
 }
 
@@ -30,25 +34,24 @@ export class PostgresUserAuthorizationStore implements UserAuthorizationStore {
     this.deniedUserIds = new Set(deniedUserIds);
   }
 
-  async isAuthorized(telegramUserId: number): Promise<boolean> {
-    if (this.deniedUserIds.has(telegramUserId)) {
+  async isAuthorized(identityReference: TelegramIdentityReference): Promise<boolean> {
+    if (this.deniedUserIds.has(identityReference.telegramId)) {
       return false;
     }
 
     try {
       const result = await this.database.query(
         `
-          UPDATE public.user_identities AS identity
+          UPDATE public.telegram_identities AS identity
           SET last_seen_at = NOW()
           FROM public.users AS app_user
           WHERE identity.user_id = app_user.id
-            AND identity.identity_provider = 'telegram'
-            AND identity.external_subject = $1
+            AND identity.telegram_id = $1
             AND identity.verified_at IS NOT NULL
             AND app_user.status = 'active'
           RETURNING app_user.id
         `,
-        [String(telegramUserId)],
+        [identityReference.telegramId],
       );
       return result.rowCount === 1;
     } catch (error) {

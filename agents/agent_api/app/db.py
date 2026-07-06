@@ -13,7 +13,7 @@ _pool_lock = threading.Lock()
 
 _REQUIRED_RUNTIME_TABLES = (
     "users",
-    "user_identities",
+    "telegram_identities",
     "user_preferences",
     "telegram_pending_clarifications",
     "telegram_conversation_gates",

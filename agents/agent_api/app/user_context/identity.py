@@ -19,6 +19,32 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class TelegramIdentity:
+    """Telegram account supplied by the inbound request surface."""
+
+    telegram_id: int
+    username: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.telegram_id <= 0:
+            raise ValueError("telegram_id must be a positive integer")
+
+
+def telegram_identity(
+    telegram_user_id: int,
+    telegram_username: Optional[str] = None,
+    telegram_first_name: Optional[str] = None,
+) -> TelegramIdentity:
+    """Build the canonical identity used by legacy Telegram callers."""
+
+    del telegram_first_name
+    return TelegramIdentity(
+        telegram_id=telegram_user_id,
+        username=telegram_username,
+    )
+
+
+@dataclass(frozen=True)
 class ResolvedIdentity:
     """The canonical user plus the data the snapshot needs (no secrets)."""
 
@@ -31,9 +57,7 @@ class ResolvedIdentity:
 
 def refresh_identity_profile(
     cursor: Any,
-    telegram_user_id: int,
-    telegram_username: Optional[str] = None,
-    telegram_first_name: Optional[str] = None,
+    inbound_identity: TelegramIdentity,
 ) -> str:
     """Gate the request and refresh non-authoritative Telegram profile data.
 
@@ -45,27 +69,19 @@ def refresh_identity_profile(
 
     cursor.execute(
         """
-        UPDATE public.user_identities AS identity
+        UPDATE public.telegram_identities AS identity
         SET username = COALESCE(%s::text, identity.username),
-            display_name = COALESCE(%s::text, identity.display_name),
-            metadata = jsonb_strip_nulls(
-                identity.metadata ||
-                jsonb_build_object('telegram_first_name', %s::text)
-            ),
             last_seen_at = NOW()
         FROM public.users AS app_user
         WHERE identity.user_id = app_user.id
-          AND identity.identity_provider = 'telegram'
-          AND identity.external_subject = %s::text
+          AND identity.telegram_id = %s
           AND identity.verified_at IS NOT NULL
           AND app_user.status = 'active'
         RETURNING app_user.id
         """,
         (
-            telegram_username,
-            telegram_first_name,
-            telegram_first_name,
-            str(telegram_user_id),
+            inbound_identity.username,
+            inbound_identity.telegram_id,
         ),
     )
     row = cursor.fetchone()
@@ -76,7 +92,9 @@ def refresh_identity_profile(
     return str(row[0])
 
 
-def resolve_active_identity(cursor: Any, telegram_user_id: int) -> ResolvedIdentity:
+def resolve_active_identity(
+    cursor: Any, inbound_identity: TelegramIdentity
+) -> ResolvedIdentity:
     """Read the active user's profile and validated preferences in one query.
 
     Raises ``RuntimeContextError`` if no active user with configured preferences is
@@ -89,7 +107,6 @@ def resolve_active_identity(cursor: Any, telegram_user_id: int) -> ResolvedIdent
         SELECT app_user.id,
                COALESCE(
                    app_user.display_name,
-                   identity.display_name,
                    identity.username,
                    'the user'
                ),
@@ -98,17 +115,16 @@ def resolve_active_identity(cursor: Any, telegram_user_id: int) -> ResolvedIdent
                preferences.schema_version,
                preferences.revision,
                preferences.preferences
-        FROM public.user_identities identity
+        FROM public.telegram_identities identity
         JOIN public.users app_user
           ON app_user.id = identity.user_id
         JOIN public.user_preferences preferences
           ON preferences.user_id = app_user.id
-        WHERE identity.identity_provider = 'telegram'
-          AND identity.external_subject = %s
+        WHERE identity.telegram_id = %s
           AND identity.verified_at IS NOT NULL
           AND app_user.status = 'active'
         """,
-        (str(telegram_user_id),),
+        (inbound_identity.telegram_id,),
     )
     row = cursor.fetchone()
     if not row:
@@ -129,4 +145,10 @@ def resolve_active_identity(cursor: Any, telegram_user_id: int) -> ResolvedIdent
     )
 
 
-__all__ = ["ResolvedIdentity", "refresh_identity_profile", "resolve_active_identity"]
+__all__ = [
+    "ResolvedIdentity",
+    "TelegramIdentity",
+    "refresh_identity_profile",
+    "resolve_active_identity",
+    "telegram_identity",
+]

@@ -8,6 +8,9 @@ import pytest
 from fastapi import HTTPException
 
 from agents.agent_api.app.api.rate_limit import check_rate_limit
+from agents.agent_api.app.user_context.identity import TelegramIdentity
+
+IDENTITY = TelegramIdentity(telegram_id=42)
 
 
 class FakeCursor:
@@ -57,7 +60,7 @@ class TestRateLimitNoop:
             "agents.agent_api.app.api.rate_limit.settings",
             SimpleNamespace(postgres_dsn=""),
         ):
-            check_rate_limit(42)
+            check_rate_limit(IDENTITY)
 
     def test_noop_when_telegram_user_id_is_none(self):
         with patch(
@@ -75,7 +78,7 @@ class TestRateLimitAllow:
             "agents.agent_api.app.api.rate_limit.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            check_rate_limit(42)
+            check_rate_limit(IDENTITY)
 
     def test_allows_when_under_limit(self):
         cursor = FakeCursor(row=(5, 100))
@@ -84,7 +87,7 @@ class TestRateLimitAllow:
             "agents.agent_api.app.api.rate_limit.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            check_rate_limit(42)
+            check_rate_limit(IDENTITY)
 
     def test_allows_when_at_limit(self):
         cursor = FakeCursor(row=(100, 100))
@@ -93,7 +96,7 @@ class TestRateLimitAllow:
             "agents.agent_api.app.api.rate_limit.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            check_rate_limit(42)
+            check_rate_limit(IDENTITY)
 
 
 class TestRateLimitReject:
@@ -105,7 +108,7 @@ class TestRateLimitReject:
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
             with pytest.raises(HTTPException) as exc_info:
-                check_rate_limit(42)
+                check_rate_limit(IDENTITY)
             assert exc_info.value.status_code == 429
             assert exc_info.value.headers["Retry-After"] == "3600"
 
@@ -118,11 +121,11 @@ class TestRateLimitSql:
             "agents.agent_api.app.api.rate_limit.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            check_rate_limit(12345)
+            check_rate_limit(TelegramIdentity(telegram_id=12345))
 
         assert len(cursor.statements) == 1
         _sql, params = cursor.statements[0]
-        assert params == ("12345",)
+        assert params == (12345,)
 
     def test_sql_contains_reset_logic(self):
         cursor = FakeCursor(row=(1, 100))
@@ -131,7 +134,7 @@ class TestRateLimitSql:
             "agents.agent_api.app.api.rate_limit.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            check_rate_limit(42)
+            check_rate_limit(IDENTITY)
 
         sql, _params = cursor.statements[0]
         assert "WHEN rl.reset_at <= NOW() THEN 1" in sql
@@ -144,7 +147,7 @@ class TestRateLimitSql:
             "agents.agent_api.app.api.rate_limit.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            check_rate_limit(42)
+            check_rate_limit(IDENTITY)
 
         sql, _params = cursor.statements[0]
         assert "LEAST" in sql
@@ -161,7 +164,7 @@ class TestRateLimitFailOpen:
             side_effect=RuntimeError("pool dead"),
         ):
             with caplog.at_level(logging.WARNING):
-                check_rate_limit(42)
+                check_rate_limit(IDENTITY)
         assert "Rate limit check failed" in caplog.text
 
     def test_http_exception_is_not_swallowed(self):
@@ -172,5 +175,5 @@ class TestRateLimitFailOpen:
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
             with pytest.raises(HTTPException) as exc_info:
-                check_rate_limit(42)
+                check_rate_limit(IDENTITY)
             assert exc_info.value.status_code == 429

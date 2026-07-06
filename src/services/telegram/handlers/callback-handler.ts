@@ -47,6 +47,10 @@ export class CallbackHandler {
     }
 
     const userId = ctx.from?.id;
+    if (userId === undefined) {
+      await ctx.answerCbQuery('This action is not available.');
+      return;
+    }
     const requestId = createRequestId('cb');
     const internalUserId = mapTelegramUserId(userId);
     const chatId = ctx.chat?.id;
@@ -113,9 +117,10 @@ export class CallbackHandler {
           message: decision,
           userId: internalUserId,
           source: 'telegram',
-          telegramUserId: userId,
-          telegramUsername: ctx.from?.username,
-          telegramFirstName: ctx.from?.first_name,
+          telegramIdentity: {
+            telegramId: userId,
+            username: ctx.from?.username,
+          },
           requestId,
           threadId,
         },

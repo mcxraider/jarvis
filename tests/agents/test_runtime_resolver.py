@@ -21,6 +21,7 @@ import pytest
 
 from agents.agent_api.app.user_context import resolver as resolver_module
 from agents.agent_api.app.user_context.preferences import AssistantPreferencesV1
+from agents.agent_api.app.user_context.identity import TelegramIdentity
 from agents.agent_api.app.user_context.resolver import (
     load_thread_runtime_context,
     resolve_runtime_context,
@@ -34,6 +35,10 @@ from agents.agent_api.app.user_context.runtime import (
 
 USER_ID = "11111111-1111-1111-1111-111111111111"
 TELEGRAM_ID = 4242
+IDENTITY = TelegramIdentity(
+    telegram_id=TELEGRAM_ID,
+    username="tester",
+)
 TODOIST_SECRET = "SENTINEL-TODOIST-SECRET"
 
 _VALID_PREFERENCES = {
@@ -152,7 +157,7 @@ class TestResolveRuntimeContext:
         cursor = self._cursor()
         patcher, pool = _patch_pool(cursor)
         with patcher:
-            resolved = resolve_runtime_context(TELEGRAM_ID, "tester", "Test")
+            resolved = resolve_runtime_context(IDENTITY)
 
         snapshot = resolved.snapshot
         assert snapshot.user_id == USER_ID
@@ -168,14 +173,14 @@ class TestResolveRuntimeContext:
         cursor = self._cursor()
         patcher, pool = _patch_pool(cursor)
         with patcher:
-            resolve_runtime_context(TELEGRAM_ID)
+            resolve_runtime_context(IDENTITY)
         assert pool.connection_opens == 1
 
     def test_snapshot_serialization_contains_no_secret(self):
         cursor = self._cursor()
         patcher, _pool = _patch_pool(cursor)
         with patcher:
-            resolved = resolve_runtime_context(TELEGRAM_ID)
+            resolved = resolve_runtime_context(IDENTITY)
         assert TODOIST_SECRET not in resolved.snapshot.model_dump_json()
 
     def test_gate_rejection_propagates(self):
@@ -183,7 +188,7 @@ class TestResolveRuntimeContext:
         cursor = ScriptedCursor(fetchone_rows=[None])
         patcher, _pool = _patch_pool(cursor)
         with patcher, pytest.raises(PermissionError):
-            resolve_runtime_context(TELEGRAM_ID)
+            resolve_runtime_context(IDENTITY)
 
 
 # --------------------------------------------------------------------------- #
@@ -217,9 +222,7 @@ class TestLoadThreadRuntimeContext:
         )
         patcher, _pool = _patch_pool(cursor)
         with patcher:
-            resolved = load_thread_runtime_context(
-                "thread-1", TELEGRAM_ID, "tester", "Test"
-            )
+            resolved = load_thread_runtime_context("thread-1", IDENTITY)
 
         # The interrupted thread is resolved from its snapshot, not re-derived from
         # current profile/preferences: the returned snapshot equals what was stored.
@@ -254,7 +257,7 @@ class TestLoadThreadRuntimeContext:
         )
         patcher, _pool = _patch_pool(cursor)
         with patcher:
-            resolved = load_thread_runtime_context("thread-1", TELEGRAM_ID)
+            resolved = load_thread_runtime_context("thread-1", IDENTITY)
         # The unavailable calendar domain triggers no connection/secret lookup.
         assert set(resolved.credentials) == {"todoist"}
 
@@ -262,7 +265,7 @@ class TestLoadThreadRuntimeContext:
         cursor = ScriptedCursor(fetchone_rows=[(USER_ID,), None])
         patcher, _pool = _patch_pool(cursor)
         with patcher, pytest.raises(RuntimeContextError):
-            load_thread_runtime_context("thread-1", TELEGRAM_ID)
+            load_thread_runtime_context("thread-1", IDENTITY)
 
     def test_disabled_saved_capability_fails_closed(self):
         stored = _active_todoist_snapshot()
@@ -275,7 +278,7 @@ class TestLoadThreadRuntimeContext:
         )
         patcher, _pool = _patch_pool(cursor)
         with patcher, pytest.raises(RuntimeContextError):
-            load_thread_runtime_context("thread-1", TELEGRAM_ID)
+            load_thread_runtime_context("thread-1", IDENTITY)
 
     def test_revoked_status_saved_capability_fails_closed(self):
         stored = _active_todoist_snapshot()
@@ -288,7 +291,7 @@ class TestLoadThreadRuntimeContext:
         )
         patcher, _pool = _patch_pool(cursor)
         with patcher, pytest.raises(RuntimeContextError):
-            load_thread_runtime_context("thread-1", TELEGRAM_ID)
+            load_thread_runtime_context("thread-1", IDENTITY)
 
     def test_unresolvable_saved_secret_fails_closed(self):
         stored = _active_todoist_snapshot()
@@ -302,7 +305,7 @@ class TestLoadThreadRuntimeContext:
         )
         patcher, _pool = _patch_pool(cursor)
         with patcher, pytest.raises(RuntimeContextError):
-            load_thread_runtime_context("thread-1", TELEGRAM_ID)
+            load_thread_runtime_context("thread-1", IDENTITY)
 
     def test_active_domain_without_connection_id_fails_closed(self):
         stored = _snapshot(
@@ -317,7 +320,7 @@ class TestLoadThreadRuntimeContext:
         )
         patcher, _pool = _patch_pool(cursor)
         with patcher, pytest.raises(RuntimeContextError):
-            load_thread_runtime_context("thread-1", TELEGRAM_ID)
+            load_thread_runtime_context("thread-1", IDENTITY)
 
 
 # --------------------------------------------------------------------------- #

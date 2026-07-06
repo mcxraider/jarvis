@@ -10,6 +10,12 @@ A personal Telegram assistant built on a Python LangGraph agent that manages Tod
 
 Telegram (voice or text) hits the **FastAPI** service at `/invoke` and `/resume`. Voice input is transcribed before entering the same path as text.
 
+Inbound accounts cross the Node-to-Python boundary as
+`telegram_identity: { telegram_id, username }`. The previous generic `identity`
+object and legacy `telegram_user_id`, `telegram_username`, and
+`telegram_first_name` fields remain accepted for one compatibility release.
+Canonical display names are stored only on `users`.
+
 ### Graph nodes
 
 **run_jarvis** builds the graph and injects clients, then hands control to the **Orchestrator**.

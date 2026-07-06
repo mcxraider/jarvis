@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 
 const REQUIRED_TABLES = [
   'public.users',
-  'public.user_identities',
+  'public.telegram_identities',
   'public.user_preferences',
   'public.telegram_pending_clarifications',
   'public.telegram_conversation_gates',
@@ -58,7 +58,7 @@ export async function verifyDatabaseRuntime(
     await pool.query(`
       SELECT 1
       FROM public.users
-      JOIN public.user_identities ON public.user_identities.user_id = public.users.id
+      JOIN public.telegram_identities ON public.telegram_identities.user_id = public.users.id
       LEFT JOIN public.user_preferences ON public.user_preferences.user_id = public.users.id
       LIMIT 0
     `);
