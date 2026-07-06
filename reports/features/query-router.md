@@ -510,3 +510,9 @@ TOOL_SELECTOR=router                         # selector strategy: static | keywo
 9. **Factory registration** — register `"router"` in `get_selector()`, instantiate in `builder.py`
 10. **Usage telemetry** — extend `_log_usage()` with router token counts
 11. **Tests + verification**
+
+---
+
+## Future Note
+
+This router should leave room for a deterministic feature-level code path that can classify task difficulty in a stable, non-LLM way. That can be added later as a separate implementation concern, once the router is in place.
