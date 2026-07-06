@@ -4,15 +4,15 @@ This questionnaire tells Jarvis how to communicate with you and where to put tas
 
 Choose one answer unless the question says you may select several. If you are unsure, add a note and your administrator will clarify it with you.
 
-> **Do not include passwords, API keys, access tokens, OAuth files, private keys, or database URLs.** Credentials will be collected separately through a secure method.
+> Do not include passwords, API keys, access tokens, OAuth files, private keys, or database URLs. Credentials will be collected separately through a secure method.
 
 ## 1. About you
 
-- **Telegram numeric user ID:**  
-- **Telegram username:**  
-- **Preferred display name:**  
-- **Timezone** (for example, `Asia/Singapore`):  
-- **Language/locale** (for example, `en`):  
+- Telegram numeric user ID:
+- Telegram username:
+- Preferred display name:
+- Timezone (for example, `Asia/Singapore`):
+- Language/locale (for example, `en`):
 
 ## 2. Communication style
 
@@ -20,17 +20,17 @@ Choose one answer unless the question says you may select several. If you are un
 
 How should Jarvis normally speak to you?
 
-- [ ] **Casual** — friendly and conversational
-- [ ] **Neutral** — straightforward and even-toned
-- [ ] **Professional** — formal and businesslike
+- [ ] Casual — friendly and conversational
+- [ ] Neutral — straightforward and even-toned
+- [ ] Professional — formal and businesslike
 
 ### Answer length
 
 How much detail should Jarvis normally provide?
 
-- [ ] **Concise** — answer directly with minimal explanation
-- [ ] **Balanced** — include enough context to understand the answer
-- [ ] **Detailed** — explain reasoning, context, and important caveats
+- [ ] Concise — answer directly with minimal explanation
+- [ ] Balanced — include enough context to understand the answer
+- [ ] Detailed — explain reasoning, context, and important caveats
 
 ### Personal communication preferences
 
@@ -42,8 +42,8 @@ How much detail should Jarvis normally provide?
 
 Choose Todoist's overall role:
 
-- [ ] **Tasks, to-dos, and reminders only** — calendar events, meetings, and general scheduling belong in Google Calendar
-- [ ] **Tasks and scheduling** — Todoist may also manage events, meetings, and other time-related items
+- [ ] Tasks, to-dos, and reminders only — calendar events, meetings, and general scheduling belong in Google Calendar
+- [ ] Tasks and scheduling — Todoist may also manage events, meetings, and other time-related items
 
 For extra precision, mark every request type that should go to Todoist by default:
 
@@ -60,16 +60,23 @@ Examples or exceptions:
 
 Choose Google Calendar's overall role:
 
-- [ ] **Default calendar and scheduling service** — use it for events, meetings, and other time-related items unless another rule overrides it
-- [ ] **Explicit use only** — use Google Calendar only when I explicitly say “Calendar,” name a calendar, or clearly ask Jarvis to use it
+- [ ] Default calendar and scheduling service — use it for events, meetings, and other time-related items unless another rule overrides it
+- [ ] Explicit use only — use Google Calendar only when I explicitly say “Calendar,” name a calendar, or clearly ask Jarvis to use it
 
 Should Google Calendar manage each of these by default?
 
-| Request type | Yes | No | Notes |
-|---|:---:|:---:|---|
-| Events | [ ] | [ ] | |
-| Meetings | [ ] | [ ] | |
-| Other time-related items | [ ] | [ ] | |
+- Events:
+	- [ ] Yes
+	- [ ] No
+	- Notes:
+- Meetings:
+	- [ ] Yes
+	- [ ] No
+	- Notes:
+- Other time-related items:
+	- [ ] Yes
+	- [ ] No
+	- Notes:
 
 ## 5. Exact routing defaults
 
@@ -119,24 +126,22 @@ When you explicitly say “put this in my calendar,” which calendar provider s
 
 Choose the final rule for Google Calendar:
 
-- [ ] **Default** — Jarvis may choose Google Calendar automatically according to the routing answers above
-- [ ] **Explicit only** — Jarvis must not use Google Calendar unless I explicitly request it
+- [ ] Default — Jarvis may choose Google Calendar automatically according to the routing answers above
+- [ ] Explicit only — Jarvis must not use Google Calendar unless I explicitly request it
 
-If **Explicit only** conflicts with an earlier answer, the explicit-only rule wins.
+If Explicit only conflicts with an earlier answer, the explicit-only rule wins.
 
 ## 6. Google Calendar category defaults
 
 Tell Jarvis which calendar to use for each category. Enter the exact calendar name as it appears in Google Calendar. Leave a row blank if you do not want a default.
 
-| Category | Calendar name |
-|---|---|
-| Work | |
-| Social | |
-| Classes | |
-| Lectures | |
-| Personal | |
-| Other category: | |
-| Other category: | |
+- Personal:
+- Work:
+- Social:
+- Classes:
+- Lectures:
+- Other category:
+- Other category:
 
 If no category matches, which calendar should Jarvis use?
 
@@ -150,29 +155,28 @@ Which services do you want connected now?
 Which services may you want in the future? These choices record interest only and do not grant access.
 
 - [ ] GitHub
-- [ ] Notion
 - [ ] Gmail
 - [ ] Google Drive
 - [ ] Apple Calendar
+- [ ] Notion
 
 ## 8. Review with examples
 
 For each request, write where you expect Jarvis to store it.
 
-| Example request | Expected service or calendar |
-|---|---|
-| “Add submit assignment to my tasks for Friday.” | |
-| “Remind me to call Mum tomorrow at 7 PM.” | |
-| “Schedule dinner with Alex on Saturday at 6 PM.” | |
-| “Block Monday morning for focused work.” | |
-| “Put my dentist appointment in Google Calendar.” | |
-| Your own example: | |
+- “Add submit assignment to my tasks for Friday.”
+	- Expected service(s) or calendar(s):
+- “Remind me to call Mum tomorrow at 7 PM.”
+	- Expected service(s) or calendar(s):
+- “Schedule dinner with Alex on Saturday at 6 PM.”
+	- Expected service(s) or calendar(s):
+- “Block Monday morning for focused work.”
+	- Expected service(s) or calendar(s):
+- “Put my dentist appointment in Google Calendar.”
+	- Expected service(s) or calendar(s):
+- Your own example:
+	- Expected service(s) or calendar(s):
 
-## 9. Consent and access limits
-
-- [ ] I understand that credentials must be shared separately and securely.
-- [ ] I understand that Jarvis will access only the services I choose to connect.
-- [ ] I understand that I can ask the administrator to disable, reconnect, rotate, or revoke a connection.
 
 Specific information, calendars, projects, or accounts Jarvis must not access:
 
