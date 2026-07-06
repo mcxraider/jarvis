@@ -67,6 +67,7 @@ from agents.agent_api.app.user_context.resolver import (
     resolve_runtime_context,
     store_thread_context,
 )
+from agents.agent_api.app.user_context.identity import TelegramIdentity, telegram_identity
 from agents.agent_api.app.user_context.runtime import (
     ResolvedRuntimeContext,
     RuntimeContextSnapshot,
@@ -78,13 +79,13 @@ _builder_logger = logging.getLogger(__name__)
 
 def _register_thread(
     thread_id: str,
-    telegram_user_id: Optional[int],
+    identity: Optional[TelegramIdentity],
     user_prompt: str,
     status: str,
     resuming: bool,
 ) -> None:
     """Upsert thread metadata. Fire-and-forget — never crashes the request."""
-    if telegram_user_id is None:
+    if identity is None:
         return
     try:
         from agents.agent_api.app.db import get_pool
@@ -123,7 +124,7 @@ def _register_thread(
                         """,
                         (
                             thread_id,
-                            str(telegram_user_id),
+                            identity.telegram_id,
                             user_prompt,
                             status,
                         ),
@@ -136,14 +137,14 @@ def _register_thread(
 
 
 def _log_usage(
-    telegram_user_id: Optional[int],
+    identity: Optional[TelegramIdentity],
     thread_id: str,
     usage: "UsageSummary",
     latency_ms: int,
     model: str,
 ) -> None:
     """Write usage telemetry to Supabase. Fire-and-forget."""
-    if telegram_user_id is None:
+    if identity is None:
         return
     if not usage.total_tokens:
         _builder_logger.warning(
@@ -201,7 +202,7 @@ def _log_usage(
                     )
                     """,
                     (
-                        str(telegram_user_id),
+                        identity.telegram_id,
                         thread_id,
                         model,
                         prompt_tokens,
@@ -378,6 +379,8 @@ def run_jarvis(
     max_agent_turns: int = MAX_AGENT_TURNS,
     tracer: Optional[TracePrinter] = None,
     thread_id: Optional[str] = None,
+    identity: Optional[TelegramIdentity] = None,
+    # Deprecated compatibility inputs; API callers should send ``identity``.
     telegram_user_id: Optional[int] = None,
     telegram_username: Optional[str] = None,
     telegram_first_name: Optional[str] = None,
@@ -396,6 +399,12 @@ def run_jarvis(
 
     if clarification_reply is not None and not thread_id:
         raise ValueError("thread_id is required when resuming with clarification_reply.")
+    if identity is None and telegram_user_id is not None:
+        identity = telegram_identity(
+            telegram_user_id,
+            telegram_username,
+            telegram_first_name,
+        )
     thread_id = thread_id or str(uuid.uuid4())
     request_id = request_id or str(uuid.uuid4())
     checkpointer = checkpointer or DEFAULT_CHECKPOINTER
@@ -409,20 +418,17 @@ def run_jarvis(
     started_at = datetime.now()
 
     runtime_context = None
-    if telegram_user_id is not None and settings.postgres_dsn:
+    if identity is not None and settings.postgres_dsn:
         runtime_context = (
-            load_thread_runtime_context(
-                thread_id, telegram_user_id, telegram_username, telegram_first_name
-            )
+            load_thread_runtime_context(thread_id, identity)
             if resuming
-            else resolve_runtime_context(
-                telegram_user_id, telegram_username, telegram_first_name
-            )
+            else resolve_runtime_context(identity)
         )
 
     base_tracer = tracer if tracer is not None else TracePrinter()
     run_log_identity = RunLogIdentity(
         request_source=request_source,
+        identity=identity,
         telegram_user_id=telegram_user_id,
         telegram_username=telegram_username,
         telegram_first_name=telegram_first_name,
@@ -434,6 +440,8 @@ def run_jarvis(
             request_id=request_id,
             thread_id=thread_id,
             user_id=user_id,
+            telegram_id=identity.telegram_id if identity else None,
+            identity_username=identity.username if identity else None,
             telegram_user_id=telegram_user_id,
             telegram_username=telegram_username,
             telegram_first_name=telegram_first_name,
@@ -513,9 +521,8 @@ def run_jarvis(
             "thread_id": thread_id,
             "invocation_type": invocation_type,
             "user_id": user_id,
-            "telegram_user_id": telegram_user_id,
-            "telegram_username": telegram_username,
-            "telegram_first_name": telegram_first_name,
+            "telegram_id": identity.telegram_id if identity else None,
+            "telegram_username": identity.username if identity else None,
             "request_source": request_source,
             "model": DEEPSEEK_MODEL,
             "allow_mutations": allow_mutations,
@@ -560,7 +567,7 @@ def run_jarvis(
     result = enrich_interrupt_status(result, thread_id)
 
     thread_status = "interrupted" if result.get("interrupted") else "completed"
-    _register_thread(thread_id, telegram_user_id, user_prompt, thread_status, resuming)
+    _register_thread(thread_id, identity, user_prompt, thread_status, resuming)
 
     usage: UsageSummary = getattr(agent_client, "usage", None) or UsageSummary()
     finished_at = datetime.now()
@@ -599,7 +606,7 @@ def run_jarvis(
         result["run_log_path"] = str(run_log.path.resolve())
 
     duration_ms = int((finished_at - started_at).total_seconds() * 1000)
-    _log_usage(telegram_user_id, thread_id, usage, duration_ms, DEEPSEEK_MODEL)
+    _log_usage(identity, thread_id, usage, duration_ms, DEEPSEEK_MODEL)
 
     return result
 

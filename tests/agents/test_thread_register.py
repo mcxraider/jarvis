@@ -6,6 +6,9 @@ from unittest.mock import patch
 import pytest
 
 from agents.agent_api.app.graph.builder import _register_thread
+from agents.agent_api.app.user_context.identity import TelegramIdentity
+
+IDENTITY = TelegramIdentity(telegram_id=42)
 
 
 class FakeCursor:
@@ -56,18 +59,18 @@ class TestRegisterThreadInsert:
     def test_non_resume_issues_insert_on_conflict(self):
         pool = FakePool()
         with patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            _register_thread("t-123", 42, "create a task", "completed", False)
+            _register_thread("t-123", IDENTITY, "create a task", "completed", False)
 
         assert len(pool.cursor_instance.statements) == 1
         sql, params = pool.cursor_instance.statements[0]
         assert "INSERT INTO threads" in sql
         assert "ON CONFLICT (thread_id) DO UPDATE" in sql
-        assert params == ("t-123", "42", "create a task", "completed")
+        assert params == ("t-123", 42, "create a task", "completed")
 
     def test_non_resume_passes_user_prompt_for_title(self):
         pool = FakePool()
         with patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            _register_thread("t-1", 99, "a very long prompt", "interrupted", False)
+            _register_thread("t-1", IDENTITY, "a very long prompt", "interrupted", False)
 
         sql, params = pool.cursor_instance.statements[0]
         assert "LEFT(%s, 100)" in sql
@@ -78,7 +81,7 @@ class TestRegisterThreadResume:
     def test_resume_issues_update(self):
         pool = FakePool()
         with patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            _register_thread("t-456", 77, "yes please", "completed", True)
+            _register_thread("t-456", IDENTITY, "yes please", "completed", True)
 
         assert len(pool.cursor_instance.statements) == 1
         sql, params = pool.cursor_instance.statements[0]
@@ -95,7 +98,7 @@ class TestRegisterThreadFireAndForget:
             side_effect=RuntimeError("no connection"),
         ):
             with caplog.at_level(logging.WARNING):
-                _register_thread("t-err", 10, "test", "completed", False)
+                _register_thread("t-err", IDENTITY, "test", "completed", False)
 
         assert "Thread registration failed" in caplog.text
 
@@ -106,6 +109,6 @@ class TestRegisterThreadFireAndForget:
         )
         with patch("agents.agent_api.app.db.get_pool", return_value=pool):
             with caplog.at_level(logging.WARNING):
-                _register_thread("t-err2", 10, "test", "completed", False)
+                _register_thread("t-err2", IDENTITY, "test", "completed", False)
 
         assert "Thread registration failed" in caplog.text

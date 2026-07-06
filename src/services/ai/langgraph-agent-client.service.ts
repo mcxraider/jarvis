@@ -6,7 +6,11 @@
 // Falls back from stream to standard POST transparently if the stream fails to start.
 
 import { LogContext, logger } from '../../utils/logger';
-import { AgentResponseSchema, StreamEventSchema } from '../../types/agent.types';
+import {
+  AgentResponseSchema,
+  TelegramIdentityPayload,
+  StreamEventSchema,
+} from '../../types/agent.types';
 
 export type LangGraphAgentStatus = 'completed' | 'interrupted' | 'failed';
 export type LangGraphInterruptType = 'clarify' | 'confirm';
@@ -48,13 +52,16 @@ export interface LangGraphDependencyHealth {
   checks: Record<string, LangGraphDependencyCheck>;
 }
 
+export interface TelegramIdentity {
+  telegramId: TelegramIdentityPayload['telegram_id'];
+  username?: TelegramIdentityPayload['username'];
+}
+
 export interface LangGraphAgentRequest {
   message: string;
   userId: string;
   source?: string;
-  telegramUserId?: number;
-  telegramUsername?: string;
-  telegramFirstName?: string;
+  telegramIdentity?: TelegramIdentity;
   requestId?: string;
   threadId?: string;
 }
@@ -157,7 +164,7 @@ export class LangGraphAgentClient {
         ...logContext,
         path,
         userId: request.userId,
-        hasTelegramUserId: request.telegramUserId !== undefined,
+        hasTelegramIdentity: request.telegramIdentity !== undefined,
         hasThreadId: !!request.threadId,
         threadId: request.threadId,
       });
@@ -222,7 +229,7 @@ export class LangGraphAgentClient {
         ...logContext,
         path: streamPath,
         userId: request.userId,
-        hasTelegramUserId: request.telegramUserId !== undefined,
+        hasTelegramIdentity: request.telegramIdentity !== undefined,
         hasThreadId: !!request.threadId,
         threadId: request.threadId,
       });
@@ -449,9 +456,12 @@ export class LangGraphAgentClient {
       message: request.message,
       user_id: request.userId,
       source: request.source,
-      telegram_user_id: request.telegramUserId,
-      telegram_username: request.telegramUsername,
-      telegram_first_name: request.telegramFirstName,
+      telegram_identity: request.telegramIdentity
+        ? {
+            telegram_id: request.telegramIdentity.telegramId,
+            username: request.telegramIdentity.username,
+          }
+        : undefined,
       request_id: request.requestId,
       thread_id: request.threadId,
     };

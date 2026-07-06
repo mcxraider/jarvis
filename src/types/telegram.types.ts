@@ -2,7 +2,7 @@
 
 export interface TelegramConfig {
   token: string;
-  /** @deprecated Production authorization is resolved from user_identities. */
+  /** @deprecated Production authorization is resolved from telegram_identities. */
   allowedUserIds?: number[];
   webhookUrl?: string;
   secretToken?: string;

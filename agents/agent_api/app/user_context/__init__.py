@@ -10,6 +10,7 @@ from agents.agent_api.app.user_context.domains import (
 )
 from agents.agent_api.app.user_context.identity import (
     ResolvedIdentity,
+    TelegramIdentity,
     refresh_identity_profile,
     resolve_active_identity,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "ResolvedUserPreferences",
     "RuntimeContextError",
     "RuntimeContextSnapshot",
+    "TelegramIdentity",
     "classify_domains",
     "load_thread_runtime_context",
     "refresh_identity_profile",

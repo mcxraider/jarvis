@@ -187,9 +187,12 @@ export class TextProcessorService {
         message,
         userId: internalUserId,
         source: 'telegram',
-        telegramUserId: userId,
-        telegramUsername: logContext.telegramUsername,
-        telegramFirstName: logContext.telegramFirstName,
+        telegramIdentity: userId === undefined
+          ? undefined
+          : {
+              telegramId: userId,
+              username: logContext.telegramUsername,
+            },
         requestId: logContext.requestId,
         threadId,
       };
@@ -337,12 +340,17 @@ export class TextProcessorService {
     }
 
     const agentRequest = {
-      message: options?.replyContext ? `${options.replyContext}\n\n${text}` : text,
+      // A clarification response must remain the user's answer alone; quoted
+      // Telegram reply context is presentation data, not graph resume input.
+      message: text,
       userId: internalUserId,
       source: 'telegram',
-      telegramUserId: userId,
-      telegramUsername: logContext.telegramUsername,
-      telegramFirstName: logContext.telegramFirstName,
+      telegramIdentity: userId === undefined
+        ? undefined
+        : {
+            telegramId: userId,
+            username: logContext.telegramUsername,
+          },
       requestId: logContext.requestId,
       threadId: pending.threadId,
     };

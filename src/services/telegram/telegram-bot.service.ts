@@ -115,7 +115,13 @@ export class TelegramBotService {
         updateId: update.update_id,
       });
 
-      if (!senderId || !(await this.authorizationStore.isAuthorized(senderId))) {
+      const senderIdentity = senderId
+        ? { telegramId: senderId }
+        : undefined;
+      if (
+        !senderIdentity
+        || !(await this.authorizationStore.isAuthorized(senderIdentity))
+      ) {
         logger.warn('telegram.update.denied', {
           requestId,
           updateId: update.update_id,

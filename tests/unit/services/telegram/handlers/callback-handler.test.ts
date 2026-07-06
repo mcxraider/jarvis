@@ -82,8 +82,10 @@ describe('CallbackHandler', () => {
       expect.objectContaining({
         message: 'approve',
         threadId: 'tg_abc_msg123',
-        telegramUsername: 'tester',
-        telegramFirstName: 'Test',
+        telegramIdentity: {
+          telegramId: 42,
+          username: 'tester',
+        },
       }),
       expect.objectContaining({
         threadId: 'tg_abc_msg123',

@@ -4,11 +4,15 @@ import {
 } from '../../../../src/services/telegram/user-authorization.store';
 
 describe('Telegram user authorization stores', () => {
+  const telegramIdentity = (id: number) => ({
+    telegramId: id,
+  });
+
   it('supports the static store for isolated callers', async () => {
     const store = new StaticUserAuthorizationStore([701122767]);
 
-    await expect(store.isAuthorized(701122767)).resolves.toBe(true);
-    await expect(store.isAuthorized(123456)).resolves.toBe(false);
+    await expect(store.isAuthorized(telegramIdentity(701122767))).resolves.toBe(true);
+    await expect(store.isAuthorized(telegramIdentity(123456))).resolves.toBe(false);
   });
 
   it('authorizes active verified identities returned by Postgres', async () => {
@@ -21,10 +25,10 @@ describe('Telegram user authorization stores', () => {
       database,
     );
 
-    await expect(store.isAuthorized(701122767)).resolves.toBe(true);
+    await expect(store.isAuthorized(telegramIdentity(701122767))).resolves.toBe(true);
     expect(database.query).toHaveBeenCalledWith(
-      expect.stringContaining("identity.identity_provider = 'telegram'"),
-      ['701122767'],
+      expect.stringContaining('identity.telegram_id = $1'),
+      [701122767],
     );
   });
 
@@ -38,7 +42,7 @@ describe('Telegram user authorization stores', () => {
       database,
     );
 
-    await expect(store.isAuthorized(123456)).resolves.toBe(false);
+    await expect(store.isAuthorized(telegramIdentity(123456))).resolves.toBe(false);
   });
 
   it('applies the emergency deny-list before querying Postgres', async () => {
@@ -51,7 +55,7 @@ describe('Telegram user authorization stores', () => {
       database,
     );
 
-    await expect(store.isAuthorized(701122767)).resolves.toBe(false);
+    await expect(store.isAuthorized(telegramIdentity(701122767))).resolves.toBe(false);
     expect(database.query).not.toHaveBeenCalled();
   });
 
@@ -65,6 +69,6 @@ describe('Telegram user authorization stores', () => {
       database,
     );
 
-    await expect(store.isAuthorized(701122767)).resolves.toBe(false);
+    await expect(store.isAuthorized(telegramIdentity(701122767))).resolves.toBe(false);
   });
 });

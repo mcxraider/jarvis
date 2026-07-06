@@ -8,6 +8,9 @@ from unittest.mock import patch
 import pytest
 
 from agents.agent_api.app.graph.builder import _log_usage
+from agents.agent_api.app.user_context.identity import TelegramIdentity
+
+IDENTITY = TelegramIdentity(telegram_id=42)
 
 
 @dataclass
@@ -70,7 +73,7 @@ class TestLogUsageNoop:
     def test_noop_when_total_tokens_is_zero(self, caplog):
         with patch("agents.agent_api.app.db.get_pool") as mock_pool:
             with caplog.at_level(logging.WARNING):
-                _log_usage(42, "t-1", FakeUsage(total_tokens=0), 500, "deepseek")
+                _log_usage(IDENTITY, "t-1", FakeUsage(total_tokens=0), 500, "deepseek")
         mock_pool.assert_not_called()
         assert "token usage is absent" in caplog.text
 
@@ -79,7 +82,7 @@ class TestLogUsageNoop:
         usage.total_tokens = None  # type: ignore[assignment]
         with patch("agents.agent_api.app.db.get_pool") as mock_pool:
             with caplog.at_level(logging.WARNING):
-                _log_usage(42, "t-1", usage, 500, "deepseek")
+                _log_usage(IDENTITY, "t-1", usage, 500, "deepseek")
         mock_pool.assert_not_called()
         assert "token usage is absent" in caplog.text
 
@@ -94,14 +97,14 @@ class TestLogUsageInsert:
             cached_tokens=40,
         )
         with patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            _log_usage(42, "thread-abc", usage, 1234, "deepseek-v4-flash")
+            _log_usage(IDENTITY, "thread-abc", usage, 1234, "deepseek-v4-flash")
 
         assert len(pool.cursor_instance.statements) == 1
         sql, params = pool.cursor_instance.statements[0]
         assert "INSERT INTO usage_logs" in sql
         assert "event_type" in sql
         assert params == (
-            "42",
+            42,
             "thread-abc",
             "deepseek-v4-flash",
             100,
@@ -119,7 +122,7 @@ class TestLogUsageInsert:
         usage.prompt_tokens = None  # type: ignore[assignment]
         usage.completion_tokens = None  # type: ignore[assignment]
         with patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            _log_usage(99, "t-1", usage, 200, "model-x")
+            _log_usage(IDENTITY, "t-1", usage, 200, "model-x")
 
         _sql, params = pool.cursor_instance.statements[0]
         assert params[3] == 0  # prompt_tokens
@@ -139,7 +142,7 @@ class TestLogUsageInsert:
 
         with patch("agents.agent_api.app.db.get_pool", return_value=pool):
             with caplog.at_level(logging.WARNING):
-                _log_usage(99, "t-1", usage, 200, "deepseek-v4-flash")
+                _log_usage(IDENTITY, "t-1", usage, 200, "deepseek-v4-flash")
 
         _sql, params = pool.cursor_instance.statements[0]
         assert params[4] is None
@@ -155,7 +158,7 @@ class TestLogUsageFireAndForget:
             side_effect=RuntimeError("db down"),
         ):
             with caplog.at_level(logging.WARNING):
-                _log_usage(42, "t-1", FakeUsage(total_tokens=100), 500, "model")
+                _log_usage(IDENTITY, "t-1", FakeUsage(total_tokens=100), 500, "model")
 
         assert "Usage logging failed" in caplog.text
         assert caplog.records[-1].error_message == "db down"
@@ -167,7 +170,7 @@ class TestLogUsageFireAndForget:
         )
         with patch("agents.agent_api.app.db.get_pool", return_value=pool):
             with caplog.at_level(logging.WARNING):
-                _log_usage(42, "t-1", FakeUsage(total_tokens=100), 500, "model")
+                _log_usage(IDENTITY, "t-1", FakeUsage(total_tokens=100), 500, "model")
 
         assert "Usage logging failed" in caplog.text
         assert caplog.records[-1].error_message == "bad sql"
