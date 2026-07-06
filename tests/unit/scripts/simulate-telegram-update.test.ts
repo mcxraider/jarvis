@@ -9,7 +9,7 @@ describe('Telegram webhook simulator', () => {
     const options = parseSimulatorArgs(
       ['--user-2', '--username', '@tester', '--update-id', '9001', 'hello', 'Jarvis'],
       {
-        JARVIS_CLI_USER_2_TELEGRAM_ID: '222',
+        JARVIS_CLI_USER_2_TELEGRAM_ID: '387244560',
         TELEGRAM_SECRET_TOKEN: 'secret',
         PORT: '3456',
       },
@@ -17,8 +17,8 @@ describe('Telegram webhook simulator', () => {
 
     expect(options).toMatchObject({
       text: 'hello Jarvis',
-      userId: 222,
-      chatId: 222,
+      userId: 387244560,
+      chatId: 387244560,
       username: 'tester',
       baseUrl: 'http://localhost:3456',
       updateId: 9001,
@@ -28,11 +28,24 @@ describe('Telegram webhook simulator', () => {
       update_id: 9001,
       message: {
         message_id: 9001,
-        chat: { id: 222, type: 'private' },
-        from: { id: 222, is_bot: false, username: 'tester' },
+        chat: { id: 387244560, type: 'private' },
+        from: { id: 387244560, is_bot: false, username: 'tester' },
         text: 'hello Jarvis',
       },
     });
+  });
+
+  it.each([
+    ['--user-1', 'JARVIS_CLI_USER_1_TELEGRAM_ID', '701122767', 701122767],
+    ['--user-2', 'JARVIS_CLI_USER_2_TELEGRAM_ID', '387244560', 387244560],
+  ])('maps %s to its configured Telegram identity', (flag, envName, value, expected) => {
+    const options = parseSimulatorArgs([flag, 'hello'], {
+      [envName]: value,
+      TELEGRAM_SECRET_TOKEN: 'secret',
+    });
+
+    expect(options.userId).toBe(expected);
+    expect(options.chatId).toBe(expected);
   });
 
   it('supports an explicit user and a separate group chat id', () => {
@@ -50,7 +63,7 @@ describe('Telegram webhook simulator', () => {
     );
     expect(() =>
       parseSimulatorArgs(['--user-1', '--telegram-user-id', '123', 'hello'], {
-        JARVIS_CLI_USER_1_TELEGRAM_ID: '111',
+        JARVIS_CLI_USER_1_TELEGRAM_ID: '701122767',
         TELEGRAM_SECRET_TOKEN: 'secret',
       }),
     ).toThrow('Choose only one');
