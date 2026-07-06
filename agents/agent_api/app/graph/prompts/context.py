@@ -15,7 +15,7 @@ from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 USER_PROMPTS: List[str] = [
     # "help me find out what projects i have in todoist, ill ask u to add a task to a one after that"
     # "set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of priority based on when im most free"
-    "check phoebe google calendar and my calendar tell me when good day to have dinner with her next week"
+    # "check phoebe google calendar and my calendar tell me when good day to have dinner with her next week"
     # "when am i free next week?"
     # "delete my dinner with zac in my cal monday 8pm"
     # "meeting zac at night on friday, add it in" # always add it in first, then check for conflicts and report back if conflict else end.
