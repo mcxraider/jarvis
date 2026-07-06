@@ -1,0 +1,266 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-06T18:06:26+08:00
+request_id: tg_update_1783332386073
+thread_id: tg_tg_update_1783332386073
+user_id: telegram:701122767
+telegram_id: 701122767
+identity_username: None
+telegram_user_id: None
+telegram_username: None
+telegram_first_name: None
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-06 18:06:26.751 | section              | === Jarvis LangGraph Run ===
+2026-07-06 18:06:26.751 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_1783332386073
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: tg_tg_update_1783332386073
+      request_source: telegram
+      resuming: false
+2026-07-06 18:06:26.751 | runtime.prompt       | [payload] user_prompt: What is on my schedule tmr
+2026-07-06 18:06:27.364 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-06 18:06:27.581 | graph.agent          | Entering agent node.
+      turn: 1
+      max_turns: 20
+      messages: 2
+2026-07-06 18:06:27.582 | graph.tools.selected | Selected tools for this turn.
+      available: 22
+      selected: 22
+2026-07-06 18:06:27.585 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 2
+      tools: 22
+2026-07-06 18:06:33.993 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 2
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 8059
+      completion_tokens: 572
+      total_tokens: 8631
+      cached_tokens: 7936
+      cache_hit_rate: 98.5
+2026-07-06 18:06:34.000 | graph.route          | Agent node completed.
+      next: tools
+      turn: 1
+2026-07-06 18:06:34.009 | graph.validate       | All entity references verified.
+      tool_calls: 2
+      next: tools
+2026-07-06 18:06:34.014 | graph.tools          | Entering tools node.
+      tool_calls: 2
+      accumulated_results: 0
+2026-07-06 18:06:34.019 | tool.start           | Preparing tool call.
+      id: call_00_Po7RLka559noHC3HXKUZ6679
+      name: get_tasks_by_filter
+      mutating: false
+2026-07-06 18:06:34.020 | tool.start           | Preparing tool call.
+      id: call_01_xKkOrwBreBw8L7Iy6I5c1483
+      name: list_calendar_events
+      mutating: false
+2026-07-06 18:06:34.020 | tool.args            | [payload] get_tasks_by_filter:
+      query: due: Jul 7
+2026-07-06 18:06:34.020 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-07T00:00:00+08:00
+      time_max: 2026-07-08T00:00:00+08:00
+      single_events: true
+2026-07-06 18:06:34.021 | todoist.request      | Sending Todoist API request.
+      method: GET
+      endpoint: /tasks/filter
+      has_payload: false
+      attempt: 1
+      max_attempts: 3
+2026-07-06 18:06:34.021 | todoist.payload      | [payload] request: None
+2026-07-06 18:06:34.395 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-06 18:06:34.845 | calendar.response    | Received Calendar API response.
+      operation: calendar.events.list
+      attempt: 1
+2026-07-06 18:06:34.846 | tool.done            | Tool call completed.
+      name: list_calendar_events
+2026-07-06 18:06:34.847 | tool.result          | [payload] list_calendar_events:
+      (empty)
+2026-07-06 18:06:38.127 | todoist.response     | Received Todoist API response.
+      status: 200
+      has_body: true
+      attempt: 1
+2026-07-06 18:06:38.127 | todoist.payload      | [payload] response:
+      results:
+      (1 items)
+            user_id: 41485550
+            id: 6gx9R3c5xFjJ4cCG
+            project_id: 6M5457p2vRg4g3Vp
+            added_by_uid: 41485550
+            added_at: 2026-06-25T18:08:19.291674Z
+            updated_at: 2026-06-27T16:53:27.212386Z
+            due:
+                  date: 2026-07-07T19:00:00
+                  string: 7 Jul 19:00
+                  lang: en
+            priority: 4
+            child_order: 4002
+            content: dinner w colorado
+            day_order: -1
+2026-07-06 18:06:38.128 | tool.done            | Tool call completed.
+      name: get_tasks_by_filter
+2026-07-06 18:06:38.129 | tool.result          | [payload] get_tasks_by_filter:
+      results:
+      (1 items)
+            user_id: 41485550
+            id: 6gx9R3c5xFjJ4cCG
+            project_id: 6M5457p2vRg4g3Vp
+            added_by_uid: 41485550
+            added_at: 2026-06-25T18:08:19.291674Z
+            updated_at: 2026-06-27T16:53:27.212386Z
+            due:
+                  date: 2026-07-07T19:00:00
+                  string: 7 Jul 19:00
+                  lang: en
+            priority: 4
+            child_order: 4002
+            content: dinner w colorado
+            day_order: -1
+2026-07-06 18:06:38.131 | graph.route          | Tools node completed.
+      next: agent
+      successes: 2
+      failures: 0
+2026-07-06 18:06:38.138 | graph.agent          | Entering agent node.
+      turn: 2
+      max_turns: 20
+      messages: 5
+2026-07-06 18:06:38.139 | graph.tools.selected | Selected tools for this turn.
+      available: 22
+      selected: 22
+2026-07-06 18:06:38.141 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 5
+      tools: 22
+2026-07-06 18:06:40.997 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 9096
+      completion_tokens: 183
+      total_tokens: 9279
+      cached_tokens: 8576
+      cache_hit_rate: 94.3
+2026-07-06 18:06:41.000 | graph.route          | Agent node completed.
+      next: tools
+      turn: 2
+2026-07-06 18:06:41.007 | graph.validate       | All entity references verified.
+      tool_calls: 1
+      next: tools
+2026-07-06 18:06:41.009 | graph.tools          | Entering tools node.
+      tool_calls: 1
+      accumulated_results: 2
+2026-07-06 18:06:41.013 | tool.start           | Preparing tool call.
+      id: call_00_gLoqDpNQOVni6GnAmIdN9116
+      name: get_projects
+      mutating: false
+2026-07-06 18:06:41.013 | tool.args            | [payload] get_projects:
+      (empty)
+2026-07-06 18:06:41.014 | todoist.request      | Sending Todoist API request.
+      method: GET
+      endpoint: /projects
+      has_payload: false
+      attempt: 1
+      max_attempts: 3
+2026-07-06 18:06:41.014 | todoist.payload      | [payload] request: None
+2026-07-06 18:06:43.428 | todoist.response     | Received Todoist API response.
+      status: 200
+      has_body: true
+      attempt: 1
+2026-07-06 18:06:43.430 | todoist.payload      | [payload] response:
+      results:
+      (2 items)
+            id: 6M5457p2vRg4g3Vp
+            can_comment: true
+            color: grey
+            creator_uid: 41485550
+            created_at: 2023-07-13T10:17:36.194862Z
+            name: Inbox
+            updated_at: 2024-05-06T19:13:18.909543Z
+            view_style: list
+            public_key: 8da078c0-d2b7-405f-91a8-79d90a59528b
+            access:
+                  visibility: restricted
+            role: CREATOR
+            inbox_project: true
+
+            id: 6gwM7V63RVF834JP
+            can_comment: true
+            child_order: 1
+            color: orange
+            creator_uid: 41485550
+            created_at: 2026-06-22T05:49:11.103522Z
+            is_favorite: true
+            name: jarvis-mcp
+            updated_at: 2026-06-22T05:49:55.951446Z
+            view_style: list
+            public_key: b751b7f7-412f-42ef-9a6e-19d38c3599f5
+            access:
+                  visibility: restricted
+            role: CREATOR
+2026-07-06 18:06:43.431 | tool.done            | Tool call completed.
+      name: get_projects
+2026-07-06 18:06:43.431 | tool.result          | [payload] get_projects:
+      results:
+      (2 items)
+            id: 6M5457p2vRg4g3Vp
+            can_comment: true
+            color: grey
+            creator_uid: 41485550
+            created_at: 2023-07-13T10:17:36.194862Z
+            name: Inbox
+            updated_at: 2024-05-06T19:13:18.909543Z
+            view_style: list
+            public_key: 8da078c0-d2b7-405f-91a8-79d90a59528b
+            access:
+                  visibility: restricted
+            role: CREATOR
+            inbox_project: true
+
+            id: 6gwM7V63RVF834JP
+            can_comment: true
+            child_order: 1
+            color: orange
+            creator_uid: 41485550
+            created_at: 2026-06-22T05:49:11.103522Z
+            is_favorite: true
+            name: jarvis-mcp
+            updated_at: 2026-06-22T05:49:55.951446Z
+            view_style: list
+            public_key: b751b7f7-412f-42ef-9a6e-19d38c3599f5
+            access:
+                  visibility: restricted
+            role: CREATOR
+2026-07-06 18:06:43.440 | graph.route          | Tools node completed.
+      next: agent
+      successes: 1
+      failures: 0
+2026-07-06 18:06:43.446 | graph.agent          | Entering agent node.
+      turn: 3
+      max_turns: 20
+      messages: 7
+2026-07-06 18:06:43.447 | graph.tools.selected | Selected tools for this turn.
+      available: 22
+      selected: 22
+2026-07-06 18:06:43.449 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 7
+      tools: 22
