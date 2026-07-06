@@ -4,10 +4,8 @@
 
 Currently, the Jarvis agent loads **all** active domain context (Todoist grounding notes, prompt fragments, tool schemas) into every request regardless of what the user is asking about. For a query like "fetch events from Jerry's calendar", the full Todoist context (~14 tool schemas + grounding note + prompt fragment) is still injected into the system prompt, wasting tokens and diluting focus.
 
-The existing `ToolSelector` protocol already supports per-turn tool filtering (and a `KeywordToolSelector` exists but isn't the default), but:
-1. It only filters **tool schemas** — the system prompt still includes all domain blocks
-2. Keyword matching is brittle and doesn't understand intent
-3. There's no query rewrite or enrichment step
+The existing `ToolSelector` protocol already supports per-turn tool filtering but:
+1. There's no query rewrite or enrichment step
 
 **Goal**: Add a lightweight LLM-based query router that runs before the orchestrator to determine which domains are relevant, enabling both tool schema filtering AND system prompt slimming. This also opens the door to future model-tier routing.
 

@@ -29,15 +29,15 @@ npm run lint
 ### Simulate Telegram From the CLI
 
 With the TypeScript server and Python agent running, inject a Telegram-shaped
-text update at the real webhook entry point:
+text update at the real webhook entry point. Edit `USER_ARGS` and `PROMPT` at the
+top of the script, then run:
 
 ```bash
-npm run telegram:simulate -- --user-1 "What is on my calendar tomorrow?"
-npm run telegram:simulate -- --telegram-user-id 123456789 "Add milk to my tasks"
+./scripts/run_telegram_e2e.sh
 ```
 
-Use `--user-2` to select the second configured test identity, or `--chat-id` to
-test a user speaking in a different chat. Run with `--help` for all options.
+Set `USER_ARGS` to `(--user-1)`, `(--user-2)`, or
+`(--telegram-user-id 123456789)` when testing another configured identity.
 The selected identity follows the normal authorization and per-user integration
 resolution path. If the chat ID is a real chat where the bot is allowed to
 write, the normal reply is delivered there.
