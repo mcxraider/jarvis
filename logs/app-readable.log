@@ -53807,3 +53807,635 @@
       "baseUrl": "https://ef06-116-87-102-52.ngrok-free.app",
       "path": "/webhook/[REDACTED]"
     }
+[2026-07-06 19:01:00] INFO telegram.webhook.received
+  requestId: tg_update_564452438
+  updateId: 564452438
+  messageType: voice
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-06 19:01:00] INFO telegram.update.handling_started
+  requestId: tg_update_564452438
+  updateId: 564452438
+[2026-07-06 19:01:01] INFO telegram.message.received
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "fileSize": 24069,
+      "duration": 6,
+      "hasReplyContext": false
+    }
+[2026-07-06 19:01:02] INFO processor.route.selected
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "processor": "AudioProcessorService",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-07-06 19:01:02] INFO audio_processor.started
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-07-06 19:01:02] INFO whisper.transcription.started
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-07-06 19:01:02] DEBUG whisper.download.started
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-07-06 19:01:02] WARN whisper.download.unexpected_content_type
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "contentType": "application/octet-stream"
+    }
+[2026-07-06 19:01:03] DEBUG whisper.download.completed
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "sizeBytes": 24069,
+      "durationMs": 752,
+      "contentType": "application/octet-stream"
+    }
+[2026-07-06 19:01:03] INFO audio.transcription.direct_selected
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg"
+    }
+[2026-07-06 19:01:03] INFO audio.conversion.skipped
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg",
+      "reason": "groq_direct_format"
+    }
+[2026-07-06 19:01:03] INFO whisper.api.request
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "model": "whisper-large-v3",
+      "language": "en",
+      "responseFormat": "verbose_json",
+      "promptLength": 166,
+      "fileSizeBytes": 24069,
+      "fileExtension": "ogg",
+      "temperature": 0
+    }
+[2026-07-06 19:01:03] INFO whisper.api.response
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "detectedLanguage": "English",
+      "segmentCount": 1,
+      "textLength": 63,
+      "durationMs": 823
+    }
+[2026-07-06 19:01:03] INFO whisper.transcription.completed
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "textPreview": " Add in a Thursday lunch, probably about 12.30pm with Zhe Qing.",
+      "textLength": 63,
+      "processingTimeMs": 1579,
+      "fileSizeBytes": 24069,
+      "qualityFlaggedSegments": 0,
+      "qualityTotalSegments": 1
+    }
+[2026-07-06 19:01:04] INFO text_processor.started
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "messageLength": 62
+    }
+[2026-07-06 19:01:04] INFO langgraph.stream.started
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  threadId: tg_tg_update_564452438
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "path": "/invoke/stream",
+      "hasTelegramIdentity": true,
+      "hasThreadId": true
+    }
+[2026-07-06 19:01:33] INFO langgraph.stream.completed
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  threadId: tg_tg_update_564452438
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "path": "/invoke/stream",
+      "status": "interrupted",
+      "requestedThreadId": "tg_tg_update_564452438",
+      "durationMs": 28540
+    }
+[2026-07-06 19:01:33] INFO conversation_gate.transition_to_waiting
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "gateKey": "telegram-chat:26accd1e1db9bdc5812d06534574dc1c",
+      "interruptType": "clarify"
+    }
+[2026-07-06 19:01:33] INFO text_processor.completed
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  threadId: tg_tg_update_564452438
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "messageLength": 62,
+      "responseLength": 211,
+      "agentStatus": "interrupted",
+      "requestedThreadId": "tg_tg_update_564452438",
+      "interruptType": "clarify",
+      "durationMs": 28703
+    }
+[2026-07-06 19:01:33] INFO audio_processor.completed
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "durationMs": 31051,
+      "transcriptionTextLength": 63,
+      "hasTranscription": true
+    }
+[2026-07-06 19:01:33] INFO telegram.interrupt.prompt_presented
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "gateKey": "telegram-chat:26accd1e1db9bdc5812d06534574dc1c",
+      "interruptType": "clarify",
+      "presentation": "clarification_block"
+    }
+[2026-07-06 19:01:33] INFO telegram.reply.sent
+  requestId: tg_update_564452438
+  updateId: 564452438
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1108
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "responseLength": 211,
+      "totalDurationMs": 32594
+    }
+[2026-07-06 19:01:33] INFO telegram.update.handling_completed
+  requestId: tg_update_564452438
+  updateId: 564452438
+  details:
+    {
+      "durationMs": 32864
+    }
+[2026-07-06 19:01:34] INFO telegram.webhook.received
+  requestId: tg_update_564452439
+  updateId: 564452439
+  messageType: voice
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-06 19:01:34] INFO telegram.update.handling_started
+  requestId: tg_update_564452439
+  updateId: 564452439
+[2026-07-06 19:01:34] INFO telegram.message.received
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "fileSize": 17395,
+      "duration": 4,
+      "hasReplyContext": false
+    }
+[2026-07-06 19:01:36] INFO processor.route.selected
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "processor": "AudioProcessorService",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-07-06 19:01:36] INFO conversation_gate.audio_resume_reserved
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "gateKey": "telegram-chat:26accd1e1db9bdc5812d06534574dc1c"
+    }
+[2026-07-06 19:01:37] INFO audio_processor.started
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-07-06 19:01:37] INFO whisper.transcription.started
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-07-06 19:01:37] DEBUG whisper.download.started
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-07-06 19:01:37] WARN whisper.download.unexpected_content_type
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "contentType": "application/octet-stream"
+    }
+[2026-07-06 19:01:37] DEBUG whisper.download.completed
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "sizeBytes": 17395,
+      "durationMs": 697,
+      "contentType": "application/octet-stream"
+    }
+[2026-07-06 19:01:37] INFO audio.transcription.direct_selected
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg"
+    }
+[2026-07-06 19:01:37] INFO audio.conversion.skipped
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg",
+      "reason": "groq_direct_format"
+    }
+[2026-07-06 19:01:37] INFO whisper.api.request
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "model": "whisper-large-v3",
+      "language": "en",
+      "responseFormat": "verbose_json",
+      "promptLength": 166,
+      "fileSizeBytes": 17395,
+      "fileExtension": "ogg",
+      "temperature": 0
+    }
+[2026-07-06 19:01:38] INFO whisper.api.response
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "detectedLanguage": "English",
+      "segmentCount": 1,
+      "textLength": 38,
+      "durationMs": 424
+    }
+[2026-07-06 19:01:38] INFO whisper.transcription.completed
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "textPreview": " So this thing is spelled Z-E-Q-I-N-G.",
+      "textLength": 38,
+      "processingTimeMs": 1126,
+      "fileSizeBytes": 17395,
+      "qualityFlaggedSegments": 0,
+      "qualityTotalSegments": 1
+    }
+[2026-07-06 19:01:39] INFO text_processor.started
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "messageLength": 37
+    }
+[2026-07-06 19:01:39] INFO langgraph.stream.started
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  threadId: tg_tg_update_564452438
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "path": "/resume/stream",
+      "hasTelegramIdentity": true,
+      "hasThreadId": true
+    }
+[2026-07-06 19:01:49] INFO langgraph.stream.completed
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  threadId: tg_tg_update_564452438
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "path": "/resume/stream",
+      "status": "interrupted",
+      "requestedThreadId": "tg_tg_update_564452438",
+      "durationMs": 10193
+    }
+[2026-07-06 19:01:49] INFO conversation_gate.transition_to_waiting
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "gateKey": "telegram-chat:26accd1e1db9bdc5812d06534574dc1c",
+      "interruptType": "clarify"
+    }
+[2026-07-06 19:01:49] INFO audio_processor.completed
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "durationMs": 12270,
+      "transcriptionTextLength": 38,
+      "hasTranscription": true
+    }
+[2026-07-06 19:01:49] INFO telegram.interrupt.prompt_presented
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "gateKey": "telegram-chat:26accd1e1db9bdc5812d06534574dc1c",
+      "interruptType": "clarify",
+      "presentation": "clarification_block"
+    }
+[2026-07-06 19:01:49] INFO telegram.reply.sent
+  requestId: tg_update_564452439
+  updateId: 564452439
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1111
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "responseLength": 202,
+      "totalDurationMs": 15255
+    }
+[2026-07-06 19:01:49] INFO telegram.update.handling_completed
+  requestId: tg_update_564452439
+  updateId: 564452439
+  details:
+    {
+      "durationMs": 15323
+    }

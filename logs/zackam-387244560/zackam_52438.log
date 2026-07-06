@@ -1,0 +1,383 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-06T19:01:04+08:00
+request_id: tg_update_564452438
+thread_id: tg_tg_update_564452438
+user_id: telegram:387244560
+telegram_id: 387244560
+identity_username: zackam
+telegram_user_id: None
+telegram_username: None
+telegram_first_name: None
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-06 19:01:04.776 | section              | === Jarvis LangGraph Run ===
+2026-07-06 19:01:04.776 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_564452438
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: tg_tg_update_564452438
+      request_source: telegram
+      resuming: false
+2026-07-06 19:01:04.776 | runtime.prompt       | [payload] user_prompt: Add in a Thursday lunch, probably about 12.30pm with Zhe Qing.
+2026-07-06 19:01:05.405 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-06 19:01:05.638 | graph.agent          | Entering agent node.
+      turn: 1
+      max_turns: 20
+      messages: 2
+2026-07-06 19:01:05.639 | graph.tools.selected | Selected tools for this turn.
+      available: 22
+      selected: 22
+2026-07-06 19:01:05.644 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 2
+      tools: 22
+2026-07-06 19:01:15.860 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 8110
+      completion_tokens: 960
+      total_tokens: 9070
+2026-07-06 19:01:15.863 | graph.route          | Agent node completed.
+      next: tools
+      turn: 1
+2026-07-06 19:01:15.897 | graph.validate       | All entity references verified.
+      tool_calls: 1
+      next: tools
+2026-07-06 19:01:15.907 | graph.tools          | Entering tools node.
+      tool_calls: 1
+      accumulated_results: 0
+2026-07-06 19:01:15.912 | tool.start           | Preparing tool call.
+      id: call_00_eStkL8tMCQH1c7zG9jFQ4916
+      name: list_calendars
+      mutating: false
+2026-07-06 19:01:15.912 | tool.args            | [payload] list_calendars:
+      (empty)
+2026-07-06 19:01:16.232 | calendar.request     | Sending Calendar API request.
+      operation: calendar.calendars.list
+      attempt: 1
+      max_attempts: 3
+2026-07-06 19:01:20.130 | calendar.response    | Received Calendar API response.
+      operation: calendar.calendars.list
+      attempt: 1
+2026-07-06 19:01:20.131 | tool.done            | Tool call completed.
+      name: list_calendars
+2026-07-06 19:01:20.133 | tool.result          | [payload] list_calendars:
+      calendars:
+      (10 items)
+            calendar_id: ac4a0ae593d728a54e248a3c3abb79fb5fff8b3ffeaec819e99279460fdba5a6@group.calendar.google.com
+            summary: special calendar
+            time_zone: Asia/Singapore
+
+            calendar_id: 777zachary@gmail.com
+            summary: Personal (Zac Kam)
+            primary: true
+            time_zone: Asia/Singapore
+
+            calendar_id: 872a5a534d174126cd828a75b54f16f5cf5232bc68486e7b17f90a6c51e22f57@group.calendar.google.com
+            summary: NUS Schedule
+            time_zone: Asia/Singapore
+
+            calendar_id: 2631ef239ab11c6df810e86020b48baed48ef1f37ae62aaeba5280ae632374da@group.calendar.google.com
+            summary: Work (Zac Kam)
+            time_zone: Asia/Singapore
+
+            calendar_id: 4b875b4e225f1fc1dff65218ef40a756fb4e882bef9e5299fbc3f8411e4455e7@group.calendar.google.com
+            summary: Personal 
+            time_zone: Asia/Singapore
+
+            calendar_id: b61dbf556f021b5acda51a58b5e6144b7764633e91f130564277cf026613624e@group.calendar.google.com
+            summary: TAT ALLIANCE CALENDAR
+            time_zone: Asia/Singapore
+
+            calendar_id: lidazou97@gmail.com
+            summary: lidazou97@gmail.com
+            time_zone: Asia/Singapore
+
+            calendar_id: zach.advisory@gmail.com
+            summary: TFG Calendar 
+            time_zone: Asia/Singapore
+
+            calendar_id: jugwofe@gmail.com
+            summary: Justin Tay
+            time_zone: Asia/Singapore
+
+            calendar_id: 5288a5913cbd2d5f869a2557e609a57bfb6f8fcde61df6683b3eb0c2f0a4a3f4@group.calendar.google.com
+            summary: reena's schedule
+            time_zone: Asia/Singapore
+2026-07-06 19:01:20.146 | graph.route          | Tools node completed.
+      next: agent
+      successes: 1
+      failures: 0
+2026-07-06 19:01:20.157 | graph.agent          | Entering agent node.
+      turn: 2
+      max_turns: 20
+      messages: 4
+2026-07-06 19:01:20.159 | graph.tools.selected | Selected tools for this turn.
+      available: 22
+      selected: 22
+2026-07-06 19:01:20.160 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 4
+      tools: 22
+2026-07-06 19:01:22.802 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 9754
+      completion_tokens: 246
+      total_tokens: 10000
+      cached_tokens: 8960
+      cache_hit_rate: 91.9
+2026-07-06 19:01:22.804 | graph.route          | Agent node completed.
+      next: tools
+      turn: 2
+2026-07-06 19:01:22.809 | graph.validate       | All entity references verified.
+      tool_calls: 1
+      next: tools
+2026-07-06 19:01:22.815 | graph.tools          | Entering tools node.
+      tool_calls: 1
+      accumulated_results: 1
+2026-07-06 19:01:22.822 | tool.start           | Preparing tool call.
+      id: call_00_A7eiI9aWNXtofARSfpM12727
+      name: get_freebusy
+      mutating: false
+2026-07-06 19:01:22.823 | tool.args            | [payload] get_freebusy:
+      time_min: 2026-07-09T12:30:00+08:00
+      time_max: 2026-07-09T13:30:00+08:00
+      calendar_ids: [777zachary@gmail.com]
+2026-07-06 19:01:22.825 | calendar.request     | Sending Calendar API request.
+      operation: calendar.freebusy.query
+      attempt: 1
+      max_attempts: 3
+2026-07-06 19:01:23.097 | calendar.response    | Received Calendar API response.
+      operation: calendar.freebusy.query
+      attempt: 1
+2026-07-06 19:01:23.098 | tool.done            | Tool call completed.
+      name: get_freebusy
+2026-07-06 19:01:23.099 | tool.result          | [payload] get_freebusy:
+      calendars:
+            777zachary@gmail.com:
+                  busy:
+                  (1 items)
+                        start: 2026-07-09T04:30:00Z
+                        end: 2026-07-09T05:30:00Z
+2026-07-06 19:01:23.103 | graph.route          | Tools node completed.
+      next: agent
+      successes: 1
+      failures: 0
+2026-07-06 19:01:23.114 | graph.agent          | Entering agent node.
+      turn: 3
+      max_turns: 20
+      messages: 6
+2026-07-06 19:01:23.116 | graph.tools.selected | Selected tools for this turn.
+      available: 22
+      selected: 22
+2026-07-06 19:01:23.118 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 6
+      tools: 22
+2026-07-06 19:01:26.090 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 10130
+      completion_tokens: 295
+      total_tokens: 10425
+      cached_tokens: 9984
+      cache_hit_rate: 98.6
+2026-07-06 19:01:26.096 | graph.route          | Agent node completed.
+      next: tools
+      turn: 3
+2026-07-06 19:01:26.118 | graph.validate       | All entity references verified.
+      tool_calls: 1
+      next: tools
+2026-07-06 19:01:26.121 | graph.tools          | Entering tools node.
+      tool_calls: 1
+      accumulated_results: 2
+2026-07-06 19:01:26.141 | tool.start           | Preparing tool call.
+      id: call_00_aytCCBJJFYuciJIe8maa0830
+      name: list_calendar_events
+      mutating: false
+2026-07-06 19:01:26.143 | tool.args            | [payload] list_calendar_events:
+      time_min: 2026-07-09T12:00:00+08:00
+      time_max: 2026-07-09T14:00:00+08:00
+      calendar_id: 777zachary@gmail.com
+2026-07-06 19:01:26.149 | calendar.request     | Sending Calendar API request.
+      operation: calendar.events.list
+      attempt: 1
+      max_attempts: 3
+2026-07-06 19:01:26.584 | calendar.response    | Received Calendar API response.
+      operation: calendar.events.list
+      attempt: 1
+2026-07-06 19:01:26.585 | tool.done            | Tool call completed.
+      name: list_calendar_events
+2026-07-06 19:01:26.585 | tool.result          | [payload] list_calendar_events:
+      events:
+      (1 items)
+            event_id: 2jd0drpss1iunsk6pvthen5sd0
+            summary: Lunch w zq
+            start: 2026-07-09T12:00:00+08:00
+            end: 2026-07-09T14:00:00+08:00
+            status: confirmed
+2026-07-06 19:01:26.588 | graph.route          | Tools node completed.
+      next: agent
+      successes: 1
+      failures: 0
+2026-07-06 19:01:26.591 | graph.agent          | Entering agent node.
+      turn: 4
+      max_turns: 20
+      messages: 8
+2026-07-06 19:01:26.592 | graph.tools.selected | Selected tools for this turn.
+      available: 22
+      selected: 22
+2026-07-06 19:01:26.596 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 8
+      tools: 22
+2026-07-06 19:01:32.991 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 10591
+      completion_tokens: 628
+      total_tokens: 11219
+      cached_tokens: 10368
+      cache_hit_rate: 97.9
+2026-07-06 19:01:32.997 | graph.route          | Agent node completed.
+      next: hitl
+      turn: 4
+2026-07-06 19:01:33.026 | graph.hitl           | Interrupting for user clarification.
+      question: There's already a "Lunch w zq" event on your Personal calendar this Thursday (12–2pm). Is that the same lunch you're referring to? If so, would you like me to adjust the time to 12:30pm start, or leave it as is?
+      deferred_tools: 0
+      extra_questions: 0
+2026-07-06 19:01:33.090 | runtime.done         | Graph invocation completed.
+      request_id: tg_update_564452438
+      turns: 4
+      tool_results: 3
+      has_error: false
+      interrupted: true
+      interrupt_type: clarify
+      total_tokens: 40714
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-07-06T19:01:33+08:00
+duration_seconds: 28.381
+request_id: tg_update_564452438
+turns: 4
+tool_results: 3
+has_error: False
+interrupted: True
+prompt_tokens: 38585
+completion_tokens: 2129
+total_tokens: 40714
+cached_tokens: 29312
+cache_hit_rate: 76.0
+reasoning_tokens: 1463
+==============================================================================
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-06T19:01:39+08:00
+request_id: tg_update_564452439
+thread_id: tg_tg_update_564452438
+user_id: telegram:387244560
+telegram_id: 387244560
+identity_username: zackam
+telegram_user_id: None
+telegram_username: None
+telegram_first_name: None
+request_source: telegram
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: True
+------------------------------------------------------------------------------
+2026-07-06 19:01:39.260 | section              | === Jarvis LangGraph Run ===
+2026-07-06 19:01:39.260 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_564452439
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: tg_tg_update_564452438
+      request_source: telegram
+      resuming: true
+2026-07-06 19:01:39.261 | runtime.prompt       | [payload] user_prompt: So this thing is spelled Z-E-Q-I-N-G.
+2026-07-06 19:01:39.487 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-06 19:01:39.522 | graph.hitl           | Interrupting for user clarification.
+      question: There's already a "Lunch w zq" event on your Personal calendar this Thursday (12–2pm). Is that the same lunch you're referring to? If so, would you like me to adjust the time to 12:30pm start, or leave it as is?
+      deferred_tools: 0
+      extra_questions: 0
+2026-07-06 19:01:39.522 | graph.hitl           | Resumed from user clarification.
+2026-07-06 19:01:39.524 | graph.agent          | Entering agent node.
+      turn: 5
+      max_turns: 20
+      messages: 11
+2026-07-06 19:01:39.524 | graph.tools.selected | Selected tools for this turn.
+      available: 22
+      selected: 22
+2026-07-06 19:01:39.525 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 11
+      tools: 22
+2026-07-06 19:01:49.161 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 11359
+      completion_tokens: 927
+      total_tokens: 12286
+      cached_tokens: 11136
+      cache_hit_rate: 98.0
+2026-07-06 19:01:49.164 | graph.route          | Agent node completed.
+      next: hitl
+      turn: 5
+2026-07-06 19:01:49.172 | graph.hitl           | Interrupting for user clarification.
+      question: Is the existing "Lunch w zq" event (Thursday 12–2pm) for Zeqing? If yes, would you like me to update it to show Zeqing's name and/or tweak the time to 12:30pm start? Or do you want a separate new event?
+      deferred_tools: 0
+      extra_questions: 0
+2026-07-06 19:01:49.241 | runtime.done         | Graph invocation completed.
+      request_id: tg_update_564452439
+      turns: 5
+      tool_results: 3
+      has_error: false
+      interrupted: true
+      interrupt_type: clarify
+      total_tokens: 12286
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-07-06T19:01:49+08:00
+duration_seconds: 10.051
+request_id: tg_update_564452439
+turns: 5
+tool_results: 3
+has_error: False
+interrupted: True
+prompt_tokens: 11359
+completion_tokens: 927
+total_tokens: 12286
+cached_tokens: 11136
+cache_hit_rate: 98.0
+reasoning_tokens: 728
+==============================================================================
