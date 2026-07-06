@@ -13,13 +13,6 @@ claims them atomically, and sends them directly to the user's Telegram chat via 
 API. Normal reminder delivery never invokes the LangGraph agent, because the reminder
 text was fully determined at creation time — delivery is a dumb, cheap, reliable pipe.
 
-This is deliberately separate from a future `daily-brief-dispatch` function. Daily briefs
-are recurring, generated summaries that need fresh context and an LLM call at delivery
-time; reminders are individually scheduled, pre-written messages. Sharing a dispatcher
-would couple a latency-sensitive static path to an expensive generated path. A shared
-"scheduled jobs" abstraction is listed under Future Extensions, but the first version
-should not build it.
-
 ## Goals
 
 - Create, list, update, and cancel reminders through natural-language Jarvis tools.
@@ -29,6 +22,8 @@ should not build it.
 - Retain enough delivery state for retries, support, and auditing.
 - Survive restarts of both the Node service and the Python agent API: once a reminder row
   exists, delivery depends only on Supabase infrastructure and Telegram.
+- users can check what reminders they have in place for their account by running /reminders
+
 
 ### Non-goals (first version)
 
@@ -90,21 +85,21 @@ Python LangGraph agent (agents/agent_api/)
     |
     v
 reminder tool handlers  ---- insert/update/select ---->  Supabase Postgres (public.reminders)
-                                                              |
-                                                        pg_cron (every minute)
-                                                              |
-                                                          pg_net HTTP POST
-                                                              |
-                                                              v
-                                              reminder-dispatch Edge Function (Deno)
-                                                              |
-                                          claim via private.claim_due_reminders(...)
-                                                              |
-                                                              v
-                                                     Telegram Bot API sendMessage
-                                                              |
-                                                              v
-                                                        Telegram user
+                                                                        |
+                                                                  pg_cron (every minute)
+                                                                        |
+                                                                    pg_net HTTP POST
+                                                                        |
+                                                                        v
+                                                        reminder-dispatch Edge Function (Deno)
+                                                                        |
+                                                    claim via private.claim_due_reminders(...)
+                                                                        |
+                                                                        v
+                                                              Telegram Bot API sendMessage
+                                                                        |
+                                                                        v
+                                                                  Telegram user
 ```
 
 ### Responsibility split
