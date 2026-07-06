@@ -26,6 +26,27 @@ npm run lint
 
 ## Test Types
 
+### Simulate Telegram From the CLI
+
+With the TypeScript server and Python agent running, inject a Telegram-shaped
+text update at the real webhook entry point:
+
+```bash
+npm run telegram:simulate -- --user-1 "What is on my calendar tomorrow?"
+npm run telegram:simulate -- --telegram-user-id 123456789 "Add milk to my tasks"
+```
+
+Use `--user-2` to select the second configured test identity, or `--chat-id` to
+test a user speaking in a different chat. Run with `--help` for all options.
+The selected identity follows the normal authorization and per-user integration
+resolution path. If the chat ID is a real chat where the bot is allowed to
+write, the normal reply is delivered there.
+
+This simulates Telegram's JSON webhook payload from the HTTP ingress onward. It
+does not traverse Telegram's servers: Telegram does not allow a bot or local
+CLI to forge an incoming message from another user. Use a real Telegram account
+for the final network-delivery acceptance test.
+
 ### Offline Unit Tests
 
 Command:
