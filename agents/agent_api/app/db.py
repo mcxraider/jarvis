@@ -18,7 +18,22 @@ _REQUIRED_RUNTIME_TABLES = (
     "telegram_pending_clarifications",
     "telegram_conversation_gates",
     "rate_limits",
+    "idempotency_results",
 )
+
+_REQUIRED_IDEMPOTENCY_COLUMNS = (
+    "idempotency_key",
+    "layer",
+    "tool_name",
+    "status",
+    "owner_token",
+    "result_json",
+    "created_at",
+    "lease_expires_at",
+    "expires_at",
+)
+
+_REQUIRED_IDEMPOTENCY_PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "DELETE")
 
 
 def get_pool() -> Any:
@@ -100,6 +115,40 @@ def verify_database_runtime() -> None:
                         "Database migrations are incomplete; missing: "
                         + ", ".join(f"public.{name}" for name in missing_tables)
                     )
+
+                cursor.execute(
+                    """
+                    SELECT required.column_name
+                    FROM unnest(%s::text[]) AS required(column_name)
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns actual
+                        WHERE actual.table_schema = 'public'
+                          AND actual.table_name = 'idempotency_results'
+                          AND actual.column_name = required.column_name
+                    )
+                    """,
+                    (list(_REQUIRED_IDEMPOTENCY_COLUMNS),),
+                )
+                missing_columns = [row[0] for row in cursor.fetchall()]
+                if missing_columns:
+                    raise RuntimeError("Idempotency table schema is incomplete")
+
+                cursor.execute(
+                    """
+                    SELECT required.privilege
+                    FROM unnest(%s::text[]) AS required(privilege)
+                    WHERE NOT has_table_privilege(
+                        current_user,
+                        'public.idempotency_results',
+                        required.privilege
+                    )
+                    """,
+                    (list(_REQUIRED_IDEMPOTENCY_PRIVILEGES),),
+                )
+                missing_privileges = [row[0] for row in cursor.fetchall()]
+                if missing_privileges:
+                    raise RuntimeError("Idempotency table privileges are incomplete")
 
                 for table_name in _REQUIRED_RUNTIME_TABLES:
                     cursor.execute(f"SELECT 1 FROM public.{table_name} LIMIT 0")
