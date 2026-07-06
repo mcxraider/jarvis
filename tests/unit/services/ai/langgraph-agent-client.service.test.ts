@@ -1,4 +1,5 @@
 import { LangGraphAgentClient } from '../../../../src/services/ai/langgraph-agent-client.service';
+import { logger } from '../../../../src/utils/logger';
 
 describe('LangGraphAgentClient', () => {
   const originalFetch = global.fetch;
@@ -189,6 +190,36 @@ describe('LangGraphAgentClient', () => {
       stage: 'run_started',
       message: 'Agent started and opened a Jarvis run',
     });
+  });
+
+  it('logs the backend error returned by a failed stream response', async () => {
+    const infoSpy = jest.spyOn(logger, 'info').mockImplementation();
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      body: streamBody([
+        {
+          type: 'final',
+          response: {
+            status: 'failed',
+            thread_id: '',
+            response: 'Jarvis is temporarily unavailable. Please try again in a moment.',
+            tool_results: [],
+            error: 'Stored user preferences failed schema validation.',
+          },
+        },
+      ]),
+    }) as any;
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    await client.invoke({ message: 'hello', userId: 'local-user' }, {}, jest.fn());
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      'langgraph.stream.completed',
+      expect.objectContaining({
+        status: 'failed',
+        agentError: 'Stored user preferences failed schema validation.',
+      }),
+    );
   });
 
   it('falls back to non-streaming invoke when stream setup fails', async () => {

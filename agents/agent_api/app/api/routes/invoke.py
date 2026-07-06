@@ -1,6 +1,7 @@
 """Invocation routes for starting Jarvis runs."""
 
 import json
+import logging
 import queue
 import threading
 from typing import Any, Dict, Optional
@@ -19,6 +20,7 @@ from agents.agent_api.app.tracing import UserProgressTracePrinter
 from agents.agent_api.app.user_context.identity import TelegramIdentity
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def allow_mutations(request_value: Optional[bool]) -> bool:
@@ -152,6 +154,10 @@ def stream_agent_run(
                 finish_idempotent_request(request_claim, response)
             events.put({"type": "final", "response": response_payload(response)})
         except Exception as error:
+            logger.exception(
+                "Jarvis streaming invocation failed before producing a result.",
+                extra={"error": str(error)},
+            )
             if request_claim is not None:
                 request_idempotency.DEFAULT_REQUEST_IDEMPOTENCY_COORDINATOR.abandon(
                     request_claim
