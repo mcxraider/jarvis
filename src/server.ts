@@ -6,7 +6,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { logger } from './utils/logger';
 import { createWebhookRouter } from './controllers/webhook.controller';
-import { botService } from './app';
+import { botService, databaseReadiness } from './app';
 
 const NGROK_URL = process.env.NGROK_URL!;
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
@@ -15,6 +15,7 @@ const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
 // This is idempotent — Telegram ignores the call if the URL hasn't changed.
 (async () => {
   try {
+    await databaseReadiness;
     await botService.setupWebhook(NGROK_URL, TELEGRAM_SECRET_TOKEN);
   } catch (err) {
     logger.error('telegram.webhook.setup_failed', {
@@ -40,6 +41,13 @@ const HEALTH_CHECK_TIMEOUT_MS = 5000;
 
 app.get('/health', async (_req: Request, res: Response, _next: NextFunction) => {
   const dependencies: Record<string, string> = {};
+
+  try {
+    await databaseReadiness;
+    dependencies.database = 'ok';
+  } catch {
+    dependencies.database = 'not ready';
+  }
 
   try {
     const controller = new AbortController();
@@ -100,3 +108,22 @@ function shutdown(signal: string) {
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+// Detached async work runs outside Express's error boundary. Keep an unexpected best-effort
+// rejection from silently killing the bot under nodemon, and leave a durable diagnostic trail.
+process.on('unhandledRejection', (reason) => {
+  logger.error('process.unhandled_rejection', {
+    error: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+});
+
+// There is no process supervisor in the development setup: nodemon waits for a file change after a
+// crash. Log synchronous failures and keep serving; revisit the recovery policy if supervision is
+// added, since an uncaught exception can leave arbitrary application state inconsistent.
+process.on('uncaughtException', (error) => {
+  logger.error('process.uncaught_exception', {
+    error: error.message,
+    stack: error.stack,
+  });
+});

@@ -32,8 +32,9 @@ def resume(
     from agents.agent_api.app.api.rate_limit import check_rate_limit
     from agents.agent_api.app.api.thread_ownership import validate_thread_ownership
 
-    validate_thread_ownership(request.thread_id, request.telegram_user_id)
-    check_rate_limit(request.telegram_user_id)
+    identity = request.resolved_telegram_identity()
+    validate_thread_ownership(request.thread_id, identity)
+    check_rate_limit(identity)
     request_claim, cached_response = begin_idempotent_request("resume", request)
     if cached_response is not None:
         return cached_response
@@ -41,13 +42,11 @@ def resume(
         result = run_jarvis(
             user_prompt=request.message,
             user_id=request.user_id,
-            request_source=request_source(request.source, request.telegram_user_id),
+            request_source=request_source(request.source, identity),
             allow_mutations=allow_mutations(request.allow_mutations),
             tracer=NULL_TRACE,
             thread_id=request.thread_id,
-            telegram_user_id=request.telegram_user_id,
-            telegram_username=request.telegram_username,
-            telegram_first_name=request.telegram_first_name,
+            identity=identity,
             clarification_reply=request.message,
             request_id=request.request_id,
         )
@@ -75,8 +74,9 @@ def resume_stream(
     from agents.agent_api.app.api.rate_limit import check_rate_limit
     from agents.agent_api.app.api.thread_ownership import validate_thread_ownership
 
-    validate_thread_ownership(request.thread_id, request.telegram_user_id)
-    check_rate_limit(request.telegram_user_id)
+    identity = request.resolved_telegram_identity()
+    validate_thread_ownership(request.thread_id, identity)
+    check_rate_limit(identity)
     request_claim, cached_response = begin_idempotent_request("resume", request)
     if cached_response is not None:
         return stream_final_response(cached_response)
@@ -85,13 +85,11 @@ def resume_stream(
         return run_jarvis(
             user_prompt=request.message,
             user_id=request.user_id,
-            request_source=request_source(request.source, request.telegram_user_id),
+            request_source=request_source(request.source, identity),
             allow_mutations=allow_mutations(request.allow_mutations),
             tracer=tracer,
             thread_id=request.thread_id,
-            telegram_user_id=request.telegram_user_id,
-            telegram_username=request.telegram_username,
-            telegram_first_name=request.telegram_first_name,
+            identity=identity,
             clarification_reply=request.message,
             request_id=request.request_id,
         )

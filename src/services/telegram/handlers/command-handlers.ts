@@ -2,8 +2,7 @@ import { Context } from 'telegraf';
 import { logger } from '../../../utils/logger';
 import { BotActivityService } from '../bot-activity.service';
 import { BotStatusService } from '../bot-status.service';
-import { replyWithMarkdown } from '../formatters/telegram-markdown';
-import { sendFinalReply } from '../formatters/telegram-rich';
+import { collapseClarification, sendFinalReply } from '../formatters/telegram-rich';
 import { TELEGRAM_ONBOARDING_MESSAGE } from '../onboarding-message';
 import { ConversationGateStore } from '../conversation-gate.store';
 import { PendingClarificationStore } from '../pending-clarification.store';
@@ -35,6 +34,7 @@ export class CommandHandlers {
       `**Jarvis**\n` +
       `\n` +
       `**Commands**\n` +
+      `/start — show onboarding\n` +
       `/help — this message\n` +
       `/status — system health\n` +
       `/cancel — cancel the current operation\n` +
@@ -44,10 +44,9 @@ export class CommandHandlers {
       `• Text — send a message and I'll handle it (task management via Todoist)\n` +
       `• Voice — send a voice note and I'll transcribe + act on it\n` +
       `• Audio files — OGG, MP3, WAV, M4A supported\n` +
-      `• Images — send a photo with a caption or description for context\n` +
-      `• Unsupported media — stickers, GIFs, and round videos are rejected`;
+      `• Unsupported media — images, stickers, GIFs, and Telebubbles are rejected`;
 
-    await replyWithMarkdown(ctx.reply.bind(ctx), helpMessage, { userId });
+    await sendFinalReply(ctx, helpMessage, { userId });
   }
 
   async handleStatus(ctx: Context): Promise<void> {
@@ -55,8 +54,8 @@ export class CommandHandlers {
     logger.info('User requested status', { userId });
     this.activityService.recordActivity('command_status');
 
-    const statusMessage = await this.statusService.getFormattedStatus();
-    await replyWithMarkdown(ctx.reply.bind(ctx), statusMessage, { userId });
+    const statusMessage = await this.statusService.getFormattedStatus(userId);
+    await sendFinalReply(ctx, statusMessage, { userId });
   }
 
   async handleCancel(ctx: Context): Promise<void> {
@@ -69,18 +68,44 @@ export class CommandHandlers {
     this.activityService.recordActivity('command_cancel');
 
     const status = await this.conversationGate.getStatus(gateKey);
-    if (status === 'idle') {
-      await ctx.reply('Nothing is currently running.');
-      return;
+
+    // Fetch the active pending row (if any) for its UI message ids before clearing, then
+    // clear ALL of the user's pending clarifications — /cancel is the reset escape hatch,
+    // so leftover 'pending' rows and their indicators must go even when the gate is idle.
+    const pending = await this.pendingStore.get(gateKey).catch(() => undefined);
+    if (userId !== undefined) {
+      await this.pendingStore.clearAllForUser(userId, 'failed').catch(() => {});
     }
 
+    // Release the gate so the follow-up message isn't blocked by the busy-gate guard.
     await this.conversationGate.release(gateKey);
-    await this.pendingStore.clear(gateKey, 'failed').catch(() => {});
+
+    if (pending?.clarificationMessageId !== undefined && chatId !== undefined) {
+      try {
+        await collapseClarification(
+          ctx.telegram,
+          chatId,
+          pending.clarificationMessageId,
+          pending.question,
+        );
+      } catch (error) {
+        logger.warn('telegram.cancel.clarification_collapse_failed', {
+          userId,
+          chatId,
+          clarificationMessageId: pending.clarificationMessageId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
 
     logger.info('conversation_gate.manual_cancel', {
       userId, chatId, gateKey, previousStatus: status,
     });
-    await ctx.reply('Cancelled. You can send a new message now.');
+    await sendFinalReply(
+      ctx,
+      'Conversation cancelled. Let me know what you you\'d like to do next!',
+      { userId, chatId, gateKey },
+    );
   }
 
 }

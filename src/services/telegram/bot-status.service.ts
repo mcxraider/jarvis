@@ -1,16 +1,34 @@
 // src/services/telegram/bot-status.service.ts — Aggregates system health information
-// for the /status command. Checks runtime uptime, the configured AI model, Todoist API
-// reachability, and interaction metrics. Outputs a Markdown-formatted status card.
+// for the /status command. Reports runtime uptime, interaction metrics, and — via the
+// Python agent's deep-health probe — the live model plus DeepSeek and Todoist
+// reachability. Outputs a Markdown-formatted status card.
+//
+// Todoist and DeepSeek execution live entirely in the Python agent, so their health
+// can only be checked there (Todoist tokens are resolved per Telegram user). This
+// service therefore delegates dependency probing to the agent via `agentHealth` and
+// renders whatever it reports; if the agent is unreachable, the card says so honestly.
 
 import { BotActivityService } from './bot-activity.service';
 
-export interface TodoistHealthCheck {
-  getProjects: () => Promise<{ results: { id: string }[]; next_cursor: string | null }>;
+// A single downstream dependency's health, as reported by the Python probe.
+export interface DependencyCheck {
+  ok: boolean;
+  detail: string;
 }
+
+// The structured result of the agent's /health/detail deep-probe.
+export interface AgentDependencyHealth {
+  status: 'ok' | 'degraded';
+  model: string;
+  checks: Record<string, DependencyCheck>;
+}
+
+// Injected probe — typically bound to LangGraphAgentClient.fetchDependencyHealth.
+export type AgentHealthProbe = (telegramUserId?: number) => Promise<AgentDependencyHealth>;
 
 export interface BotStatusServiceOptions {
   agentModel?: string;
-  todoistService?: TodoistHealthCheck;
+  agentHealth?: AgentHealthProbe;
 }
 
 export interface BotStatusSnapshot {
@@ -20,11 +38,13 @@ export interface BotStatusSnapshot {
     startedAt: Date;
   };
   agent: {
+    // Whether the Python agent API answered the health probe at all.
+    reachable: boolean;
     model: string;
-  };
-  todoist: {
-    ok: boolean;
-    detail: string;
+    // Per-dependency checks (deepseek, todoist). Empty when the agent is unreachable.
+    checks: Record<string, DependencyCheck>;
+    // Populated with the error reason when the agent is unreachable.
+    detail?: string;
   };
   activity: {
     totalInteractions: number;
@@ -33,21 +53,27 @@ export interface BotStatusSnapshot {
   };
 }
 
+// Human-friendly labels for known dependency check keys.
+const CHECK_LABELS: Record<string, string> = {
+  deepseek: 'DeepSeek',
+  todoist: 'Todoist',
+};
+
 export class BotStatusService {
-  private readonly agentModel: string;
-  private readonly todoistService?: TodoistHealthCheck;
+  private readonly fallbackModel: string;
+  private readonly agentHealth?: AgentHealthProbe;
 
   constructor(
     private readonly activityService: BotActivityService,
     options: BotStatusServiceOptions = {},
   ) {
-    this.agentModel = options.agentModel || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
-    this.todoistService = options.todoistService;
+    this.fallbackModel = options.agentModel || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
+    this.agentHealth = options.agentHealth;
   }
 
-  async getSnapshot(): Promise<BotStatusSnapshot> {
+  async getSnapshot(telegramUserId?: number): Promise<BotStatusSnapshot> {
     const activity = this.activityService.getSnapshot();
-    const todoist = await this.getTodoistStatus();
+    const agent = await this.getAgentStatus(telegramUserId);
 
     return {
       runtime: {
@@ -55,10 +81,7 @@ export class BotStatusService {
         uptimeMs: activity.uptimeMs,
         startedAt: activity.startedAt,
       },
-      agent: {
-        model: this.agentModel,
-      },
-      todoist,
+      agent,
       activity: {
         totalInteractions: activity.totalInteractions,
         lastActivityAt: activity.lastActivityAt,
@@ -68,11 +91,11 @@ export class BotStatusService {
   }
 
   // Builds the human-readable status card shown to the user via the /status command.
-  async getFormattedStatus(): Promise<string> {
-    const snapshot = await this.getSnapshot();
-    const overallStatus = snapshot.todoist.ok ? 'healthy' : 'degraded';
+  async getFormattedStatus(telegramUserId?: number): Promise<string> {
+    const snapshot = await this.getSnapshot(telegramUserId);
+    const overallStatus = this.isHealthy(snapshot) ? 'healthy' : 'degraded';
 
-    return [
+    const lines = [
       `**Jarvis — ${overallStatus}**`,
       '',
       `**Runtime**`,
@@ -81,26 +104,63 @@ export class BotStatusService {
       '',
       `**AI**`,
       `• Model: \`${snapshot.agent.model}\``,
+      `• Agent API: ${snapshot.agent.reachable ? 'reachable' : `unreachable (${snapshot.agent.detail})`}`,
       '',
       `**Dependencies**`,
-      `• Todoist: ${snapshot.todoist.ok ? 'reachable' : 'degraded'} (${snapshot.todoist.detail})`,
+      ...this.formatDependencyLines(snapshot.agent),
       '',
       `**Activity**`,
       `• Interactions: ${snapshot.activity.totalInteractions}`,
       `• Last: ${this.formatLastActivity(snapshot.activity.lastActivityAt)} (${snapshot.activity.lastActivityType || 'none'})`,
-    ].join('\n');
+    ];
+
+    return lines.join('\n');
   }
 
-  private async getTodoistStatus(): Promise<BotStatusSnapshot['todoist']> {
-    if (!this.todoistService) {
-      return { ok: false, detail: 'not configured' };
+  // Overall health is only "healthy" when the runtime is up, the agent answered,
+  // and every dependency it reported is ok.
+  private isHealthy(snapshot: BotStatusSnapshot): boolean {
+    if (!snapshot.runtime.ok || !snapshot.agent.reachable) return false;
+    return Object.values(snapshot.agent.checks).every((check) => check.ok);
+  }
+
+  private formatDependencyLines(agent: BotStatusSnapshot['agent']): string[] {
+    if (!agent.reachable) {
+      return ['• Unknown — agent API unreachable'];
+    }
+
+    const keys = Object.keys(agent.checks);
+    if (keys.length === 0) {
+      return ['• None reported'];
+    }
+
+    return keys.map((key) => {
+      const check = agent.checks[key];
+      const label = CHECK_LABELS[key] || key;
+      const state = check.ok ? 'reachable' : 'degraded';
+      return `• ${label}: ${state} (${check.detail})`;
+    });
+  }
+
+  private async getAgentStatus(telegramUserId?: number): Promise<BotStatusSnapshot['agent']> {
+    if (!this.agentHealth) {
+      return { reachable: false, model: this.fallbackModel, checks: {}, detail: 'not configured' };
     }
 
     try {
-      const projects = await this.todoistService.getProjects();
-      return { ok: true, detail: `${projects.results.length} project(s) visible` };
+      const health = await this.agentHealth(telegramUserId);
+      return {
+        reachable: true,
+        model: health.model || this.fallbackModel,
+        checks: health.checks || {},
+      };
     } catch (error) {
-      return { ok: false, detail: (error as Error).message };
+      return {
+        reachable: false,
+        model: this.fallbackModel,
+        checks: {},
+        detail: (error as Error).message,
+      };
     }
   }
 

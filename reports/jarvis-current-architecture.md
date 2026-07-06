@@ -207,7 +207,6 @@ On pass: loops through `held_calls` sequentially, calling `tool_dispatcher.execu
 classify_risk(tool_call, state) → "risky" | "low" | "read"
 
 "risky"  → delete_todoist_task (always)
-         → bulk_add_todoist_tasks (always)
          → any mutating tool when mutation_count_this_turn >= CONFIRM_BULK_THRESHOLD (default 5)
 "low"    → other mutating tools (add, update, complete, uncomplete, add_comment)
 "read"   → get_* tools, get_labels
@@ -215,7 +214,7 @@ classify_risk(tool_call, state) → "risky" | "low" | "read"
 
 `partition_tool_calls` splits a tool call list into `(risky[], safe[])` using the above.
 
-**Always-risky set** is derived from `metadata.py:_ALWAYS_RISKY_TOOLS` — currently `delete_todoist_task` and `bulk_add_todoist_tasks`.
+**Always-risky set** is derived from `metadata.py:_ALWAYS_RISKY_TOOLS` — currently `delete_todoist_task`.
 
 ---
 
@@ -265,7 +264,7 @@ ToolNode (LangGraph prebuilt)
 
 ### Tool Selection — `tools/selectors/keyword.py`
 
-The `KeywordToolSelector` narrows the full catalogue (currently 14 tools) to typically 1-3 per turn:
+The `KeywordToolSelector` narrows the full catalogue (currently 13 tools) to typically 1-3 per turn:
 - Matches user query against a keyword→tool-names routing table (longest-match-first)
 - Unions all matched tool names
 - If `allow_mutations=False`, drops mutating tools
@@ -286,7 +285,6 @@ Configured via `get_selector(name)` — the `run_jarvis` entrypoint currently us
 | `get_comments` | no | no | — |
 | `get_labels` | no | no | — |
 | `add_todoist_task` | yes | no (unless bulk threshold hit) | — |
-| `bulk_add_todoist_tasks` | yes | **always risky** | — |
 | `update_todoist_task` | yes | no (unless bulk threshold hit) | `task_id` must be prior-read |
 | `complete_task` | yes | no (unless bulk threshold hit) | `task_id` must be prior-read |
 | `uncomplete_task` | yes | no (unless bulk threshold hit) | `task_id` must be prior-read |
@@ -302,7 +300,6 @@ Per-tool presentation and confirm-gate rendering. Controls how the confirm node 
 | Tool | Verb | Label | Custom renderer |
 |------|------|-------|-----------------|
 | `delete_todoist_task` | deleting | Delete task | Shows task content from prior-read context |
-| `bulk_add_todoist_tasks` | adding | Bulk-add tasks | Shows count + content summary |
 | `update_todoist_task` | updating | Update task | Shows task name + changed fields |
 | `complete_task` | completing | Complete task | Shows task content from prior-read context |
 | `add_todoist_task` | adding | Add task | Highlights `content` arg |

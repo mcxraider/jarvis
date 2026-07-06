@@ -43,30 +43,32 @@ describe('TelegramBotService', () => {
     jest.resetModules();
   });
 
-  it('syncs only /help and /status before webhook setup', async () => {
+  const EXPECTED_MENU_COMMANDS = [
+    { command: 'start', description: 'Start Jarvis and show onboarding' },
+    { command: 'new', description: 'Abandon the current step and start a new request' },
+    { command: 'cancel', description: 'Cancel the current operation' },
+    { command: 'help', description: 'Show available commands and supported inputs' },
+    { command: 'status', description: 'Show bot health, uptime, and dependency status' },
+  ];
+
+  it('syncs the full command menu before webhook setup', async () => {
     const service = await createService();
 
     await service.setupWebhook('https://example.com', 'secret');
 
-    expect(service.bot.telegram.setMyCommands).toHaveBeenCalledWith([
-      { command: 'help', description: 'Show available commands and supported inputs' },
-      { command: 'status', description: 'Show bot health, uptime, and dependency status' },
-    ]);
+    expect(service.bot.telegram.setMyCommands).toHaveBeenCalledWith(EXPECTED_MENU_COMMANDS);
     expect(service.bot.telegram.setWebhook).toHaveBeenCalledWith(
       'https://example.com/webhook/secret',
       expect.any(Object),
     );
   });
 
-  it('syncs only /help and /status before polling starts', async () => {
+  it('syncs the full command menu before polling starts', async () => {
     const service = await createService();
 
     await service.startPolling();
 
-    expect(service.bot.telegram.setMyCommands).toHaveBeenCalledWith([
-      { command: 'help', description: 'Show available commands and supported inputs' },
-      { command: 'status', description: 'Show bot health, uptime, and dependency status' },
-    ]);
+    expect(service.bot.telegram.setMyCommands).toHaveBeenCalledWith(EXPECTED_MENU_COMMANDS);
     expect(service.bot.launch).toHaveBeenCalled();
   });
 

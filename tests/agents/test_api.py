@@ -1,11 +1,14 @@
 import unittest
 import json
-from types import SimpleNamespace
-from unittest.mock import patch
+import os
+import sys
+from types import ModuleType, SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
 from agents.api import app
+from agents.agent_api.app.checkpointing.postgres import create_postgres_checkpointer
 from agents.agent_api.app.config import load_settings
 from agents.agent_api.app.service import InMemorySaver, create_default_checkpointer
 
@@ -19,6 +22,40 @@ class JarvisApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
+
+    def test_health_detail_ok(self) -> None:
+        with patch(
+            "agents.agent_api.app.api.routes.health._check_deepseek",
+            return_value={"ok": True, "detail": "reachable"},
+        ), patch(
+            "agents.agent_api.app.api.routes.health._check_todoist",
+            return_value={"ok": True, "detail": "5 project(s)"},
+        ) as todoist:
+            response = self.client.get("/health/detail", params={"telegram_user_id": 123})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["status"], "ok")
+        self.assertIn("model", body)
+        self.assertEqual(body["checks"]["deepseek"], {"ok": True, "detail": "reachable"})
+        self.assertEqual(body["checks"]["todoist"], {"ok": True, "detail": "5 project(s)"})
+        # The requesting user's id is forwarded so the Todoist token can be resolved.
+        todoist.assert_called_once_with(123)
+
+    def test_health_detail_degraded_when_a_check_fails(self) -> None:
+        with patch(
+            "agents.agent_api.app.api.routes.health._check_deepseek",
+            return_value={"ok": True, "detail": "reachable"},
+        ), patch(
+            "agents.agent_api.app.api.routes.health._check_todoist",
+            return_value={"ok": False, "detail": "no token for user"},
+        ):
+            response = self.client.get("/health/detail")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["status"], "degraded")
+        self.assertFalse(body["checks"]["todoist"]["ok"])
 
     def test_invoke_completed(self) -> None:
         with patch(
@@ -59,9 +96,9 @@ class JarvisApiTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["user_prompt"], "add milk")
         self.assertEqual(run.call_args.kwargs["user_id"], "jerry")
         self.assertEqual(run.call_args.kwargs["request_source"], "telegram")
-        self.assertEqual(run.call_args.kwargs["telegram_user_id"], 123)
-        self.assertEqual(run.call_args.kwargs["telegram_username"], "tester")
-        self.assertEqual(run.call_args.kwargs["telegram_first_name"], "Test")
+        identity = run.call_args.kwargs["identity"]
+        self.assertEqual(identity.telegram_id, 123)
+        self.assertEqual(identity.username, "tester")
         self.assertEqual(run.call_args.kwargs["request_id"], "tg_test")
 
     def test_invoke_interrupted(self) -> None:
@@ -248,10 +285,96 @@ class JarvisApiTests(unittest.TestCase):
 
         self.assertEqual(settings.checkpoint_backend, "postgres")
 
+    def test_checkpoint_setup_defaults_to_disabled(self) -> None:
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("JARVIS_RUN_CHECKPOINT_SETUP", None)
+            settings = load_settings()
+
+        self.assertFalse(settings.run_checkpoint_setup)
+
+    def test_checkpoint_setup_parses_boolean_environment_values(self) -> None:
+        for value in ("1", "true", "yes", "on"):
+            with self.subTest(value=value), patch.dict(
+                "os.environ",
+                {"JARVIS_RUN_CHECKPOINT_SETUP": value},
+                clear=False,
+            ):
+                self.assertTrue(load_settings().run_checkpoint_setup)
+
+        for value in ("0", "false", "no", "off", ""):
+            with self.subTest(value=value), patch.dict(
+                "os.environ",
+                {"JARVIS_RUN_CHECKPOINT_SETUP": value},
+                clear=False,
+            ):
+                self.assertFalse(load_settings().run_checkpoint_setup)
+
+    def test_postgres_checkpointer_skips_setup_by_default(self) -> None:
+        checkpointer = self._create_mock_postgres_checkpointer()
+
+        checkpointer.setup.assert_not_called()
+
+    def test_postgres_checkpointer_runs_explicit_setup(self) -> None:
+        checkpointer = self._create_mock_postgres_checkpointer(run_setup=True)
+
+        checkpointer.setup.assert_called_once_with()
+
+    @staticmethod
+    def _create_mock_postgres_checkpointer(*, run_setup: bool = False) -> MagicMock:
+        checkpointer = MagicMock()
+        postgres_module = ModuleType("langgraph.checkpoint.postgres")
+        postgres_module.PostgresSaver = MagicMock(return_value=checkpointer)
+        pool_module = ModuleType("psycopg_pool")
+        pool_module.ConnectionPool = MagicMock()
+
+        with patch.dict(
+            sys.modules,
+            {
+                "langgraph.checkpoint.postgres": postgres_module,
+                "psycopg_pool": pool_module,
+            },
+        ):
+            result = create_postgres_checkpointer(
+                "postgresql://jarvis:test@localhost:5432/jarvis",
+                run_setup=run_setup,
+            )
+
+        assert result is checkpointer
+        pool_module.ConnectionPool.assert_called_once_with(
+            conninfo="postgresql://jarvis:test@localhost:5432/jarvis",
+            kwargs={"autocommit": True, "prepare_threshold": None},
+        )
+        return checkpointer
+
+    def test_default_checkpointer_forwards_postgres_setup_setting(self) -> None:
+        with patch(
+            "agents.agent_api.app.checkpointing.settings",
+            SimpleNamespace(
+                checkpoint_backend="postgres",
+                postgres_dsn="postgresql://jarvis:test@localhost:5432/jarvis",
+                redis_url=None,
+                run_checkpoint_setup=True,
+            ),
+        ), patch(
+            "agents.agent_api.app.checkpointing.create_postgres_checkpointer",
+            return_value=MagicMock(),
+        ) as create:
+            create_default_checkpointer()
+
+        create.assert_called_once_with(
+            "postgresql://jarvis:test@localhost:5432/jarvis",
+            run_setup=True,
+        )
+
     def test_default_checkpointer_can_use_in_memory_backend(self) -> None:
         with patch(
             "agents.agent_api.app.checkpointing.settings",
-            SimpleNamespace(checkpoint_backend="memory", postgres_dsn=None, redis_url=None),
+            SimpleNamespace(
+                checkpoint_backend="memory",
+                postgres_dsn=None,
+                redis_url=None,
+                run_checkpoint_setup=False,
+            ),
         ):
             checkpointer = create_default_checkpointer()
 

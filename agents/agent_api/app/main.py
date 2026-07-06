@@ -44,6 +44,9 @@ async def run_idempotency_cleanup_loop(
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    from agents.agent_api.app.db import verify_database_runtime
+
+    await asyncio.to_thread(verify_database_runtime)
     cleanup_task = asyncio.create_task(
         run_idempotency_cleanup_loop(
             DEFAULT_IDEMPOTENCY_STORE,

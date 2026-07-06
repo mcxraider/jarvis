@@ -40,6 +40,39 @@ from agents.agent_api.app.tools.todoist.schemas import (
 from agents.agent_api.app.tracing import TracePrinter
 
 
+# --- Prompt contributions -----------------------------------------------------
+# A domain owns its own prompt text so the orchestrator never has to know Todoist
+# exists. ``domain_adapters.py`` wires these onto the Todoist DomainAdapter, and
+# the prompt composer appends the fragment (and the grounding note) only when the
+# domain is active for this user. Adding a domain is one adapter entry — no edits
+# to the orchestrator prompt.
+
+TODOIST_GROUNDING_NOTE = (
+    "Todoist: mutations (`update_todoist_task`, `complete_task`, `uncomplete_task`, "
+    "`delete_todoist_task`, `add_comment`) require a real `task_id` returned by a prior "
+    "read (`get_tasks`, `get_tasks_by_filter`, `get_todoist_task`) in this same "
+    "conversation. The same applies to `project_id`: to route a task into a named "
+    "project, call `get_projects` first to resolve the name to its id, THEN "
+    "`add_todoist_task` with that id in a SEPARATE turn — never guess a `project_id`; "
+    "omit it to use the Inbox."
+)
+
+TODOIST_PROMPT_FRAGMENT = """\
+## Todoist tool tips
+- Creating many tasks at once → issue one `add_todoist_task` call per task. The system batches and gates them for you.
+- Dates: prefer `due_string` ("2026-07-02 3pm", "tomorrow 9am") — but always pre-resolve relative dates per the rule above.
+- Priority is inverted: 4 = urgent, 3 = high, 2 = medium, 1 = normal (default).
+- `get_tasks_by_filter` takes Todoist filter syntax, NOT free text. To match by title use the `search:` operator (e.g. `search: dentist`) — do not pass a bare title like "dentist appointment" as the filter. Date ranges use "due after: X & due before: Y" — never a slash, dash, or "between". Examples: "today", "overdue", "p1", "7 days", "search: groceries", "due after: Jul 5 & due before: Jul 13".
+- After scheduling a task that has a specific time, check for clashes with other timed tasks that day; if any overlap, tell the user and ask whether to reschedule.
+- Never fabricate task IDs — fetch first (see Grounding).
+- Do not retry `add_todoist_task` on timeout — it may have succeeded. Verify with `get_tasks_by_filter` to avoid duplicates.
+- Pagination: a `next_cursor` field appears in results. If it is null, you have everything — stop. Only pass a cursor value received verbatim from a prior response.
+
+## Todoist project tips
+- `get_projects` lists projects (pass `search` to filter by name substring). Use it to turn a project name into an `id` before adding a task there — this is a distinct step: find the project in one turn, then add the task by its id in the next (see Grounding).
+- `create_project` makes a NEW project (only `name` is required). A single create runs without a confirmation prompt — do NOT add your own "are you sure?"; just issue the call. Only create a project when the user clearly asks for a new one; otherwise search existing projects first."""
+
+
 class UpdateTodoistTaskInput(BaseModel):
     """Validated update arguments that retain which nullable fields were supplied."""
 
@@ -88,7 +121,6 @@ def get_todoist_tool_specs(todoist_client: Any) -> List[ToolSpec]:
     schemas = {schema["function"]["name"]: schema for schema in get_todoist_tool_schemas()}
     handlers = {
         "add_todoist_task": todoist_client.add_todoist_task,
-        "bulk_add_todoist_tasks": todoist_client.bulk_add_todoist_tasks,
         "get_todoist_task": todoist_client.get_todoist_task,
         "get_tasks": todoist_client.get_tasks,
         "get_tasks_by_filter": todoist_client.get_tasks_by_filter,
@@ -102,6 +134,8 @@ def get_todoist_tool_specs(todoist_client: Any) -> List[ToolSpec]:
         "get_comments": todoist_client.get_comments,
         "add_comment": todoist_client.add_comment,
         "get_labels": todoist_client.get_labels,
+        "get_projects": todoist_client.get_projects,
+        "create_project": todoist_client.create_project,
     }
     return [
         ToolSpec(
@@ -163,39 +197,6 @@ def build_todoist_langchain_tools(dispatch: DispatchFn) -> List[Any]:
                 "duration": duration,
                 "duration_unit": duration_unit,
                 "deadline_date": deadline_date,
-            },
-        )
-
-    @tool
-    def bulk_add_todoist_tasks(
-        content: str,
-        count: int,
-        tool_call_id: Annotated[str, InjectedToolCallId],
-        description: Optional[str] = None,
-        project_id: Optional[str] = None,
-        section_id: Optional[str] = None,
-        labels: Optional[List[str]] = None,
-        priority: Optional[int] = None,
-        due_string: Optional[str] = None,
-        due_date: Optional[str] = None,
-        due_datetime: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Create multiple identical Todoist tasks in one operation."""
-
-        return dispatch(
-            tool_call_id,
-            "bulk_add_todoist_tasks",
-            {
-                "content": content,
-                "count": count,
-                "description": description,
-                "project_id": project_id,
-                "section_id": section_id,
-                "labels": labels,
-                "priority": priority,
-                "due_string": due_string,
-                "due_date": due_date,
-                "due_datetime": due_datetime,
             },
         )
 
@@ -377,9 +378,48 @@ def build_todoist_langchain_tools(dispatch: DispatchFn) -> List[Any]:
             {"search": search, "cursor": cursor, "limit": limit},
         )
 
+    @tool
+    def get_projects(
+        tool_call_id: Annotated[str, InjectedToolCallId],
+        search: Optional[str] = None,
+        cursor: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """List the user's Todoist projects, optionally filtered by name."""
+
+        return dispatch(
+            tool_call_id,
+            "get_projects",
+            {"search": search, "cursor": cursor, "limit": limit},
+        )
+
+    @tool
+    def create_project(
+        name: str,
+        tool_call_id: Annotated[str, InjectedToolCallId],
+        description: Optional[str] = None,
+        parent_id: Optional[str] = None,
+        color: Optional[str] = None,
+        is_favorite: Optional[bool] = None,
+        view_style: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a new Todoist project."""
+
+        return dispatch(
+            tool_call_id,
+            "create_project",
+            {
+                "name": name,
+                "description": description,
+                "parent_id": parent_id,
+                "color": color,
+                "is_favorite": is_favorite,
+                "view_style": view_style,
+            },
+        )
+
     return [
         add_todoist_task,
-        bulk_add_todoist_tasks,
         get_todoist_task,
         get_tasks,
         get_tasks_by_filter,
@@ -391,6 +431,8 @@ def build_todoist_langchain_tools(dispatch: DispatchFn) -> List[Any]:
         get_comments,
         add_comment,
         get_labels,
+        get_projects,
+        create_project,
     ]
 
 
@@ -428,6 +470,8 @@ class TodoistToolDispatcher(ToolDispatcher):
 
 __all__ = [
     # Todoist-specific
+    "TODOIST_GROUNDING_NOTE",
+    "TODOIST_PROMPT_FRAGMENT",
     "TodoistToolDispatcher",
     "UpdateTodoistTaskInput",
     "build_todoist_langchain_tools",

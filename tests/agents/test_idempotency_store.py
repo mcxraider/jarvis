@@ -218,7 +218,7 @@ class FakePool:
 
 
 class TestPostgresIdempotencyStore:
-    def test_constructor_is_lazy_and_setup_migrates_existing_schema(self):
+    def test_constructor_is_lazy_and_runtime_emits_no_schema_ddl(self):
         pools = []
 
         def factory(**kwargs):
@@ -234,15 +234,17 @@ class TestPostgresIdempotencyStore:
         assert claim.state is ClaimState.ACQUIRED
         assert len(pools) == 1
         assert pools[0].opened and pools[0].waited
-        sql = "\n".join(statement for statement, _ in pools[0].cursor_instance.statements)
-        assert "ALTER COLUMN result_json DROP NOT NULL" in sql
-        assert "ADD COLUMN IF NOT EXISTS status" in sql
-        assert "ADD COLUMN IF NOT EXISTS owner_token" in sql
-        assert "ADD COLUMN IF NOT EXISTS lease_expires_at" in sql
-        assert "SET status = 'completed'" in sql
-        assert "CREATE INDEX IF NOT EXISTS idx_idempotency_expires" in sql
+        statements = [
+            statement for statement, _ in pools[0].cursor_instance.statements
+        ]
+        assert len(statements) == 1
+        assert statements[0].startswith("INSERT INTO idempotency_results")
+        assert not any(
+            statement.startswith(("CREATE", "ALTER", "DROP", "TRUNCATE"))
+            for statement in statements
+        )
 
-    def test_setup_runs_only_once(self):
+    def test_pool_opens_only_once(self):
         pool = FakePool()
         store = PostgresIdempotencyStore(
             "postgresql://example",
@@ -250,10 +252,10 @@ class TestPostgresIdempotencyStore:
         )
 
         store.claim("one", "request", 60, 10)
-        setup_count = len(pool.cursor_instance.statements)
         store.claim("two", "request", 60, 10)
 
-        assert len(pool.cursor_instance.statements) == setup_count + 1
+        assert pool.opened and pool.waited
+        assert len(pool.cursor_instance.statements) == 2
 
     def test_completed_claim_returns_cached_result(self):
         pool = FakePool(

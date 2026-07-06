@@ -1,72 +1,104 @@
-"""Tests for automatic users-row provisioning."""
+"""Tests for runtime user identity resolution (user_context.identity)."""
 
-import logging
-from unittest.mock import patch
+import pytest
 
-from agents.agent_api.app.graph.builder import _ensure_user
+from agents.agent_api.app.user_context.identity import (
+    TelegramIdentity,
+    refresh_identity_profile,
+    resolve_active_identity,
+)
+from agents.agent_api.app.user_context.preferences import PreferenceConfigurationError
+from agents.agent_api.app.user_context.runtime import RuntimeContextError
+
+_VALID_PREFERENCES = {
+    "communication": {"tone": "casual", "verbosity": "concise"},
+    "routing": {
+        "task_provider": "todoist",
+        "event_provider": "google_calendar",
+        "calendar_usage": "default",
+    },
+    "domains": {"todoist": {}, "google_calendar": {"event_category_defaults": {}}},
+}
+IDENTITY = TelegramIdentity(
+    telegram_id=42,
+    username="tester",
+)
 
 
 class FakeCursor:
-    def __init__(self):
+    """Records statements and returns a preset (or per-call) fetchone row."""
+
+    def __init__(self, row=None, rows=None):
         self.statements = []
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_args):
-        return False
+        self._row = row
+        self._rows = list(rows) if rows is not None else None
 
     def execute(self, statement, params=None):
-        normalized = " ".join(statement.split())
-        self.statements.append((normalized, params))
+        self.statements.append((" ".join(statement.split()), params))
+
+    def fetchone(self):
+        if self._rows is not None:
+            return self._rows.pop(0)
+        return self._row
 
 
-class FakeConnection:
-    def __init__(self, cursor):
-        self._cursor = cursor
+class TestRefreshIdentityProfile:
+    def test_returns_user_id_and_updates_identity(self):
+        cursor = FakeCursor(row=("user-id",))
+        result = refresh_identity_profile(cursor, IDENTITY)
 
-    def __enter__(self):
-        return self
+        assert result == "user-id"
+        sql, params = cursor.statements[0]
+        assert "UPDATE public.telegram_identities" in sql
+        assert "app_user.status = 'active'" in sql
+        assert params == ("tester", 42)
 
-    def __exit__(self, *_args):
-        return False
+    def test_missing_active_identity_fails_closed(self):
+        cursor = FakeCursor(row=None)
+        with pytest.raises(PermissionError):
+            refresh_identity_profile(cursor, IDENTITY)
 
-    def cursor(self):
-        return self._cursor
+    def test_optional_cli_profile_values_have_explicit_postgres_types(self):
+        cursor = FakeCursor(row=("user-id",))
+
+        result = refresh_identity_profile(
+            cursor, TelegramIdentity(telegram_id=42)
+        )
+
+        assert result == "user-id"
+        sql, params = cursor.statements[0]
+        assert sql.count("%s::text") == 1
+        assert params == (None, 42)
 
 
-class FakePool:
-    def __init__(self):
-        self.cursor_instance = FakeCursor()
+class TestResolveActiveIdentity:
+    def test_reads_profile_and_validated_preferences(self):
+        cursor = FakeCursor(
+            row=("user-id", "Zachary", "Asia/Singapore", "en", 1, 3, _VALID_PREFERENCES)
+        )
+        identity = resolve_active_identity(cursor, IDENTITY)
 
-    def connection(self):
-        return FakeConnection(self.cursor_instance)
+        assert identity.user_id == "user-id"
+        assert identity.display_name == "Zachary"
+        assert identity.timezone == "Asia/Singapore"
+        assert identity.preferences.revision == 3
+        assert identity.preferences.preferences.routing.event_provider == "google_calendar"
 
+    def test_no_active_user_fails_closed(self):
+        cursor = FakeCursor(row=None)
+        with pytest.raises(RuntimeContextError):
+            resolve_active_identity(cursor, IDENTITY)
 
-class TestEnsureUser:
-    def test_noop_when_telegram_user_id_is_none(self):
-        with patch("agents.agent_api.app.db.get_pool") as mock_pool:
-            _ensure_user(None, "tester", "Test")
+    def test_unknown_preference_version_fails_closed(self):
+        cursor = FakeCursor(
+            row=("user-id", "Zachary", "Asia/Singapore", "en", 2, 1, _VALID_PREFERENCES)
+        )
+        with pytest.raises(PreferenceConfigurationError):
+            resolve_active_identity(cursor, IDENTITY)
 
-        mock_pool.assert_not_called()
-
-    def test_inserts_user_and_ignores_existing_row(self):
-        pool = FakePool()
-        with patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            _ensure_user(42, "tester", "Test")
-
-        assert len(pool.cursor_instance.statements) == 1
-        sql, params = pool.cursor_instance.statements[0]
-        assert "INSERT INTO users" in sql
-        assert "ON CONFLICT (telegram_user_id) DO NOTHING" in sql
-        assert params == ("42", "tester", "Test")
-
-    def test_failure_is_swallowed_and_logged(self, caplog):
-        with patch(
-            "agents.agent_api.app.db.get_pool",
-            side_effect=RuntimeError("db down"),
-        ):
-            with caplog.at_level(logging.WARNING):
-                _ensure_user(42, "tester", "Test")
-
-        assert "User provisioning failed" in caplog.text
+    def test_malformed_preferences_fail_closed(self):
+        cursor = FakeCursor(
+            row=("user-id", "Zachary", "Asia/Singapore", "en", 1, 1, "not a dict")
+        )
+        with pytest.raises(PreferenceConfigurationError):
+            resolve_active_identity(cursor, IDENTITY)

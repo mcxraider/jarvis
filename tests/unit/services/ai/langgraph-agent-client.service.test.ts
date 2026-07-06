@@ -1,4 +1,5 @@
 import { LangGraphAgentClient } from '../../../../src/services/ai/langgraph-agent-client.service';
+import { logger } from '../../../../src/utils/logger';
 
 describe('LangGraphAgentClient', () => {
   const originalFetch = global.fetch;
@@ -45,9 +46,10 @@ describe('LangGraphAgentClient', () => {
         message: 'add milk',
         userId: 'local-user',
         source: 'test',
-        telegramUserId: 123,
-        telegramUsername: 'tester',
-        telegramFirstName: 'Test',
+        telegramIdentity: {
+          telegramId: 123,
+          username: 'tester',
+        },
         requestId: 'tg_test',
         threadId: 'tg_test_thread',
       }),
@@ -72,9 +74,10 @@ describe('LangGraphAgentClient', () => {
           message: 'add milk',
           user_id: 'local-user',
           source: 'test',
-          telegram_user_id: 123,
-          telegram_username: 'tester',
-          telegram_first_name: 'Test',
+          telegram_identity: {
+            telegram_id: 123,
+            username: 'tester',
+          },
           request_id: 'tg_test',
           thread_id: 'tg_test_thread',
         }),
@@ -100,9 +103,10 @@ describe('LangGraphAgentClient', () => {
       message: 'the dentist task',
       userId: 'local-user',
       source: 'telegram',
-      telegramUserId: 123,
-      telegramUsername: 'tester',
-      telegramFirstName: 'Test',
+      telegramIdentity: {
+        telegramId: 123,
+        username: 'tester',
+      },
       requestId: 'tg_test',
       threadId: 'thread-1',
     });
@@ -115,9 +119,10 @@ describe('LangGraphAgentClient', () => {
           message: 'the dentist task',
           user_id: 'local-user',
           source: 'telegram',
-          telegram_user_id: 123,
-          telegram_username: 'tester',
-          telegram_first_name: 'Test',
+          telegram_identity: {
+            telegram_id: 123,
+            username: 'tester',
+          },
           request_id: 'tg_test',
           thread_id: 'thread-1',
         }),
@@ -185,6 +190,36 @@ describe('LangGraphAgentClient', () => {
       stage: 'run_started',
       message: 'Agent started and opened a Jarvis run',
     });
+  });
+
+  it('logs the backend error returned by a failed stream response', async () => {
+    const infoSpy = jest.spyOn(logger, 'info').mockImplementation();
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      body: streamBody([
+        {
+          type: 'final',
+          response: {
+            status: 'failed',
+            thread_id: '',
+            response: 'Jarvis is temporarily unavailable. Please try again in a moment.',
+            tool_results: [],
+            error: 'Stored user preferences failed schema validation.',
+          },
+        },
+      ]),
+    }) as any;
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    await client.invoke({ message: 'hello', userId: 'local-user' }, {}, jest.fn());
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      'langgraph.stream.completed',
+      expect.objectContaining({
+        status: 'failed',
+        agentError: 'Stored user preferences failed schema validation.',
+      }),
+    );
   });
 
   it('falls back to non-streaming invoke when stream setup fails', async () => {

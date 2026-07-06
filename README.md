@@ -10,6 +10,12 @@ A personal Telegram assistant built on a Python LangGraph agent that manages Tod
 
 Telegram (voice or text) hits the **FastAPI** service at `/invoke` and `/resume`. Voice input is transcribed before entering the same path as text.
 
+Inbound accounts cross the Node-to-Python boundary as
+`telegram_identity: { telegram_id, username }`. The previous generic `identity`
+object and legacy `telegram_user_id`, `telegram_username`, and
+`telegram_first_name` fields remain accepted for one compatibility release.
+Canonical display names are stored only on `users`.
+
 ### Graph nodes
 
 **run_jarvis** builds the graph and injects clients, then hands control to the **Orchestrator**.
@@ -45,3 +51,40 @@ Every graph node is stateless. Persistence and external IO live in shared single
 | **DB pool** | Connection threads and usage tracking |
 | **Observability** | LangSmith tracing and structured logs |
 | **External APIs** | DeepSeek (LLM) and Todoist (task CRUD) |
+
+## Local agent CLI
+
+Create the repository Python environment once:
+
+```bash
+python3 -m venv venv && venv/bin/pip install -r requirements.txt
+```
+
+Run the agent through the repository wrapper so it always uses that environment:
+
+```bash
+npm run agent -- "what tasks do I have today?"
+```
+
+Pass runner options after `--`, for example:
+
+```bash
+npm run agent -- --no-mutations --user-1 "what tasks do I have today?"
+```
+
+The CLI loads `.env` from the repository root. When `JARVIS_POSTGRES_DSN` and a
+CLI Telegram identity are configured, it resolves that user's integrations from
+Supabase. Avoid invoking the runner with system `python3`, which may not contain
+the dependencies installed in `venv`.
+
+### Postgres checkpoint setup
+
+Normal agent startup does not run LangGraph checkpoint DDL. Keep
+`JARVIS_RUN_CHECKPOINT_SETUP` unset or set to `false` when
+`JARVIS_POSTGRES_DSN` uses the least-privilege runtime role.
+
+To create or upgrade the checkpoint tables, launch the agent once with
+`JARVIS_RUN_CHECKPOINT_SETUP=true` and a privileged direct-connection DSN.
+Supply those values only for that command; do not save the privileged DSN in
+`.env`. Stop the administrative launch afterward, restore the runtime DSN, and
+start the services normally.

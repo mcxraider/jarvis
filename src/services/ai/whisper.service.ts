@@ -17,7 +17,7 @@ const WHISPER_CONSTANTS = {
   DEFAULT_LANGUAGE: 'en',
   // Context prompt that helps Whisper recognize domain-specific terms.
   DEFAULT_PROMPT:
-    'Telegram voice memo for a personal productivity assistant. Preserve task names, dates, labels, project names, Todoist, Groq, DeepSeek, and technical terms. Use clear punctuation.',
+    'Telegram voice note to Jarvis, a personal assistant for tasks, events, reminders, and scheduling. Preserve task titles, dates, times, names, and app names accurately.',
   MAX_PROMPT_TOKENS: 224, // Groq's prompt token limit
   MAX_LOG_TEXT_LENGTH: 100,
 } as const;

@@ -1,10 +1,16 @@
 import { logger } from '../../utils/logger';
-import { AbandonOutcome, TextProcessorResult, TextProcessorService } from './processors/text-processor.service';
+import {
+  AbandonOutcome,
+  PendingPausePresentation,
+  TextProcessorResult,
+  TextProcessorService,
+} from './processors/text-processor.service';
 import { AudioProcessingHooks, AudioProcessorService } from './processors/audio-processor.service';
 import { LogContext } from '../../utils/logger';
 import { LangGraphProgressCallback } from '../ai/langgraph-agent-client.service';
 import { ConversationGateStatus, ConversationGateStore } from './conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from './conversation-key';
+import { PendingClarificationStore } from './pending-clarification.store';
 
 const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_WAITING_TTL_MS = 30 * 60 * 1000;
@@ -17,6 +23,7 @@ export class MessageProcessorService {
     private readonly textProcessor: TextProcessorService,
     private readonly audioProcessor: AudioProcessorService,
     private readonly conversationGate: ConversationGateStore,
+    private readonly pendingStore?: PendingClarificationStore,
   ) {
     const configured = Number(process.env.TELEGRAM_GATE_RUNNING_TTL_MS);
     this.runningTtlMs = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_RUNNING_TTL_MS;
@@ -31,7 +38,11 @@ export class MessageProcessorService {
     userId?: number,
     logContext: LogContext = {},
     onProgress?: LangGraphProgressCallback,
-    options?: { forceFresh?: boolean },
+    options?: {
+      forceFresh?: boolean;
+      replyContext?: string;
+      onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
+    },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
@@ -56,6 +67,7 @@ export class MessageProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
+    extraOptions?: { replyContext?: string },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
@@ -77,7 +89,12 @@ export class MessageProcessorService {
       };
     }
 
-    const reservation = await this.reserveAudioGate(gateKey, gateStatus, logContext);
+    const reservation = await this.reserveAudioGate(
+      gateKey,
+      gateStatus,
+      logContext,
+      hooks?.onPendingPauseAccepted,
+    );
     if (!reservation.reserved) {
       logger.info('conversation_gate.audio_blocked', { ...logContext, gateKey, gateStatus: reservation.gateStatus });
       return {
@@ -87,14 +104,20 @@ export class MessageProcessorService {
     }
 
     try {
+      const audioOptions = reservation.kind === 'clarification'
+        ? {
+            pendingClarificationPreReserved: true,
+            onPendingPauseAccepted: hooks?.onPendingPauseAccepted,
+            pendingPauseAcceptedNotified: reservation.pauseAcceptedNotified,
+            replyContext: extraOptions?.replyContext,
+          }
+        : { gatePreAcquired: true, replyContext: extraOptions?.replyContext };
       const result = await this.audioProcessor.processAudioMessage(
         fileUrl,
         userId,
         logContext,
         hooks,
-        reservation.kind === 'clarification'
-          ? { pendingClarificationPreReserved: true }
-          : { gatePreAcquired: true },
+        audioOptions,
       );
       await this.restoreAudioGateIfUnprocessed(gateKey, reservation.kind, result);
       return result;
@@ -111,6 +134,7 @@ export class MessageProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
+    extraOptions?: { replyContext?: string },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
@@ -133,7 +157,12 @@ export class MessageProcessorService {
       };
     }
 
-    const reservation = await this.reserveAudioGate(gateKey, gateStatus, logContext);
+    const reservation = await this.reserveAudioGate(
+      gateKey,
+      gateStatus,
+      logContext,
+      hooks?.onPendingPauseAccepted,
+    );
     if (!reservation.reserved) {
       logger.info('conversation_gate.audio_blocked', { ...logContext, gateKey, gateStatus: reservation.gateStatus });
       return {
@@ -143,6 +172,14 @@ export class MessageProcessorService {
     }
 
     try {
+      const docOptions = reservation.kind === 'clarification'
+        ? {
+            pendingClarificationPreReserved: true,
+            onPendingPauseAccepted: hooks?.onPendingPauseAccepted,
+            pendingPauseAcceptedNotified: reservation.pauseAcceptedNotified,
+            replyContext: extraOptions?.replyContext,
+          }
+        : { gatePreAcquired: true, replyContext: extraOptions?.replyContext };
       const result = await this.audioProcessor.processAudioDocument(
         fileUrl,
         fileName,
@@ -150,9 +187,7 @@ export class MessageProcessorService {
         userId,
         logContext,
         hooks,
-        reservation.kind === 'clarification'
-          ? { pendingClarificationPreReserved: true }
-          : { gatePreAcquired: true },
+        docOptions,
       );
       await this.restoreAudioGateIfUnprocessed(gateKey, reservation.kind, result);
       return result;
@@ -172,6 +207,7 @@ export class MessageProcessorService {
     },
     userId?: number,
     logContext: LogContext = {},
+    options?: { onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void> },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
@@ -195,7 +231,7 @@ export class MessageProcessorService {
       .filter(Boolean)
       .join('\n');
 
-    return this.textProcessor.processTextMessage(contextualMessage, userId, logContext);
+    return this.textProcessor.processTextMessage(contextualMessage, userId, logContext, undefined, options);
   }
 
   async processMessage(
@@ -272,8 +308,9 @@ export class MessageProcessorService {
     gateKey: string,
     gateStatus: ConversationGateStatus,
     logContext: LogContext,
+    onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>,
   ): Promise<
-    | { reserved: true; kind: 'fresh' | 'clarification' }
+    | { reserved: true; kind: 'fresh' | 'clarification'; pauseAcceptedNotified?: boolean }
     | { reserved: false; gateStatus: ConversationGateStatus }
   > {
     if (gateStatus === 'waiting_for_clarification') {
@@ -283,7 +320,25 @@ export class MessageProcessorService {
         return { reserved: false, gateStatus: currentStatus };
       }
       logger.info('conversation_gate.audio_resume_reserved', { ...logContext, gateKey });
-      return { reserved: true, kind: 'clarification' };
+      const pending = await this.pendingStore?.get(gateKey).catch(() => undefined);
+      let pauseAcceptedNotified = false;
+      if (pending?.interruptType !== 'confirm' && pending?.clarificationMessageId !== undefined) {
+        try {
+          await onPendingPauseAccepted?.({
+            clarificationMessageId: pending.clarificationMessageId,
+            question: pending.question,
+          });
+          pauseAcceptedNotified = Boolean(onPendingPauseAccepted);
+        } catch (error) {
+          logger.warn('telegram.clarification.acceptance_hook_failed', {
+            ...logContext,
+            gateKey,
+            clarificationMessageId: pending.clarificationMessageId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return { reserved: true, kind: 'clarification', pauseAcceptedNotified };
     }
 
     try {

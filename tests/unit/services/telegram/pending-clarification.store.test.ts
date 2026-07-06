@@ -49,6 +49,26 @@ describe('MemoryPendingClarificationStore', () => {
     expect(retrieved).toBeUndefined();
   });
 
+  it('clearAllForUser drops every record for one user, leaving other users untouched', async () => {
+    const store = new MemoryPendingClarificationStore();
+    await store.save(makeRecord({ pendingKey: 'chat-a', telegramUserId: 123 }));
+    await store.save(makeRecord({ pendingKey: 'chat-b', telegramUserId: 123 }));
+    await store.save(makeRecord({ pendingKey: 'other', telegramUserId: 456 }));
+
+    await store.clearAllForUser(123, 'failed');
+
+    expect(await store.get('chat-a')).toBeUndefined();
+    expect(await store.get('chat-b')).toBeUndefined();
+    expect(await store.get('other')).toBeDefined();
+  });
+
+  it('clearAllForUser is a no-op when the user has no pending records', async () => {
+    const store = new MemoryPendingClarificationStore();
+    await store.save(makeRecord({ telegramUserId: 456 }));
+    await expect(store.clearAllForUser(123, 'failed')).resolves.toBeUndefined();
+    expect(await store.get('telegram:abc123')).toBeDefined();
+  });
+
   it('overwrites an existing record on save', async () => {
     const store = new MemoryPendingClarificationStore();
     await store.save(makeRecord({ threadId: 'thread-old', interruptType: 'clarify' }));
@@ -63,6 +83,33 @@ describe('MemoryPendingClarificationStore', () => {
     await store.save(makeRecord());
     await store.clear('telegram:abc123', 'superseded');
     expect(await store.get('telegram:abc123')).toBeUndefined();
+  });
+
+  it('round-trips and attaches a clarificationMessageId', async () => {
+    const store = new MemoryPendingClarificationStore();
+    await store.save(makeRecord({ clarificationMessageId: 808 }));
+    expect((await store.get('telegram:abc123'))?.clarificationMessageId).toBe(808);
+
+    await store.attachClarificationMessageId('telegram:abc123', 909);
+    expect((await store.get('telegram:abc123'))?.clarificationMessageId).toBe(909);
+  });
+
+  it('attachClarificationMessageId is a no-op for a missing record', async () => {
+    const store = new MemoryPendingClarificationStore();
+    await expect(
+      store.attachClarificationMessageId('telegram:missing', 909),
+    ).resolves.toBeUndefined();
+  });
+
+  it('does not retain stale presentation ids when a record is replaced', async () => {
+    const store = new MemoryPendingClarificationStore();
+    await store.save(makeRecord({
+      clarificationMessageId: 11,
+    }));
+    await store.save(makeRecord({ threadId: 'thread-new' }));
+
+    const retrieved = await store.get('telegram:abc123');
+    expect(retrieved?.clarificationMessageId).toBeUndefined();
   });
 
   it('sweepExpired prunes only expired records', async () => {

@@ -8,6 +8,9 @@ import pytest
 from fastapi import HTTPException
 
 from agents.agent_api.app.api.thread_ownership import validate_thread_ownership
+from agents.agent_api.app.user_context.identity import TelegramIdentity
+
+IDENTITY = TelegramIdentity(telegram_id=42)
 
 
 class FakeCursor:
@@ -57,7 +60,7 @@ class TestOwnershipNoop:
             "agents.agent_api.app.api.thread_ownership.settings",
             SimpleNamespace(postgres_dsn=""),
         ):
-            validate_thread_ownership("t-1", 42)
+            validate_thread_ownership("t-1", IDENTITY)
 
     def test_noop_when_telegram_user_id_is_none(self):
         with patch(
@@ -75,28 +78,28 @@ class TestOwnershipAllow:
             "agents.agent_api.app.api.thread_ownership.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            validate_thread_ownership("legacy-thread", 42)
+            validate_thread_ownership("legacy-thread", IDENTITY)
 
     def test_allows_when_owner_matches(self):
-        cursor = FakeCursor(row=(42,))
+        cursor = FakeCursor(row=(True,))
         pool = FakePool(cursor)
         with patch(
             "agents.agent_api.app.api.thread_ownership.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            validate_thread_ownership("t-1", 42)
+            validate_thread_ownership("t-1", IDENTITY)
 
 
 class TestOwnershipReject:
     def test_raises_403_when_owner_differs(self):
-        cursor = FakeCursor(row=(99,))
+        cursor = FakeCursor(row=(False,))
         pool = FakePool(cursor)
         with patch(
             "agents.agent_api.app.api.thread_ownership.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
             with pytest.raises(HTTPException) as exc_info:
-                validate_thread_ownership("t-1", 42)
+                validate_thread_ownership("t-1", IDENTITY)
             assert exc_info.value.status_code == 403
 
 
@@ -110,16 +113,16 @@ class TestOwnershipFailOpen:
             side_effect=RuntimeError("db down"),
         ):
             with caplog.at_level(logging.WARNING):
-                validate_thread_ownership("t-1", 42)
+                validate_thread_ownership("t-1", IDENTITY)
         assert "Thread ownership check failed" in caplog.text
 
     def test_http_exception_is_not_swallowed(self):
-        cursor = FakeCursor(row=(99,))
+        cursor = FakeCursor(row=(False,))
         pool = FakePool(cursor)
         with patch(
             "agents.agent_api.app.api.thread_ownership.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
             with pytest.raises(HTTPException) as exc_info:
-                validate_thread_ownership("t-1", 42)
+                validate_thread_ownership("t-1", IDENTITY)
             assert exc_info.value.status_code == 403
