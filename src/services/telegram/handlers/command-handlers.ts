@@ -31,20 +31,24 @@ export class CommandHandlers {
     this.activityService.recordActivity('command_help');
 
     const helpMessage =
-      `**Jarvis**\n` +
+      `### 🤖 Jarvis Help\n` +
       `\n` +
-      `**Commands**\n` +
-      `/start — show onboarding\n` +
-      `/help — this message\n` +
-      `/status — system health\n` +
-      `/cancel — cancel the current operation\n` +
-      `/new <message> — abandon the current step and start a new request\n` +
+      `---\n` +
       `\n` +
-      `**Capabilities**\n` +
-      `• Text — send a message and I'll handle it (task management via Todoist)\n` +
-      `• Voice — send a voice note and I'll transcribe + act on it\n` +
-      `• Audio files — OGG, MP3, WAV, M4A supported\n` +
-      `• Unsupported media — images, stickers, GIFs, and Telebubbles are rejected`;
+      `### 📋 Commands\n` +
+      `\n` +
+      `* /start — show onboarding\n` +
+      `* /help — this message\n` +
+      `* /status — system health\n` +
+      `* /cancel — cancel the current operation\n` +
+      `* /new <message> — abandon the current step and start a new request\n` +
+      `\n` +
+      `### ⚙️ Capabilities\n` +
+      `\n` +
+      `* Text — send a message and I'll handle it (task management via Todoist)\n` +
+      `* Voice — send a voice note and I'll transcribe + act on it\n` +
+      `* Audio files — OGG, MP3, WAV, M4A supported\n` +
+      `* Unsupported media — images, stickers, GIFs, and Telebubbles are rejected`;
 
     await sendFinalReply(ctx, helpMessage, { userId });
   }
