@@ -24,6 +24,7 @@ class JarvisState(TypedDict, total=False):
     run_log_path: str
     next: str
     runtime_context: Dict[str, Any]
+    selected_tool_names: List[str]
 
     # Confirm gate fields — freeze risky actions for human approval.
     held_calls: Optional[List[Dict[str, Any]]]

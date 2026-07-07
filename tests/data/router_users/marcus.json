@@ -1,0 +1,27 @@
+{
+  "display_name": "Marcus",
+  "timezone": "Asia/Singapore",
+  "locale": "en-SG",
+  "active_providers": ["todoist"],
+  "preferences": {
+    "communication": {
+      "tone": "professional",
+      "verbosity": "balanced"
+    },
+    "routing": {
+      "task_provider": "todoist",
+      "event_provider": "todoist",
+      "calendar_usage": "explicit_only"
+    },
+    "domains": {
+      "todoist": {
+        "usage": "tasks_and_scheduling",
+        "default_for": ["tasks", "projects", "events", "scheduling"]
+      },
+      "google_calendar": {
+        "usage": "explicit_only",
+        "event_category_defaults": {}
+      }
+    }
+  }
+}

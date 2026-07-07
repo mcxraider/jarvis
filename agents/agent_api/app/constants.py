@@ -37,6 +37,18 @@ DEEPSEEK_REQUEST_TIMEOUT_SECONDS = settings.deepseek_request_timeout_seconds
 DEEPSEEK_MAX_RETRY_ATTEMPTS = settings.deepseek_max_retry_attempts
 DEEPSEEK_RETRY_MAX_DELAY_SECONDS = settings.deepseek_retry_max_delay_seconds
 
+# Query router (pre-orchestrator domain classifier). Opt-in and non-critical:
+# see app/router/ and the RouterToolSelector. TOOL_SELECTOR chooses the strategy.
+ROUTER_ENABLED = settings.router_enabled
+ROUTER_MODEL = settings.router_model
+ROUTER_BASE_URL = settings.router_base_url
+ROUTER_API_KEY = settings.router_api_key
+ROUTER_REASONING_EFFORT = settings.router_reasoning_effort
+ROUTER_REQUEST_TIMEOUT_SECONDS = settings.router_request_timeout_seconds
+ROUTER_MAX_RETRY_ATTEMPTS = settings.router_max_retry_attempts
+ROUTER_RETRY_MAX_DELAY_SECONDS = settings.router_retry_max_delay_seconds
+TOOL_SELECTOR = settings.tool_selector
+
 # Active tool-domain tags, surfaced as LangSmith run tags. Add a tag here when a
 # new domain (gmail, calendar, ...) goes live so observability stays accurate;
 # the domain name is no longer baked into the middle of LANGSMITH_TAGS.
@@ -67,6 +79,15 @@ __all__ = [
     "DEEPSEEK_REQUEST_TIMEOUT_SECONDS",
     "DEEPSEEK_MAX_RETRY_ATTEMPTS",
     "DEEPSEEK_RETRY_MAX_DELAY_SECONDS",
+    "ROUTER_ENABLED",
+    "ROUTER_MODEL",
+    "ROUTER_BASE_URL",
+    "ROUTER_API_KEY",
+    "ROUTER_REASONING_EFFORT",
+    "ROUTER_REQUEST_TIMEOUT_SECONDS",
+    "ROUTER_MAX_RETRY_ATTEMPTS",
+    "ROUTER_RETRY_MAX_DELAY_SECONDS",
+    "TOOL_SELECTOR",
     "LANGSMITH_DOMAIN_TAGS",
     "LANGSMITH_TAGS",
 ]

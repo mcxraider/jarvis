@@ -14,7 +14,7 @@ touches this file.
 
 import os
 from datetime import date, datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Set
 
 from agents.agent_api.app.tools.domain_adapters import DOMAIN_ADAPTERS
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
@@ -118,6 +118,7 @@ def get_system_prompt(
     user_name: Optional[str] = None,
     runtime_context: Optional[RuntimeContextSnapshot] = None,
     registered_tools: Optional[List[str]] = None,
+    relevant_domains: Optional[Set[str]] = None,
 ) -> str:
     """Return the Jarvis system prompt used by the LangGraph agent node."""
 
@@ -126,6 +127,7 @@ def get_system_prompt(
         user_name=user_name,
         runtime_context=runtime_context,
         registered_tools=registered_tools,
+        relevant_domains=relevant_domains,
     )
 
 
@@ -143,10 +145,24 @@ def _user_timezone(override: Optional[str] = None) -> str:
         return "UTC"
 
 
-def _active_domain_blocks(runtime_context: RuntimeContextSnapshot) -> List[str]:
-    """One grounding-note + tool-tips block per active domain, in adapter order."""
+def _active_domain_blocks(
+    runtime_context: RuntimeContextSnapshot,
+    relevant_domains: Optional[Set[str]] = None,
+) -> List[str]:
+    """One grounding-note + tool-tips block per active domain, in adapter order.
+
+    ``relevant_domains`` (from the query router) narrows the heavy per-domain
+    fragments to just the domains a query needs: when provided, only active
+    domains that are also in the set contribute blocks. ``None`` — the default —
+    means every active domain contributes, i.e. today's behavior. An empty set
+    (a query that needs no domain, e.g. a greeting) yields no domain blocks. Note
+    this slims only these tool-tips fragments; the availability/preference summary
+    still lists every domain so the model knows what exists but wasn't routed.
+    """
 
     active = runtime_context.active_providers()
+    if relevant_domains is not None:
+        active = active & relevant_domains
     blocks: List[str] = []
     for provider, adapter in DOMAIN_ADAPTERS.items():
         if provider not in active:
@@ -209,10 +225,10 @@ def _tools_line(
     """Render the 'Available tools' line from the live registry, never hard-coded."""
 
     names: List[str] = []
-    if runtime_context is not None:
-        names = list(runtime_context.registered_tools)
-    elif registered_tools is not None:
+    if registered_tools is not None:
         names = list(registered_tools)
+    elif runtime_context is not None:
+        names = list(runtime_context.registered_tools)
     return "Available tools: " + (", ".join(names) if names else "none configured")
 
 
@@ -221,6 +237,7 @@ def get_orchestrator_prompt(
     user_name: Optional[str] = None,
     runtime_context: Optional[RuntimeContextSnapshot] = None,
     registered_tools: Optional[List[str]] = None,
+    relevant_domains: Optional[Set[str]] = None,
 ) -> str:
     """Return the orchestrator prompt composed for this run.
 
@@ -229,11 +246,19 @@ def get_orchestrator_prompt(
     domain-availability summary, and tools line all derive from the resolved
     snapshot. Without one (offline/DI runs) it falls back to the neutral policy
     plus a registry-accurate tools line and an optional ``user_name``.
+
+    ``relevant_domains`` (from the query router) narrows only the per-domain
+    tool-tips fragments to the domains a query needs; ``None`` keeps every active
+    domain's fragment (today's behavior). It has no effect on the offline path.
     """
 
     if runtime_context is not None:
         role = _build_role_line(runtime_context.display_name)
-        blocks = [role, _POLICY_BODY, *_active_domain_blocks(runtime_context)]
+        blocks = [
+            role,
+            _POLICY_BODY,
+            *_active_domain_blocks(runtime_context, relevant_domains),
+        ]
         prompt_body = "\n\n".join(blocks)
         preference_block = _preference_block(runtime_context)
         resolved_tz = _user_timezone(runtime_context.timezone)
