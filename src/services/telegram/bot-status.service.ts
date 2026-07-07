@@ -95,23 +95,31 @@ export class BotStatusService {
     const snapshot = await this.getSnapshot(telegramUserId);
     const overallStatus = this.isHealthy(snapshot) ? 'healthy' : 'degraded';
 
+    const statusEmoji = overallStatus === 'healthy' ? '✅' : '⚠️';
+
     const lines = [
-      `**Jarvis — ${overallStatus}**`,
+      `### ${statusEmoji} Jarvis — ${overallStatus}`,
       '',
-      `**Runtime**`,
-      `• Status: ${snapshot.runtime.ok ? 'online' : 'offline'}`,
-      `• Uptime: ${this.formatDuration(snapshot.runtime.uptimeMs)}`,
+      '---',
       '',
-      `**AI**`,
-      `• Model: \`${snapshot.agent.model}\``,
-      `• Agent API: ${snapshot.agent.reachable ? 'reachable' : `unreachable (${snapshot.agent.detail})`}`,
+      `### 🖥️ Runtime`,
       '',
-      `**Dependencies**`,
+      `* Status: ${snapshot.runtime.ok ? 'online' : 'offline'}`,
+      `* Uptime: ${this.formatDuration(snapshot.runtime.uptimeMs)}`,
+      '',
+      `### 🧠 AI`,
+      '',
+      `* Model: \`${snapshot.agent.model}\``,
+      `* Agent API: ${snapshot.agent.reachable ? 'reachable' : `unreachable (${snapshot.agent.detail})`}`,
+      '',
+      `### 🔌 Dependencies`,
+      '',
       ...this.formatDependencyLines(snapshot.agent),
       '',
-      `**Activity**`,
-      `• Interactions: ${snapshot.activity.totalInteractions}`,
-      `• Last: ${this.formatLastActivity(snapshot.activity.lastActivityAt)} (${snapshot.activity.lastActivityType || 'none'})`,
+      `### 📊 Activity`,
+      '',
+      `* Interactions: ${snapshot.activity.totalInteractions}`,
+      `* Last: ${this.formatLastActivity(snapshot.activity.lastActivityAt)} (${snapshot.activity.lastActivityType || 'none'})`,
     ];
 
     return lines.join('\n');
@@ -126,19 +134,19 @@ export class BotStatusService {
 
   private formatDependencyLines(agent: BotStatusSnapshot['agent']): string[] {
     if (!agent.reachable) {
-      return ['• Unknown — agent API unreachable'];
+      return ['* Unknown — agent API unreachable'];
     }
 
     const keys = Object.keys(agent.checks);
     if (keys.length === 0) {
-      return ['• None reported'];
+      return ['* None reported'];
     }
 
     return keys.map((key) => {
       const check = agent.checks[key];
       const label = CHECK_LABELS[key] || key;
       const state = check.ok ? 'reachable' : 'degraded';
-      return `• ${label}: ${state} (${check.detail})`;
+      return `* ${label}: ${state} (${check.detail})`;
     });
   }
 
