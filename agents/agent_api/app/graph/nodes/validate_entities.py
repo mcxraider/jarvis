@@ -25,6 +25,7 @@ from agents.agent_api.app.graph.nodes.hitl import deferred_tool_message
 from agents.agent_api.app.graph.risk import partition_tool_calls
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.base import tool_call_name
+from agents.agent_api.app.tools.dispatcher import build_tool_result, tool_result_to_message
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 
@@ -65,6 +66,24 @@ def _unverified_message(
     }
 
 
+def _out_of_route_message(tool_call: Dict[str, Any], allowed: List[str]) -> Dict[str, Any]:
+    """Synthetic tool result for a call outside the selected per-turn tool set."""
+
+    name = tool_call_name(tool_call)
+    call_id = tool_call.get("id", "missing_tool_call_id")
+    result = build_tool_result(
+        call_id,
+        name,
+        success=False,
+        error=(
+            f"Tool '{name}' was not selected for this turn. "
+            f"Allowed tools: {', '.join(allowed) if allowed else 'none'}."
+        ),
+    )
+    result["out_of_route_tool"] = True
+    return tool_result_to_message(result)
+
+
 def create_validate_entities_node(tracer: Optional[TracePrinter] = None):
     """Create the node that blocks mutations on unverified prior-read entity IDs."""
 
@@ -78,6 +97,39 @@ def create_validate_entities_node(tracer: Optional[TracePrinter] = None):
         # Defensive: the agent router only sends non-empty tool-call turns here.
         if not tool_calls:
             return {"next": "agent"}
+
+        selected_tool_names = state.get("selected_tool_names") or []
+        if selected_tool_names:
+            allowed = set(selected_tool_names)
+            out_of_route = [
+                call for call in tool_calls if tool_call_name(call) not in allowed
+            ]
+            if out_of_route:
+                messages = list(state_messages)
+                synthetic = []
+                out_of_route_ids = {
+                    call.get("id", "missing_tool_call_id") for call in out_of_route
+                }
+                for call in tool_calls:
+                    call_id = call.get("id", "missing_tool_call_id")
+                    if call_id in out_of_route_ids:
+                        synthetic.append(_out_of_route_message(call, selected_tool_names))
+                    else:
+                        synthetic.append(
+                            deferred_tool_message(
+                                call,
+                                "Deferred — a sibling call used a tool outside the selected route; retry with selected tools only.",
+                            )
+                        )
+                tracer.event(
+                    "graph.tools.rejected",
+                    "Rejected tool calls outside the selected route.",
+                    requested=sorted({tool_call_name(call) for call in tool_calls}),
+                    allowed=selected_tool_names,
+                    rejected=sorted({tool_call_name(call) for call in out_of_route}),
+                    next="agent",
+                )
+                return {"messages": messages + synthetic, "next": "agent"}
 
         index = SeenEntityIndex(state.get("tool_results", []))
         violations = index.violations(tool_calls)

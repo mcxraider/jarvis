@@ -129,6 +129,91 @@ class TestPassthrough:
         assert "Zachary's personal assistant" in messages[0]["content"]
 
 
+class TestRelevantDomainsSlimming:
+    """The router's relevant_domains narrows only the heavy per-domain fragments."""
+
+    # Distinct substrings from each domain's grounding note (see tools.py), used to
+    # assert a domain's block is present/absent independently of its tool-tips header.
+    _TODOIST_GROUNDING = "never guess a `project_id`"
+    _CALENDAR_GROUNDING = "never invent an `event_id`"
+
+    def _both_active(self):
+        return make_snapshot(active=("todoist", "google_calendar"))
+
+    def test_none_keeps_all_fragments(self):
+        """Regression: omitting relevant_domains == today's behavior (all active)."""
+        prompt = get_orchestrator_prompt(runtime_context=self._both_active())
+        assert "## Todoist tool tips" in prompt
+        assert "## Google Calendar tool tips" in prompt
+        assert self._TODOIST_GROUNDING in prompt
+        assert self._CALENDAR_GROUNDING in prompt
+
+    def test_subset_narrows_to_that_domain(self):
+        prompt = get_orchestrator_prompt(
+            runtime_context=self._both_active(),
+            relevant_domains={"todoist"},
+        )
+        assert "## Todoist tool tips" in prompt
+        assert self._TODOIST_GROUNDING in prompt
+        # Calendar's heavy fragment + grounding are gone...
+        assert "## Google Calendar tool tips" not in prompt
+        assert self._CALENDAR_GROUNDING not in prompt
+
+    def test_availability_block_stays_full_when_narrowed(self):
+        """Slimming fragments must NOT hide that a domain exists but wasn't routed."""
+        prompt = get_orchestrator_prompt(
+            runtime_context=self._both_active(),
+            relevant_domains={"todoist"},
+        )
+        # The lightweight availability summary still lists Calendar as available.
+        assert "- Google Calendar: available" in prompt
+        assert "Task provider: todoist" in prompt
+
+    def test_empty_set_omits_all_fragments(self):
+        """A query needing no domain (e.g. a greeting) drops every fragment."""
+        prompt = get_orchestrator_prompt(
+            runtime_context=self._both_active(),
+            relevant_domains=set(),
+        )
+        assert "## Todoist tool tips" not in prompt
+        assert "## Google Calendar tool tips" not in prompt
+        assert self._TODOIST_GROUNDING not in prompt
+        assert self._CALENDAR_GROUNDING not in prompt
+        # Role + policy body survive so the agent still behaves.
+        assert "personal assistant" in prompt
+        assert "## Operating loop" in prompt
+
+    def test_relevant_domains_only_intersects_active(self):
+        """Requesting an inactive domain adds nothing (intersection with active)."""
+        snapshot = make_snapshot(
+            active=("todoist",), unavailable={"google_calendar": "not_connected"}
+        )
+        prompt = get_orchestrator_prompt(
+            runtime_context=snapshot,
+            relevant_domains={"todoist", "google_calendar"},
+        )
+        assert "## Todoist tool tips" in prompt
+        assert "## Google Calendar tool tips" not in prompt
+
+    def test_threads_through_get_system_prompt(self):
+        prompt = get_system_prompt(
+            runtime_context=self._both_active(),
+            relevant_domains={"todoist"},
+        )
+        assert "## Todoist tool tips" in prompt
+        assert "## Google Calendar tool tips" not in prompt
+
+    def test_threads_through_build_initial_messages(self):
+        messages = build_initial_messages(
+            "hello",
+            runtime_context=self._both_active(),
+            relevant_domains={"google_calendar"},
+        )
+        system = messages[0]["content"]
+        assert "## Google Calendar tool tips" in system
+        assert "## Todoist tool tips" not in system
+
+
 class TestRuntimeContextGuards:
     def _resolved_context(self):
         secret = "vault-secret-must-never-leak"

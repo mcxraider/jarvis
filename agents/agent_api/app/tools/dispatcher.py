@@ -577,10 +577,20 @@ def execute_tool_calls_with_toolnode(
         toolnode_calls.append(toolnode_call)
 
     if toolnode_calls:
-        output = tool_node.invoke(toolnode_calls)
-        for tool_message in toolnode_output_messages(output):
-            result = tool_message_to_result(tool_message)
-            results_by_id[result["tool_call_id"]] = result
+        try:
+            output = tool_node.invoke(toolnode_calls)
+        except Exception:
+            # Some ToolNode versions require graph runtime config even for
+            # direct calls. Keep the graph path moving through the same
+            # dispatcher policy rather than failing before any tool runs.
+            for tool_call in tool_calls:
+                tool_call_id = tool_call.get("id", "missing_tool_call_id")
+                if tool_call_id not in results_by_id:
+                    results_by_id[tool_call_id] = tool_dispatcher.execute_tool_call(tool_call)
+        else:
+            for tool_message in toolnode_output_messages(output):
+                result = tool_message_to_result(tool_message)
+                results_by_id[result["tool_call_id"]] = result
 
     ordered_results = []
     for tool_call in tool_calls:

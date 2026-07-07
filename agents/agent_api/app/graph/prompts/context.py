@@ -7,7 +7,7 @@ offline/DI runs), so the prompt's capability claims always match the live
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
@@ -21,7 +21,7 @@ USER_PROMPTS: List[str] = [
     # "meeting zac at night on friday, add it in" # always add it in first, then check for conflicts and report back if conflict else end.
     # "i alr did romans 7 in the train this morning uhm but not romans 8 yet, shift romans 8 to tonight"
     # "Go through my tasks, check everything that does not have a time, that is also not a birthday. Tell me first and then I will ask you to make edits",
-    # "put in my cal",
+    "put in my cal",
     # "can u add 24 tasks  today each one titled 'hehehehehehehehehe'",
     # "whats on my cal for this week?"
     # "how many tasks do i have today"
@@ -263,8 +263,14 @@ def build_initial_messages(
     user_name: Optional[str] = None,
     runtime_context: Optional[RuntimeContextSnapshot] = None,
     registered_tools: Optional[List[str]] = None,
+    relevant_domains: Optional[Set[str]] = None,
 ) -> List[Dict[str, Any]]:
-    """Create the raw message list used by the DeepSeek API."""
+    """Create the raw message list used by the DeepSeek API.
+
+    ``relevant_domains`` (from the query router) is forwarded to the system
+    prompt to slim the per-domain fragments; ``None`` keeps every active domain
+    (today's behavior).
+    """
 
     return [
         {
@@ -274,6 +280,7 @@ def build_initial_messages(
                 user_name=user_name,
                 runtime_context=runtime_context,
                 registered_tools=registered_tools,
+                relevant_domains=relevant_domains,
             ),
         },
         {"role": "user", "content": build_user_prompt_with_request_datetime(user_prompt)},

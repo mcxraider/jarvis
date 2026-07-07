@@ -1,0 +1,33 @@
+{
+  "display_name": "Nadia",
+  "timezone": "Asia/Singapore",
+  "locale": "en-SG",
+  "active_providers": ["todoist", "google_calendar"],
+  "preferences": {
+    "communication": {
+      "tone": "neutral",
+      "verbosity": "detailed"
+    },
+    "routing": {
+      "task_provider": "todoist",
+      "event_provider": "google_calendar",
+      "calendar_usage": "default"
+    },
+    "domains": {
+      "todoist": {
+        "usage": "tasks_todos_reminders",
+        "default_for": ["tasks", "projects", "explicit task requests"]
+      },
+      "google_calendar": {
+        "usage": "events_meetings_time_related_items",
+        "event_category_defaults": {
+          "work": "google_calendar",
+          "social": "google_calendar",
+          "personal": "google_calendar",
+          "travel": "google_calendar",
+          "health": "google_calendar"
+        }
+      }
+    }
+  }
+}
