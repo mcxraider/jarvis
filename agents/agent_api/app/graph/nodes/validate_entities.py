@@ -20,6 +20,8 @@ are correctly treated as unseen.
 import json
 from typing import Any, Dict, List, Optional
 
+from pydantic import ValidationError
+
 from agents.agent_api.app.graph.entity_index import SeenEntityIndex
 from agents.agent_api.app.graph.nodes.hitl import deferred_tool_message
 from agents.agent_api.app.graph.risk import partition_tool_calls
@@ -27,6 +29,7 @@ from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.base import tool_call_name
 from agents.agent_api.app.tools.dispatcher import build_tool_result, tool_result_to_message
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
+from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 
 def _unverified_message(
@@ -104,6 +107,38 @@ def create_validate_entities_node(tracer: Optional[TracePrinter] = None):
             out_of_route = [
                 call for call in tool_calls if tool_call_name(call) not in allowed
             ]
+            # Self-healing: if out-of-route tools belong to a pinned domain
+            # (active_domains from the original request), expand the route.
+            if out_of_route:
+                active_domains = state.get("active_domains") or []
+                if active_domains:
+                    raw_context = state.get("runtime_context")
+                    snapshot = None
+                    if raw_context:
+                        try:
+                            snapshot = RuntimeContextSnapshot.model_validate(raw_context)
+                        except ValidationError:
+                            pass
+                    if snapshot:
+                        pinned_tool_names = set()
+                        for domain in snapshot.domains:
+                            if domain.provider in active_domains:
+                                pinned_tool_names.update(domain.tool_names)
+                        expanded = [
+                            call for call in out_of_route
+                            if tool_call_name(call) in pinned_tool_names
+                        ]
+                        if expanded:
+                            tracer.event(
+                                "graph.tools.route_expansion",
+                                "Allowed out-of-route tools from pinned active_domains.",
+                                expanded_tools=sorted({tool_call_name(c) for c in expanded}),
+                                active_domains=active_domains,
+                            )
+                            out_of_route = [
+                                call for call in out_of_route
+                                if tool_call_name(call) not in pinned_tool_names
+                            ]
             if out_of_route:
                 messages = list(state_messages)
                 synthetic = []

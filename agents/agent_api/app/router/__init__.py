@@ -10,7 +10,6 @@ Public surface:
 - ``RouterClient`` / ``RouterClientError`` — the sync classifier call (``client.py``)
 """
 
-from agents.agent_api.app.router.client import RouterClient, RouterClientError
 from agents.agent_api.app.router.prompt import (
     RouterDecision,
     build_router_messages,
@@ -24,3 +23,11 @@ __all__ = [
     "build_router_messages",
     "build_router_system_prompt",
 ]
+
+
+def __getattr__(name: str):
+    if name in {"RouterClient", "RouterClientError"}:
+        from agents.agent_api.app.router.client import RouterClient, RouterClientError
+
+        return {"RouterClient": RouterClient, "RouterClientError": RouterClientError}[name]
+    raise AttributeError(name)

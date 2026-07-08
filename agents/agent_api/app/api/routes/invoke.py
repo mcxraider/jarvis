@@ -9,15 +9,14 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 
-from agents.agent_api.app.api import request_idempotency
 from agents.agent_api.app.api.request_idempotency import RequestClaim
 from agents.agent_api.app.api.schemas import AgentResponse, BulkAgentResponse, BulkInvokeRequest, InvokeRequest
-from agents.agent_api.app.api.thread_ownership import validate_thread_ownership
 from agents.agent_api.app.errors import require_api_key
-from agents.agent_api.app.idempotency import ClaimState
+from agents.agent_api.app.middleware import idempotency
+import agents.agent_api.app.middleware.rate_limit as rate_limit
+from agents.agent_api.app.middleware.request_gate import apply_request_gate
 from agents.agent_api.app.service import ALLOW_MUTATIONS, MAX_AGENT_TURNS, NULL_TRACE, JarvisState, run_jarvis
 from agents.agent_api.app.tracing import UserProgressTracePrinter
-from agents.agent_api.app.user_context.identity import TelegramIdentity
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -35,10 +34,7 @@ def allow_bulk_mutations(request_value: Optional[bool]) -> bool:
     return ALLOW_MUTATIONS
 
 
-def request_source(source: Optional[str], identity: Optional[TelegramIdentity]) -> str:
-    if source:
-        return source
-    return "telegram" if identity is not None else "api"
+request_source = idempotency.request_source
 
 
 def to_response(result: JarvisState) -> AgentResponse:
@@ -87,36 +83,8 @@ def response_payload(response: AgentResponse) -> Dict[str, Any]:
     return response.dict(exclude_none=True)
 
 
-def begin_idempotent_request(
-    logical_route: str,
-    request: Any,
-) -> tuple[RequestClaim, Optional[AgentResponse]]:
-    claim = request_idempotency.DEFAULT_REQUEST_IDEMPOTENCY_COORDINATOR.begin(
-        logical_route,
-        request_source(request.source, request.resolved_telegram_identity()),
-        request.user_id,
-        request.request_id,
-    )
-    if claim.state is ClaimState.COMPLETED:
-        return claim, AgentResponse(**(claim.result or {}))
-    if claim.state is ClaimState.IN_PROGRESS:
-        raise HTTPException(
-            status_code=409,
-            detail="An identical request is still in progress.",
-            headers={"Retry-After": "1"},
-        )
-    return claim, None
-
-
-def finish_idempotent_request(
-    claim: RequestClaim,
-    response: AgentResponse,
-) -> None:
-    coordinator = request_idempotency.DEFAULT_REQUEST_IDEMPOTENCY_COORDINATOR
-    if response.status in {"completed", "interrupted"}:
-        coordinator.complete(claim, response_payload(response))
-    else:
-        coordinator.abandon(claim)
+begin_idempotent_request = idempotency.begin_idempotent_request
+finish_idempotent_request = idempotency.finish_idempotent_request
 
 
 def stream_final_response(response: AgentResponse) -> StreamingResponse:
@@ -159,9 +127,7 @@ def stream_agent_run(
                 extra={"error": str(error)},
             )
             if request_claim is not None:
-                request_idempotency.DEFAULT_REQUEST_IDEMPOTENCY_COORDINATOR.abandon(
-                    request_claim
-                )
+                idempotency.abandon_idempotent_request(request_claim)
             events.put(
                 {
                     "type": "final",
@@ -195,34 +161,31 @@ def invoke(
     request: InvokeRequest,
     x_jarvis_agent_key: Optional[str] = Header(default=None),
 ) -> AgentResponse:
-    require_api_key(x_jarvis_agent_key)
-    from agents.agent_api.app.api.rate_limit import check_rate_limit
-
-    identity = request.resolved_telegram_identity()
-    check_rate_limit(identity)
-    if request.thread_id:
-        validate_thread_ownership(request.thread_id, identity)
-    request_claim, cached_response = begin_idempotent_request("invoke", request)
-    if cached_response is not None:
-        return cached_response
+    ctx = apply_request_gate(
+        "invoke",
+        request,
+        x_jarvis_agent_key,
+        charges_new_thread_quota=True,
+        require_thread_ownership=True,
+    )
+    if ctx.cached_response is not None:
+        return ctx.cached_response
     try:
         result = run_jarvis(
             user_prompt=request.message,
             user_id=request.user_id,
-            request_source=request_source(request.source, identity),
+            request_source=ctx.request_source,
             allow_mutations=allow_mutations(request.allow_mutations),
             tracer=NULL_TRACE,
             thread_id=request.thread_id,
-            identity=identity,
+            identity=ctx.identity,
             request_id=request.request_id,
         )
         response = to_response(result)
-        finish_idempotent_request(request_claim, response)
+        finish_idempotent_request(ctx.claim, response)
         return response
     except Exception as error:
-        request_idempotency.DEFAULT_REQUEST_IDEMPOTENCY_COORDINATOR.abandon(
-            request_claim
-        )
+        idempotency.abandon_idempotent_request(ctx.claim)
         return AgentResponse(
             status="failed",
             thread_id=request.thread_id or "",
@@ -236,30 +199,29 @@ def invoke_stream(
     request: InvokeRequest,
     x_jarvis_agent_key: Optional[str] = Header(default=None),
 ) -> StreamingResponse:
-    require_api_key(x_jarvis_agent_key)
-    from agents.agent_api.app.api.rate_limit import check_rate_limit
-
-    identity = request.resolved_telegram_identity()
-    check_rate_limit(identity)
-    if request.thread_id:
-        validate_thread_ownership(request.thread_id, identity)
-    request_claim, cached_response = begin_idempotent_request("invoke", request)
-    if cached_response is not None:
-        return stream_final_response(cached_response)
+    ctx = apply_request_gate(
+        "invoke",
+        request,
+        x_jarvis_agent_key,
+        charges_new_thread_quota=True,
+        require_thread_ownership=True,
+    )
+    if ctx.cached_response is not None:
+        return stream_final_response(ctx.cached_response)
 
     def run_with_tracer(tracer: UserProgressTracePrinter) -> JarvisState:
         return run_jarvis(
             user_prompt=request.message,
             user_id=request.user_id,
-            request_source=request_source(request.source, identity),
+            request_source=ctx.request_source,
             allow_mutations=allow_mutations(request.allow_mutations),
             tracer=tracer,
             thread_id=request.thread_id,
-            identity=identity,
+            identity=ctx.identity,
             request_id=request.request_id,
         )
 
-    return stream_agent_run(run_with_tracer, request_claim=request_claim)
+    return stream_agent_run(run_with_tracer, request_claim=ctx.claim)
 
 
 @router.post("/invoke-bulk", response_model=BulkAgentResponse)
@@ -268,17 +230,15 @@ def invoke_bulk(
     x_jarvis_agent_key: Optional[str] = Header(default=None),
 ) -> BulkAgentResponse:
     require_api_key(x_jarvis_agent_key)
-    from agents.agent_api.app.api.rate_limit import check_rate_limit
-
     identity = request.resolved_telegram_identity()
-    check_rate_limit(identity)
     messages = [message.strip() for message in request.messages if message.strip()]
     if not messages:
         raise HTTPException(status_code=422, detail="At least one non-empty message is required.")
 
     results = []
-    for message in messages:
+    for index, message in enumerate(messages):
         try:
+            rate_limit.consume_new_thread_quota(identity)
             result = run_jarvis(
                 user_prompt=message,
                 user_id=request.user_id,
@@ -290,6 +250,28 @@ def invoke_bulk(
                 request_id=request.request_id,
             )
             results.append(to_response(result))
+        except HTTPException as error:
+            if error.status_code != 429:
+                raise
+            detail = str(error.detail)
+            failed_response = AgentResponse(
+                status="failed",
+                thread_id="",
+                response=detail,
+                error=f"HTTP 429: {detail}",
+            )
+            results.append(failed_response)
+            remaining = len(messages) - index - 1
+            results.extend(
+                AgentResponse(
+                    status="failed",
+                    thread_id="",
+                    response=detail,
+                    error=f"HTTP 429: {detail}",
+                )
+                for _ in range(remaining)
+            )
+            break
         except Exception as error:
             results.append(
                 AgentResponse(

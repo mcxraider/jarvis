@@ -75,6 +75,7 @@ from agents.agent_api.app.user_context.runtime import (
 
 
 _builder_logger = logging.getLogger(__name__)
+_USE_DEFAULT_CHECKPOINTER = object()
 
 
 def _register_thread(
@@ -229,7 +230,7 @@ def create_jarvis_graph(
     tool_dispatcher: ToolDispatcher,
     max_agent_turns: int = MAX_AGENT_TURNS,
     tracer: Optional[TracePrinter] = None,
-    checkpointer: Optional[Any] = None,
+    checkpointer: Any = _USE_DEFAULT_CHECKPOINTER,
     tool_selector: Optional[ToolSelector] = None,
 ):
     """Create the Jarvis LangGraph app from declarative node specs.
@@ -242,7 +243,8 @@ def create_jarvis_graph(
     """
 
     tracer = tracer or NULL_TRACE
-    checkpointer = checkpointer or DEFAULT_CHECKPOINTER
+    if checkpointer is _USE_DEFAULT_CHECKPOINTER:
+        checkpointer = DEFAULT_CHECKPOINTER
     registry = tool_dispatcher.registry
 
     node_specs = [

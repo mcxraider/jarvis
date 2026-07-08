@@ -41,6 +41,10 @@ _UNSUPPORTED_PROVIDER_PATTERN = re.compile(
     r"\b(?:notion|e-?mail|gmail|slack|docs|google\s+docs?|gdocs)\b",
     re.IGNORECASE,
 )
+_EXIT_PATTERNS = re.compile(
+    r"\b(exit|cancel|never\s?mind|stop|quit)\b",
+    re.IGNORECASE,
+)
 
 
 class RouterToolSelector:
@@ -73,7 +77,12 @@ class RouterToolSelector:
 
         return self._decision
 
-    def select_schemas(self, query: str, registry: ToolRegistry) -> List[Dict[str, Any]]:
+    def select_schemas(
+        self,
+        query: str,
+        registry: ToolRegistry,
+        active_domains: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
         # Reset per turn: a fallback must leave .decision None so the agent node
         # cannot read a stale decision from a previous turn.
         self._decision = None
@@ -120,6 +129,25 @@ class RouterToolSelector:
         # ask_user only, so the orchestrator can explain rather than expose tools
         # it cannot run.
         relevant = set(effective_router_domains(decision)) & self._snapshot.active_providers()
+
+        # Merge pinned domains from the original request (HITL resume path).
+        # If the router returns empty AND the query matches exit patterns, the
+        # user is cancelling — don't pin domains, allow clean teardown.
+        if active_domains:
+            router_empty = not effective_router_domains(decision)
+            is_exit = router_empty and bool(_EXIT_PATTERNS.search(query))
+            if not is_exit:
+                pinned = set(active_domains) & self._snapshot.active_providers()
+                if pinned - relevant:
+                    self._tracer.event(
+                        "router.domain_merge",
+                        "Merged pinned active_domains into routing.",
+                        pinned=sorted(pinned),
+                        router_domains=sorted(relevant),
+                        merged=sorted(relevant | pinned),
+                    )
+                relevant |= pinned
+
         allowed = self._allowed_tool_names(relevant)
         schemas = [spec.openai_schema for spec in registry.specs if spec.name in allowed]
 

@@ -13,16 +13,20 @@ from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 USER_PROMPTS: List[str] = [
+    "add this to google calendar next friday at 3pm"
+    # "Find the latest plans i have with feebee, put them into google calendar events, then add a new event WFH w feebee next friday."
     # "help me find out what projects i have in todoist, ill ask u to add a task to a one after that"
-    # "set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of priority based on when im most free"
+    # "set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of prio
+    # rity based on when im most free"
     # "check phoebe google calendar and my calendar tell me when good day to have dinner with her next week"
     # "when am i free next week?"
     # "delete my dinner with zac in my cal monday 8pm"
     # "meeting zac at night on friday, add it in" # always add it in first, then check for conflicts and report back if conflict else end.
     # "i alr did romans 7 in the train this morning uhm but not romans 8 yet, shift romans 8 to tonight"
     # "Go through my tasks, check everything that does not have a time, that is also not a birthday. Tell me first and then I will ask you to make edits",
-    "put in my cal",
-    # "can u add 24 tasks  today each one titled 'hehehehehehehehehe'",
+    # "put in my cal",
+    # "can u add 24 tasks  today e
+    # ach one titled 'hehehehehehehehehe'",
     # "whats on my cal for this week?"
     # "how many tasks do i have today"
     # "delete all my hehehe tasks today"

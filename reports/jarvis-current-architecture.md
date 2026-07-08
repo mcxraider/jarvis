@@ -546,7 +546,7 @@ All settings loaded from environment via a frozen `Settings` dataclass. Key grou
 |---------|--------|
 | Worker sub-graphs (per-domain execution) | Worker prompt drafted; no worker nodes in graph |
 | Embedding/BM25 tool selection | `ToolSelector` protocol ready; `KeywordToolSelector` implemented; no embedding variant |
-| Gmail / Calendar / Notion tools | Module stubs exist (`tools/gmail/`, `tools/calendar/`, `tools/notion/`); no implementations |
+| Gmail / Calendar / Notion tools | Module stubs exist (`tools/gmail/`, `tools/google_calendar/`, `tools/notion/`); no implementations |
 | Planner node (cross-domain decomposition) | Not started; `route_by_next` supports it |
 | Verification / post-condition node | Not started; mutations not verified after execution |
 | Streaming token-by-token to Telegram | NDJSON streaming endpoint exists but progress events are disabled |

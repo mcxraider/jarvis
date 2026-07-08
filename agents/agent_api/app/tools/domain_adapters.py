@@ -17,8 +17,8 @@ from agents.agent_api.app.credentials import (
     update_integration_credential,
 )
 from agents.agent_api.app.tools.base import LangChainToolBuilder, ToolSpec
-from agents.agent_api.app.tools.calendar.client import GoogleCalendarClient
-from agents.agent_api.app.tools.calendar.tools import (
+from agents.agent_api.app.tools.google_calendar.client import GoogleCalendarClient
+from agents.agent_api.app.tools.google_calendar.tools import (
     CALENDAR_GROUNDING_NOTE,
     CALENDAR_PROMPT_FRAGMENT,
     build_calendar_langchain_tools,
