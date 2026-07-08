@@ -1,11 +1,13 @@
 # Jarvis future architecture
 
 ## Future Integrations:
+- Todoist
+- Google calendar
+- Apple calendar
 - Gmail
 - Drive
-- Notion
 - Github
-- Apple Cal
+- Notion
 
 
 ## Purpose

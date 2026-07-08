@@ -353,6 +353,11 @@ def _apply_router_prompt_slimming(
         return
 
     relevant = set(effective_router_domains(decision)) & snapshot.active_providers()
+    # Include pinned domains so the agent retains domain instructions even if
+    # the router narrowed this turn (e.g. HITL resume classified todoist-only).
+    active_domains = state.get("active_domains") or []
+    if active_domains:
+        relevant |= set(active_domains) & snapshot.active_providers()
     messages[0] = {
         **messages[0],
         "content": get_system_prompt(
@@ -457,11 +462,29 @@ def create_agent_node(
         # this is a natural cache miss; for keyword/static selectors it's a no-op.
         clarification_history = state.get("clarification_history") or []
         if clarification_history:
-            routing_query = clarification_history[-1].get("reply") or user_prompt
+            last_entry = clarification_history[-1]
+            last_reply = last_entry.get("reply") or ""
+            last_question = last_entry.get("question") or ""
+            routing_query = (
+                f"{user_prompt} "
+                f"[assistant asked: {last_question}] "
+                f"[user replied: {last_reply}]"
+            )
         else:
             routing_query = user_prompt
-        tool_schemas = tool_selector.select_schemas(routing_query, registry)
+        # Pass active_domains so the selector can merge pinned domains on resumes.
+        active_domains = state.get("active_domains") or []
+        tool_schemas = tool_selector.select_schemas(
+            routing_query, registry, active_domains=active_domains or None
+        )
         selected_tool_names = _tool_schema_names(tool_schemas)
+
+        # Persist the initial routing domains for context preservation across
+        # HITL resumes. Only set on the first turn (no clarification history yet,
+        # no prior active_domains); subsequent turns within the same run reuse it.
+        if not clarification_history and not active_domains and tool_selector.decision:
+            active_domains = list(effective_router_domains(tool_selector.decision))
+
         tracer.event(
             "graph.tools.selected",
             "Selected tools for this turn.",
@@ -531,6 +554,7 @@ def create_agent_node(
             "final_response": final_response,
             "next": next_node,
             "selected_tool_names": selected_tool_names,
+            "active_domains": active_domains,
         }
 
     return agent_node

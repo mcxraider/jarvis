@@ -16,29 +16,6 @@
 - **Failure scenario:** DeepSeek adds a stray field (common for classifiers). The router is silently defeated for that turn — full prompt + all tool schemas, no rewrite — with only a `router.fallback` trace and no user-visible error. The feature's entire benefit evaporates intermittently in normal operation.
 - **Fix:** use `extra="ignore"` so benign extra keys are tolerated; keep the required fields validated.
 
-### 2. Router logs the full raw user query and system prompt uncapped into per-run logs — CONFIRMED (CLAUDE.md violation)
-- **Where:** `agents/agent_api/app/router/client.py` `classify()` calls `self._trace_payload("router.prompt", "user_prompt", messages[1]["content"], limit=len(...)+1)` (and the same for `system_prompt`), where `messages[1]["content"]` is `f"User request:\n{query}"`. Enabled by the simultaneous change in `agents/agent_api/app/run_logging.py:_format_payload_readable`, which now honors `limit` instead of truncating strings at 500 chars.
-- **CLAUDE.md rule (Logging):** *"Do not log secrets, raw tokens, authorization headers, full Telegram file URLs, or full user message content at info level."*
-- **Failure scenario:** a user sends a long/sensitive note (phone number, private task text). The complete message is written verbatim to `logs/<user>/*.log`. Passing `limit=len+1` deliberately bypasses truncation for exactly the field that holds user content.
-- **Fix:** cap these payloads at the normal preview length (or omit the user-content payload entirely, matching the "no-content" policy the orchestrator client follows).
-
-### 3. 152 `logs/` files are committed to the repo — CONFIRMED (CLAUDE.md violation, compounds #2)
-- **Where:** `git ls-files logs/` → 152 tracked files; `logs/` is **not** in `.gitignore`; commits `657a0fc9`, `0a50837d`, `81fa9833`, and the feature commit `7b34dfa4` all add log files.
-- **CLAUDE.md rule (Repo Hygiene):** *"Do not commit generated or local files: `dist/` `logs/` `node_modules/` `.env`."*
-- **Failure scenario:** per-run trace logs — which per finding #2 now contain full user prompts — are persisted into version control history, i.e. user content is leaked into git. Also bloats the repo.
-- **Fix:** add `logs/` to `.gitignore` and `git rm -r --cached logs/`.
-
-### 4. Turn-0 query rewrite replaces the user message with a lossy restatement the model can never see — PLAUSIBLE
-- **Where:** `agents/agent_api/app/graph/nodes/orchestrator.py` `_apply_router_query_rewrite` — on turn 0, `messages[-1]` (the user message) is overwritten with `build_user_prompt_with_request_datetime(decision.rewritten_query)`. The original survives only in `state["user_prompt"]`, which is never sent to the model.
-- **Failure scenario:** user says *"shift Romans 8 to tonight and mark Romans 7 done"*; the router returns `rewritten_query="reschedule Romans 8 to tonight"` (drops the completion clause). The orchestrator reasons only over the rewrite, so the "mark Romans 7 done" intent is silently lost with no recovery path. Any paraphrase that drops an entity, date, or sub-request degrades correctness.
-- **Note:** also a telemetry/audit gap — the checkpointed message stream (LangSmith, run-log message dumps) shows the rewrite, not the user's words, despite the docstring's "original is preserved" claim (true only for `state["user_prompt"]`).
-- **Fix:** treat the rewrite as *additional* context rather than a replacement, or gate it behind a conservative "safe to rewrite" check; at minimum keep the original user message in the stream.
-
-### 5. Guardrail refuses to backfill `google_calendar` even when it is the user's event provider — PLAUSIBLE (reachable in fixtures)
-- **Where:** `agents/agent_api/app/tools/selectors/router.py` `_apply_routing_guardrails`, the empty-decision branch: `if provider != "google_calendar" or explicit_google_calendar:` before `domains.append(provider)`.
-- **Failure scenario:** for a user with `routing.event_provider="google_calendar"` and `calendar_usage="default"` (personas `nadia`, `phoebe`, `zac`), a generic availability query like *"am I free friday?"* that the router mis-classifies as `domains=[]` should be rescued by this backfill. But because `provider == "google_calendar"` and there's no explicit mention, the guard is `False or False` → the append is skipped. `domains` stays `[]` → `_allowed_tool_names` returns `{ask_user}` only and the prompt is slimmed to no domain blocks. The legitimate calendar question can only be answered with a clarifying question. The "never backfill gcal for generic words" rule is hardcoded regardless of `calendar_usage`.
-- **Fix:** allow the backfill when `calendar_usage != "explicit_only"` (i.e. gate on the same preference that rule 2 uses), not on the literal provider name.
-
 ### 6. Out-of-route rejection in the tools node is unreachable dead code, duplicating `validate_entities` — CONFIRMED (altitude/reuse)
 - **Where:** `agents/agent_api/app/graph/nodes/tools.py` (the `executable_calls` filter + `rejected_results` block, incl. `results = rejected_results + results`) vs. `agents/agent_api/app/graph/nodes/validate_entities.py` (`_out_of_route_message` + rejection loop).
 - **Mechanism:** the only edge into `tools` is `validate_entities`' route_map `{"tools": "tools"}`, and `validate_entities` returns `{"next": "agent"}` on *any* out-of-route call **before** routing to `tools`. So when `tools` runs, every call is guaranteed in-route: `rejected_results` is always empty and `executable_calls == tool_calls`. The ~40-line branch can never fire in production.

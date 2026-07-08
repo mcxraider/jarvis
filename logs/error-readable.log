@@ -3119,3 +3119,73 @@
       "telegramFirstName": "Zac",
       "contentType": "application/octet-stream"
     }
+[2026-07-08 14:00:24] WARN langgraph.stream.failed
+  requestId: tg_update_1783490423036
+  updateId: 1783490423036
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1783490423036
+  messageType: text
+  threadId: tg_tg_update_1783490423036
+  details:
+    {
+      "telegramFirstName": "CLI Tester",
+      "path": "/invoke/stream",
+      "streamStarted": false,
+      "error": "fetch failed",
+      "durationMs": 35
+    }
+[2026-07-08 14:00:24] ERROR langgraph.request.failed
+  requestId: tg_update_1783490423036
+  updateId: 1783490423036
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1783490423036
+  messageType: text
+  threadId: tg_tg_update_1783490423036
+  details:
+    {
+      "telegramFirstName": "CLI Tester",
+      "path": "/invoke",
+      "error": "fetch failed",
+      "durationMs": 1
+    }
+[2026-07-08 14:02:36] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-08 14:03:01] WARN langgraph.stream.failed
+  requestId: tg_update_1783490579600
+  updateId: 1783490579600
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1783490579600
+  messageType: text
+  details:
+    {
+      "telegramFirstName": "CLI Tester",
+      "path": "/invoke/stream",
+      "streamStarted": false,
+      "error": "fetch failed",
+      "durationMs": 41
+    }
+[2026-07-08 14:03:01] ERROR langgraph.request.failed
+  requestId: tg_update_1783490579600
+  updateId: 1783490579600
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1783490579600
+  messageType: text
+  details:
+    {
+      "telegramFirstName": "CLI Tester",
+      "path": "/invoke",
+      "error": "fetch failed",
+      "durationMs": 1
+    }
+[2026-07-08 14:05:07] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }

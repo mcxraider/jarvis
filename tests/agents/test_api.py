@@ -391,7 +391,7 @@ class RouteGuardTests(unittest.TestCase):
         from fastapi import HTTPException
 
         with patch(
-            "agents.agent_api.app.api.thread_ownership.validate_thread_ownership",
+            "agents.agent_api.app.middleware.thread_ownership.validate_thread_ownership",
             side_effect=HTTPException(status_code=403, detail="Thread belongs to a different user."),
         ):
             response = self.client.post(
@@ -406,18 +406,21 @@ class RouteGuardTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 403)
 
-    def test_resume_returns_429_on_rate_limit(self) -> None:
-        from fastapi import HTTPException
-
+    def test_resume_does_not_consume_new_thread_quota(self) -> None:
         with patch(
-            "agents.agent_api.app.api.thread_ownership.validate_thread_ownership",
+            "agents.agent_api.app.middleware.thread_ownership.validate_thread_ownership",
         ), patch(
-            "agents.agent_api.app.api.rate_limit.check_rate_limit",
-            side_effect=HTTPException(
-                status_code=429,
-                detail="Daily request limit exceeded.",
-                headers={"Retry-After": "3600"},
-            ),
+            "agents.agent_api.app.middleware.rate_limit.consume_new_thread_quota",
+            side_effect=AssertionError("resume must not consume quota"),
+        ), patch(
+            "agents.agent_api.app.api.routes.resume.run_jarvis",
+            return_value={
+                "thread_id": "t-1",
+                "interrupted": False,
+                "final_response": "Resumed.",
+                "tool_results": [],
+                "error": "",
+            },
         ):
             response = self.client.post(
                 "/resume",
@@ -429,16 +432,17 @@ class RouteGuardTests(unittest.TestCase):
                     "request_id": "req-2",
                 },
             )
-        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["response"], "Resumed.")
 
     def test_invoke_returns_429_on_rate_limit(self) -> None:
         from fastapi import HTTPException
 
         with patch(
-            "agents.agent_api.app.api.rate_limit.check_rate_limit",
+            "agents.agent_api.app.middleware.rate_limit.consume_new_thread_quota",
             side_effect=HTTPException(
                 status_code=429,
-                detail="Daily request limit exceeded.",
+                detail="Daily thread limit reached.",
                 headers={"Retry-After": "3600"},
             ),
         ):
@@ -453,12 +457,40 @@ class RouteGuardTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 429)
 
+    def test_invoke_with_thread_id_does_not_consume_new_thread_quota(self) -> None:
+        with patch(
+            "agents.agent_api.app.middleware.thread_ownership.validate_thread_ownership",
+        ), patch(
+            "agents.agent_api.app.middleware.rate_limit.consume_new_thread_quota",
+            side_effect=AssertionError("continuations must not consume quota"),
+        ), patch(
+            "agents.agent_api.app.api.routes.invoke.run_jarvis",
+            return_value={
+                "thread_id": "existing-thread",
+                "interrupted": False,
+                "final_response": "Continued.",
+                "tool_results": [],
+                "error": "",
+            },
+        ):
+            response = self.client.post(
+                "/invoke",
+                json={
+                    "message": "continue",
+                    "user_id": "jerry",
+                    "thread_id": "existing-thread",
+                    "telegram_user_id": 42,
+                    "request_id": "req-continuation",
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["response"], "Continued.")
 
     def test_invoke_returns_403_on_ownership_violation_with_thread_id(self) -> None:
         from fastapi import HTTPException
 
         with patch(
-            "agents.agent_api.app.api.routes.invoke.validate_thread_ownership",
+            "agents.agent_api.app.middleware.thread_ownership.validate_thread_ownership",
             side_effect=HTTPException(status_code=403, detail="Thread belongs to a different user."),
         ):
             response = self.client.post(
@@ -472,6 +504,46 @@ class RouteGuardTests(unittest.TestCase):
                 },
             )
         self.assertEqual(response.status_code, 403)
+
+    def test_invoke_bulk_charges_per_non_empty_message_and_stops_on_429(self) -> None:
+        from fastapi import HTTPException
+
+        with patch(
+            "agents.agent_api.app.middleware.rate_limit.consume_new_thread_quota",
+            side_effect=[
+                None,
+                HTTPException(
+                    status_code=429,
+                    detail="Daily thread limit reached.",
+                    headers={"Retry-After": "3600"},
+                ),
+            ],
+        ) as quota, patch(
+            "agents.agent_api.app.api.routes.invoke.run_jarvis",
+            return_value={
+                "thread_id": "thread-1",
+                "interrupted": False,
+                "final_response": "First done.",
+                "tool_results": [],
+                "error": "",
+            },
+        ) as run:
+            response = self.client.post(
+                "/invoke-bulk",
+                json={
+                    "messages": ["first prompt", "second prompt", "third prompt"],
+                    "user_id": "jerry",
+                    "telegram_user_id": 42,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["results"]
+        self.assertEqual([item["status"] for item in results], ["completed", "failed", "failed"])
+        self.assertEqual(results[1]["error"], "HTTP 429: Daily thread limit reached.")
+        self.assertEqual(results[2]["error"], "HTTP 429: Daily thread limit reached.")
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(quota.call_count, 2)
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ describe('Telegram webhook simulator', () => {
       userId: 387244560,
       chatId: 387244560,
       username: 'tester',
-      baseUrl: 'http://localhost:3456',
+      baseUrl: 'http://127.0.0.1:3456',
       updateId: 9001,
       messageId: 9001,
     });
@@ -79,7 +79,7 @@ describe('Telegram webhook simulator', () => {
     await simulateTelegramUpdate(options, fetcher as typeof fetch);
 
     expect(fetcher).toHaveBeenCalledWith(
-      'http://localhost:3000/webhook/a%2Fb',
+      'http://127.0.0.1:3000/webhook/a%2Fb',
       expect.objectContaining({
         method: 'POST',
         body: expect.stringContaining('"text":"hello"'),

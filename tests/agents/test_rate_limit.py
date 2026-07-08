@@ -1,5 +1,6 @@
-"""Tests for per-user rate limiting."""
+"""Tests for per-user fresh-thread quota limiting."""
 
+from datetime import datetime, timedelta, timezone
 import logging
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -7,7 +8,7 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 
-from agents.agent_api.app.api.rate_limit import check_rate_limit
+from agents.agent_api.app.middleware.rate_limit import consume_new_thread_quota
 from agents.agent_api.app.user_context.identity import TelegramIdentity
 
 IDENTITY = TelegramIdentity(telegram_id=42)
@@ -54,126 +55,127 @@ class FakePool:
         return FakeConnection(self._cursor)
 
 
-class TestRateLimitNoop:
+def reset_at():
+    return datetime.now(timezone.utc) + timedelta(hours=4)
+
+
+class TestThreadQuotaNoop:
     def test_noop_when_dsn_is_falsy(self):
         with patch(
-            "agents.agent_api.app.api.rate_limit.settings",
+            "agents.agent_api.app.middleware.rate_limit.settings",
             SimpleNamespace(postgres_dsn=""),
         ):
-            check_rate_limit(IDENTITY)
+            assert consume_new_thread_quota(IDENTITY) is None
 
-    def test_noop_when_telegram_user_id_is_none(self):
+    def test_noop_when_identity_is_none(self):
         with patch(
-            "agents.agent_api.app.api.rate_limit.settings",
+            "agents.agent_api.app.middleware.rate_limit.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ):
-            check_rate_limit(None)
+            assert consume_new_thread_quota(None) is None
 
 
-class TestRateLimitAllow:
-    def test_allows_when_no_row(self):
-        cursor = FakeCursor(row=None)
+class TestThreadQuotaAllow:
+    @pytest.mark.parametrize("used", [1, 50, 100])
+    def test_allows_allowed_rows(self, used):
+        cursor = FakeCursor(row=(True, used, 100, reset_at()))
         pool = FakePool(cursor)
         with patch(
-            "agents.agent_api.app.api.rate_limit.settings",
+            "agents.agent_api.app.middleware.rate_limit.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            check_rate_limit(IDENTITY)
+            result = consume_new_thread_quota(IDENTITY)
 
-    def test_allows_when_under_limit(self):
-        cursor = FakeCursor(row=(5, 100))
+        assert result is not None
+        assert result.allowed is True
+        assert result.threads_used == used
+        assert result.thread_limit == 100
+
+
+class TestThreadQuotaReject:
+    def test_raises_429_when_denied(self):
+        cursor = FakeCursor(row=(False, 100, 100, reset_at()))
         pool = FakePool(cursor)
         with patch(
-            "agents.agent_api.app.api.rate_limit.settings",
-            SimpleNamespace(postgres_dsn="postgresql://fake"),
-        ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            check_rate_limit(IDENTITY)
-
-    def test_allows_when_at_limit(self):
-        cursor = FakeCursor(row=(100, 100))
-        pool = FakePool(cursor)
-        with patch(
-            "agents.agent_api.app.api.rate_limit.settings",
-            SimpleNamespace(postgres_dsn="postgresql://fake"),
-        ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            check_rate_limit(IDENTITY)
-
-
-class TestRateLimitReject:
-    def test_raises_429_when_over_limit(self):
-        cursor = FakeCursor(row=(101, 100))
-        pool = FakePool(cursor)
-        with patch(
-            "agents.agent_api.app.api.rate_limit.settings",
+            "agents.agent_api.app.middleware.rate_limit.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
             with pytest.raises(HTTPException) as exc_info:
-                check_rate_limit(IDENTITY)
-            assert exc_info.value.status_code == 429
-            assert exc_info.value.headers["Retry-After"] == "3600"
+                consume_new_thread_quota(IDENTITY)
+
+        assert exc_info.value.status_code == 429
+        assert int(exc_info.value.headers["Retry-After"]) > 0
+        assert "Daily thread limit reached" in exc_info.value.detail
+        assert "SGT" in exc_info.value.detail or "+08" in exc_info.value.detail
 
 
-class TestRateLimitSql:
-    def test_passes_telegram_user_id_as_string(self):
-        cursor = FakeCursor(row=(1, 100))
+class TestThreadQuotaSql:
+    def test_calls_try_consume_thread_quota_with_telegram_id(self):
+        cursor = FakeCursor(row=(True, 1, 100, reset_at()))
         pool = FakePool(cursor)
         with patch(
-            "agents.agent_api.app.api.rate_limit.settings",
+            "agents.agent_api.app.middleware.rate_limit.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            check_rate_limit(TelegramIdentity(telegram_id=12345))
+            consume_new_thread_quota(TelegramIdentity(telegram_id=12345))
 
         assert len(cursor.statements) == 1
-        _sql, params = cursor.statements[0]
+        sql, params = cursor.statements[0]
+        assert "public.try_consume_thread_quota(%s)" in sql
         assert params == (12345,)
 
-    def test_sql_contains_reset_logic(self):
-        cursor = FakeCursor(row=(1, 100))
-        pool = FakePool(cursor)
+
+class TestThreadQuotaFailurePolicy:
+    def test_fails_open_on_pool_timeout(self, caplog):
+        from psycopg_pool import PoolTimeout
+
         with patch(
-            "agents.agent_api.app.api.rate_limit.settings",
-            SimpleNamespace(postgres_dsn="postgresql://fake"),
-        ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            check_rate_limit(IDENTITY)
-
-        sql, _params = cursor.statements[0]
-        assert "WHEN rl.reset_at <= NOW() THEN 1" in sql
-        assert "RETURNING" in sql
-
-    def test_sql_contains_least_cap(self):
-        cursor = FakeCursor(row=(1, 100))
-        pool = FakePool(cursor)
-        with patch(
-            "agents.agent_api.app.api.rate_limit.settings",
-            SimpleNamespace(postgres_dsn="postgresql://fake"),
-        ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
-            check_rate_limit(IDENTITY)
-
-        sql, _params = cursor.statements[0]
-        assert "LEAST" in sql
-        assert "daily_request_limit + 1" in sql
-
-
-class TestRateLimitFailOpen:
-    def test_allows_on_generic_exception(self, caplog):
-        with patch(
-            "agents.agent_api.app.api.rate_limit.settings",
+            "agents.agent_api.app.middleware.rate_limit.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch(
             "agents.agent_api.app.db.get_pool",
-            side_effect=RuntimeError("pool dead"),
+            side_effect=PoolTimeout("pool busy"),
         ):
             with caplog.at_level(logging.WARNING):
-                check_rate_limit(IDENTITY)
-        assert "Rate limit check failed" in caplog.text
+                assert consume_new_thread_quota(IDENTITY) is None
+        assert "failed open" in caplog.text
+
+    def test_fails_open_on_operational_error(self, caplog):
+        from psycopg import OperationalError
+
+        with patch(
+            "agents.agent_api.app.middleware.rate_limit.settings",
+            SimpleNamespace(postgres_dsn="postgresql://fake"),
+        ), patch(
+            "agents.agent_api.app.db.get_pool",
+            side_effect=OperationalError("connection unavailable"),
+        ):
+            with caplog.at_level(logging.WARNING):
+                assert consume_new_thread_quota(IDENTITY) is None
+        assert "failed open" in caplog.text
+
+    def test_fails_closed_on_known_quota_sql_error(self):
+        from psycopg import errors
+
+        with patch(
+            "agents.agent_api.app.middleware.rate_limit.settings",
+            SimpleNamespace(postgres_dsn="postgresql://fake"),
+        ), patch(
+            "agents.agent_api.app.db.get_pool",
+            side_effect=errors.UndefinedFunction("missing quota function"),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                consume_new_thread_quota(IDENTITY)
+
+        assert exc_info.value.status_code == 503
 
     def test_http_exception_is_not_swallowed(self):
-        cursor = FakeCursor(row=(200, 100))
+        cursor = FakeCursor(row=(False, 100, 100, reset_at()))
         pool = FakePool(cursor)
         with patch(
-            "agents.agent_api.app.api.rate_limit.settings",
+            "agents.agent_api.app.middleware.rate_limit.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
             with pytest.raises(HTTPException) as exc_info:
-                check_rate_limit(IDENTITY)
-            assert exc_info.value.status_code == 429
+                consume_new_thread_quota(IDENTITY)
+        assert exc_info.value.status_code == 429

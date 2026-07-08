@@ -180,3 +180,78 @@ def test_credential_versions_revocation_and_reconnect_are_atomic():
             )
             assert cursor.fetchone()[0] >= 5
         connection.rollback()
+
+
+def test_thread_quota_function_allows_100_denies_101st_and_resets():
+    import psycopg
+
+    telegram_id = int(f"8{uuid.uuid4().int % 10**12:012d}")
+    with psycopg.connect(TEST_DSN) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                select user_id
+                from private.admin_upsert_user(%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    telegram_id,
+                    "quota_test",
+                    "Quota Test",
+                    "Asia/Singapore",
+                    "en",
+                    "admin:test",
+                ),
+            )
+            user_id = cursor.fetchone()[0]
+
+            allowed_count = 0
+            for _ in range(100):
+                cursor.execute(
+                    "select allowed, threads_used, thread_limit from public.try_consume_thread_quota(%s)",
+                    (telegram_id,),
+                )
+                allowed, threads_used, thread_limit = cursor.fetchone()
+                assert allowed is True
+                assert 1 <= threads_used <= 100
+                assert thread_limit == 100
+                allowed_count += 1
+            assert allowed_count == 100
+
+            cursor.execute(
+                """
+                select allowed, threads_used, thread_limit
+                from public.try_consume_thread_quota(%s)
+                """,
+                (telegram_id,),
+            )
+            assert cursor.fetchone() == (False, 100, 100)
+
+            cursor.execute(
+                """
+                update public.rate_limits
+                set daily_threads_used = 100,
+                    reset_at = now() - interval '1 second'
+                where user_id = %s
+                """,
+                (user_id,),
+            )
+            cursor.execute(
+                """
+                select allowed, threads_used, thread_limit
+                from public.try_consume_thread_quota(%s)
+                """,
+                (telegram_id,),
+            )
+            assert cursor.fetchone() == (True, 1, 100)
+
+            cursor.execute(
+                """
+                select has_function_privilege(
+                  'jarvis_runtime',
+                  'public.try_consume_thread_quota(bigint)',
+                  'EXECUTE'
+                )
+                """
+            )
+            assert cursor.fetchone() == (True,)
+        connection.rollback()

@@ -10,12 +10,17 @@ import { botService, databaseReadiness } from './app';
 
 const NGROK_URL = process.env.NGROK_URL!;
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
+const SKIP_WEBHOOK_SETUP = process.env.TELEGRAM_SKIP_WEBHOOK_SETUP === 'true';
 
 // Register the webhook URL with Telegram's servers on every startup.
 // This is idempotent — Telegram ignores the call if the URL hasn't changed.
 (async () => {
   try {
     await databaseReadiness;
+    if (SKIP_WEBHOOK_SETUP) {
+      logger.info('telegram.webhook.setup_skipped');
+      return;
+    }
     await botService.setupWebhook(NGROK_URL, TELEGRAM_SECRET_TOKEN);
   } catch (err) {
     logger.error('telegram.webhook.setup_failed', {

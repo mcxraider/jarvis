@@ -135,7 +135,7 @@ def test_connect_defaults_scopes_and_path_from_auth(monkeypatch, tmp_path):
         flow_runner=fake_flow,
     )
 
-    # Defaults are sourced from calendar.auth, proving the connect flow and the
+    # Defaults are sourced from google_calendar.auth, proving the connect flow and the
     # runtime loader can't drift on scope/path.
     assert written == str(token_path)
     assert captured["scopes"] == ["https://www.googleapis.com/auth/calendar.events"]

@@ -61,7 +61,7 @@ Only one `ask_user` per turn. Any sibling tool calls in the same turn are deferr
 
 ## Clarify vs. default
 Call ask_user only when:
-- A critical detail is genuinely ambiguous (2+ reasonable readings) and a wrong guess wastes effort or is hard to undo, or
+- An important detail is genuinely ambiguous.
 - A required parameter has no sensible default.
 Otherwise pick the sensible default, proceed, and state the assumption in your final answer. Never ask something one more read would answer — fetch it yourself. One focused question, never an interrogation.
 
