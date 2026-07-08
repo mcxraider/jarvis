@@ -1,17 +1,23 @@
 # LangGraph Agent — Current Architecture
 
-Last updated: 2026-06-29
+Last updated: 2026-07-08
 
 ## High-Level Component Map
 
 ```
-FastAPI (/invoke, /resume)
-    └── run_jarvis (builder.py)
+FastAPI (main.py)
+    ├── health_router        /health, /health/detail
+    ├── invoke_router        /invoke, /invoke/stream, /invoke-bulk
+    ├── resume_router        /resume, /resume/stream
+    ├── lifespan             DB runtime verification + idempotency cleanup loop
+    └── Request gate         API key → identity/source → thread ownership → request idempotency → fresh-thread quota
+            └── run_jarvis (builder.py)
             ├── DeepSeekAgentClient       openai SDK + wrap_openai + @traceable
             ├── TodoistApiClient          Todoist REST v1 API
             ├── ToolRegistry              catalogue of ToolSpecs + handlers
             ├── ToolDispatcher            mutation guard, idempotency, error envelope, tracing
-            ├── ToolSelector              KeywordToolSelector or StaticToolSelector (config-driven)
+            ├── ToolSelector              RouterToolSelector / KeywordToolSelector / StaticToolSelector
+            ├── RouterClient              fast pre-orchestrator domain classifier (optional, fallback-safe)
             ├── IdempotencyStore          Postgres-backed (or in-memory fallback)
             ├── TracePrinter              in-memory event tracer
             ├── FileLoggingTracer         wraps TracePrinter → logs/jarvis_run_*.log
@@ -19,6 +25,58 @@ FastAPI (/invoke, /resume)
             ├── Credentials module        per-user API key + preference resolution
             └── LangGraph StateGraph      compiled with Postgres/Redis/Memory checkpointer
 ```
+
+---
+
+## API Routers & Middleware
+
+### FastAPI Entry Point — `app/main.py`
+
+`create_app()` registers three APIRouter modules:
+
+| Router | Routes | Purpose |
+|--------|--------|---------|
+| `health_router` | `GET /health`, `GET /health/detail` | Liveness and dependency diagnostics |
+| `invoke_router` | `POST /invoke`, `POST /invoke/stream`, `POST /invoke-bulk` | Start new or existing-thread agent runs |
+| `resume_router` | `POST /resume`, `POST /resume/stream` | Continue paused HITL / confirm graph runs |
+
+The app lifespan verifies database runtime state before serving and starts a background cleanup loop over the shared idempotency store. Shutdown cancels the loop and closes the DB pool.
+
+### Ordered Request Gate — `middleware/request_gate.py`
+
+`/invoke`, `/invoke/stream`, `/resume`, and `/resume/stream` all call `apply_request_gate()` before entering `run_jarvis`.
+
+```mermaid
+flowchart LR
+    request["API request"]
+    auth["require_api_key"]
+    identity["resolve Telegram identity\n+ request_source"]
+    ownership["thread ownership guard\n(optional)"]
+    idempotency["request idempotency\nclaim/cache/409"]
+    quota["fresh-thread quota\n(optional)"]
+    run["run_jarvis"]
+
+    request --> auth --> identity --> ownership --> idempotency --> quota --> run
+    idempotency -->|"completed claim"| cached["return cached AgentResponse"]
+    idempotency -->|"in progress"| conflict["409 Retry-After: 1"]
+```
+
+Gate ordering is intentional:
+- API-key validation happens before any work.
+- `request_source` defaults to `"telegram"` when a Telegram identity is present, otherwise `"api"`.
+- Thread ownership runs before idempotency when the route requires it.
+- Idempotency claims are acquired before quota consumption so duplicate request IDs return cached responses without double-charging quota.
+- If quota consumption fails after a new claim, the claim is abandoned.
+
+### Middleware Helpers
+
+| Module | Responsibility | Failure posture |
+|--------|----------------|-----------------|
+| `middleware/idempotency.py` | Request-level wrapper around `DEFAULT_REQUEST_IDEMPOTENCY_COORDINATOR`; completed claims return cached `AgentResponse`, in-progress claims return HTTP 409 | Completed/interrupted responses are cached; failed responses abandon the claim |
+| `middleware/rate_limit.py` | Consumes one per-user fresh-thread quota slot via `public.try_consume_thread_quota(telegram_id)` | 429 when quota exhausted; transient DB errors fail open; known quota schema/data errors fail closed with 503 |
+| `middleware/thread_ownership.py` | Verifies a requested `thread_id` belongs to the resolved Telegram identity | 403 on confirmed mismatch; DB lookup failures fail open; missing legacy threads are allowed |
+
+`/invoke-bulk` still performs its own loop: it validates the API key once, resolves identity once, consumes fresh-thread quota per message, and stops the remaining batch on a 429.
 
 ---
 
@@ -256,22 +314,65 @@ ToolDispatcher (tools/dispatcher.py)
 ToolSelector (tools/selection.py)
     ├── StaticToolSelector   select_schemas() returns all specs (pass-through)
     └── KeywordToolSelector  narrows to 1-3 tools via keyword routing table, fallback-to-all
+    └── RouterToolSelector   asks RouterClient for service domains, then exposes matching tools
 
 ToolNode (LangGraph prebuilt)
     └── wraps dispatcher.execute_tool as langchain tools
     └── handle_tool_errors=True
 ```
 
-### Tool Selection — `tools/selectors/keyword.py`
+### Tool Selection — `tools/selection.py`
 
-The `KeywordToolSelector` narrows the full catalogue (currently 13 tools) to typically 1-3 per turn:
+Configured via `get_selector(name)`. The production default is `TOOL_SELECTOR=router` with `ROUTER_ENABLED=true`; if the router gate is unmet or the router client cannot be constructed, selection degrades to `StaticToolSelector`.
+
+### Query Router — `router/` + `tools/selectors/router.py`
+
+The router is a lightweight pre-orchestrator classifier. It runs before the agent LLM's tool schema selection, not as a LangGraph node.
+
+```mermaid
+flowchart TD
+    query["user query"]
+    snapshot["RuntimeContextSnapshot\nactive domains + preferences"]
+    router_client["RouterClient.classify\nDeepSeek JSON response"]
+    decision["RouterDecision\ndomains / candidates / rewrite"]
+    guardrails["routing guardrails\npreferences + explicit provider rules"]
+    selector["RouterToolSelector\nallowed tools = ask_user + routed domain tools"]
+    orchestrator["agent node\nslim prompt + optional turn-0 rewrite"]
+    fallback["StaticToolSelector"]
+
+    query --> router_client
+    snapshot --> router_client
+    router_client --> decision --> guardrails --> selector --> orchestrator
+    router_client -->|"RouterClientError"| fallback --> orchestrator
+```
+
+**Router pieces:**
+- `router/prompt.py` defines `RouterDecision`, `effective_router_domains()`, and the compact JSON-only routing prompt.
+- `router/client.py` calls the OpenAI-compatible DeepSeek endpoint with `response_format={"type":"json_object"}`, reasoning off by default, tight timeouts, Tenacity retry, token accounting, and structured `RouterClientError` payloads.
+- `tools/selectors/router.py` memoizes the decision per run/query, applies routing guardrails, intersects routed domains with connected providers, merges pinned active domains on resume, and always includes `ask_user`.
+- `graph/nodes/orchestrator.py` reads the selector's last decision to slim the runtime prompt to relevant domains and apply a faithful `rewritten_query` on turn 0.
+
+The router is non-critical by contract. Any classifier failure falls back to the static all-tools selector for that turn.
+
+**Router configuration:**
+- `ROUTER_ENABLED` default `true`
+- `TOOL_SELECTOR` default `"router"`
+- `ROUTER_MODEL` defaults to `DEEPSEEK_MODEL`
+- `ROUTER_BASE_URL` defaults to `DEEPSEEK_BASE_URL`
+- `ROUTER_API_KEY` falls back to `DEEPSEEK_API_KEY`
+- `ROUTER_REASONING_EFFORT` default `"off"`
+- `ROUTER_REQUEST_TIMEOUT_SECONDS` default `5.0`
+- `ROUTER_MAX_RETRY_ATTEMPTS` default `2`
+- `ROUTER_RETRY_MAX_DELAY_SECONDS` default `2.0`
+
+### Keyword Selector — `tools/selectors/keyword.py`
+
+The `KeywordToolSelector` narrows the full catalogue to typically 1-3 per turn:
 - Matches user query against a keyword→tool-names routing table (longest-match-first)
 - Unions all matched tool names
 - If `allow_mutations=False`, drops mutating tools
 - If nothing matched → falls back to all tools (can only help, never degrade)
 - Always includes `ask_user` regardless of selection
-
-Configured via `get_selector(name)` — the `run_jarvis` entrypoint currently uses `"static"` by default but `"keyword"` is fully implemented and ready to swap in.
 
 ### Active Tool Catalogue
 
@@ -327,6 +428,7 @@ class JarvisState(TypedDict, total=False):
 
     # Routing
     next: str                       # node hint written by nodes, read by route_by_next
+    active_domains: List[str]       # pinned routed domains for resume / domain continuity
     final_response: str             # terminal answer text
     error: str
 
@@ -373,6 +475,8 @@ Adding a node = one `NodeSpec` entry + one node factory. No monolithic builder s
 
 `run_jarvis` (builder.py) is the single entrypoint:
 - Builds clients, registry, dispatcher, selector
+- Resolves runtime context from Telegram identity, stores thread context on new runs, and reloads it on resume
+- Chooses `RouterToolSelector` when enabled/configured and runtime context is available; otherwise uses static/keyword selection
 - Wraps `TracePrinter` with `FileLoggingTracer` for per-run file logs
 - Registers thread metadata and logs usage to Supabase (fire-and-forget)
 - On first call: `app.invoke(initial_state, config)`
@@ -382,31 +486,46 @@ Adding a node = one `NodeSpec` entry + one node factory. No monolithic builder s
 
 ---
 
-## Idempotency — `idempotency/`
+## Idempotency — `idempotency/` + `api/request_idempotency.py`
 
-Cross-run deduplication for mutations. Prevents replay on network retries or user re-sends.
+There are two idempotency layers:
+
+| Layer | Scope | Key owner | Purpose |
+|-------|-------|-----------|---------|
+| Request idempotency | API `/invoke*` and `/resume*` requests | `api/request_idempotency.py` via request source, user ID, request ID, logical route | Deduplicate client retries and return cached `AgentResponse` |
+| Operation idempotency | Individual mutating tool calls | `ToolDispatcher` / confirm-held call hashes | Prevent duplicate external mutations during graph retries, network retries, or resumed execution |
 
 **Store interface (`IdempotencyStore` protocol):**
-- `claim(key, lease_seconds)` → `ClaimResult(state: CLAIMED | COMPLETED | IN_PROGRESS, result?)`
-- `complete(key, result, ttl_seconds)` → marks key as completed with cached result
-- `release(key)` → releases a claim without completing
+- `claim(key, layer, ttl_seconds, lease_seconds, tool_name?)` → `ClaimResult(state: ACQUIRED | COMPLETED | IN_PROGRESS | UNAVAILABLE, result?, owner_token?)`
+- `complete(key, owner_token, result, ttl_seconds)` → marks key as completed with cached result
+- `renew(key, owner_token, lease_seconds)` → extends an active lease
+- `abandon(key, owner_token)` → releases a claim without completing
 
 **Backends:**
-- `PostgresIdempotencyStore` — durable, backed by a `tool_idempotency` table, auto-cleanup of expired entries
+- `PostgresIdempotencyStore` — durable, backed by `idempotency_results`, auto-cleanup of expired entries
 - `MemoryIdempotencyStore` — in-process dict, dev/test fallback
 
 **Lifecycle in ToolDispatcher:**
 1. Before executing a tool call: `claim(idempotency_key)`
 2. If COMPLETED → return cached result (deduped)
 3. If IN_PROGRESS → poll until resolved or timeout
-4. If CLAIMED → execute tool, then `complete(key, result)`
-5. On failure → `release(key)` so retries can re-claim
+4. If ACQUIRED → execute tool, then `complete(key, owner_token, result)`
+5. On failure → `abandon(key)` so retries can re-claim
+
+**Lifecycle in request middleware:**
+1. `begin_idempotent_request(logical_route, request)` builds/claims a request key
+2. If COMPLETED → return cached `AgentResponse`
+3. If IN_PROGRESS → return HTTP 409 with `Retry-After: 1`
+4. On completed/interrupted graph response → `finish_idempotent_request()` caches the response
+5. On failure/exception → abandon the request claim
 
 **Configuration:**
+- `JARVIS_IDEMPOTENCY_REQUEST_TTL_SECONDS` (default 14400): how long completed API responses are cached
 - `JARVIS_IDEMPOTENCY_OPERATION_TTL_SECONDS` (default 7200): how long completed operations are cached
 - `JARVIS_IDEMPOTENCY_LEASE_SECONDS` (default 60): max time an in-progress claim holds
 - `JARVIS_IDEMPOTENCY_WAIT_SECONDS` (default 30): how long to poll an in-progress peer
 - `JARVIS_IDEMPOTENCY_POLL_INTERVAL_SECONDS` (default 0.1): poll frequency
+- `JARVIS_IDEMPOTENCY_CLEANUP_INTERVAL_SECONDS` (default 300): background cleanup cadence
 
 ---
 
@@ -529,6 +648,7 @@ All settings loaded from environment via a frozen `Settings` dataclass. Key grou
 | Group | Settings |
 |-------|----------|
 | **DeepSeek** | model, base_url, reasoning_effort, timeout, retry attempts/delay |
+| **Router** | enabled, model, base_url, api_key, reasoning_effort, timeout, retry attempts/delay, tool_selector |
 | **Todoist** | rest_base_url, retry attempts/timeout/delays |
 | **Graph** | allow_mutations, max_agent_turns, confirm_bulk_threshold |
 | **Summarizer** | model, threshold, timeout, retry, min_id_coverage, max_tokens_ceiling |
