@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 from langsmith import traceable
 from langsmith.wrappers import wrap_openai
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI, RateLimitError
+from pydantic import ValidationError
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_random_exponential
 from tenacity.nap import sleep as tenacity_sleep
 
@@ -20,14 +21,29 @@ from agents.agent_api.app.constants import (
     DEEPSEEK_REQUEST_TIMEOUT_SECONDS,
     DEEPSEEK_RETRY_MAX_DELAY_SECONDS,
 )
+from agents.agent_api.app.graph.prompts.context import build_user_prompt_with_request_datetime
+from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 from agents.agent_api.app.graph.state import JarvisState
+from agents.agent_api.app.router.prompt import effective_router_domains
 from agents.agent_api.app.tools.base import ToolRegistry
 from agents.agent_api.app.tools.control import is_ask_user_tool_call
 from agents.agent_api.app.tools.selection import DEFAULT_TOOL_SELECTOR, ToolSelector
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
+from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 
 LLM_FAILURE_MESSAGE = "Jarvis could not reach DeepSeek reliably. Please try again in a moment."
+
+
+def _tool_schema_names(tool_schemas: List[Dict[str, Any]]) -> List[str]:
+    """Extract function names from the schemas sent to the model."""
+
+    names: List[str] = []
+    for schema in tool_schemas:
+        name = schema.get("function", {}).get("name")
+        if isinstance(name, str) and name:
+            names.append(name)
+    return names
 
 
 @dataclass
@@ -298,6 +314,103 @@ class DeepSeekAgentClient:
         return status_code if isinstance(status_code, int) else None
 
 
+def _apply_router_prompt_slimming(
+    messages: List[Dict[str, Any]],
+    tool_selector: ToolSelector,
+    state: JarvisState,
+    tracer: TracePrinter,
+    selected_tool_names: List[str],
+) -> None:
+    """Slim the system prompt to the router's routed domains, in place.
+
+    When the selector exposes a router ``decision`` and this run has a runtime
+    snapshot, rebuild ONLY ``messages[0]`` (the system message) so its per-domain
+    fragments cover just the domains the query needs. Later turns carry
+    accumulated tool history in ``messages[1:]``; touching only index 0 keeps that
+    history intact (rebuilding the whole list would discard it).
+
+    Non-critical by contract: a missing decision, an absent/unvalidatable
+    snapshot, or a non-system first message all leave ``messages`` untouched —
+    i.e. today's full-prompt behavior. The decision is stable within a run (the
+    query is constant), so re-slimming each turn is idempotent.
+    """
+
+    decision = getattr(tool_selector, "decision", None)
+    if decision is None:
+        return
+    raw_context = state.get("runtime_context")
+    if not raw_context:
+        return
+    if not messages or messages[0].get("role") != "system":
+        return
+    try:
+        snapshot = RuntimeContextSnapshot.model_validate(raw_context)
+    except ValidationError:
+        tracer.event(
+            "router.prompt.skipped",
+            "Runtime snapshot did not validate; keeping full prompt.",
+        )
+        return
+
+    relevant = set(effective_router_domains(decision)) & snapshot.active_providers()
+    # Include pinned domains so the agent retains domain instructions even if
+    # the router narrowed this turn (e.g. HITL resume classified todoist-only).
+    active_domains = state.get("active_domains") or []
+    if active_domains:
+        relevant |= set(active_domains) & snapshot.active_providers()
+    messages[0] = {
+        **messages[0],
+        "content": get_system_prompt(
+            runtime_context=snapshot,
+            registered_tools=selected_tool_names,
+            relevant_domains=relevant,
+        ),
+    }
+    tracer.event(
+        "router.prompt.slimmed",
+        "Rebuilt system prompt for routed domains.",
+        relevant=sorted(relevant) or None,
+    )
+
+
+def _apply_router_query_rewrite(
+    messages: List[Dict[str, Any]],
+    tool_selector: ToolSelector,
+    state: JarvisState,
+    tracer: TracePrinter,
+) -> None:
+    """Replace the user message with the router's rewrite, on turn 0 only.
+
+    When the router proposes a clearer restatement of the request, swap it into
+    the user message so the orchestrator reasons over the cleaned-up text — but
+    keep ``state["user_prompt"]`` as the ORIGINAL for audit/telemetry (the node
+    never returns user_prompt, so leaving state untouched preserves it).
+
+    Turn-0 only and history-safe: on later turns the last message is a tool
+    result, not the user request, and the rewrite must not touch it. The guard on
+    ``turn_count == 0`` plus a role check makes this a no-op on every later turn.
+    """
+
+    if state.get("turn_count", 0) != 0:
+        return
+    decision = getattr(tool_selector, "decision", None)
+    if decision is None:
+        return
+    rewritten = (decision.rewritten_query or "").strip()
+    if not rewritten:
+        return
+    if not messages or messages[-1].get("role") != "user":
+        return
+
+    messages[-1] = {
+        **messages[-1],
+        "content": build_user_prompt_with_request_datetime(rewritten),
+    }
+    # Trace the event, never the rewritten text (mirrors the no-content policy of
+    # the LLM clients). Original query stays in state["user_prompt"].
+    tracer.event("router.rewrite", "Applied router query rewrite on turn 0.")
+
+
 def create_agent_node(
     agent_client: Any,
     registry: ToolRegistry,
@@ -343,13 +456,55 @@ def create_agent_node(
         # selector returns everything; a future query-aware selector returns a
         # relevant subset (see tools/selection.py). Execution still runs against
         # the full registry, so this only shapes what the model sees.
-        tool_schemas = tool_selector.select_schemas(state.get("user_prompt", ""), registry)
+        user_prompt = state.get("user_prompt", "")
+        # After a HITL clarification, route on the latest reply — the user may
+        # redirect intent (e.g. from tasks to calendar). For the router selector
+        # this is a natural cache miss; for keyword/static selectors it's a no-op.
+        clarification_history = state.get("clarification_history") or []
+        if clarification_history:
+            last_entry = clarification_history[-1]
+            last_reply = last_entry.get("reply") or ""
+            last_question = last_entry.get("question") or ""
+            routing_query = (
+                f"{user_prompt} "
+                f"[assistant asked: {last_question}] "
+                f"[user replied: {last_reply}]"
+            )
+        else:
+            routing_query = user_prompt
+        # Pass active_domains so the selector can merge pinned domains on resumes.
+        active_domains = state.get("active_domains") or []
+        tool_schemas = tool_selector.select_schemas(
+            routing_query, registry, active_domains=active_domains or None
+        )
+        selected_tool_names = _tool_schema_names(tool_schemas)
+
+        # Persist the initial routing domains for context preservation across
+        # HITL resumes. Only set on the first turn (no clarification history yet,
+        # no prior active_domains); subsequent turns within the same run reuse it.
+        if not clarification_history and not active_domains and tool_selector.decision:
+            active_domains = list(effective_router_domains(tool_selector.decision))
+
         tracer.event(
             "graph.tools.selected",
             "Selected tools for this turn.",
             available=len(registry.specs),
             selected=len(tool_schemas),
+            tool_names=selected_tool_names,
         )
+        # If a query router chose the tools, slim the system prompt to match — the
+        # model should not read a Calendar block when only Todoist tools are on
+        # offer. Rebuilds messages[0] only (history-safe); no-op without a decision.
+        _apply_router_prompt_slimming(
+            messages,
+            tool_selector,
+            state,
+            tracer,
+            selected_tool_names,
+        )
+        # On the first turn, swap in the router's cleaned-up restatement (if any);
+        # the original query stays in state["user_prompt"]. No-op on later turns.
+        _apply_router_query_rewrite(messages, tool_selector, state, tracer)
         try:
             assistant_message = agent_client.create_message(messages, tool_schemas)
         except DeepSeekAgentClientError as error:
@@ -398,6 +553,8 @@ def create_agent_node(
             "turn_count": turn_count + 1,
             "final_response": final_response,
             "next": next_node,
+            "selected_tool_names": selected_tool_names,
+            "active_domains": active_domains,
         }
 
     return agent_node
@@ -410,5 +567,6 @@ __all__ = [
     "UsageSummary",
     "create_agent_node",
     "raw_message_from_openai",
+    "_tool_schema_names",
     "usage_from_response",
 ]

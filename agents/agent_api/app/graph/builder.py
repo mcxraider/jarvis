@@ -75,6 +75,7 @@ from agents.agent_api.app.user_context.runtime import (
 
 
 _builder_logger = logging.getLogger(__name__)
+_USE_DEFAULT_CHECKPOINTER = object()
 
 
 def _register_thread(
@@ -229,7 +230,7 @@ def create_jarvis_graph(
     tool_dispatcher: ToolDispatcher,
     max_agent_turns: int = MAX_AGENT_TURNS,
     tracer: Optional[TracePrinter] = None,
-    checkpointer: Optional[Any] = None,
+    checkpointer: Any = _USE_DEFAULT_CHECKPOINTER,
     tool_selector: Optional[ToolSelector] = None,
 ):
     """Create the Jarvis LangGraph app from declarative node specs.
@@ -242,7 +243,8 @@ def create_jarvis_graph(
     """
 
     tracer = tracer or NULL_TRACE
-    checkpointer = checkpointer or DEFAULT_CHECKPOINTER
+    if checkpointer is _USE_DEFAULT_CHECKPOINTER:
+        checkpointer = DEFAULT_CHECKPOINTER
     registry = tool_dispatcher.registry
 
     node_specs = [
@@ -369,6 +371,58 @@ def _build_runtime_metadata(
     }
 
 
+def _resolve_tool_selector(
+    runtime_context: Optional[ResolvedRuntimeContext],
+    resuming: bool,
+    allow_mutations: bool,
+    tracer: TracePrinter,
+    *,
+    router_enabled: bool,
+    tool_selector_name: str,
+) -> ToolSelector:
+    """Choose the tool selector for this run, honoring the opt-in router gate.
+
+    The query router is built ONLY when every condition holds:
+    ``router_enabled`` and ``tool_selector_name == "router"`` and a runtime
+    snapshot exists. Resumed runs use the router too so clarification turns keep
+    the same narrow tool surface instead of falling back to every connected tool.
+    It is also never a hard-failure path:
+    constructing the ``RouterClient`` (e.g. a missing API key) degrades to the
+    static, all-tools selector, which is also the router's per-turn fallback.
+
+    Outside the gate the configured selector is honored — ``"static"``/``"keyword"``
+    as named; a ``"router"`` request whose gate is unmet degrades to ``"static"``.
+    """
+
+    use_router = (
+        router_enabled
+        and tool_selector_name == "router"
+        and runtime_context is not None
+    )
+    if use_router:
+        try:
+            from agents.agent_api.app.router.client import RouterClient
+
+            router_client = RouterClient(tracer=tracer)
+        except Exception as error:  # noqa: BLE001 — router must never fail the run
+            tracer.event(
+                "router.disabled",
+                "Router client unavailable; using static selector.",
+                error=str(error),
+            )
+            return get_selector("static", allow_mutations=allow_mutations)
+        return get_selector(
+            "router",
+            router_client=router_client,
+            snapshot=runtime_context.snapshot,
+            tracer=tracer,
+            fallback_selector=get_selector("static", allow_mutations=allow_mutations),
+        )
+
+    name = tool_selector_name if tool_selector_name in {"static", "keyword"} else "static"
+    return get_selector(name, allow_mutations=allow_mutations)
+
+
 def run_jarvis(
     user_prompt: str = USER_PROMPT,
     user_id: str = USER_ID,
@@ -408,7 +462,9 @@ def run_jarvis(
     thread_id = thread_id or str(uuid.uuid4())
     request_id = request_id or str(uuid.uuid4())
     checkpointer = checkpointer or DEFAULT_CHECKPOINTER
-    tool_selector = tool_selector or get_selector("static", allow_mutations=allow_mutations)
+    # A caller-supplied selector (DI/tests) is honored as-is; otherwise the default
+    # is resolved later — after the runtime context and tracer are known — so the
+    # opt-in router selector can be built against the resolved snapshot (see below).
     if idempotency_store is None:
         idempotency_store = DEFAULT_IDEMPOTENCY_STORE
 
@@ -504,6 +560,15 @@ def run_jarvis(
         idempotency_wait_seconds=settings.idempotency_wait_seconds,
         idempotency_poll_interval_seconds=settings.idempotency_poll_interval_seconds,
     )
+    if tool_selector is None:
+        tool_selector = _resolve_tool_selector(
+            runtime_context,
+            resuming,
+            allow_mutations,
+            tracer,
+            router_enabled=settings.router_enabled,
+            tool_selector_name=settings.tool_selector,
+        )
     app = create_jarvis_graph(
         agent_client,
         dispatcher,

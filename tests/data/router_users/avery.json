@@ -1,0 +1,27 @@
+{
+  "display_name": "Avery",
+  "timezone": "Asia/Singapore",
+  "locale": "en-SG",
+  "active_providers": ["todoist", "google_calendar"],
+  "preferences": {
+    "communication": {
+      "tone": "casual",
+      "verbosity": "detailed"
+    },
+    "routing": {
+      "task_provider": "todoist",
+      "event_provider": "todoist",
+      "calendar_usage": "default"
+    },
+    "domains": {
+      "todoist": {
+        "usage": "tasks_and_scheduling",
+        "default_for": ["tasks", "projects", "events", "appointments", "scheduling"]
+      },
+      "google_calendar": {
+        "usage": "events_meetings_time_related_items",
+        "event_category_defaults": {}
+      }
+    }
+  }
+}

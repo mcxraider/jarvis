@@ -2,7 +2,7 @@
 
 Run this once to authorize Jarvis against your Google account. It opens a
 browser for consent, then writes the authorized-user credential to the local
-token file that ``tools/calendar/auth.py`` loads at runtime. After it succeeds,
+token file that ``tools/google_calendar/auth.py`` loads at runtime. After it succeeds,
 the token can be imported into the database-backed integration connection.
 
     python -m scripts.connect_google_calendar          # from the repo root
@@ -36,7 +36,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from agents.agent_api.app.tools.calendar.auth import (  # noqa: E402
+from agents.agent_api.app.tools.google_calendar.auth import (  # noqa: E402
     get_calendar_scopes,
     get_token_path,
 )
@@ -124,7 +124,7 @@ def connect(
 ) -> str:
     """Run consent and persist the token. Returns the path written.
 
-    Defaults for ``token_path`` and ``scopes`` come from ``calendar.auth`` so the
+    Defaults for ``token_path`` and ``scopes`` come from ``google_calendar.auth`` so the
     connect flow and the runtime loader can never drift apart. ``flow_runner`` is
     injectable so the orchestration is testable without a browser; it defaults to
     :func:`run_consent_flow` resolved *at call time* (late binding), so patching

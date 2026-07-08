@@ -12,7 +12,7 @@ from typing import Annotated, Any, Dict, List, Optional
 from langchain_core.tools import InjectedToolCallId, tool
 
 from agents.agent_api.app.tools.base import DispatchFn, ToolSpec
-from agents.agent_api.app.tools.calendar.schemas import (
+from agents.agent_api.app.tools.google_calendar.schemas import (
     MUTATING_CALENDAR_TOOLS,
     get_calendar_tool_schemas,
 )

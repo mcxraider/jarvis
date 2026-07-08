@@ -194,7 +194,7 @@ class FileLoggingTracer:
 
     def payload(self, stage: str, label: str, value: Any, limit: int = 900) -> None:
         self._tracer.payload(stage, label, value, limit=limit)
-        readable = _format_payload_readable(value)
+        readable = _format_payload_readable(value, limit=limit)
         self.run_log.write_line(stage, f"[payload] {label}:{readable}")
 
     def _preview_fn(self) -> PreviewFn:
@@ -298,7 +298,7 @@ def _format_dict_readable(data: Dict[str, Any]) -> str:
     return "\n".join(lines) if lines else f"{_INDENT}(empty)"
 
 
-def _format_payload_readable(value: Any) -> str:
+def _format_payload_readable(value: Any, limit: int = 900) -> str:
     """Convert a payload value to a human-readable multi-line format.
 
     Used by FileLoggingTracer for per-run file logs. Strips null/empty fields
@@ -323,16 +323,20 @@ def _format_payload_readable(value: Any) -> str:
         text = _json.dumps(value, ensure_ascii=False, default=str)
         if len(text) <= 120:
             return " " + text
-        return "\n" + _INDENT + text[:500] + ("..." if len(text) > 500 else "")
+        if limit <= 0 or len(text) <= limit:
+            return "\n" + _INDENT + text
+        return "\n" + _INDENT + text[:limit] + "..."
 
     if isinstance(value, str):
         if len(value) <= 120:
             return " " + value
-        return "\n" + _INDENT + value[:500] + "..."
+        if limit <= 0 or len(value) <= limit:
+            return "\n" + _INDENT + value
+        return "\n" + _INDENT + value[:limit] + "..."
 
     text = str(value)
-    if len(text) > 900:
-        return " " + text[:897] + "..."
+    if limit > 0 and len(text) > limit:
+        return " " + text[:limit] + "..."
     return " " + text
 
 

@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from agents.agent_api.app.tools.calendar.auth import (
+from agents.agent_api.app.tools.google_calendar.auth import (
     GoogleCalendarApiError,
     load_credentials,
 )

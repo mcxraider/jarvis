@@ -26,7 +26,7 @@ Options:
   --user-2                 Use JARVIS_CLI_USER_2_TELEGRAM_ID
   --first-name <name>      Sender first name (default: CLI Tester)
   --username <name>        Optional Telegram username
-  --base-url <url>         Running Jarvis URL (default: http://localhost:PORT)
+  --base-url <url>         Running Jarvis URL (default: http://127.0.0.1:PORT)
   --secret <secret>        Webhook secret (default: TELEGRAM_SECRET_TOKEN)
   --update-id <id>         Stable Telegram update id (default: current timestamp)
   --message-id <id>        Telegram message id (default: update id)
@@ -57,7 +57,7 @@ export function parseSimulatorArgs(argv: string[], env: Environment = process.en
   let chatId: number | undefined;
   let firstName = 'CLI Tester';
   let username: string | undefined;
-  let baseUrl = `http://localhost:${env.PORT || '3000'}`;
+  let baseUrl = `http://127.0.0.1:${env.PORT || '3000'}`;
   let secret = env.TELEGRAM_SECRET_TOKEN;
   let updateId = Date.now();
   let messageId: number | undefined;

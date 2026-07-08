@@ -4,6 +4,7 @@ import {
   renderClarificationBlock,
   sendClarificationReply,
   sendFinalReply,
+  sendRichMessage,
   sendRichMessageToChat,
   setRichMessagesEnabled,
 } from '../../../../../src/services/telegram/formatters/telegram-rich';
@@ -35,6 +36,23 @@ describe('telegram-rich clarification blocks', () => {
       chat_id: 123,
       rich_message: {
         markdown: '<details open><summary>Clarification</summary>\n\nWhich project?\n\n</details>',
+      },
+    });
+  });
+
+  it('normalizes compact tables for direct rich sends', async () => {
+    const callApi = jest.fn().mockResolvedValue({ message_id: 42 });
+    const ctx = {
+      chat: { id: 123 },
+      telegram: { callApi },
+    } as any;
+
+    await sendRichMessage(ctx, 'Friday | Task | Time | |------|------| | Worship practice | 7:30 pm |');
+
+    expect(callApi).toHaveBeenCalledWith('sendRichMessage', {
+      chat_id: 123,
+      rich_message: {
+        markdown: 'Friday\n| Task | Time |\n| ------ | ------ |\n| Worship practice | 7:30 pm |',
       },
     });
   });

@@ -247,6 +247,87 @@ class TestRequestCache:
 
         assert run.call_count == 3
 
+    def test_replayed_fresh_invoke_uses_cache_without_consuming_quota(
+        self,
+        client,
+        coordinator,
+    ):
+        with patch(
+            "agents.agent_api.app.middleware.rate_limit.consume_new_thread_quota",
+        ) as quota, patch(
+            "agents.agent_api.app.api.routes.invoke.run_jarvis",
+            return_value=completed_state(),
+        ) as run:
+            payload = {
+                "message": "add milk",
+                "user_id": "jerry",
+                "telegram_user_id": 42,
+                "request_id": "quota-replay",
+            }
+            first = client.post("/invoke", json=payload)
+            second = client.post("/invoke", json=payload)
+
+        assert first.status_code == second.status_code == 200
+        assert first.json() == second.json()
+        run.assert_called_once()
+        quota.assert_called_once()
+
+    def test_quota_is_consumed_after_idempotency_miss_before_graph_run(
+        self,
+        client,
+        coordinator,
+    ):
+        events = []
+
+        def consume(_identity):
+            events.append("quota")
+
+        def run(**_kwargs):
+            events.append("run")
+            return completed_state()
+
+        with patch(
+            "agents.agent_api.app.middleware.rate_limit.consume_new_thread_quota",
+            side_effect=consume,
+        ), patch(
+            "agents.agent_api.app.api.routes.invoke.run_jarvis",
+            side_effect=run,
+        ):
+            response = client.post(
+                "/invoke",
+                json={
+                    "message": "add milk",
+                    "user_id": "jerry",
+                    "telegram_user_id": 42,
+                    "request_id": "quota-order",
+                },
+            )
+
+        assert response.status_code == 200
+        assert events == ["quota", "run"]
+
+    def test_resume_never_consumes_new_thread_quota(self, client, coordinator):
+        with patch(
+            "agents.agent_api.app.middleware.rate_limit.consume_new_thread_quota",
+            side_effect=AssertionError("resume must not consume quota"),
+        ), patch(
+            "agents.agent_api.app.api.routes.resume.run_jarvis",
+            return_value=completed_state("thread-hitl", "Resumed."),
+        ):
+            response = client.post(
+                "/resume",
+                json={
+                    "thread_id": "thread-hitl",
+                    "message": "approve",
+                    "user_id": "jerry",
+                    "telegram_user_id": 42,
+                    "request_id": "resume-no-quota",
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["response"] == "Resumed."
+
 
 class TestStreamingInteroperability:
     def test_stream_completion_is_reused_by_nonstream(self, client, coordinator):
@@ -440,7 +521,7 @@ class TestConcurrencyAndFailureModes:
     def test_authentication_happens_before_claim(self, client, coordinator):
         with (
             patch(
-                "agents.agent_api.app.api.routes.invoke.require_api_key",
+                "agents.agent_api.app.middleware.request_gate.require_api_key",
                 side_effect=HTTPException(status_code=401, detail="unauthorized"),
             ),
             patch.object(coordinator, "begin") as begin,

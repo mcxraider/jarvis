@@ -17,7 +17,7 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-from agents.agent_api.app.tools.calendar.auth import (
+from agents.agent_api.app.tools.google_calendar.auth import (
     GoogleCalendarApiError,
     build_calendar_service,
 )

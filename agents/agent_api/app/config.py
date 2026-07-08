@@ -58,6 +58,19 @@ class Settings:
     deepseek_request_timeout_seconds: float
     deepseek_max_retry_attempts: int
     deepseek_retry_max_delay_seconds: float
+    # Query router (pre-orchestrator domain classifier). Opt-in via router_enabled;
+    # tool_selector selects the strategy ("static" | "keyword" | "router"). The
+    # router reuses the DeepSeek OpenAI-compatible endpoint but with tighter,
+    # non-critical retry/timeout budgets since it is never a hard-failure path.
+    router_enabled: bool
+    router_model: str
+    router_base_url: str
+    router_api_key: Optional[str]
+    router_reasoning_effort: str
+    router_request_timeout_seconds: float
+    router_max_retry_attempts: int
+    router_retry_max_delay_seconds: float
+    tool_selector: str
     todoist_rest_base_url: str
     allow_mutations: bool
     max_agent_turns: int
@@ -130,6 +143,23 @@ def load_settings() -> Settings:
         deepseek_request_timeout_seconds=_float_env("DEEPSEEK_REQUEST_TIMEOUT_SECONDS", 30.0),
         deepseek_max_retry_attempts=_int_env("DEEPSEEK_MAX_RETRY_ATTEMPTS", 3),
         deepseek_retry_max_delay_seconds=_float_env("DEEPSEEK_RETRY_MAX_DELAY_SECONDS", 8.0),
+        # Router defaults: reuse the DeepSeek endpoint/key, reasoning off, and a
+        # modest budget (per-attempt 5s timeout, 2 attempts) — the router is
+        # non-critical and always degrades to the static selector on failure.
+        # Enabled by default (paired with tool_selector="router" below); set
+        # ROUTER_ENABLED=false to fall back to loading every domain each turn.
+        router_enabled=_bool_env("ROUTER_ENABLED", True),
+        router_model=os.getenv("ROUTER_MODEL", os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")),
+        router_base_url=os.getenv(
+            "ROUTER_BASE_URL",
+            os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+        ),
+        router_api_key=os.getenv("ROUTER_API_KEY") or os.getenv("DEEPSEEK_API_KEY"),
+        router_reasoning_effort=os.getenv("ROUTER_REASONING_EFFORT", "off"),
+        router_request_timeout_seconds=_positive_float_env("ROUTER_REQUEST_TIMEOUT_SECONDS", 5.0),
+        router_max_retry_attempts=_positive_int_env("ROUTER_MAX_RETRY_ATTEMPTS", 2),
+        router_retry_max_delay_seconds=_positive_float_env("ROUTER_RETRY_MAX_DELAY_SECONDS", 2.0),
+        tool_selector=os.getenv("TOOL_SELECTOR", "router"),
         todoist_rest_base_url=os.getenv(
             "TODOIST_REST_BASE_URL",
             "https://api.todoist.com/api/v1",
