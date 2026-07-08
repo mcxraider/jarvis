@@ -270,6 +270,33 @@ class TestEndToEndThroughRealSelector:
         assert "## Google Calendar tool tips" not in system
         assert "list_calendar_events" not in system
 
+    def test_uncertain_candidates_keep_tools_and_prompt_aligned(self):
+        snapshot = make_snapshot(active=("todoist", "google_calendar"))
+        state = _state_turn0(snapshot, user_prompt="ambiguous planning request")
+        decision = RouterDecision(
+            domains=["todoist"],
+            uncertain=True,
+            candidate_domains=["todoist", "google_calendar"],
+        )
+        selector = RouterToolSelector(
+            router_client=_CannedRouterClient(decision),
+            snapshot=snapshot,
+        )
+
+        client, _result = _run_node(state, selector)
+
+        tool_names = {t["function"]["name"] for t in client.seen_tools}
+        assert tool_names == {
+            "ask_user",
+            "add_todoist_task",
+            "get_tasks",
+            "list_calendar_events",
+        }
+        system = client.seen_messages[0]["content"]
+        assert "## Todoist tool tips" in system
+        assert "## Google Calendar tool tips" in system
+        assert "Available tools: ask_user, add_todoist_task, get_tasks, list_calendar_events" in system
+
     def test_selected_tool_names_are_returned_in_state(self):
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_turn0(snapshot)

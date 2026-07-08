@@ -12,12 +12,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import runpy
 import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List, Optional, Sequence
+
+from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -44,8 +47,8 @@ from agents.agent_api.app.user_context.runtime import (
 from tests.agents.runtime_helpers import _CAPABILITIES, _TOOL_NAMES
 
 DEFAULT_USERS_DIR = ROOT / "tests" / "data" / "router_users"
-DEFAULT_QUERIES_FILE = ROOT / "tests" / "data" / "router_queries.txt"
-DEFAULT_OUT_DIR = ROOT / "reports" / "router_eval"
+DEFAULT_QUERIES_FILE = ROOT / "tests" / "data" / "router_queries.py"
+DEFAULT_OUT_DIR = ROOT / "tests" / "data" / "router_evals"
 
 
 @dataclass(frozen=True)
@@ -159,6 +162,7 @@ def load_personas(users_dir: Path, *, user_filters: Optional[Sequence[str]] = No
                 active_providers=list(data.get("active_providers", [])),
             )
         )
+        break
     if not personas:
         requested = ", ".join(sorted(filters)) if filters else str(users_dir)
         raise ValueError(f"No router persona fixtures matched: {requested}")
@@ -170,12 +174,12 @@ def load_queries(
     *,
     query_filters: Optional[Sequence[str]] = None,
 ) -> List[tuple[int, str]]:
-    queries: List[tuple[int, str]] = []
-    for line in queries_file.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        queries.append((len(queries) + 1, stripped))
+    module_globals = runpy.run_path(str(queries_file))
+    raw_queries = module_globals.get("ROUTER_QUERIES")
+    if not isinstance(raw_queries, list) or not all(isinstance(query, str) for query in raw_queries):
+        raise ValueError(f"{queries_file} must define ROUTER_QUERIES as a list of strings")
+
+    queries = [(index, query) for index, query in enumerate(raw_queries, start=1)]
 
     filters = _split_filter_values(query_filters)
     if not filters:
@@ -248,11 +252,36 @@ def run_grid(
     personas: Sequence[Persona],
     queries: Sequence[tuple[int, str]],
     router_client: Any,
+    *,
+    verbose: bool = False,
 ) -> List[EvalResult]:
     results: List[EvalResult] = []
-    for persona in personas:
-        for query_index, query in queries:
-            results.append(evaluate_pair(persona, query_index, query, router_client))
+    total = len(personas) * len(queries)
+    progress = tqdm(
+        total=total,
+        desc="Evaluating router",
+        unit="pair",
+        disable=not verbose,
+    )
+    with progress:
+        for persona in personas:
+            if verbose:
+                active = ", ".join(persona.active_providers) or "none"
+                tqdm.write(f"Persona {persona.name}: active providers={active}")
+            for query_index, query in queries:
+                progress.set_postfix(persona=persona.name, query=query_index)
+                result = evaluate_pair(persona, query_index, query, router_client)
+                results.append(result)
+                if verbose:
+                    status = "error" if result.error else "ok"
+                    domains = result.raw_response.get("domains", [])
+                    adjusted = result.adjusted_response.get("domains") if result.adjusted_response else None
+                    suffix = f", adjusted_domains={adjusted}" if adjusted is not None else ""
+                    tqdm.write(
+                        f"[{status}] {persona.name} q{query_index}: "
+                        f"domains={domains}{suffix} elapsed={result.elapsed_ms}ms"
+                    )
+                progress.update(1)
     return results
 
 
@@ -326,12 +355,36 @@ def format_markdown(
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_report(markdown: str, out_dir: Path, *, run_at: datetime) -> Path:
-    out_dir.mkdir(parents=True, exist_ok=True)
+def write_report(markdown: str, out_dir: Path, *, persona_name: str, run_at: datetime) -> Path:
+    persona_dir = out_dir / persona_name
+    persona_dir.mkdir(parents=True, exist_ok=True)
     timestamp = run_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    path = out_dir / f"{timestamp}.md"
+    path = persona_dir / f"{timestamp}.md"
     path.write_text(markdown, encoding="utf-8")
     return path
+
+
+def write_persona_reports(
+    *,
+    run_at: datetime,
+    model: str,
+    personas: Sequence[Persona],
+    queries: Sequence[tuple[int, str]],
+    results: Sequence[EvalResult],
+    out_dir: Path,
+) -> List[Path]:
+    report_paths: List[Path] = []
+    for persona in personas:
+        persona_results = [result for result in results if result.persona.name == persona.name]
+        markdown = format_markdown(
+            run_at=run_at,
+            model=model,
+            personas=[persona],
+            queries=queries,
+            results=persona_results,
+        )
+        report_paths.append(write_report(markdown, out_dir, persona_name=persona.name, run_at=run_at))
+    return report_paths
 
 
 def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -341,6 +394,7 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument("--users", nargs="*", help="Persona names to include, e.g. --users jerry zac")
     parser.add_argument("--queries", nargs="*", help="1-based query numbers or text filters, e.g. --queries 1")
+    parser.add_argument("--quiet", action="store_true", help="Hide progress bars and detailed run logs.")
     return parser.parse_args(argv)
 
 
@@ -349,20 +403,40 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not (os.getenv("ROUTER_API_KEY") or os.getenv("DEEPSEEK_API_KEY")):
         raise SystemExit("ROUTER_API_KEY (or DEEPSEEK_API_KEY) is required.")
 
+    verbose = not args.quiet
+    if verbose:
+        tqdm.write("Loading router eval fixtures...")
+        tqdm.write(f"Users dir: {args.users_dir}")
+        tqdm.write(f"Queries file: {args.queries_file}")
     personas = load_personas(args.users_dir, user_filters=args.users)
     queries = load_queries(args.queries_file, query_filters=args.queries)
     router_client = RouterClient(tracer=NULL_TRACE)
+    if verbose:
+        tqdm.write(
+            f"Loaded {len(personas)} persona(s), {len(queries)} query/queries, "
+            f"{len(personas) * len(queries)} eval pair(s)."
+        )
+        tqdm.write(f"Router model: {getattr(router_client, 'model', 'unknown')}")
     run_at = _utc_now()
-    results = run_grid(personas, queries, router_client)
-    markdown = format_markdown(
+    results = run_grid(personas, queries, router_client, verbose=verbose)
+    error_count = sum(1 for result in results if result.error)
+    adjusted_count = sum(1 for result in results if result.adjusted_response is not None)
+    if verbose:
+        tqdm.write(
+            f"Evaluation complete: {len(results)} result(s), "
+            f"{error_count} error(s), {adjusted_count} guardrail adjustment(s)."
+        )
+        tqdm.write("Formatting markdown reports by persona...")
+    report_paths = write_persona_reports(
         run_at=run_at,
         model=getattr(router_client, "model", "unknown"),
         personas=personas,
         queries=queries,
         results=results,
+        out_dir=args.out_dir,
     )
-    report_path = write_report(markdown, args.out_dir, run_at=run_at)
-    print(f"Wrote router eval report: {report_path}")
+    for report_path in report_paths:
+        tqdm.write(f"Wrote router eval report: {report_path}")
     return 0
 
 

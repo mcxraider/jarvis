@@ -14,6 +14,7 @@ from agents.agent_api.app.router.prompt import (
     RouterDecision,
     build_router_messages,
     build_router_system_prompt,
+    effective_router_domains,
 )
 from tests.agents.runtime_helpers import make_preferences, make_snapshot
 
@@ -23,17 +24,23 @@ class TestRouterDecisionSchema:
         """A bare decision has no domains, no rewrite, and empty reasoning."""
         decision = RouterDecision()
         assert decision.domains == []
+        assert decision.uncertain is False
+        assert decision.candidate_domains == []
         assert decision.rewritten_query is None
         assert decision.reasoning == ""
 
     def test_round_trips_from_dict(self):
         data = {
             "domains": ["todoist", "google_calendar"],
+            "uncertain": True,
+            "candidate_domains": ["todoist", "google_calendar"],
             "rewritten_query": "add buy milk to my list",
             "reasoning": "task + explicit time",
         }
         decision = RouterDecision.model_validate(data)
         assert decision.domains == ["todoist", "google_calendar"]
+        assert decision.uncertain is True
+        assert decision.candidate_domains == ["todoist", "google_calendar"]
         assert decision.rewritten_query == "add buy milk to my list"
         assert decision.model_dump() == data
 
@@ -45,6 +52,20 @@ class TestRouterDecisionSchema:
     def test_rejects_wrong_domain_type(self):
         with pytest.raises(ValidationError):
             RouterDecision.model_validate({"domains": "todoist"})
+
+    def test_effective_domains_use_candidates_only_when_uncertain(self):
+        certain = RouterDecision(
+            domains=["todoist"],
+            uncertain=False,
+            candidate_domains=["google_calendar"],
+        )
+        uncertain = RouterDecision(
+            domains=["todoist"],
+            uncertain=True,
+            candidate_domains=["todoist", "google_calendar", "todoist"],
+        )
+        assert effective_router_domains(certain) == ["todoist"]
+        assert effective_router_domains(uncertain) == ["todoist", "google_calendar"]
 
 
 class TestRouterSystemPrompt:
@@ -110,6 +131,21 @@ class TestRouterSystemPrompt:
         """The reasoning field should be capped to save tokens on filler."""
         prompt = build_router_system_prompt(make_snapshot())
         assert "10 words or fewer" in prompt
+
+    def test_output_schema_documents_uncertainty_fields(self):
+        prompt = build_router_system_prompt(make_snapshot())
+        assert '"uncertain"' in prompt
+        assert '"candidate_domains"' in prompt
+        assert "most-likely minimal route" in prompt
+        assert "expanded safe set when uncertain" in prompt
+
+    def test_prompt_documents_rewrite_fidelity_rules(self):
+        prompt = build_router_system_prompt(make_snapshot())
+        assert "## Rewrite rules" in prompt
+        assert "preserve timing modifiers" in prompt
+        assert "Do not turn recommendations" in prompt
+        assert "Do not add missing task/event details" in prompt
+        assert "Preserve uncertainty and wording strength" in prompt
 
     def test_instructs_json_only_output(self):
         prompt = build_router_system_prompt(make_snapshot())

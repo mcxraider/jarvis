@@ -27,16 +27,31 @@ class RouterDecision(BaseModel):
 
     ``domains`` is a subset of the known domain keys (``DOMAIN_ADAPTERS``). An
     empty list means the query needs no service domain (greetings, small talk,
-    meta questions). ``rewritten_query`` is an optional cleaned-up restatement the
-    orchestrator can use instead of the raw text; ``reasoning`` is a short,
+    meta questions). When ``uncertain`` is true, ``domains`` remains the most
+    likely minimal route and ``candidate_domains`` is the expanded safe set used
+    for tool exposure. ``rewritten_query`` is an optional cleaned-up restatement
+    the orchestrator can use instead of the raw text; ``reasoning`` is a short,
     non-authoritative rationale kept only for tracing/debugging.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     domains: List[str] = Field(default_factory=list)
+    uncertain: bool = False
+    candidate_domains: List[str] = Field(default_factory=list)
     rewritten_query: Optional[str] = None
     reasoning: str = ""
+
+
+def effective_router_domains(decision: RouterDecision) -> List[str]:
+    """Return the domain set that should drive tools and prompt slimming."""
+
+    domains = (
+        decision.candidate_domains
+        if decision.uncertain and decision.candidate_domains
+        else decision.domains
+    )
+    return list(dict.fromkeys(domains))
 
 
 def _domain_catalogue() -> List[str]:
@@ -117,11 +132,14 @@ def _few_shot_examples(snapshot: RuntimeContextSnapshot) -> List[str]:
     event_provider = routing.event_provider
     examples = [
         f'User: "what tasks do I have today?" -> '
-        f'{{"domains": ["{task_provider}"], "rewritten_query": null, "reasoning": "task lookup"}}',
+        f'{{"domains": ["{task_provider}"], "uncertain": false, "candidate_domains": [], '
+        f'"rewritten_query": null, "reasoning": "task lookup"}}',
         f'User: "what\'s on my schedule this week?" -> '
-        f'{{"domains": ["{event_provider}"], "rewritten_query": null, "reasoning": "schedule query"}}',
+        f'{{"domains": ["{event_provider}"], "uncertain": false, "candidate_domains": [], '
+        f'"rewritten_query": null, "reasoning": "schedule query"}}',
         'User: "hello!" -> '
-        '{"domains": [], "rewritten_query": null, "reasoning": "greeting"}',
+        '{"domains": [], "uncertain": false, "candidate_domains": [], '
+        '"rewritten_query": null, "reasoning": "greeting"}',
     ]
     # Only include the explicit-Google-Calendar example when the domain exists
     # in the adapter catalogue — otherwise it references a domain the model
@@ -129,10 +147,26 @@ def _few_shot_examples(snapshot: RuntimeContextSnapshot) -> List[str]:
     if "google_calendar" in DOMAIN_ADAPTERS:
         examples.append(
             'User: "add a meeting to my google calendar" -> '
-            '{"domains": ["google_calendar"], "rewritten_query": null, '
-            '"reasoning": "explicit google calendar mention"}'
+            '{"domains": ["google_calendar"], "uncertain": false, "candidate_domains": [], '
+            '"rewritten_query": null, "reasoning": "explicit google calendar mention"}'
         )
     return examples
+
+
+def _rewrite_rules() -> List[str]:
+    """Rules that keep optional rewrites faithful to the raw request."""
+
+    return [
+        "1. If the request is already clear, set `rewritten_query` to null.",
+        "2. A rewrite must preserve timing modifiers such as `later today`, "
+        "`tomorrow`, `next week`, time ranges, and recurrence hints.",
+        "3. Do not turn recommendations, comparisons, or planning requests into "
+        "pure lookups.",
+        "4. Do not add missing task/event details, names, locations, attendees, "
+        "durations, or dates.",
+        "5. Preserve uncertainty and wording strength: do not turn `maybe`, "
+        "`could`, or `which one should` into a definite action.",
+    ]
 
 
 def build_router_system_prompt(snapshot: RuntimeContextSnapshot) -> str:
@@ -157,11 +191,16 @@ def build_router_system_prompt(snapshot: RuntimeContextSnapshot) -> str:
             "## Examples",
             *_few_shot_examples(snapshot),
             "",
+            "## Rewrite rules",
+            *_rewrite_rules(),
+            "",
             "## Output format",
             "Return exactly one JSON object. No prose, no code fences.",
             "Schema: {",
-            f'  "domains": [<subset of {valid_keys}>],',
-            '  "rewritten_query": <string or null — a clearer restatement, or null if already clear>,',
+            f'  "domains": [<subset of {valid_keys}> — most-likely minimal route],',
+            '  "uncertain": <boolean — true only for real domain ambiguity>,',
+            f'  "candidate_domains": [<subset of {valid_keys}> — expanded safe set when uncertain, else []],',
+            '  "rewritten_query": <string or null — faithful restatement, or null if already clear>,',
             '  "reasoning": <short string, 10 words or fewer>',
             "}",
         ]
@@ -184,4 +223,5 @@ __all__ = [
     "RouterDecision",
     "build_router_messages",
     "build_router_system_prompt",
+    "effective_router_domains",
 ]

@@ -24,6 +24,7 @@ from agents.agent_api.app.constants import (
 from agents.agent_api.app.graph.prompts.context import build_user_prompt_with_request_datetime
 from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 from agents.agent_api.app.graph.state import JarvisState
+from agents.agent_api.app.router.prompt import effective_router_domains
 from agents.agent_api.app.tools.base import ToolRegistry
 from agents.agent_api.app.tools.control import is_ask_user_tool_call
 from agents.agent_api.app.tools.selection import DEFAULT_TOOL_SELECTOR, ToolSelector
@@ -351,7 +352,7 @@ def _apply_router_prompt_slimming(
         )
         return
 
-    relevant = set(decision.domains) & snapshot.active_providers()
+    relevant = set(effective_router_domains(decision)) & snapshot.active_providers()
     messages[0] = {
         **messages[0],
         "content": get_system_prompt(
