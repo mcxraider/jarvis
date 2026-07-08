@@ -7,7 +7,7 @@ nothing.
 
 from unittest.mock import MagicMock
 
-from agents.agent_api.app.tools.calendar import (
+from agents.agent_api.app.tools.google_calendar import (
     MUTATING_CALENDAR_TOOLS,
     build_calendar_langchain_tools,
     get_calendar_tool_schemas,

@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Tuple
 
 from agents.agent_api.app.constants import CONFIRM_BULK_THRESHOLD
 from agents.agent_api.app.tools.base import tool_call_name
-from agents.agent_api.app.tools.calendar.schemas import MUTATING_CALENDAR_TOOLS
+from agents.agent_api.app.tools.google_calendar.schemas import MUTATING_CALENDAR_TOOLS
 from agents.agent_api.app.tools.metadata import always_risky_tools
 from agents.agent_api.app.tools.todoist.schemas import MUTATING_TOOL_NAMES
 

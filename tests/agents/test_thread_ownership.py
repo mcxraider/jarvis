@@ -57,14 +57,14 @@ class FakePool:
 class TestOwnershipNoop:
     def test_noop_when_dsn_is_falsy(self):
         with patch(
-            "agents.agent_api.app.api.thread_ownership.settings",
+            "agents.agent_api.app.middleware.thread_ownership.settings",
             SimpleNamespace(postgres_dsn=""),
         ):
             validate_thread_ownership("t-1", IDENTITY)
 
     def test_noop_when_telegram_user_id_is_none(self):
         with patch(
-            "agents.agent_api.app.api.thread_ownership.settings",
+            "agents.agent_api.app.middleware.thread_ownership.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ):
             validate_thread_ownership("t-1", None)
@@ -75,7 +75,7 @@ class TestOwnershipAllow:
         cursor = FakeCursor(row=None)
         pool = FakePool(cursor)
         with patch(
-            "agents.agent_api.app.api.thread_ownership.settings",
+            "agents.agent_api.app.middleware.thread_ownership.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
             validate_thread_ownership("legacy-thread", IDENTITY)
@@ -84,7 +84,7 @@ class TestOwnershipAllow:
         cursor = FakeCursor(row=(True,))
         pool = FakePool(cursor)
         with patch(
-            "agents.agent_api.app.api.thread_ownership.settings",
+            "agents.agent_api.app.middleware.thread_ownership.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
             validate_thread_ownership("t-1", IDENTITY)
@@ -95,7 +95,7 @@ class TestOwnershipReject:
         cursor = FakeCursor(row=(False,))
         pool = FakePool(cursor)
         with patch(
-            "agents.agent_api.app.api.thread_ownership.settings",
+            "agents.agent_api.app.middleware.thread_ownership.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
             with pytest.raises(HTTPException) as exc_info:
@@ -106,7 +106,7 @@ class TestOwnershipReject:
 class TestOwnershipFailOpen:
     def test_allows_on_generic_exception(self, caplog):
         with patch(
-            "agents.agent_api.app.api.thread_ownership.settings",
+            "agents.agent_api.app.middleware.thread_ownership.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch(
             "agents.agent_api.app.db.get_pool",
@@ -120,7 +120,7 @@ class TestOwnershipFailOpen:
         cursor = FakeCursor(row=(False,))
         pool = FakePool(cursor)
         with patch(
-            "agents.agent_api.app.api.thread_ownership.settings",
+            "agents.agent_api.app.middleware.thread_ownership.settings",
             SimpleNamespace(postgres_dsn="postgresql://fake"),
         ), patch("agents.agent_api.app.db.get_pool", return_value=pool):
             with pytest.raises(HTTPException) as exc_info:

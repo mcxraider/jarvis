@@ -31,6 +31,65 @@ describe('normalizeMarkdownTables', () => {
     );
   });
 
+  it('repairs compact tables without a leading label', () => {
+    const input = 'Task | Due | | --- | --- | | Pay rent | Tomorrow | | Buy milk | Friday |';
+
+    expect(normalizeMarkdownTables(input)).toBe(
+      [
+        '| Task | Due |',
+        '| --- | --- |',
+        '| Pay rent | Tomorrow |',
+        '| Buy milk | Friday |',
+      ].join('\n'),
+    );
+  });
+
+  it('repairs compact tables generically across column names and counts', () => {
+    const input =
+      'Inventory | SKU | Qty | Owner | Status | |:---|---:|:---:|---| | AX-1 | 12 | Ops | Ready | | BX-2 | 0 | Sales | Backordered |';
+
+    expect(normalizeMarkdownTables(input)).toBe(
+      [
+        'Inventory',
+        '| SKU | Qty | Owner | Status |',
+        '| :--- | ---: | :---: | --- |',
+        '| AX-1 | 12 | Ops | Ready |',
+        '| BX-2 | 0 | Sales | Backordered |',
+      ].join('\n'),
+    );
+  });
+
+  it('repairs flattened one-row Todoist add-confirmation tables', () => {
+    const input = [
+      "All set! Here's what I've added to your Todoist:",
+      '',
+      '📅 Friday, 10 Jul | Task | Time | |------|------| | Worship practice | 7:30 pm |',
+      '',
+      '📅 Sunday, 12 Jul | Task | Time | Duration | |------|------|----------| | Serving worship | 8:30 am – 12:00 pm | 3h 30m | | Lunch with feebee | 12:00 pm | — |',
+      '',
+      'No timing clashes between any of these.',
+    ].join('\n');
+
+    expect(normalizeMarkdownTables(input)).toBe(
+      [
+        "All set! Here's what I've added to your Todoist:",
+        '',
+        '📅 Friday, 10 Jul',
+        '| Task | Time |',
+        '| ------ | ------ |',
+        '| Worship practice | 7:30 pm |',
+        '',
+        '📅 Sunday, 12 Jul',
+        '| Task | Time | Duration |',
+        '| ------ | ------ | ---------- |',
+        '| Serving worship | 8:30 am – 12:00 pm | 3h 30m |',
+        '| Lunch with feebee | 12:00 pm | — |',
+        '',
+        'No timing clashes between any of these.',
+      ].join('\n'),
+    );
+  });
+
   it('leaves valid multiline tables unchanged', () => {
     const input = '| Event | Date |\n| --- | --- |\n| Conference | Monday |';
     expect(normalizeMarkdownTables(input)).toBe(input);

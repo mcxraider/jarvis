@@ -216,10 +216,11 @@ export async function sendRichDraft(
   markdown: string,
 ): Promise<void> {
   if (!ctx.chat) throw new Error('missing chat for rich draft');
+  const normalizedMarkdown = normalizeMarkdownTables(markdown);
   await rawCallApi(ctx, 'sendRichMessageDraft', {
     chat_id: ctx.chat.id,
     draft_id: draftId,
-    rich_message: { markdown },
+    rich_message: { markdown: normalizedMarkdown },
   });
 }
 
@@ -232,9 +233,10 @@ export async function sendRichMessage(
   markdown: string,
 ): Promise<Message> {
   if (!ctx.chat) throw new Error('missing chat for rich message');
+  const normalizedMarkdown = normalizeMarkdownTables(markdown);
   const message = await rawCallApi(ctx, 'sendRichMessage', {
     chat_id: ctx.chat.id,
-    rich_message: { markdown },
+    rich_message: { markdown: normalizedMarkdown },
   });
   return message as Message;
 }

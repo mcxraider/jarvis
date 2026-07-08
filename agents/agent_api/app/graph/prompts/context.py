@@ -7,14 +7,17 @@ offline/DI runs), so the prompt's capability claims always match the live
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 USER_PROMPTS: List[str] = [
+    "add this to google calendar next friday at 3pm"
+    # "Find the latest plans i have with feebee, put them into google calendar events, then add a new event WFH w feebee next friday."
     # "help me find out what projects i have in todoist, ill ask u to add a task to a one after that"
-    # "set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of priority based on when im most free"
+    # "set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of prio
+    # rity based on when im most free"
     # "check phoebe google calendar and my calendar tell me when good day to have dinner with her next week"
     # "when am i free next week?"
     # "delete my dinner with zac in my cal monday 8pm"
@@ -22,7 +25,8 @@ USER_PROMPTS: List[str] = [
     # "i alr did romans 7 in the train this morning uhm but not romans 8 yet, shift romans 8 to tonight"
     # "Go through my tasks, check everything that does not have a time, that is also not a birthday. Tell me first and then I will ask you to make edits",
     # "put in my cal",
-    # "can u add 24 tasks  today each one titled 'hehehehehehehehehe'",
+    # "can u add 24 tasks  today e
+    # ach one titled 'hehehehehehehehehe'",
     # "whats on my cal for this week?"
     # "how many tasks do i have today"
     # "delete all my hehehe tasks today"
@@ -263,8 +267,14 @@ def build_initial_messages(
     user_name: Optional[str] = None,
     runtime_context: Optional[RuntimeContextSnapshot] = None,
     registered_tools: Optional[List[str]] = None,
+    relevant_domains: Optional[Set[str]] = None,
 ) -> List[Dict[str, Any]]:
-    """Create the raw message list used by the DeepSeek API."""
+    """Create the raw message list used by the DeepSeek API.
+
+    ``relevant_domains`` (from the query router) is forwarded to the system
+    prompt to slim the per-domain fragments; ``None`` keeps every active domain
+    (today's behavior).
+    """
 
     return [
         {
@@ -274,6 +284,7 @@ def build_initial_messages(
                 user_name=user_name,
                 runtime_context=runtime_context,
                 registered_tools=registered_tools,
+                relevant_domains=relevant_domains,
             ),
         },
         {"role": "user", "content": build_user_prompt_with_request_datetime(user_prompt)},

@@ -27,11 +27,29 @@ function splitCells(segment: string): string[] {
     .split('|');
 }
 
+function splitHeaderAndPrefix(
+  segment: string,
+  columnCount: number,
+): { prefix: string; headerCells: string[] } | undefined {
+  const parts = segment
+    .trim()
+    .replace(/^\|/, '')
+    .split('|');
+
+  if (parts.length < columnCount) return undefined;
+
+  return {
+    prefix: parts.slice(0, -columnCount).join('|').trim(),
+    headerCells: parts.slice(-columnCount),
+  };
+}
+
 /**
  * Repairs a compact Markdown table whose row breaks were accidentally emitted
  * as adjacent (optionally whitespace-separated) pipes instead of newlines:
  *
  *   Tuesday | Time | Event || --- | --- || 10:00 | Stand-up |
+ *   Task | Due | | --- | --- | | Pay rent | Tomorrow |
  *
  * becomes:
  *
@@ -39,6 +57,10 @@ function splitCells(segment: string): string[] {
  *   | Time | Event |
  *   | --- | --- |
  *   | 10:00 | Stand-up |
+ *
+ *   | Task | Due |
+ *   | --- | --- |
+ *   | Pay rent | Tomorrow |
  *
  * A delimiter row is required, which keeps ordinary prose containing `||`
  * unchanged. Fenced code blocks are deliberately excluded.
@@ -58,15 +80,12 @@ export function normalizeMarkdownTables(markdown: string): string {
           if (delimiterIndex < 1) return line;
 
           const columnCount = splitCells(segments[delimiterIndex]).length;
-          const headerAndPrefix = segments[delimiterIndex - 1];
-          const headerParts = headerAndPrefix.split('|');
+          const header = splitHeaderAndPrefix(segments[delimiterIndex - 1], columnCount);
 
-          if (headerParts.length <= columnCount) return line;
+          if (!header) return line;
 
-          const headerCells = headerParts.slice(-columnCount);
-          const prefix = headerParts.slice(0, -columnCount).join('|').trim();
           const rows = [
-            formatRow(headerCells),
+            formatRow(header.headerCells),
             formatRow(splitCells(segments[delimiterIndex])),
           ];
 
@@ -76,7 +95,7 @@ export function normalizeMarkdownTables(markdown: string): string {
             rows.push(formatRow(cells));
           }
 
-          return prefix ? `${prefix}\n${rows.join('\n')}` : rows.join('\n');
+          return header.prefix ? `${header.prefix}\n${rows.join('\n')}` : rows.join('\n');
         })
         .join('\n');
     })

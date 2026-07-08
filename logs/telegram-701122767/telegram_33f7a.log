@@ -1,0 +1,93 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-07T11:07:17+08:00
+request_id: 84a3f8cb-5b11-4151-98e2-efbc49fc04b2
+thread_id: 8780e0be-f1b7-451e-8bae-d31f91733f7a
+user_id: local-user
+telegram_id: 701122767
+identity_username: None
+telegram_user_id: 701122767
+telegram_username: None
+telegram_first_name: None
+request_source: cli
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: False
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-07 11:07:18.956 | section              | === Jarvis LangGraph Run ===
+2026-07-07 11:07:18.956 | runtime.start        | Starting graph invocation.
+      request_id: 84a3f8cb-5b11-4151-98e2-efbc49fc04b2
+      model: deepseek-v4-flash
+      allow_mutations: false
+      max_turns: 20
+      thread_id: 8780e0be-f1b7-451e-8bae-d31f91733f7a
+      request_source: cli
+      resuming: false
+2026-07-07 11:07:18.956 | runtime.prompt       | [payload] user_prompt: how many tasks do i have today?
+2026-07-07 11:07:19.088 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-07 11:07:19.146 | graph.agent          | Entering agent node.
+      turn: 1
+      max_turns: 20
+      messages: 2
+2026-07-07 11:07:19.146 | router.start         | Classifying query domains.
+2026-07-07 11:07:19.148 | router.request       | Calling router classifier.
+      model: deepseek-v4-flash
+      reasoning: off
+      messages: 2
+2026-07-07 11:07:21.231 | router.retry         | Retrying router classification.
+      attempt: 1
+      error_type: connection_error
+2026-07-07 11:07:23.692 | router.error         | Router classification failed.
+      error_type: connection_error
+      retryable: true
+      attempts: 2
+2026-07-07 11:07:23.696 | router.fallback      | Router failed; using fallback selector.
+      error_type: connection_error
+      attempts: 2
+2026-07-07 11:07:23.696 | graph.tools.selected | Selected tools for this turn.
+      available: 22
+      selected: 22
+2026-07-07 11:07:23.697 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 2
+      tools: 22
+2026-07-07 11:07:25.382 | agent.retry          | Retrying DeepSeek chat completion.
+      attempt: 1
+      error_type: connection_error
+2026-07-07 11:07:27.922 | agent.retry          | Retrying DeepSeek chat completion.
+      attempt: 2
+      error_type: connection_error
+2026-07-07 11:07:30.665 | agent.error          | DeepSeek chat completion failed.
+      error_type: connection_error
+      retryable: true
+      attempts: 3
+2026-07-07 11:07:30.666 | graph.agent          | Stopping graph because DeepSeek failed.
+      error_type: connection_error
+      attempts: 3
+2026-07-07 11:07:30.686 | runtime.done         | Graph invocation completed.
+      request_id: 84a3f8cb-5b11-4151-98e2-efbc49fc04b2
+      turns: 0
+      tool_results: 0
+      has_error: true
+      interrupted: false
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-07-07T11:07:30+08:00
+duration_seconds: 12.71
+request_id: 84a3f8cb-5b11-4151-98e2-efbc49fc04b2
+turns: 0
+tool_results: 0
+has_error: True
+interrupted: False
+prompt_tokens: 0
+completion_tokens: 0
+total_tokens: 0
+cached_tokens: 0
+cache_hit_rate: 0.0
+reasoning_tokens: 0
+==============================================================================

@@ -7,11 +7,13 @@ from langgraph.prebuilt import ToolNode
 
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.dispatcher import (
+    build_tool_result,
     ToolDispatcher,
     execute_tool_calls_with_toolnode,
     tool_idempotency_context,
     tool_result_to_message,
 )
+from agents.agent_api.app.tools.base import tool_call_name
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 
@@ -38,17 +40,49 @@ def create_tools_node(
             accumulated_results=len(state.get("tool_results", [])),
         )
 
-        call_index_map = {tc.get("id", ""): i for i, tc in enumerate(tool_calls)}
+        selected_tool_names = state.get("selected_tool_names") or []
+        selected = set(selected_tool_names)
+        rejected_results = []
+        executable_calls = tool_calls
+        if selected:
+            executable_calls = []
+            for tool_call in tool_calls:
+                name = tool_call_name(tool_call)
+                if name in selected:
+                    executable_calls.append(tool_call)
+                    continue
+                result = build_tool_result(
+                    tool_call.get("id", "missing_tool_call_id"),
+                    name,
+                    success=False,
+                    error=(
+                        f"Tool '{name}' was not selected for this turn. "
+                        f"Allowed tools: {', '.join(selected_tool_names) if selected_tool_names else 'none'}."
+                    ),
+                )
+                result["out_of_route_tool"] = True
+                rejected_results.append(result)
+            if rejected_results:
+                tracer.event(
+                    "graph.tools.rejected",
+                    "Rejected tool calls outside the selected route.",
+                    requested=sorted({tool_call_name(call) for call in tool_calls}),
+                    allowed=selected_tool_names,
+                    rejected=sorted({result["tool_name"] for result in rejected_results}),
+                )
+
+        call_index_map = {tc.get("id", ""): i for i, tc in enumerate(executable_calls)}
         with tool_idempotency_context(
             str(state.get("thread_id") or ""),
             int(state.get("turn_count") or 0),
             call_index_map,
         ):
             results = execute_tool_calls_with_toolnode(
-                tool_calls,
+                executable_calls,
                 tool_node,
                 tool_dispatcher,
             )
+        results = rejected_results + results
         # Tool result messages are appended so the next agent turn can synthesize
         # an answer or request another tool call with full context.
         messages.extend(tool_result_to_message(result) for result in results)

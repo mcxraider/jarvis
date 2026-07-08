@@ -23,12 +23,13 @@ def _result(content, tool_name: str = "get_tasks", success: bool = True) -> dict
     }
 
 
-def _state(tool_calls, tool_results=None) -> dict:
+def _state(tool_calls, tool_results=None, selected_tool_names=None) -> dict:
     return {
         "messages": [{"role": "assistant", "tool_calls": tool_calls}],
         "tool_results": tool_results or [],
         "thread_id": "thread_test",
         "turn_count": 1,
+        **({"selected_tool_names": selected_tool_names} if selected_tool_names is not None else {}),
     }
 
 
@@ -63,6 +64,40 @@ class TestPassthrough:
 
 
 class TestBlocking:
+    def test_out_of_route_tool_blocks_before_execution_routing(self):
+        result = _node()(
+            _state(
+                [_tool_call("get_tasks", "c1")],
+                selected_tool_names=["ask_user", "list_calendar_events"],
+            )
+        )
+
+        assert result["next"] == "agent"
+        payload = json.loads(result["messages"][-1]["content"])
+        assert payload["success"] is False
+        assert payload["out_of_route_tool"] is True
+        assert "get_tasks" in payload["error"]
+        assert "list_calendar_events" in payload["error"]
+
+    def test_out_of_route_tool_blocks_whole_batch(self):
+        calls = [
+            _tool_call("list_calendar_events", "c_allowed"),
+            _tool_call("get_tasks", "c_rejected"),
+        ]
+
+        result = _node()(
+            _state(
+                calls,
+                selected_tool_names=["ask_user", "list_calendar_events"],
+            )
+        )
+
+        assert result["next"] == "agent"
+        tool_messages = [m for m in result["messages"] if m.get("role") == "tool"]
+        by_id = {m["tool_call_id"]: json.loads(m["content"]) for m in tool_messages}
+        assert by_id["c_rejected"]["out_of_route_tool"] is True
+        assert by_id["c_allowed"]["deferred_for_clarification"] is True
+
     def test_unseen_id_blocks_and_loops_to_agent(self):
         result = _node()(_state([_tool_call("complete_task", "c1", {"task_id": "ghost"})]))
         assert result["next"] == "agent"

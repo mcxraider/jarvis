@@ -62,7 +62,6 @@ describe('TextProcessorService', () => {
           username: 'jerry',
         },
         requestId: 'tg_test',
-        threadId: 'tg_tg_test',
       },
       {
         requestId: 'tg_test',
@@ -70,7 +69,6 @@ describe('TextProcessorService', () => {
         messageId: 42,
         telegramUsername: 'jerry',
         telegramFirstName: 'Jerry',
-        threadId: 'tg_tg_test',
       },
     );
     expect(agentClient.resume).not.toHaveBeenCalled();
@@ -126,7 +124,7 @@ describe('TextProcessorService', () => {
     expect(agentClient.resume).not.toHaveBeenCalled();
   });
 
-  it('builds a fresh thread id per invocation based on requestId', async () => {
+  it('omits thread id for fresh invocations so the agent creates a new thread', async () => {
     const agentClient = {
       invoke: jest.fn().mockResolvedValue({
         status: 'completed',
@@ -142,11 +140,10 @@ describe('TextProcessorService', () => {
     await service.processTextMessage('add eggs', 701122767, { requestId: 'req_2', chatId: 555, messageId: 43 });
 
     const threadIds = agentClient.invoke.mock.calls.map(([request]: [any]) => request.threadId);
-    expect(threadIds).toEqual(['tg_req_1', 'tg_req_2']);
-    expect(threadIds[0]).not.toBe(threadIds[1]);
+    expect(threadIds).toEqual([undefined, undefined]);
   });
 
-  it('generates a UUID-based thread id when requestId is absent', async () => {
+  it('omits thread id for fresh invocations when requestId is absent', async () => {
     const agentClient = {
       invoke: jest.fn().mockResolvedValue({
         status: 'completed',
@@ -162,9 +159,7 @@ describe('TextProcessorService', () => {
     await service.processTextMessage('add milk', 701122768, { chatId: 555, messageId: 43 });
 
     const threadIds = agentClient.invoke.mock.calls.map(([request]: [any]) => request.threadId);
-    expect(threadIds[0]).toMatch(/^tg_/);
-    expect(threadIds[1]).toMatch(/^tg_/);
-    expect(threadIds[0]).not.toBe(threadIds[1]);
+    expect(threadIds).toEqual([undefined, undefined]);
   });
 
   it('does not create a new thread id while a graph run has not completed', async () => {
@@ -218,8 +213,8 @@ describe('TextProcessorService', () => {
     });
 
     expect(interruptedAgentClient.invoke).toHaveBeenCalledWith(
-      expect.objectContaining({ threadId: expect.stringMatching(/^tg_/) }),
-      expect.objectContaining({ threadId: expect.stringMatching(/^tg_/) }),
+      expect.not.objectContaining({ threadId: expect.any(String) }),
+      expect.not.objectContaining({ threadId: expect.any(String) }),
     );
     expect(interruptedAgentClient.resume).toHaveBeenCalledWith(
       expect.objectContaining({ threadId: 'thread-hitl' }),

@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 import pytest
 from googleapiclient.errors import HttpError
 
-from agents.agent_api.app.tools.calendar.auth import GoogleCalendarApiError
-from agents.agent_api.app.tools.calendar.client import GoogleCalendarClient
+from agents.agent_api.app.tools.google_calendar.auth import GoogleCalendarApiError
+from agents.agent_api.app.tools.google_calendar.client import GoogleCalendarClient
 
 
 def _http_error(status: int) -> HttpError:
@@ -205,7 +205,7 @@ class TestErrorClassification:
 
     def test_429_retried_then_raised(self, monkeypatch):
         monkeypatch.setattr(
-            "agents.agent_api.app.tools.calendar.client.GoogleCalendarClient._sleep_before_retry",
+            "agents.agent_api.app.tools.google_calendar.client.GoogleCalendarClient._sleep_before_retry",
             lambda self, attempt: None,
         )
         service = MagicMock()

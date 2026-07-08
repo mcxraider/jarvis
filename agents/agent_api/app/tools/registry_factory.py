@@ -15,7 +15,7 @@ Two ways to build the registry:
 from typing import Any, Dict, List, Optional, Tuple
 
 from agents.agent_api.app.tools.base import ToolRegistry
-from agents.agent_api.app.tools.calendar.tools import (
+from agents.agent_api.app.tools.google_calendar.tools import (
     build_calendar_langchain_tools,
     get_calendar_tool_specs,
 )

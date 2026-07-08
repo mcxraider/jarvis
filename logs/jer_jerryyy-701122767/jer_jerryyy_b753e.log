@@ -1,0 +1,31 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-07T15:54:01+08:00
+request_id: ab2a89d3-949a-493d-a945-940223543941
+thread_id: c627fd1f-9dae-4fe2-b76c-bb98aa4b753e
+user_id: local-user
+telegram_id: None
+identity_username: None
+telegram_user_id: None
+telegram_username: None
+telegram_first_name: None
+request_source: api
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: False
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-07 15:54:01.089 | section              | === Jarvis LangGraph Run ===
+2026-07-07 15:54:01.089 | runtime.start        | Starting graph invocation.
+      request_id: ab2a89d3-949a-493d-a945-940223543941
+      model: deepseek-v4-flash
+      allow_mutations: false
+      max_turns: 20
+      thread_id: c627fd1f-9dae-4fe2-b76c-bb98aa4b753e
+      request_source: api
+      resuming: false
+2026-07-07 15:54:01.089 | runtime.prompt       | [payload] user_prompt: fake prompt
+2026-07-07 15:54:01.144 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
