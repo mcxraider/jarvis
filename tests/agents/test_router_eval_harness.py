@@ -13,12 +13,12 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 from agents.agent_api.app.router.prompt import RouterDecision
 from scripts.eval_router import (
-    DEFAULT_QUERIES_FILE,
     DEFAULT_USERS_DIR,
     format_markdown,
     load_personas,
     load_queries,
     run_grid,
+    write_persona_reports,
 )
 
 
@@ -34,7 +34,7 @@ class FakeRouterClient:
         return self.decision
 
 
-def test_router_eval_loads_fixtures_and_formats_markdown_without_api_call():
+def test_router_eval_loads_fixtures_and_formats_markdown_without_api_call(tmp_path):
     all_personas = load_personas(DEFAULT_USERS_DIR)
     assert {persona.name for persona in all_personas} == {
         "avery",
@@ -46,7 +46,9 @@ def test_router_eval_loads_fixtures_and_formats_markdown_without_api_call():
     }
 
     personas = load_personas(DEFAULT_USERS_DIR, user_filters=["jerry"])
-    queries = load_queries(DEFAULT_QUERIES_FILE, query_filters=["9"])
+    queries_file = tmp_path / "router_queries.py"
+    queries_file.write_text('ROUTER_QUERIES = ["put in my cal"]\n', encoding="utf-8")
+    queries = load_queries(queries_file, query_filters=["put in my cal"])
     client = FakeRouterClient(RouterDecision(domains=["google_calendar"], reasoning="raw cal"))
 
     results = run_grid(personas, queries, client)
@@ -56,6 +58,14 @@ def test_router_eval_loads_fixtures_and_formats_markdown_without_api_call():
         personas=personas,
         queries=queries,
         results=results,
+    )
+    report_paths = write_persona_reports(
+        run_at=datetime(2026, 7, 7, 14, 33, 12, tzinfo=timezone.utc),
+        model=client.model,
+        personas=personas,
+        queries=queries,
+        results=results,
+        out_dir=tmp_path / "router_evals",
     )
 
     assert client.calls == 1
@@ -70,3 +80,5 @@ def test_router_eval_loads_fixtures_and_formats_markdown_without_api_call():
     assert "**Response (raw RouterDecision):**" in markdown
     assert "**Response (after guardrails):**" in markdown
     assert "put in my cal" in markdown
+    assert report_paths == [tmp_path / "router_evals" / "jerry" / "20260707T143312Z.md"]
+    assert report_paths[0].read_text(encoding="utf-8") == markdown

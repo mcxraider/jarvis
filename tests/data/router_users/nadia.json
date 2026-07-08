@@ -16,7 +16,7 @@
     "domains": {
       "todoist": {
         "usage": "tasks_todos_reminders",
-        "default_for": ["tasks", "projects", "explicit task requests"]
+        "default_for": ["tasks", "projects", "explicit task requests", "reminders"]
       },
       "google_calendar": {
         "usage": "events_meetings_time_related_items",

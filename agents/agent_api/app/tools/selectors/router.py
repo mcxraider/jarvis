@@ -22,7 +22,7 @@ import re
 from typing import Any, Dict, List, Optional, Set
 
 from agents.agent_api.app.router.client import RouterClient, RouterClientError
-from agents.agent_api.app.router.prompt import RouterDecision
+from agents.agent_api.app.router.prompt import RouterDecision, effective_router_domains
 from agents.agent_api.app.tools.base import ToolRegistry
 from agents.agent_api.app.tools.control import ASK_USER_TOOL_NAME
 from agents.agent_api.app.tools.selectors.static import StaticToolSelector
@@ -35,6 +35,10 @@ _EXPLICIT_GOOGLE_CALENDAR_PATTERN = re.compile(
 )
 _GENERIC_EVENT_PATTERN = re.compile(
     r"\b(?:cal|calendar|schedule|free|busy|availability|available|event|events|meeting|meetings|appointment|appointments)\b",
+    re.IGNORECASE,
+)
+_UNSUPPORTED_PROVIDER_PATTERN = re.compile(
+    r"\b(?:notion|e-?mail|gmail|slack|docs|google\s+docs?|gdocs)\b",
     re.IGNORECASE,
 )
 
@@ -79,6 +83,7 @@ class RouterToolSelector:
                 "router.cache_hit",
                 "Reusing cached router decision for same query.",
                 domains=len(self._cached_decision.domains),
+                effective_domains=len(effective_router_domains(self._cached_decision)),
             )
             decision = self._cached_decision
         else:
@@ -103,7 +108,10 @@ class RouterToolSelector:
         self._tracer.event(
             "router.response",
             "Router decision received.",
-            domains=len(decision.domains),
+            raw_domains=decision.domains,
+            candidate_domains=decision.candidate_domains,
+            uncertain=decision.uncertain,
+            effective_domains=effective_router_domains(decision),
             has_rewrite=bool(decision.rewritten_query),
         )
 
@@ -111,7 +119,7 @@ class RouterToolSelector:
         # requested-but-disconnected domain (or an empty decision) collapses to
         # ask_user only, so the orchestrator can explain rather than expose tools
         # it cannot run.
-        relevant = set(decision.domains) & self._snapshot.active_providers()
+        relevant = set(effective_router_domains(decision)) & self._snapshot.active_providers()
         allowed = self._allowed_tool_names(relevant)
         schemas = [spec.openai_schema for spec in registry.specs if spec.name in allowed]
 
@@ -131,35 +139,56 @@ class RouterToolSelector:
     ) -> RouterDecision:
         """Correct known-dangerous routing ambiguities before exposing tools."""
 
-        domains = list(dict.fromkeys(decision.domains))
+        use_candidates = decision.uncertain and bool(decision.candidate_domains)
+        original_effective_domains = effective_router_domains(decision)
+        domains = list(original_effective_domains)
         routing = self._snapshot.preferences.routing
         explicit_google_calendar = bool(_EXPLICIT_GOOGLE_CALENDAR_PATTERN.search(query))
         generic_event_request = bool(_GENERIC_EVENT_PATTERN.search(query))
+        unsupported_provider_request = bool(_UNSUPPORTED_PROVIDER_PATTERN.search(query))
 
         if explicit_google_calendar and "google_calendar" not in domains:
             domains.append("google_calendar")
 
-        if routing.calendar_usage == "explicit_only" and not explicit_google_calendar:
+        if (
+            routing.calendar_usage == "explicit_only"
+            and not explicit_google_calendar
+            and not use_candidates
+        ):
             domains = [domain for domain in domains if domain != "google_calendar"]
 
-        if not domains and generic_event_request:
+        if not domains and generic_event_request and not unsupported_provider_request:
             provider = routing.event_provider
             if provider != "google_calendar" or explicit_google_calendar:
                 domains.append(provider)
 
-        if domains == decision.domains:
+        if domains == original_effective_domains:
             return decision
 
         self._tracer.event(
             "router.guardrail",
             "Adjusted router decision from routing preferences.",
             original_domains=decision.domains,
-            adjusted_domains=domains,
+            original_candidate_domains=decision.candidate_domains,
+            original_effective_domains=original_effective_domains,
+            adjusted_effective_domains=domains,
+            uncertain=decision.uncertain,
             explicit_google_calendar=explicit_google_calendar,
             generic_event_request=generic_event_request,
+            unsupported_provider_request=unsupported_provider_request,
         )
+        if use_candidates:
+            return RouterDecision(
+                domains=decision.domains,
+                uncertain=decision.uncertain,
+                candidate_domains=domains,
+                rewritten_query=decision.rewritten_query,
+                reasoning=decision.reasoning,
+            )
         return RouterDecision(
             domains=domains,
+            uncertain=decision.uncertain,
+            candidate_domains=decision.candidate_domains,
             rewritten_query=decision.rewritten_query,
             reasoning=decision.reasoning,
         )

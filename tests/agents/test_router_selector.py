@@ -107,6 +107,22 @@ class TestEdgeDecisions:
 
 
 class TestRoutingGuardrails:
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "check my notion schedule for tomorrow",
+            "can u check my email for the invoice tomorrow",
+            "search gmail for the meeting invite",
+            "check slack docs for next week",
+            "look in google docs for tomorrow's plan",
+        ],
+    )
+    def test_empty_unsupported_provider_decision_stays_empty(self, query):
+        selector = _selector(decision=RouterDecision(domains=[]))
+        result = _names(selector.select_schemas(query, _build_registry()))
+        assert result == {"ask_user"}
+        assert selector.decision.domains == []
+
     def test_empty_generic_calendar_decision_routes_to_event_provider(self):
         selector = _selector(decision=RouterDecision(domains=[]))
         result = _names(selector.select_schemas("what's on my calendar this week", _build_registry()))
@@ -136,6 +152,54 @@ class TestRoutingGuardrails:
         result = _names(selector.select_schemas("what's on my google calendar this week", _build_registry()))
         assert result == {"ask_user", *_CALENDAR_TOOLS}
         assert selector.decision.domains == ["google_calendar"]
+
+    def test_explicit_supported_provider_survives_unsupported_anchor(self):
+        selector = _selector(decision=RouterDecision(domains=[]))
+        result = _names(
+            selector.select_schemas(
+                "check my gmail and google calendar for tomorrow",
+                _build_registry(),
+            )
+        )
+        assert result == {"ask_user", *_CALENDAR_TOOLS}
+        assert selector.decision.domains == ["google_calendar"]
+
+
+class TestUncertainDecisions:
+    def test_uncertain_decision_uses_candidate_domains(self):
+        selector = _selector(
+            decision=RouterDecision(
+                domains=["todoist"],
+                uncertain=True,
+                candidate_domains=["todoist", "google_calendar"],
+            )
+        )
+        result = _names(selector.select_schemas("ambiguous planning request", _build_registry()))
+        assert result == set(_ALL_TOOLS)
+
+    def test_certain_decision_ignores_candidate_domains(self):
+        selector = _selector(
+            decision=RouterDecision(
+                domains=["todoist"],
+                uncertain=False,
+                candidate_domains=["todoist", "google_calendar"],
+            )
+        )
+        result = _names(selector.select_schemas("add buy milk", _build_registry()))
+        assert result == {"ask_user", *_TODOIST_TOOLS}
+
+    def test_explicit_only_does_not_discard_uncertain_candidate_domains(self):
+        selector = _selector(
+            decision=RouterDecision(
+                domains=["todoist"],
+                uncertain=True,
+                candidate_domains=["todoist", "google_calendar"],
+            )
+        )
+        result = _names(selector.select_schemas("schedule my 3pm task", _build_registry()))
+        assert result == set(_ALL_TOOLS)
+        assert selector.decision.domains == ["todoist"]
+        assert selector.decision.candidate_domains == ["todoist", "google_calendar"]
 
 
 class TestFallback:
