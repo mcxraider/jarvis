@@ -78,6 +78,47 @@ class TestLayerConsistency:
         assert schema_names == spec_names == lc_names
 
 
+class TestUpdateTaskWrapper:
+    @staticmethod
+    def _invoke(arguments):
+        calls = []
+
+        def dispatch(*args):
+            calls.append(args)
+            return {"success": True}
+
+        tool = next(
+            tool
+            for tool in build_todoist_langchain_tools(dispatch)
+            if tool.name == "update_todoist_task"
+        )
+        tool.invoke(
+            {
+                "args": arguments,
+                "name": "update_todoist_task",
+                "type": "tool_call",
+                "id": "call-update",
+            }
+        )
+        return calls[-1][2]
+
+    def test_priority_only_omits_optional_defaults(self):
+        assert self._invoke({"task_id": "task-1", "priority": 4}) == {
+            "task_id": "task-1",
+            "priority": 4,
+        }
+
+    def test_explicit_null_is_preserved(self):
+        assert self._invoke({"task_id": "task-1", "assignee_id": None}) == {
+            "task_id": "task-1",
+            "assignee_id": None,
+        }
+
+    def test_explicit_null_labels_is_rejected(self):
+        with pytest.raises(ValueError, match="labels"):
+            self._invoke({"task_id": "task-1", "labels": None})
+
+
 class TestUncompleteTask:
     @patch.object(TodoistApiClient, "_request")
     def test_posts_reopen(self, mock_request):

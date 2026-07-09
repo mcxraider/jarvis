@@ -315,6 +315,34 @@ class TodoistApiClientRetryTests(unittest.TestCase):
                 self.assertEqual(urlopen.call_count, 1)
                 self.assertNotIn("private details", str(raised.exception))
 
+    def test_provider_validation_details_are_safely_exposed(self) -> None:
+        body = json.dumps(
+            {
+                "error": "labels must be an array of labels",
+                "error_code": 42,
+                "error_tag": "BAD_REQUEST",
+                "error_extra": {"event_id": "private-event-id"},
+            }
+        )
+        client = self.request_client()
+        with (
+            patch.object(todoist_client_module, "settings", self.settings),
+            patch.object(
+                todoist_client_module.urllib.request,
+                "urlopen",
+                side_effect=http_error(400, body),
+            ),
+        ):
+            with self.assertRaises(jarvis.TodoistApiError) as raised:
+                client._request("https://api.todoist.com/api/v1/tasks/task-1", "POST", {})
+
+        error = raised.exception
+        self.assertEqual(error.provider_message, "labels must be an array of labels")
+        self.assertEqual(error.provider_code, 42)
+        self.assertEqual(error.provider_tag, "BAD_REQUEST")
+        self.assertIn("labels must be an array of labels", str(error))
+        self.assertNotIn("private-event-id", str(error.to_classifier_payload()))
+
     def test_missing_api_key_is_auth_without_network_call(self) -> None:
         client = jarvis.TodoistApiClient(api_key="", tracer=jarvis.NULL_TRACE)
         client.api_key = ""
@@ -407,6 +435,27 @@ class TodoistApiClientRetryTests(unittest.TestCase):
                 "deadline_date": None,
             },
         )
+
+    def test_update_priority_only_omits_none_fields(self) -> None:
+        client = self.request_client()
+        with patch.object(client, "_request", return_value={"id": "task-1"}) as request:
+            client.update_todoist_task(
+                {
+                    "task_id": "task-1",
+                    "priority": 4,
+                    "content": None,
+                }
+            )
+        request.assert_called_once_with(
+            "https://api.todoist.com/api/v1/tasks/task-1",
+            "POST",
+            {"priority": 4},
+        )
+
+    def test_update_rejects_explicit_null_labels(self) -> None:
+        client = self.request_client()
+        with self.assertRaisesRegex(ValueError, "labels must be an array"):
+            client.update_todoist_task({"task_id": "task-1", "labels": None})
 
     def test_completed_task_range_validation(self) -> None:
         client = self.request_client()
@@ -1102,6 +1151,40 @@ class JarvisGraphTests(unittest.TestCase):
                 "deadline_date": None,
             },
         )
+
+    def test_update_tool_priority_only_omits_missing_fields(self) -> None:
+        result = jarvis.run_jarvis(
+            user_prompt="fake prompt",
+            allow_mutations=True,
+            agent_client=FakeDeepSeekAgentClient(
+                [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            fake_tool_call("call_read", "get_todoist_task", {"task_id": "task-1"})
+                        ],
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            fake_tool_call(
+                                "call_update",
+                                "update_todoist_task",
+                                {"task_id": "task-1", "priority": 4},
+                            )
+                        ],
+                    },
+                    {"role": "assistant", "content": "Raised the priority."},
+                ]
+            ),
+            todoist_client=SeededTodoistClient(),
+            tracer=jarvis.NULL_TRACE,
+        )
+
+        arguments = result["tool_results"][-1]["content"]["arguments"]
+        self.assertEqual(arguments, {"task_id": "task-1", "priority": 4})
 
     def test_prior_read_lets_mutation_on_seen_id_execute(self) -> None:
         # Happy path: read surfaces t1, then completing t1 executes normally.

@@ -13,7 +13,7 @@ from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 USER_PROMPTS: List[str] = [
-    # "add meet zac to google calendar next friday at 3pm and then update lunch with grandparents on todoist to p1 task."
+    "add meet zac to google calendar next friday at 3pm and then update lunch with grandparents on todoist to p1 task."
     # "Find the latest plans i have with feebee, put them into google calendar events, then add to todoist a new dinner with feebe church friends next saturday."
     
     # """"
