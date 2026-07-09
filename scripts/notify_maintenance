@@ -4,4 +4,4 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 exec "$script_dir/_broadcast_onboarded_telegram_users.sh" \
-  "Jarvis is currently under maintenance. I’ll report back when it’s live again."
+  "Jarvis is currently under maintenance. We'll notify you when it's live again."

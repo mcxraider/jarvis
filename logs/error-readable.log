@@ -9063,3 +9063,23 @@
     {
       "recovered": true
     }
+[2026-07-09 19:47:07] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-09 19:47:07] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-09 19:47:07] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-09 22:15:36] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }

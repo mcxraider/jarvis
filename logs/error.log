@@ -1607,3 +1607,7 @@
 {"level":"error","message":"ordering_57918_1783587655697","seq":99,"timestamp":"2026-07-09 17:01:06"}
 {"level":"error","message":"pre_crash_warmup","timestamp":"2026-07-09 17:01:30"}
 {"level":"error","message":"after_restart_58652","recovered":true,"timestamp":"2026-07-09 17:01:32"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-09 19:47:07"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-09 19:47:07"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-09 19:47:07"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-09 22:15:36"}

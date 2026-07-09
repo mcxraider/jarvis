@@ -5,7 +5,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Edit these values for the user and prompt you want to test.
 DEFAULT_USER_ARGS=(--user-1)
-PROMPT="${JARVIS_TELEGRAM_PROMPT:-What is on my calendar tomorrow?}"
+PROMPT="${JARVIS_TELEGRAM_PROMPT:-testing}"
 PORT="${PORT:-3000}"
 BASE_URL="${JARVIS_TELEGRAM_BASE_URL:-http://127.0.0.1:${PORT}}"
 BASE_URL="${BASE_URL%/}"
