@@ -602,8 +602,8 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertIn("You are Jarvis, Jerry's personal assistant agent", prompt)
         self.assertIn("connected services listed in Runtime context", prompt)
         self.assertIn("ask_user", prompt)
-        self.assertIn("End at the requested deliverable", prompt)
-        self.assertIn("Maximum 20 loop iterations per user turn", prompt)
+        self.assertIn("end after the completed action/result", prompt)
+        self.assertNotIn("Maximum 20 loop iterations per user turn", prompt)
 
     def test_worker_prompt_available_for_worker_nodes(self) -> None:
         prompt = jarvis.get_worker_prompt()
@@ -1404,7 +1404,7 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertNotIn("api/v1/tasks/completed", tool_messages[0]["content"])
 
     def test_max_turn_guard(self) -> None:
-        result = self.run_graph_with_fakes(
+        agent_client = FakeDeepSeekAgentClient(
             [
                 {
                     "role": "assistant",
@@ -1416,11 +1416,23 @@ class JarvisGraphTests(unittest.TestCase):
                     "content": "",
                     "tool_calls": [fake_tool_call("call_2", "get_tasks_by_filter", {"query": "tomorrow"})],
                 },
-            ],
+            ]
+        )
+        result = jarvis.run_jarvis(
+            user_prompt="fake prompt",
+            agent_client=agent_client,
+            todoist_client=FakeTodoistClient(),
+            tracer=jarvis.NULL_TRACE,
             max_agent_turns=1,
         )
 
         self.assertIn("Max agent turns exceeded", result["error"])
+        self.assertEqual(
+            result["final_response"],
+            "Max number of turns reached for this agent. Simplify your query.",
+        )
+        self.assertEqual(result["next"], "end")
+        self.assertEqual(len(agent_client.calls), 1)
 
     def test_reasoning_content_preserved(self) -> None:
         result = self.run_graph_with_fakes(

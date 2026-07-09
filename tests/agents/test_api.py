@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-from agents.api import app
+from agents.api import app, create_app
 from agents.agent_api.app.checkpointing.postgres import create_postgres_checkpointer
 from agents.agent_api.app.config import load_settings
 from agents.agent_api.app.service import InMemorySaver, create_default_checkpointer
@@ -22,6 +22,16 @@ class JarvisApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
+
+    def test_fastapi_lifespan_drains_run_logs_on_shutdown(self) -> None:
+        with patch("agents.agent_api.app.db.verify_database_runtime"), \
+            patch("agents.agent_api.app.db.close_pool"), \
+            patch("agents.agent_api.app.run_logging.shutdown_run_logs") as shutdown:
+            with TestClient(create_app()) as client:
+                response = client.get("/health")
+
+        self.assertEqual(response.status_code, 200)
+        shutdown.assert_called_once_with(timeout=5.0)
 
     def test_health_detail_ok(self) -> None:
         with patch(

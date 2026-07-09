@@ -37,7 +37,7 @@ CALENDAR_PROMPT_FRAGMENT = """\
 - All-day events use start_date/end_date; end is exclusive (a 1-day event on Jul 2 → start_date=2026-07-02, end_date=2026-07-03).
 - calendar_id defaults to "primary" — pass it only when the user names another calendar.
 - Before creating a timed event, call get_freebusy for that slot and warn of conflicts. Do not silently double-book.
-- Deleting an event (`delete_calendar_event`) is system-gated like every delete: just issue the call and let the approval prompt handle confirmation — do NOT add your own "are you sure?". Calendar creates/updates count toward the same 5+ mutations-per-turn bulk gate.
+- Calendar creates and updates count toward the shared 5+ mutations-per-turn bulk gate.
 - Recurring events use RRULE strings in the recurrence array (e.g. ["RRULE:FREQ=WEEKLY;BYDAY=TU,TH;COUNT=10"]).
 - Attendees are email addresses. If the user gives a name without an email, ask for it.
 - When listing events, keep single_events=true so recurrences expand into instances."""

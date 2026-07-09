@@ -104,9 +104,10 @@ def test_prompt_includes_both_domains_when_both_active():
     assert "Todoist tool tips" in prompt
     assert "list_calendar_events" in prompt  # calendar tool in the tools line
     assert "add_todoist_task" in prompt  # todoist tool in the tools line
-    # The calendar block must teach that calendar deletes are system-gated,
-    # else the model double-confirms them (worse UX than task deletes).
-    assert "`delete_calendar_event`) is system-gated" in prompt
+    # Delete gating belongs to the shared policy, not the Calendar fragment.
+    assert prompt.count("ANY delete (even a single delete)") == 1
+    assert "`delete_calendar_event`) is system-gated" not in prompt
+    assert "Calendar creates and updates count toward the shared 5+ mutations-per-turn bulk gate" in prompt
 
 
 def test_prompt_has_no_router_section():
