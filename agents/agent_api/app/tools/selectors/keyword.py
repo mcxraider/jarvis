@@ -8,7 +8,7 @@ not registered this run; those names are dropped when schemas are selected.
 """
 
 import logging
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 from agents.agent_api.app.tools.base import ToolRegistry
 
@@ -103,7 +103,17 @@ class KeywordToolSelector:
     def __init__(self, *, allow_mutations: bool = True, **kwargs: Any) -> None:
         self._allow_mutations = allow_mutations
 
-    def select_schemas(self, query: str, registry: ToolRegistry) -> List[Dict[str, Any]]:
+    @property
+    def decision(self) -> None:
+        return None
+
+    def select_schemas(
+        self,
+        query: str,
+        registry: ToolRegistry,
+        active_domains: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        del active_domains
         selected_names = self._match(query)
         fallback = not selected_names
 

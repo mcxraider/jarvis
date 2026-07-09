@@ -601,34 +601,39 @@ def run_jarvis(
     # Native LangSmith tracing (LangGraph node spans + @traceable / wrap_openai
     # child spans) is governed by the LANGSMITH_TRACING env var. Tracing is
     # best-effort: callback failures never propagate into the graph result.
-    if resuming:
-        result = app.invoke(Command(resume=clarification_reply), config)
-    else:
-        result = app.invoke(
-            build_initial_state(
-                user_prompt,
-                user_id=user_id,
-                thread_id=thread_id,
-                request_source=request_source,
-                timezone=(
-                    runtime_context.snapshot.timezone
-                    if runtime_context is not None
-                    else None
+    try:
+        if resuming:
+            result = app.invoke(Command(resume=clarification_reply), config)
+        else:
+            result = app.invoke(
+                build_initial_state(
+                    user_prompt,
+                    user_id=user_id,
+                    thread_id=thread_id,
+                    request_source=request_source,
+                    timezone=(
+                        runtime_context.snapshot.timezone
+                        if runtime_context is not None
+                        else None
+                    ),
+                    user_name=(
+                        runtime_context.snapshot.display_name
+                        if runtime_context is not None
+                        else None
+                    ),
+                    runtime_context=(
+                        runtime_context.snapshot
+                        if runtime_context is not None
+                        else None
+                    ),
+                    registered_tools=offline_tool_names,
                 ),
-                user_name=(
-                    runtime_context.snapshot.display_name
-                    if runtime_context is not None
-                    else None
-                ),
-                runtime_context=(
-                    runtime_context.snapshot
-                    if runtime_context is not None
-                    else None
-                ),
-                registered_tools=offline_tool_names,
-            ),
-            config,
-        )
+                config,
+            )
+    except BaseException as exc:
+        if run_log is not None:
+            run_log.write_crash(exc)
+        raise
     result = enrich_interrupt_status(result, thread_id)
 
     thread_status = "interrupted" if result.get("interrupted") else "completed"

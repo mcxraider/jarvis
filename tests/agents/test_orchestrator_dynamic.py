@@ -1,6 +1,8 @@
 """Dynamic orchestrator prompt: role, runtime-context fragments, and tools line."""
 
 import json
+from datetime import datetime, timezone
+from unittest.mock import patch
 
 from agents.agent_api.app.credentials import IntegrationCredential
 from agents.agent_api.app.graph.builder import (
@@ -56,6 +58,16 @@ class TestOfflinePrompt:
         prompt = get_orchestrator_prompt(user_name="X")
         assert "## Todoist tool tips" not in prompt
         assert "## Google Calendar tool tips" not in prompt
+
+    def test_runtime_date_and_weekday_use_offline_timezone_override(self):
+        instant = datetime(2026, 7, 9, 16, 30, tzinfo=timezone.utc)
+        with patch(
+            "agents.agent_api.app.graph.prompts.orchestrator._current_user_datetime",
+            return_value=instant,
+        ):
+            prompt = get_orchestrator_prompt("America/Chicago", user_name="X")
+
+        assert "Current date: 2026-07-09 (Thursday)" in prompt
 
 
 class TestRuntimeContextPrompt:
@@ -114,6 +126,42 @@ class TestRuntimeContextPrompt:
         prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
         assert "Task provider: todoist" in prompt
         assert "Event provider: todoist" in prompt
+
+    def test_runtime_date_and_weekday_come_from_one_executor_datetime(self):
+        instant = datetime(2026, 7, 10, 0, 30, tzinfo=timezone.utc)
+        snapshot = make_snapshot(timezone_name="Asia/Singapore")
+        with patch(
+            "agents.agent_api.app.graph.prompts.orchestrator._current_user_datetime",
+            return_value=instant,
+        ) as current_datetime:
+            prompt = get_orchestrator_prompt(runtime_context=snapshot)
+
+        current_datetime.assert_called_once_with("Asia/Singapore")
+        assert "Current date: 2026-07-10 (Friday)" in prompt
+
+    def test_relative_weekday_semantics_are_deterministic(self):
+        prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
+
+        assert 'A bare weekday or "this <weekday>" means the nearest future occurrence' in prompt
+        assert '"next <weekday>" means that weekday in the following Monday–Sunday calendar week' in prompt
+        assert '"next Friday" means 2026-07-17, not tomorrow' in prompt
+        assert 'Never emit a relative "next <weekday>" phrase to a tool' in prompt
+
+    def test_hard_invariants_are_front_loaded(self):
+        prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
+
+        hard_invariants = prompt.index("## Hard invariants")
+        operating_loop = prompt.index("## Operating loop")
+        todoist_tips = prompt.index("## Todoist tool tips")
+        assert hard_invariants < operating_loop < todoist_tips
+        assert prompt.index("### 1. Clarification uses `ask_user`") < operating_loop
+        assert prompt.index("### 2. Ground existing entities before mutation") < operating_loop
+        assert prompt.index("### 3. Destructive and bulk actions are system-gated") < operating_loop
+
+    def test_model_facing_loop_limit_is_absent(self):
+        prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
+
+        assert "Maximum 20 loop iterations" not in prompt
 
 
 class TestPassthrough:

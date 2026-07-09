@@ -1,10 +1,12 @@
 """Tests for versioned preference validation and timezone threading."""
 
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
 
 from agents.agent_api.app.graph.prompts.orchestrator import (
+    _current_user_datetime,
     _user_timezone,
     get_orchestrator_prompt,
     get_system_prompt,
@@ -103,6 +105,26 @@ class TestUserTimezone:
             mock_dt.now.side_effect = Exception("no tz")
             result = _user_timezone(None)
         assert result == "UTC"
+
+    def test_current_datetime_is_localized_to_iana_timezone(self):
+        instant = datetime(2026, 7, 9, 16, 30, tzinfo=timezone.utc)
+        with patch(
+            "agents.agent_api.app.graph.prompts.orchestrator.datetime"
+        ) as mock_datetime:
+            mock_datetime.now.return_value = instant
+            result = _current_user_datetime("Asia/Singapore")
+
+        assert result.isoformat() == "2026-07-10T00:30:00+08:00"
+
+    def test_current_datetime_supports_fixed_offset_timezone(self):
+        instant = datetime(2026, 7, 9, 16, 30, tzinfo=timezone.utc)
+        with patch(
+            "agents.agent_api.app.graph.prompts.orchestrator.datetime"
+        ) as mock_datetime:
+            mock_datetime.now.return_value = instant
+            result = _current_user_datetime("+08")
+
+        assert result.isoformat() == "2026-07-10T00:30:00+08:00"
 
 
 class TestPromptTimezoneThreading:

@@ -67,8 +67,6 @@ TODOIST_PROMPT_FRAGMENT = """\
 - Never fabricate task IDs — fetch first (see Grounding).
 - Do not retry `add_todoist_task` on timeout — it may have succeeded. Verify with `get_tasks_by_filter` to avoid duplicates.
 - Pagination: a `next_cursor` field appears in results. If it is null, you have everything — stop. Only pass a cursor value received verbatim from a prior response.
-
-## Todoist project tips
 - `get_projects` lists projects (pass `search` to filter by name substring). Use it to turn a project name into an `id` before adding a task there — this is a distinct step: find the project in one turn, then add the task by its id in the next (see Grounding).
 - `create_project` makes a NEW project (only `name` is required). A single create runs without a confirmation prompt — do NOT add your own "are you sure?"; just issue the call. Only create a project when the user clearly asks for a new one; otherwise search existing projects first."""
 

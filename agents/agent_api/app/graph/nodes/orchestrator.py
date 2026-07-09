@@ -3,8 +3,10 @@
 import copy
 import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from langsmith import traceable
 from langsmith.wrappers import wrap_openai
@@ -33,6 +35,43 @@ from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 
 LLM_FAILURE_MESSAGE = "Jarvis could not reach DeepSeek reliably. Please try again in a moment."
+
+_QUESTION_PHRASES = re.compile(
+    r"could you (let me know|provide|tell me|clarify)"
+    r"|can you (tell me|provide|let me know)"
+    r"|please (provide|let me know|clarify|specify)"
+    r"|what (would you like|event|title|name|details)"
+    r"|which (one|calendar|project)"
+    r"|do you (want|mean|prefer)"
+    r"|shall I (go ahead|create|proceed|add|schedule|set)"
+    r"|would you like me to"
+    r"|should I (go ahead|create|proceed|add|schedule|set)",
+    re.IGNORECASE,
+)
+
+def _last_sentence(text: str) -> str:
+    """Extract the last sentence from text for phrase matching."""
+    for sep in ("\n", ". ", "! "):
+        idx = text.rfind(sep)
+        if idx != -1:
+            candidate = text[idx:].strip()
+            if len(candidate) > 10:
+                return candidate
+    return text[-200:] if len(text) > 200 else text
+
+
+def _looks_like_question(content: str) -> bool:
+    """Detect if a text-only LLM response is actually a clarification question.
+
+    Returns True when the text ends with '?' (any length) or the last sentence
+    contains ask-user-like phrases — indicating the model failed to call ask_user.
+    """
+    text = content.strip()
+    if not text:
+        return False
+    if text.endswith("?"):
+        return True
+    return bool(_QUESTION_PHRASES.search(_last_sentence(text)))
 
 
 def _tool_schema_names(tool_schemas: List[Dict[str, Any]]) -> List[str]:
@@ -440,10 +479,7 @@ def create_agent_node(
         )
         if turn_count >= max_agent_turns:
             error = f"Max agent turns exceeded ({max_agent_turns})."
-            user_message = (
-                "You have reached the max number of turns for this request. "
-                "I'm unable to handle this complex request — please try breaking it into smaller steps."
-            )
+            user_message = "Max number of turns reached for this agent. Simplify your query."
             tracer.event("graph.guard", "Stopping graph because max turns was reached.", error=error)
             return {
                 "error": error,
@@ -482,8 +518,9 @@ def create_agent_node(
         # Persist the initial routing domains for context preservation across
         # HITL resumes. Only set on the first turn (no clarification history yet,
         # no prior active_domains); subsequent turns within the same run reuse it.
-        if not clarification_history and not active_domains and tool_selector.decision:
-            active_domains = list(effective_router_domains(tool_selector.decision))
+        selector_decision = getattr(tool_selector, "decision", None)
+        if not clarification_history and not active_domains and selector_decision:
+            active_domains = list(effective_router_domains(selector_decision))
 
         tracer.event(
             "graph.tools.selected",
@@ -526,14 +563,33 @@ def create_agent_node(
 
         if not assistant_message.get("tool_calls"):
             content = assistant_message.get("content") or ""
-            final_response = content
-            tracer.payload("agent.final", "content", final_response)
-            run_log = getattr(tracer, "run_log", None)
-            if run_log is not None:
-                run_log.write_messages_dump(
-                    "final_turn_input (context sent to LLM on ANSWER turn)",
-                    messages[:-1],
+            if _looks_like_question(content):
+                synthetic_id = f"synth_{uuid4().hex[:8]}"
+                assistant_message["tool_calls"] = [
+                    {
+                        "id": synthetic_id,
+                        "type": "function",
+                        "function": {
+                            "name": "ask_user",
+                            "arguments": json.dumps({"question": content}),
+                        },
+                    }
+                ]
+                next_node = "hitl"
+                tracer.event(
+                    "agent.question_detected",
+                    "Model asked in plain text; routing to HITL.",
+                    synthetic_tool_call_id=synthetic_id,
                 )
+            else:
+                final_response = content
+                tracer.payload("agent.final", "content", final_response)
+                run_log = getattr(tracer, "run_log", None)
+                if run_log is not None:
+                    run_log.write_messages_dump(
+                        "final_turn_input (context sent to LLM on ANSWER turn)",
+                        messages[:-1],
+                    )
         else:
             tool_calls = assistant_message.get("tool_calls") or []
             if any(is_ask_user_tool_call(tc) for tc in tool_calls):
@@ -565,6 +621,7 @@ __all__ = [
     "DeepSeekAgentClientError",
     "LLM_FAILURE_MESSAGE",
     "UsageSummary",
+    "_looks_like_question",
     "create_agent_node",
     "raw_message_from_openai",
     "_tool_schema_names",

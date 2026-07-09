@@ -13,10 +13,10 @@ from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 USER_PROMPTS: List[str] = [
-    "add this to google calendar next friday at 3pm"
+    # "add this to google calendar next friday at 3pm"
     # "Find the latest plans i have with feebee, put them into google calendar events, then add a new event WFH w feebee next friday."
     # "help me find out what projects i have in todoist, ill ask u to add a task to a one after that"
-    # "set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of prio
+    "set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of priority"
     # rity based on when im most free"
     # "check phoebe google calendar and my calendar tell me when good day to have dinner with her next week"
     # "when am i free next week?"

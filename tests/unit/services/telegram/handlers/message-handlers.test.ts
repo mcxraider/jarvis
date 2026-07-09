@@ -105,6 +105,23 @@ describe('MessageHandlers', () => {
     expect(ctx.reply).toHaveBeenCalledWith('processed text', { parse_mode: 'MarkdownV2' });
   });
 
+  it('sends the max-turn termination as a persistent rich message', async () => {
+    setRichMessagesEnabled(true);
+    const text = 'Max number of turns reached for this agent. Simplify your query.';
+    const messageProcessor = {
+      processTextMessage: jest.fn().mockResolvedValue({ response: text }),
+    } as any;
+    const { handlers } = createHandlers({ messageProcessor });
+    const ctx = createContext({ text: 'a complex request', message_id: 100 });
+
+    await handlers.handleText(ctx);
+
+    expect(ctx.telegram.callApi).toHaveBeenCalledWith('sendRichMessage', {
+      chat_id: 456,
+      rich_message: { markdown: text },
+    });
+  });
+
   it('forwards reply context without logging the quoted content', async () => {
     const { handlers, messageProcessor } = createHandlers();
     const info = jest.spyOn(logger, 'info').mockImplementation();
