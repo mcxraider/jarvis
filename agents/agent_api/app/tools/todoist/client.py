@@ -90,6 +90,9 @@ class TodoistApiError(ClassifiedApiError):
     method: str = "GET"
     attempts: int = 1
     retry_after_seconds: Optional[float] = None
+    provider_message: Optional[str] = None
+    provider_code: Optional[int] = None
+    provider_tag: Optional[str] = None
 
     def __str__(self) -> str:
         return self.message
@@ -107,6 +110,12 @@ class TodoistApiError(ClassifiedApiError):
             payload["status_code"] = self.status_code
         if self.retry_after_seconds is not None:
             payload["retry_after_seconds"] = self.retry_after_seconds
+        if self.provider_message is not None:
+            payload["provider_message"] = self.provider_message
+        if self.provider_code is not None:
+            payload["provider_code"] = self.provider_code
+        if self.provider_tag is not None:
+            payload["provider_tag"] = self.provider_tag
         return payload
 
 
@@ -183,7 +192,7 @@ class TodoistApiClient:
                     return parsed
             except urllib.error.HTTPError as error:
                 body = error.read().decode("utf-8", errors="replace")
-                api_error = _todoist_http_error(error, url, method, attempt)
+                api_error = _todoist_http_error(error, url, method, attempt, body)
                 self.tracer.event(
                     "todoist.error",
                     "Todoist API returned an HTTP error.",
@@ -252,8 +261,9 @@ class TodoistApiClient:
     def update_todoist_task(self, arguments: Dict[str, Any]) -> Any:
         arguments = dict(arguments)
         task_id = arguments.pop("task_id")
-        _validate_duration_pair(arguments)
-        return self._request(f"{TODOIST_REST_BASE_URL}/tasks/{task_id}", "POST", arguments)
+        payload = _sanitize_update_payload(arguments)
+        _validate_duration_pair(payload)
+        return self._request(f"{TODOIST_REST_BASE_URL}/tasks/{task_id}", "POST", payload)
 
     def complete_task(self, arguments: Dict[str, Any]) -> Any:
         self._request(f"{TODOIST_REST_BASE_URL}/tasks/{arguments['task_id']}/close", "POST")
@@ -321,6 +331,26 @@ def _without_none(data: Dict[str, Any]) -> Dict[str, Any]:
     """Drop None values before sending arguments to Todoist."""
 
     return {key: value for key, value in data.items() if value is not None}
+
+
+_NULL_CLEARABLE_UPDATE_FIELDS = {
+    "assignee_id",
+    "duration",
+    "duration_unit",
+    "deadline_date",
+}
+
+
+def _sanitize_update_payload(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop synthetic null defaults while retaining supported explicit clears."""
+
+    if "labels" in arguments and arguments["labels"] is None:
+        raise ValueError("labels must be an array of labels")
+    return {
+        key: value
+        for key, value in arguments.items()
+        if value is not None or key in _NULL_CLEARABLE_UPDATE_FIELDS
+    }
 
 
 def _validate_duration_pair(data: Dict[str, Any]) -> None:
@@ -454,6 +484,7 @@ def _todoist_http_error(
     url: str,
     method: str,
     attempts: int,
+    body: str = "",
 ) -> TodoistApiError:
     kind = TODOIST_HTTP_ERROR_KIND_BY_STATUS.get(error.code)
     if kind is None and 500 <= error.code <= 599:
@@ -463,15 +494,42 @@ def _todoist_http_error(
 
     retry_after_header = error.headers.get("Retry-After") if error.headers else None
     retry_after = _parse_retry_after(retry_after_header)
+    provider_message, provider_code, provider_tag = _parse_provider_error(body)
+    message = TODOIST_ERROR_MESSAGES[kind]
+    if provider_message:
+        message = f"{message.rstrip('.')}: {provider_message}"
     return TodoistApiError(
         kind=kind,
-        message=TODOIST_ERROR_MESSAGES[kind],
+        message=message,
         status_code=error.code,
         retryable=kind in {"rate-limit", "transient"},
         url=url,
         method=method,
         attempts=attempts,
         retry_after_seconds=retry_after,
+        provider_message=provider_message,
+        provider_code=provider_code,
+        provider_tag=provider_tag,
+    )
+
+
+def _parse_provider_error(body: str) -> tuple[Optional[str], Optional[int], Optional[str]]:
+    """Extract only allowlisted, model-safe diagnostics from a Todoist error."""
+
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, TypeError):
+        return None, None, None
+    if not isinstance(payload, dict):
+        return None, None, None
+
+    provider_message = payload.get("error")
+    provider_code = payload.get("error_code")
+    provider_tag = payload.get("error_tag")
+    return (
+        provider_message if isinstance(provider_message, str) else None,
+        provider_code if isinstance(provider_code, int) else None,
+        provider_tag if isinstance(provider_tag, str) else None,
     )
 
 

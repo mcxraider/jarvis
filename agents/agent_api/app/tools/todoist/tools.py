@@ -8,7 +8,7 @@ module are re-exported below so existing imports keep working.
 
 from typing import Annotated, Any, Dict, List, Optional
 
-from langchain_core.tools import InjectedToolCallId, tool
+from langchain_core.tools import InjectedToolCallId, StructuredTool, tool
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from agents.agent_api.app.constants import ALLOW_MUTATIONS
@@ -61,7 +61,7 @@ TODOIST_PROMPT_FRAGMENT = """\
 ## Todoist tool tips
 - Creating many tasks at once → issue one `add_todoist_task` call per task. The system batches and gates them for you.
 - Dates: prefer `due_string` ("2026-07-02 3pm", "tomorrow 9am") — but always pre-resolve relative dates per the rule above.
-- Priority format: urgent = 1, high = 2, medium = 3, normal = 4 (default).
+- Priority format: urgent = 1(default), high = 2, medium = 3, normal = 4.
 - `get_tasks_by_filter` takes Todoist filter syntax, NOT free text. To match by title use the `search:` operator (e.g. `search: dentist`) — do not pass a bare title like "dentist appointment" as the filter. Date ranges use "due after: X & due before: Y" — never a slash, dash, or "between". Examples: "today", "overdue", "p1", "7 days", "search: groceries", "due after: Jul 5 & due before: Jul 13".
 - After scheduling a task that has a specific time, check for clashes with other timed tasks that day; if any overlap, tell the user and ask whether to reschedule.
 - Never fabricate task IDs — fetch first (see Grounding).
@@ -96,6 +96,8 @@ class UpdateTodoistTaskInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_duration_pair(self) -> "UpdateTodoistTaskInput":
+        if "labels" in self.model_fields_set and self.labels is None:
+            raise ValueError("labels must be an array of labels")
         if ("duration" in self.model_fields_set) != ("duration_unit" in self.model_fields_set):
             raise ValueError("duration and duration_unit must be provided together")
         if self.duration is not None and self.duration_unit is None:
@@ -107,6 +109,23 @@ class UpdateTodoistTaskInput(BaseModel):
         if self.duration_unit is not None and self.duration_unit not in {"minute", "day"}:
             raise ValueError("duration_unit must be minute or day")
         return self
+
+
+class SuppliedFieldsStructuredTool(StructuredTool):
+    """Keep optional schema defaults from becoming synthetic tool arguments."""
+
+    def _parse_input(
+        self,
+        tool_input: str | Dict[str, Any],
+        tool_call_id: Optional[str],
+    ) -> str | Dict[str, Any]:
+        supplied_fields = set(tool_input) if isinstance(tool_input, dict) else set()
+        parsed = super()._parse_input(tool_input, tool_call_id)
+        if not isinstance(parsed, dict):
+            return parsed
+        supplied_fields.update(self._injected_args_keys)
+        supplied_fields.add("tool_call_id")
+        return {key: value for key, value in parsed.items() if key in supplied_fields}
 
 
 def get_todoist_tool_specs(todoist_client: Any) -> List[ToolSpec]:
@@ -252,8 +271,7 @@ def build_todoist_langchain_tools(dispatch: DispatchFn) -> List[Any]:
             {"query": query, "lang": lang, "cursor": cursor, "limit": limit},
         )
 
-    @tool(args_schema=UpdateTodoistTaskInput)
-    def update_todoist_task(**arguments: Any) -> Dict[str, Any]:
+    def _update_todoist_task(**arguments: Any) -> Dict[str, Any]:
         """Update an existing Todoist task."""
 
         tool_call_id = arguments.pop("tool_call_id")
@@ -262,6 +280,13 @@ def build_todoist_langchain_tools(dispatch: DispatchFn) -> List[Any]:
             "update_todoist_task",
             arguments,
         )
+
+    update_todoist_task = SuppliedFieldsStructuredTool.from_function(
+        func=_update_todoist_task,
+        name="update_todoist_task",
+        description="Update an existing Todoist task.",
+        args_schema=UpdateTodoistTaskInput,
+    )
 
     @tool
     def complete_task(
