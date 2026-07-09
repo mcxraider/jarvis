@@ -1,0 +1,82 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-05T18:29:00+08:00
+request_id: tg_update_564452415
+thread_id: tg_tg_update_564452415
+user_id: telegram:701122767
+telegram_user_id: 701122767
+telegram_username: jer_jerryyy
+telegram_first_name: jerry
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-05 18:29:00.610 | section              | === Jarvis LangGraph Run ===
+2026-07-05 18:29:00.610 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_564452415
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: tg_tg_update_564452415
+      request_source: telegram
+      resuming: false
+2026-07-05 18:29:00.610 | runtime.prompt       | [payload] user_prompt: for these dates help me put “possibly huixin farewell dinner”
+2026-07-05 18:29:01.192 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-05 18:29:01.354 | graph.agent          | Entering agent node.
+      turn: 1
+      max_turns: 20
+      messages: 2
+2026-07-05 18:29:01.355 | graph.tools.selected | Selected tools for this turn.
+      available: 22
+      selected: 22
+2026-07-05 18:29:01.358 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 2
+      tools: 22
+2026-07-05 18:29:06.749 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 8036
+      completion_tokens: 512
+      total_tokens: 8548
+      cached_tokens: 7936
+      cache_hit_rate: 98.8
+2026-07-05 18:29:06.751 | graph.route          | Agent node completed.
+      next: hitl
+      turn: 1
+2026-07-05 18:29:06.756 | graph.hitl           | Interrupting for user clarification.
+      question: Which dates are you referring to for "possibly huixin farewell dinner"? And would you like this as a Todoist task (e.g. a reminder) or a Google Calendar event?
+      deferred_tools: 0
+      extra_questions: 0
+2026-07-05 18:29:06.811 | runtime.done         | Graph invocation completed.
+      request_id: tg_update_564452415
+      turns: 1
+      tool_results: 0
+      has_error: false
+      interrupted: true
+      interrupt_type: clarify
+      total_tokens: 8548
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-07-05T18:29:06+08:00
+duration_seconds: 6.267
+request_id: tg_update_564452415
+turns: 1
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 8036
+completion_tokens: 512
+total_tokens: 8548
+cached_tokens: 7936
+cache_hit_rate: 98.8
+reasoning_tokens: 304
+==============================================================================
