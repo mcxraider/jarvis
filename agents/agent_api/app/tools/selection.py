@@ -8,7 +8,7 @@ Concrete selectors live in ``selectors/`` — each file is one strategy.
 Use ``get_selector(name)`` to instantiate by name (config-driven swap).
 """
 
-from typing import Any, Dict, List, Protocol, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 from agents.agent_api.app.tools.base import ToolRegistry
 
@@ -21,7 +21,12 @@ class ToolSelector(Protocol):
     return the OpenAI/DeepSeek function schemas to expose for this turn.
     """
 
-    def select_schemas(self, query: str, registry: ToolRegistry) -> List[Dict[str, Any]]:
+    def select_schemas(
+        self,
+        query: str,
+        registry: ToolRegistry,
+        active_domains: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
         ...
 
 
