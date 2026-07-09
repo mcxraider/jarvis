@@ -26057,3 +26057,27 @@
 {"inheritedRole":"jarvis_runtime","level":"info","message":"database.runtime.ready","requiredTables":6,"role":"jarvis_app","timestamp":"2026-07-09 19:42:24"}
 {"baseUrl":"https://a67e-116-87-102-52.ngrok-free.app","level":"info","message":"telegram.webhook.setup_started","path":"/webhook/[REDACTED]","timestamp":"2026-07-09 19:42:24"}
 {"baseUrl":"https://a67e-116-87-102-52.ngrok-free.app","level":"info","message":"telegram.webhook.configured","path":"/webhook/[REDACTED]","timestamp":"2026-07-09 19:42:25"}
+{"level":"info","message":"app.startup.validation_completed","nodeEnv":"development","requiredEnvVars":5,"timestamp":"2026-07-09 19:43:08"}
+{"emergencyDeniedUsers":0,"level":"info","message":"telegram.authorization.configured","store":"postgres","timestamp":"2026-07-09 19:43:08"}
+{"enforceEnglishOnly":true,"language":"en","level":"info","maxFileSizeMB":25,"message":"WhisperService initialized","model":"whisper-large-v3","promptLength":166,"qualityMonitoringEnabled":true,"qualityThresholds":{"maxCompressionRatio":2.4,"maxNoSpeechProb":0.6,"minAvgLogprob":-0.5,"minCompressionRatio":0.8},"responseFormat":"verbose_json","timestamp":"2026-07-09 19:43:08"}
+{"level":"info","message":"telegram.pending_store.configured","store":"postgres","timestamp":"2026-07-09 19:43:08"}
+{"level":"info","message":"telegram.gate_store.configured","store":"postgres","timestamp":"2026-07-09 19:43:08"}
+{"level":"info","message":"telegram.bot.initialized","timestamp":"2026-07-09 19:43:08"}
+{"audioTranscriptionConfigured":true,"langGraphAgentConfigured":true,"level":"info","message":"app.services.initialized","telegramConfigured":true,"telegramPendingStoreConfigured":true,"timestamp":"2026-07-09 19:43:08"}
+{"level":"info","message":"server.started","timestamp":"2026-07-09 19:43:08","url":"http://localhost:3000"}
+{"level":"info","message":"telegram.webhook.awaiting_updates","path":"/webhook/:secret","timestamp":"2026-07-09 19:43:08"}
+{"inheritedRole":"jarvis_runtime","level":"info","message":"database.runtime.ready","requiredTables":6,"role":"jarvis_app","timestamp":"2026-07-09 19:43:09"}
+{"baseUrl":"https://a67e-116-87-102-52.ngrok-free.app","level":"info","message":"telegram.webhook.setup_started","path":"/webhook/[REDACTED]","timestamp":"2026-07-09 19:43:09"}
+{"baseUrl":"https://a67e-116-87-102-52.ngrok-free.app","level":"info","message":"telegram.webhook.configured","path":"/webhook/[REDACTED]","timestamp":"2026-07-09 19:43:10"}
+{"level":"info","message":"app.startup.validation_completed","nodeEnv":"development","requiredEnvVars":5,"timestamp":"2026-07-09 19:43:18"}
+{"emergencyDeniedUsers":0,"level":"info","message":"telegram.authorization.configured","store":"postgres","timestamp":"2026-07-09 19:43:18"}
+{"enforceEnglishOnly":true,"language":"en","level":"info","maxFileSizeMB":25,"message":"WhisperService initialized","model":"whisper-large-v3","promptLength":166,"qualityMonitoringEnabled":true,"qualityThresholds":{"maxCompressionRatio":2.4,"maxNoSpeechProb":0.6,"minAvgLogprob":-0.5,"minCompressionRatio":0.8},"responseFormat":"verbose_json","timestamp":"2026-07-09 19:43:18"}
+{"level":"info","message":"telegram.pending_store.configured","store":"postgres","timestamp":"2026-07-09 19:43:18"}
+{"level":"info","message":"telegram.gate_store.configured","store":"postgres","timestamp":"2026-07-09 19:43:18"}
+{"level":"info","message":"telegram.bot.initialized","timestamp":"2026-07-09 19:43:18"}
+{"audioTranscriptionConfigured":true,"langGraphAgentConfigured":true,"level":"info","message":"app.services.initialized","telegramConfigured":true,"telegramPendingStoreConfigured":true,"timestamp":"2026-07-09 19:43:18"}
+{"level":"info","message":"server.started","timestamp":"2026-07-09 19:43:18","url":"http://localhost:3000"}
+{"level":"info","message":"telegram.webhook.awaiting_updates","path":"/webhook/:secret","timestamp":"2026-07-09 19:43:18"}
+{"inheritedRole":"jarvis_runtime","level":"info","message":"database.runtime.ready","requiredTables":6,"role":"jarvis_app","timestamp":"2026-07-09 19:43:18"}
+{"baseUrl":"https://a67e-116-87-102-52.ngrok-free.app","level":"info","message":"telegram.webhook.setup_started","path":"/webhook/[REDACTED]","timestamp":"2026-07-09 19:43:18"}
+{"baseUrl":"https://a67e-116-87-102-52.ngrok-free.app","level":"info","message":"telegram.webhook.configured","path":"/webhook/[REDACTED]","timestamp":"2026-07-09 19:43:19"}
