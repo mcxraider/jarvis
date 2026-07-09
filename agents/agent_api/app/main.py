@@ -45,8 +45,10 @@ async def run_idempotency_cleanup_loop(
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     from agents.agent_api.app.db import verify_database_runtime
+    from agents.agent_api.app.run_logging import cleanup_old_logs, LOG_DIR
 
     await asyncio.to_thread(verify_database_runtime)
+    await asyncio.to_thread(cleanup_old_logs, LOG_DIR)
     cleanup_task = asyncio.create_task(
         run_idempotency_cleanup_loop(
             DEFAULT_IDEMPOTENCY_STORE,
@@ -60,8 +62,10 @@ async def lifespan(_app: FastAPI):
         with suppress(asyncio.CancelledError):
             await cleanup_task
         from agents.agent_api.app.db import close_pool
+        from agents.agent_api.app.run_logging import shutdown_run_logs
 
         close_pool()
+        await asyncio.to_thread(shutdown_run_logs, timeout=5.0)
 
 
 def create_app() -> FastAPI:

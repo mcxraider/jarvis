@@ -4,7 +4,7 @@
 // Importing ./app triggers env validation and service construction before we get here.
 
 import express, { Request, Response, NextFunction } from 'express';
-import { logger } from './utils/logger';
+import { flushLogger, getLoggerStats, logger, shutdownLogger } from './utils/logger';
 import { createWebhookRouter } from './controllers/webhook.controller';
 import { botService, databaseReadiness } from './app';
 
@@ -66,10 +66,20 @@ app.get('/health', async (_req: Request, res: Response, _next: NextFunction) => 
     dependencies.langgraph = 'unreachable';
   }
 
-  const healthy = Object.values(dependencies).every((v) => v === 'ok');
+  const loggerStats = getLoggerStats();
+  const LOGGER_FAILURE_WINDOW_MS = 5 * 60 * 1000;
+  const recentFailure = loggerStats.last_write_failure_time
+    ? Date.now() - new Date(loggerStats.last_write_failure_time).getTime() < LOGGER_FAILURE_WINDOW_MS
+    : false;
+  const loggerHealthy = loggerStats.worker_alive && !recentFailure;
+  const healthy = Object.values(dependencies).every((v) => v === 'ok') && loggerHealthy;
   res.status(healthy ? 200 : 503).json({
     status: healthy ? 'healthy' : 'degraded',
     dependencies,
+    log_worker: {
+      healthy: loggerHealthy,
+      stats: loggerStats,
+    },
   });
 });
 
@@ -104,8 +114,14 @@ function shutdown(signal: string) {
   forceExit.unref();
 
   server.close(() => {
-    botService.stop().finally(() => {
+    botService.stop().finally(async () => {
       logger.info('server.shutdown.completed', { signal });
+      try {
+        await flushLogger();
+        await shutdownLogger();
+      } catch (error) {
+        process.stderr.write(`logger.shutdown.failed ${String(error)}\n`);
+      }
       process.exit(0);
     });
   });

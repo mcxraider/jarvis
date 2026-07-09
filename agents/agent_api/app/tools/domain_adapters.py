@@ -106,7 +106,7 @@ DOMAIN_ADAPTERS: Dict[str, DomainAdapter] = {
     "todoist": DomainAdapter(
         key="todoist",
         display_name="Todoist",
-        capabilities=["tasks", "projects", "comments"],
+        capabilities=["tasks", "calendar_events", "projects", "comments"],
         build_client=_build_todoist_client,
         get_tool_specs=get_todoist_tool_specs,
         langchain_builder=build_todoist_langchain_tools,
