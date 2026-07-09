@@ -13,10 +13,28 @@ from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 USER_PROMPTS: List[str] = [
-    # "add this to google calendar next friday at 3pm"
-    # "Find the latest plans i have with feebee, put them into google calendar events, then add a new event WFH w feebee next friday."
+    # "add meet zac to google calendar next friday at 3pm and then update lunch with grandparents on todoist to p1 task."
+    # "Find the latest plans i have with feebee, put them into google calendar events, then add to todoist a new dinner with feebe church friends next saturday."
+    
+    # """"
+    # ## Google Calendar — 9 feebee plans created
+    # | Date | Time | Event |
+    # |---|---|---|
+    # | Jul 12 (Sun) | All day | bring feebee to church |
+    # | Jul 12 (Sun) | 12:00–13:00 | Lunch with feebee |
+    # | Jul 14 (Tue) | 19:00–21:00 | meet feebee for dinner |
+    # | Jul 17 (Fri) | 09:00–21:00 | WFH w feebee ⚠️ |
+    # | Jul 18 (Sat) | 15:00–15:30 | pick up feebee |
+    # | Jul 18 (Sat) | 16:00–18:00 | go feebee church |
+    # | Jul 25 (Sat) | 19:00–21:00 | car picnic with feebee |
+    # | Aug 1 (Sat) | 19:00–20:00 | talk with feebee |
+    # | Aug 5 (Wed) | 18:00–20:30 | Spiderman brand new day with feebee | 
+
+    # delete these from my google calendar.
+    # """
+    
     # "help me find out what projects i have in todoist, ill ask u to add a task to a one after that"
-    "set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of priority"
+    # "set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of priority"
     # rity based on when im most free"
     # "check phoebe google calendar and my calendar tell me when good day to have dinner with her next week"
     # "when am i free next week?"

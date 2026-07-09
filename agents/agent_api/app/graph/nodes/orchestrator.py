@@ -26,6 +26,7 @@ from agents.agent_api.app.constants import (
 from agents.agent_api.app.graph.prompts.context import build_user_prompt_with_request_datetime
 from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 from agents.agent_api.app.graph.state import JarvisState
+from agents.agent_api.app.router.model_router import ModelRouter
 from agents.agent_api.app.router.prompt import effective_router_domains
 from agents.agent_api.app.tools.base import ToolRegistry
 from agents.agent_api.app.tools.control import is_ask_user_tool_call
@@ -212,6 +213,11 @@ class DeepSeekAgentClient:
                 timeout=request_timeout_seconds,
             )
         )
+
+    def apply_selection(self, model: str, reasoning_effort: str) -> None:
+        """Swap model and reasoning effort for the next create_message call."""
+        self.model = model
+        self.reasoning_effort = reasoning_effort
 
     @traceable(
         name="deepseek_create_message",
@@ -456,6 +462,7 @@ def create_agent_node(
     max_agent_turns: int,
     tracer: Optional[TracePrinter] = None,
     tool_selector: Optional[ToolSelector] = None,
+    model_router: Optional[ModelRouter] = None,
 ):
     """Create the graph node that asks the model what to do next.
 
@@ -542,6 +549,15 @@ def create_agent_node(
         # On the first turn, swap in the router's cleaned-up restatement (if any);
         # the original query stays in state["user_prompt"]. No-op on later turns.
         _apply_router_query_rewrite(messages, tool_selector, state, tracer)
+        if model_router is not None and selector_decision is not None:
+            selection = model_router.select(selector_decision)
+            agent_client.apply_selection(selection.model, selection.reasoning_effort)
+            tracer.event(
+                "model_router.selected",
+                "Model router selected model for this turn.",
+                model=selection.model,
+                reasoning_effort=selection.reasoning_effort,
+            )
         try:
             assistant_message = agent_client.create_message(messages, tool_schemas)
         except DeepSeekAgentClientError as error:

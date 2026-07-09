@@ -32,6 +32,7 @@ from agents.agent_api.app.graph.nodes.orchestrator import (
     UsageSummary,
     create_agent_node,
 )
+from agents.agent_api.app.router.model_router import ModelRouter, create_default_model_router
 from agents.agent_api.app.graph.nodes.prepare_confirm import create_prepare_confirm_node
 from agents.agent_api.app.graph.nodes.summarize import create_summarize_node
 from agents.agent_api.app.graph.nodes.tools import create_tools_node
@@ -232,6 +233,7 @@ def create_jarvis_graph(
     tracer: Optional[TracePrinter] = None,
     checkpointer: Any = _USE_DEFAULT_CHECKPOINTER,
     tool_selector: Optional[ToolSelector] = None,
+    model_router: Optional[ModelRouter] = None,
 ):
     """Create the Jarvis LangGraph app from declarative node specs.
 
@@ -256,6 +258,7 @@ def create_jarvis_graph(
                 max_agent_turns,
                 tracer,
                 tool_selector=tool_selector,
+                model_router=model_router,
             ),
             router=route_after_agent,
             route_map={
@@ -569,6 +572,14 @@ def run_jarvis(
             router_enabled=settings.router_enabled,
             tool_selector_name=settings.tool_selector,
         )
+    model_router = create_default_model_router(
+        enabled=settings.model_router_enabled,
+        default_model=settings.model_router_default_model,
+        default_reasoning=settings.model_router_default_reasoning,
+        complex_model=settings.model_router_complex_model,
+        complex_reasoning=settings.model_router_complex_reasoning,
+        multi_domain_reasoning=settings.model_router_multi_domain_reasoning,
+    )
     app = create_jarvis_graph(
         agent_client,
         dispatcher,
@@ -576,6 +587,7 @@ def run_jarvis(
         tracer=tracer,
         checkpointer=checkpointer,
         tool_selector=tool_selector,
+        model_router=model_router,
     )
     config = {
         "configurable": {"thread_id": thread_id},

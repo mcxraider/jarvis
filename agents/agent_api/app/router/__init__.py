@@ -10,6 +10,11 @@ Public surface:
 - ``RouterClient`` / ``RouterClientError`` — the sync classifier call (``client.py``)
 """
 
+from agents.agent_api.app.router.model_router import (
+    ModelRouter,
+    ModelSelection,
+    create_default_model_router,
+)
 from agents.agent_api.app.router.prompt import (
     RouterDecision,
     build_router_messages,
@@ -17,11 +22,14 @@ from agents.agent_api.app.router.prompt import (
 )
 
 __all__ = [
+    "ModelRouter",
+    "ModelSelection",
     "RouterClient",
     "RouterClientError",
     "RouterDecision",
     "build_router_messages",
     "build_router_system_prompt",
+    "create_default_model_router",
 ]
 
 
