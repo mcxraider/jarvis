@@ -1,7 +1,7 @@
 import { ProgressFact } from '../../types/agent.types';
 
 export const PROGRESS_MIN_RENDER_MS = 4_000;
-export const PROGRESS_KEEPALIVE_MS = 20_000;
+export const PROGRESS_KEEPALIVE_MS = 45_000;
 
 const DOMAIN_LABELS: Record<string, string> = {
   todoist: 'Todoist',
@@ -72,7 +72,7 @@ export class ProgressNarrator {
     if (fact.phase === 'request') return 'Reading your request…';
     if (fact.phase === 'routing') {
       const domains = domainLabel(fact.domains);
-      return domains ? `Checking ${domains}…` : 'Working out the best way to help…';
+      return domains ? `Checking your ${domains}…` : 'Working out the best way to help…';
     }
     if (fact.phase === 'lookup') {
       const domains = domainLabel(fact.domains);
@@ -110,10 +110,6 @@ export class ProgressNarrator {
     if (elapsed >= 45_000 && this.lastElapsedBand < 45_000) {
       this.lastElapsedBand = 45_000;
       return 'Still working — this is taking a little longer than usual…';
-    }
-    if (elapsed >= 20_000 && this.lastElapsedBand < 20_000) {
-      this.lastElapsedBand = 20_000;
-      return 'Still working on this…';
     }
     return undefined;
   }
