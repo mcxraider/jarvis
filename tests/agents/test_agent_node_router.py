@@ -51,7 +51,7 @@ class RecordingClient:
         self.seen_messages: List[Dict[str, Any]] = []
         self.seen_tools: List[Dict[str, Any]] = []
 
-    def create_message(self, messages, tools):
+    def create_message(self, messages, tools, **kwargs):
         # Snapshot the list as passed: the node appends the assistant reply to the
         # same list object afterwards, so holding a reference would corrupt [-1].
         self.seen_messages = list(messages)
@@ -69,7 +69,7 @@ class FakeDecisionSelector:
     def decision(self):
         return self._decision
 
-    def select_schemas(self, query, registry):
+    def select_schemas(self, query, registry, **kwargs):
         return registry.openai_schemas()
 
 

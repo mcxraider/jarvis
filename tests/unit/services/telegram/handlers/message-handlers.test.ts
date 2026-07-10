@@ -233,15 +233,11 @@ describe('MessageHandlers', () => {
     );
     expect(messageProcessor.processAudioMessage).not.toHaveBeenCalled();
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_document');
-    expect(ctx.reply).toHaveBeenCalledWith('Transcribing\\.', {
+    expect(ctx.reply).toHaveBeenCalledWith('Reading your request…', {
       parse_mode: 'MarkdownV2',
     });
-    // The transcription is delivered as its own message, above the thinking block.
+    // The transcription is delivered as its own message after the transient status.
     expect(ctx.reply).toHaveBeenCalledWith('🗣️: transcribed text', {
-      parse_mode: 'MarkdownV2',
-    });
-    // Thinking block starts fresh below the transcription (new message, not an edit).
-    expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.', {
       parse_mode: 'MarkdownV2',
     });
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
@@ -289,7 +285,7 @@ describe('MessageHandlers', () => {
     expect(ctx.reply).toHaveBeenCalledWith('🗣️: transcribed text', {
       parse_mode: 'MarkdownV2',
     });
-    expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.', { parse_mode: 'MarkdownV2' });
+    expect(ctx.reply).toHaveBeenCalledWith('Reading your request…', { parse_mode: 'MarkdownV2' });
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
   });
 

@@ -13,8 +13,41 @@ from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 USER_PROMPTS: List[str] = [
-    "add meet zac to google calendar next friday at 3pm and then update lunch with grandparents on todoist to p1 task."
-    # "Find the latest plans i have with feebee, put them into google calendar events, then add to todoist a new dinner with feebe church friends next saturday."
+    "pull my events from my govtech google calendar and then update lunch with grandparents on todoist to p3 task."
+    
+    # "Find the plans i have with feebee in the next 2 weeks, put them into google calendar events, then add to todoist a new dinner with feebee church friends next saturday."
+    
+    # "Find all my Todoist tasks and Google Calendar events involving Zac next week. Move anything after 6pm to the earliest free afternoon slot that same week, and mark the related Todoist tasks as P2.",
+
+    # "Find all my plans with Feebee, Zac, and church friends across Todoist and Google Calendar for the next 3 weeks. If any Todoist-only plans have a clear date/time, create matching Google Calendar events. If any Calendar events don’t have Todoist prep tasks, add one 2 hours before. Avoid duplicates.",
+    
+    # "I want to host dinner next Saturday or Sunday evening with Feebee, Zac, and church friends. Check my calendar and Todoist for conflicts, choose the least busy evening, create the Google Calendar event, then add Todoist tasks to book a place, message everyone, and buy a gift if there is already a birthday-related task nearby.",
+    
+    # "Clean up next week: find all Todoist tasks that look like meetings, dinners, calls, or appointments. For anything with a specific time but no matching Google Calendar event, create one. For anything with no time, schedule it into my earliest free slot, but don’t schedule social plans before 6pm.",
+    
+    # "Find the latest dinner/lunch/meetup plans involving grandparents, Feebee, or Zac. If any are overdue Todoist tasks, reschedule them to the next available weekend slot. If any conflict with existing Google Calendar events, move them to the nearest free evening and update both Todoist and Calendar consistently.",
+    
+    # "Plan my Friday: look at Todoist and Google Calendar, move any flexible tasks to free gaps, keep fixed calendar events untouched, add a 30-minute buffer before every travel/social event, and create one final Todoist task called ‘Friday plan confirmed’ after everything is organized.",
+    
+    # "Check when I’m free next Monday to Wednesday after work, schedule a 1-hour gym session on the least busy day, then add a Todoist task 30 minutes before it to pack gym clothes.",
+    
+    # "I think I have two lunch plans with grandparents somewhere in Todoist or Google Calendar. Find the latest one, cancel the older duplicate, and make sure the remaining one is marked important.",
+    
+    # "Find everything overdue in Todoist that looks like a social plan, move them to this weekend if I’m free, and put the confirmed ones into Google Calendar.",
+    
+    # "For every Google Calendar event next week that includes dinner, create a Todoist reminder task 2 hours before it, unless one already exists.",
+    
+    # "Add dinner with Feebee and church friends next Saturday evening, but only if I don’t already have plans with Feebee that day. If I do, combine them into one calendar event and update the Todoist task title accordingly.",
+
+    # "Whats on my google cal tmr"
+    # """### Created tasks
+
+    # | Time | Task | Details |
+    # |------|------|---------|
+    # | **5:30–6:00 PM** | 🎒 **Pack gym clothes** | Reminder to prepare before heading out |
+    # | **6:00–7:00 PM** | 🏋️ **Gym session** | 1-hour workout (duration set) |
+    # delete these tasks"""
+
     
     # """"
     # ## Google Calendar — 9 feebee plans created
@@ -30,7 +63,7 @@ USER_PROMPTS: List[str] = [
     # | Aug 1 (Sat) | 19:00–20:00 | talk with feebee |
     # | Aug 5 (Wed) | 18:00–20:30 | Spiderman brand new day with feebee | 
 
-    # delete these from my google calendar.
+    # add these from my google calendar.
     # """
     
     # "help me find out what projects i have in todoist, ill ask u to add a task to a one after that"

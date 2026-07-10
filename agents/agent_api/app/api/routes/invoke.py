@@ -37,6 +37,14 @@ def allow_bulk_mutations(request_value: Optional[bool]) -> bool:
 request_source = idempotency.request_source
 
 
+def parse_error_details(error: str) -> Optional[Dict[str, Any]]:
+    try:
+        parsed = json.loads(error)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
 def to_response(result: JarvisState) -> AgentResponse:
     thread_id = str(result.get("thread_id") or "")
     tool_results = result.get("tool_results", [])
@@ -67,6 +75,7 @@ def to_response(result: JarvisState) -> AgentResponse:
             response=user_response,
             tool_results=tool_results,
             error=error,
+            error_details=parse_error_details(error),
         )
 
     return AgentResponse(
@@ -105,14 +114,16 @@ def stream_agent_run(
     def emit_progress(progress: Dict[str, Any]) -> None:
         nonlocal sequence
         sequence += 1
-        events.put(
-            {
-                "type": "progress",
-                "sequence": sequence,
-                "stage": progress.get("stage", "progress"),
-                "message": progress.get("message", "Jarvis is working"),
-            }
-        )
+        event = {
+            "type": "progress",
+            "sequence": sequence,
+            # Preserve legacy fields for clients that have not adopted facts.
+            "stage": progress.get("stage", "progress"),
+            "message": progress.get("message", "Jarvis is working"),
+        }
+        if isinstance(progress.get("fact"), dict):
+            event["fact"] = progress["fact"]
+        events.put(event)
 
     def worker() -> None:
         try:

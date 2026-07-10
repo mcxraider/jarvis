@@ -3,235 +3,95 @@ import { Message } from 'telegraf/typings/core/types/typegram';
 import { LangGraphProgressEvent } from '../ai/langgraph-agent-client.service';
 import { LogContext, logger } from '../../utils/logger';
 import { editMessageTextWithMarkdown, replyWithMarkdown } from './formatters/telegram-markdown';
-import {
-  isRichMessagesEnabled,
-  newDraftId,
-  renderThinkingLabel,
-  sendRichDraft,
-} from './formatters/telegram-rich';
+import { isRichMessagesEnabled, newDraftId, renderThinkingLabel, sendRichDraft } from './formatters/telegram-rich';
+import { ProgressNarrator } from './progress-narrator';
 
-// The status line is deliberately dumb: a fixed base phrase whose only motion is the
-// trailing ellipsis. The phrase never rotates and never reacts to agent stages — the
-// dots cycling on an ~800ms tick are all the "alive" signal we need. Every dot frame is
-// a real Telegram API call, so the interval is kept comfortably under the throttle
-// (~1.25 calls/sec) rather than the snappier-but-riskier sub-second rates.
-const THINKING_LABEL = 'Thinking';
-const TRANSCRIBING_LABEL = 'Transcribing';
-const DOT_INTERVAL_MS = 800;
+const TICK_INTERVAL_MS = 1_000;
 
+/** Transport adapter for one narrator-controlled, ephemeral Telegram status line. */
 export class TelegramProgressReporter {
   private statusMessage?: Message.TextMessage;
   private richActive: boolean;
   private draftId?: number;
   private started = false;
-  private agentPhaseStarted = false;
   private completed = false;
-
-  private baseLabel = THINKING_LABEL;
-  private dotFrame = 0;
-  private dotTimer?: ReturnType<typeof setInterval>;
+  private timer?: ReturnType<typeof setInterval>;
   private paintInFlight = false;
+  private readonly narrator = new ProgressNarrator();
 
-  constructor(
-    private readonly ctx: Context,
-    private readonly logContext: LogContext = {},
-  ) {
-    this.richActive = isRichMessagesEnabled();
+  constructor(private readonly ctx: Context, private readonly logContext: LogContext = {}) {
+    // Rich drafts are private-chat only. The undefined allowance keeps lightweight
+    // unit-test contexts compatible while production Telegraf contexts have type.
+    this.richActive = isRichMessagesEnabled() && (!ctx.chat || ctx.chat.type === undefined || ctx.chat.type === 'private');
   }
 
   async start(): Promise<void> {
     if (this.started || this.completed) return;
-
     this.started = true;
-    this.agentPhaseStarted = true;
-    this.baseLabel = THINKING_LABEL;
-    this.dotFrame = 0;
-    await this.showInitialStatus(this.compose());
-    this.startDots();
+    this.narrator.start();
+    await this.paintDue();
+    this.startTimer();
   }
 
-  async startTranscribing(): Promise<void> {
-    if (this.started || this.completed) return;
+  async startTranscribing(): Promise<void> { await this.start(); }
+  async endTranscribing(): Promise<void> { return; }
+  async beginAgentPhase(): Promise<void> { await this.start(); }
 
-    this.started = true;
-    this.baseLabel = TRANSCRIBING_LABEL;
-    this.dotFrame = 0;
-    // Static on purpose: transcription is short, so we skip the dot timer and its API
-    // chatter until the agent phase begins.
-    await this.showInitialStatus(this.compose());
+  async record(event: LangGraphProgressEvent): Promise<void> {
+    if (this.completed || !event.fact) return;
+    this.narrator.record(event.fact);
+    await this.paintDue();
   }
 
-  // Tears down the "Transcribing..." block before the transcription message is
-  // sent, so the agent thinking block starts fresh BELOW the transcription.
-  // Plain fallback mode: deletes the status message (a real, position-fixed
-  // message), so beginAgentPhase() creates a new one under the transcription.
-  // Rich mode: the ephemeral draft is bottom-anchored and reused (morphed) by
-  // beginAgentPhase(), so there is nothing to remove here.
-  async endTranscribing(): Promise<void> {
-    if (this.completed) return;
-    await this.removePlainStatus();
-  }
-
-  async beginAgentPhase(): Promise<void> {
-    if (this.completed || this.agentPhaseStarted) return;
-
-    this.started = true;
-    this.agentPhaseStarted = true;
-    this.baseLabel = THINKING_LABEL;
-    this.dotFrame = 0;
-    await this.paintLabel(this.compose());
-    this.startDots();
-  }
-
-  // The status line no longer reflects agent stages, so progress events are UI-neutral.
-  // The method stays on the public API because callers still invoke it (and derive the
-  // completion status from the stage themselves).
-  async record(_event: LangGraphProgressEvent): Promise<void> {
-    return;
-  }
-
-  async complete(
-    _status: 'Done' | 'Paused for confirmation' | 'Paused for clarification' | 'Something went wrong',
-  ): Promise<void> {
+  async complete(_status: 'Done' | 'Paused for confirmation' | 'Paused for clarification' | 'Something went wrong'): Promise<void> {
     this.completed = true;
-    this.stopDots();
+    if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
     await this.removePlainStatus();
   }
 
-  private dots(): string {
-    return '.'.repeat((this.dotFrame % 3) + 1);
+  private startTimer(): void {
+    if (!this.timer) this.timer = setInterval(() => void this.paintDue(), TICK_INTERVAL_MS);
   }
 
-  private compose(): string {
-    return `${this.baseLabel}${this.dots()}`;
-  }
-
-  private startDots(): void {
-    if (this.completed || this.dotTimer) return;
-    this.dotTimer = setInterval(() => void this.tickDots(), DOT_INTERVAL_MS);
-  }
-
-  private stopDots(): void {
-    if (!this.dotTimer) return;
-    clearInterval(this.dotTimer);
-    this.dotTimer = undefined;
-  }
-
-  // Skip a tick if the previous paint is still in flight, so slow network paints can't
-  // stack up drafts behind the interval.
-  private async tickDots(): Promise<void> {
+  private async paintDue(): Promise<void> {
     if (this.completed || this.paintInFlight) return;
-
+    const label = this.narrator.next();
+    if (!label) return;
     this.paintInFlight = true;
-    this.dotFrame += 1;
     try {
-      await this.paintLabel(this.compose());
+      await this.paint(label);
     } finally {
       this.paintInFlight = false;
     }
   }
 
-  private async showInitialStatus(label: string): Promise<void> {
+  private async paint(label: string): Promise<void> {
     if (this.richActive && this.ctx.chat) {
-      this.draftId = newDraftId();
       try {
-        await sendRichDraft(this.ctx, this.draftId, this.renderRichLabel(label));
+        this.draftId = this.draftId || newDraftId();
+        await sendRichDraft(this.ctx, this.draftId, renderThinkingLabel(label));
         return;
       } catch (error) {
-        this.disableRichMode('progress.start', error);
+        this.richActive = false;
+        this.draftId = undefined;
+        logger.warn('telegram.rich.fallback', { ...this.logContext, stage: 'progress.update', error: error instanceof Error ? error.message : String(error) });
       }
     }
-
-    await this.createPlainStatus(label);
-  }
-
-  private async paintLabel(label: string): Promise<void> {
-    if (this.richActive && this.draftId && this.ctx.chat) {
-      try {
-        await sendRichDraft(this.ctx, this.draftId, this.renderRichLabel(label));
-        return;
-      } catch (error) {
-        this.disableRichMode('progress.update', error);
-        if (!this.completed) {
-          await this.createPlainStatus(label);
-        }
-        return;
-      }
-    }
-
-    if (this.statusMessage) {
-      await this.editPlainStatus(label);
-    } else if (!this.completed) {
-      await this.createPlainStatus(label);
-    }
-  }
-
-  private async createPlainStatus(label: string): Promise<void> {
-    try {
-      this.statusMessage = await replyWithMarkdown(
-        this.ctx.reply.bind(this.ctx),
-        label,
-        this.logContext,
-      );
-    } catch (error) {
-      logger.warn('telegram.progress.start_failed', {
-        ...this.logContext,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  private async editPlainStatus(label: string): Promise<void> {
-    if (!this.statusMessage || !this.ctx.chat || !('editMessageText' in this.ctx.telegram)) {
+    if (this.statusMessage && this.ctx.chat && 'editMessageText' in this.ctx.telegram) {
+      await editMessageTextWithMarkdown(this.ctx.telegram.editMessageText.bind(this.ctx.telegram), this.ctx.chat.id, this.statusMessage.message_id, label, {}, this.logContext).catch((error) => logger.warn('telegram.progress.edit_failed', { ...this.logContext, error: String(error) }));
       return;
     }
-
-    try {
-      await editMessageTextWithMarkdown(
-        this.ctx.telegram.editMessageText.bind(this.ctx.telegram),
-        this.ctx.chat.id,
-        this.statusMessage.message_id,
-        label,
-        {},
-        this.logContext,
-      );
-    } catch (error) {
-      logger.warn('telegram.progress.edit_failed', {
-        ...this.logContext,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    this.statusMessage = await replyWithMarkdown(this.ctx.reply.bind(this.ctx), label, this.logContext).catch((error) => {
+      logger.warn('telegram.progress.start_failed', { ...this.logContext, error: String(error) });
+      return undefined as unknown as Message.TextMessage;
+    });
   }
 
   private async removePlainStatus(): Promise<void> {
     const message = this.statusMessage;
     this.statusMessage = undefined;
-
-    if (!message || !this.ctx.chat || !('deleteMessage' in this.ctx.telegram)) {
-      return;
-    }
-
-    try {
-      await this.ctx.telegram.deleteMessage(this.ctx.chat.id, message.message_id);
-    } catch (error) {
-      logger.warn('telegram.progress.delete_failed', {
-        ...this.logContext,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  private disableRichMode(stage: string, error: unknown): void {
-    this.richActive = false;
-    this.draftId = undefined;
-    logger.warn('telegram.rich.fallback', {
-      ...this.logContext,
-      stage,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-
-  private renderRichLabel(label: string): string {
-    return renderThinkingLabel(label);
+    if (!message || !this.ctx.chat || !('deleteMessage' in this.ctx.telegram)) return;
+    await this.ctx.telegram.deleteMessage(this.ctx.chat.id, message.message_id).catch((error) => logger.warn('telegram.progress.delete_failed', { ...this.logContext, error: String(error) }));
   }
 }

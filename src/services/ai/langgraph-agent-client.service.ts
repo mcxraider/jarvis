@@ -8,6 +8,7 @@
 import { LogContext, logger } from '../../utils/logger';
 import {
   AgentResponseSchema,
+  ProgressFact,
   TelegramIdentityPayload,
   StreamEventSchema,
 } from '../../types/agent.types';
@@ -26,6 +27,7 @@ export interface LangGraphAgentResponse {
   interrupt?: import('../../types/agent.types').LangGraphInterrupt;
   toolResults: Record<string, unknown>[];
   error?: string;
+  errorDetails?: Record<string, unknown>;
 }
 
 // Progress events emitted during streamed requests, forwarded to the Telegram
@@ -34,6 +36,8 @@ export interface LangGraphProgressEvent {
   sequence?: number;
   stage: string;
   message: string;
+  fact?: ProgressFact;
+  metadata?: Record<string, unknown>;
 }
 
 export type LangGraphProgressCallback = (event: LangGraphProgressEvent) => void | Promise<void>;
@@ -72,7 +76,9 @@ export interface LangGraphAgentClientConfig {
   apiKey?: string;
 }
 
-const DEFAULT_TIMEOUT_MS = 60000;
+// Foreground progress remains useful for longer tool/LLM retries; callers can
+// still lower this explicitly for tests or constrained deployments.
+const DEFAULT_TIMEOUT_MS = 150000;
 const RETRY_DELAYS_MS = [1000, 3000];
 // Health probes are user-facing (/status) and must fail fast — don't inherit the
 // generous invoke/resume timeout.
@@ -192,6 +198,7 @@ export class LangGraphAgentClient {
         userId: request.userId,
         status: normalized.status,
         agentError: normalized.error,
+        ...this.backendErrorLogFields(normalized.errorDetails),
         threadId: normalized.threadId,
         requestedThreadId: request.threadId,
         durationMs: Date.now() - startedAt,
@@ -257,6 +264,7 @@ export class LangGraphAgentClient {
         userId: request.userId,
         status: finalResponse.status,
         agentError: finalResponse.error,
+        ...this.backendErrorLogFields(finalResponse.errorDetails),
         threadId: finalResponse.threadId,
         requestedThreadId: request.threadId,
         durationMs: Date.now() - startedAt,
@@ -406,7 +414,13 @@ export class LangGraphAgentClient {
 
     const event = result.data;
     if (event.type === 'progress') {
-      await onProgress({ sequence: event.sequence, stage: event.stage, message: event.message });
+      await onProgress({
+        sequence: event.sequence,
+        stage: event.stage || 'progress',
+        message: event.message || 'Jarvis is working',
+        ...(event.fact && { fact: event.fact }),
+        ...(event.metadata && { metadata: event.metadata }),
+      });
       return finalResponse;
     }
 
@@ -477,6 +491,7 @@ export class LangGraphAgentClient {
     interrupt?: import('../../types/agent.types').LangGraphInterrupt | null;
     tool_results?: Record<string, unknown>[] | null;
     error?: string | null;
+    error_details?: Record<string, unknown> | null;
   }): LangGraphAgentResponse {
     const status = (body.status as LangGraphAgentStatus) || 'failed';
     return {
@@ -486,15 +501,35 @@ export class LangGraphAgentClient {
       interrupt: body.interrupt ?? undefined,
       toolResults: body.tool_results || [],
       error: body.error ?? undefined,
+      errorDetails: body.error_details ?? undefined,
+    };
+  }
+
+  private backendErrorLogFields(
+    details?: Record<string, unknown>,
+  ): Record<string, unknown> {
+    if (!details) return {};
+    return {
+      backendErrorSource: details.source,
+      backendErrorType: details.type,
+      backendErrorRetryable: details.retryable,
+      backendErrorAttempts: details.attempts,
+      backendErrorTimeoutKind: details.timeout_kind,
+      backendErrorRequestTimeoutSeconds: details.request_timeout_seconds,
+      backendErrorTotalElapsedMs: details.total_elapsed_ms,
+      backendErrorProviderRequestId: details.provider_request_id,
     };
   }
 
   // User-safe error response when the agent API is unreachable or returns garbage.
   private fallbackResponse(threadId?: string, error?: string): LangGraphAgentResponse {
+    const timedOut = /abort|timed?\s*out/i.test(error || '');
     return {
       status: 'failed',
       threadId: threadId || '',
-      response: 'Jarvis is temporarily unavailable. Please try again in a moment.',
+      response: timedOut
+        ? 'I wasn’t able to finish this in time. Please try again in a moment.'
+        : 'Jarvis is temporarily unavailable. Please try again in a moment.',
       toolResults: [],
       ...(error && { error }),
     };

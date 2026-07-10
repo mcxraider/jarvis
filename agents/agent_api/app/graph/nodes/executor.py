@@ -34,6 +34,7 @@ from agents.agent_api.app.graph.resilience import (
 )
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.dispatcher import ToolDispatcher, tool_result_to_message
+from agents.agent_api.app.tools.metadata import get_service
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 
@@ -137,6 +138,8 @@ def create_executor_node(
             count=len(held_calls),
             decision=decision,
         )
+        if decision == "approve":
+            tracer.progress({"phase": "applying_change", "action": "started", "intent": "mutation"})
 
         # Guard 0: global mutation gate
         if not tool_dispatcher.allow_mutations:
@@ -273,12 +276,19 @@ def create_executor_node(
                 tracer.event("graph.executor", "BUG: idx in neither partition.", idx=idx)
                 result_messages.append(_abort_message(held, "internal error — no result produced"))
 
+        existing_results = state.get("tool_results", [])
+        existing_batches = {r.get("batch_index") for r in existing_results if r.get("batch_index") is not None}
+        current_batch = max(existing_batches, default=-1) + 1
+        for result in tool_results:
+            result["batch_index"] = current_batch
+            result["service"] = result.get("service") or get_service(result.get("tool_name", ""))
+
         return {
             "consumed_call_ids": consumed_ids,
             "held_calls": None,
             "confirm_decision": None,
             "messages": state.get("messages", []) + result_messages,
-            "tool_results": state.get("tool_results", []) + tool_results,
+            "tool_results": existing_results + tool_results,
             "next": "agent",
         }
 

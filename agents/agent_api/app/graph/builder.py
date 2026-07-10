@@ -273,7 +273,7 @@ def create_jarvis_graph(
             router=route_by_next,
             route_map={
                 "tools": "tools",
-                "confirm": "prepare_confirm",
+                "prepare_confirm": "prepare_confirm",
                 "agent": "agent",
             },
         ),
@@ -527,6 +527,7 @@ def run_jarvis(
         request_source=request_source,
         resuming=resuming,
     )
+    tracer.progress({"phase": "request", "action": "started"})
     tracer.payload("runtime.prompt", "user_prompt", user_prompt)
 
     agent_client = agent_client or DeepSeekAgentClient(tracer=tracer)
@@ -683,8 +684,18 @@ def run_jarvis(
             total_tokens=usage.total_tokens,
             cached_tokens=usage.cached_tokens,
             cache_hit_rate=cache_hit_rate,
-            reasoning_tokens=usage.reasoning_tokens,
-        )
+        reasoning_tokens=usage.reasoning_tokens,
+    )
+    if result.get("error"):
+        tracer.progress({"phase": "failed", "action": "failed"})
+    elif result.get("interrupted"):
+        tracer.progress({
+            "phase": "awaiting_confirmation",
+            "action": "waiting",
+            "intent": "confirm" if result.get("pending_interrupt") == "confirm" else "clarify",
+        })
+    else:
+        tracer.progress({"phase": "finalizing", "action": "completed"})
         result["run_log_path"] = str(run_log.path.resolve())
 
     duration_ms = int((finished_at - started_at).total_seconds() * 1000)

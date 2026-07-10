@@ -66,7 +66,23 @@ Audio messages are transcribed and then routed through the same `TextProcessorSe
 
 ## Logging
 
-Use the shared `logger` from `src/utils/logger.ts`. Do not use `console.log`.
+Use the shared async `logger` from `src/utils/logger.ts`. Do not use `console.log`.
+
+All new logging, trace, diagnostic, and debugger-style output must follow the
+current async logging path for its layer:
+
+- TypeScript: use the `logger` facade from `src/utils/logger.ts`, which queues
+  events to `src/utils/log-worker.ts`. Do not create direct Winston transports,
+  synchronous file writes, ad-hoc debug files, or request-path logging sinks.
+- Python: use the existing run logging facilities in
+  `agents/agent_api/app/run_logging.py` (`RunFileLog`, `FileLoggingTracer`,
+  `open_run_log`, and the background writer/flush/shutdown helpers). Do not add
+  direct `open()`, `write()`, `json.dumps()` dump paths, or synchronous debugger
+  output in graph/API request execution.
+- Any new diagnostic writer must be non-blocking for request/graph execution,
+  bounded under backpressure, redacted, best-effort on failure, and integrated
+  with the existing flush/shutdown hooks. Tests that read async logs should
+  flush the relevant logger first.
 
 Runtime logs are written to:
 

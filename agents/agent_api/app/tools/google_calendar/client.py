@@ -214,6 +214,13 @@ class GoogleCalendarClient:
                 )
                 if attempt < _MAX_ATTEMPTS:
                     last_error = api_error
+                    progress = getattr(self.tracer, "progress", None)
+                    if callable(progress): progress({
+                        "phase": "retrying",
+                        "action": "retrying",
+                        "domains": ["calendar"],
+                        "retry": {"target": "domain", "domain": "calendar", "reason": "temporary_connection"},
+                    })
                     self._sleep_before_retry(attempt)
                     continue
                 raise api_error from error
@@ -229,6 +236,14 @@ class GoogleCalendarClient:
             )
             if api_error.retryable and attempt < _MAX_ATTEMPTS:
                 last_error = api_error
+                retry_reason = "rate_limited" if api_error.kind == "rate-limit" else "service_unavailable"
+                progress = getattr(self.tracer, "progress", None)
+                if callable(progress): progress({
+                    "phase": "retrying",
+                    "action": "retrying",
+                    "domains": ["calendar"],
+                    "retry": {"target": "domain", "domain": "calendar", "reason": retry_reason},
+                })
                 self._sleep_before_retry(attempt)
                 continue
             raise api_error

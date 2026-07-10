@@ -14,7 +14,27 @@ from agents.agent_api.app.tools.dispatcher import (
     tool_result_to_message,
 )
 from agents.agent_api.app.tools.base import tool_call_name
+from agents.agent_api.app.tools.metadata import get_service
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
+
+
+_TODOIST_TOOLS_WITHOUT_PREFIX = frozenset({
+    "complete_task", "uncomplete_task", "create_project",
+    "get_tasks", "get_tasks_by_filter", "get_comments",
+    "add_comment", "get_labels", "get_projects",
+})
+
+
+def _progress_domain(tool_name: str) -> Optional[str]:
+    if "calendar" in tool_name:
+        return "calendar"
+    if "todoist" in tool_name or tool_name in _TODOIST_TOOLS_WITHOUT_PREFIX:
+        return "todoist"
+    if "gmail" in tool_name:
+        return "gmail"
+    if "notion" in tool_name:
+        return "notion"
+    return None
 
 
 def create_tools_node(
@@ -33,6 +53,19 @@ def create_tools_node(
         messages = copy.deepcopy(state.get("messages", []))
         latest_message = messages[-1] if messages else {}
         tool_calls = latest_message.get("tool_calls") or []
+        tool_names = [tool_call_name(call) for call in tool_calls]
+        domains = sorted({domain for name in tool_names if (domain := _progress_domain(name))})
+        intent = "mutation" if any(
+            spec.mutating
+            for name in tool_names
+            if (spec := tool_dispatcher.registry.get(name)) is not None
+        ) else "read"
+        tracer.progress({
+            "phase": "preparing_change" if intent == "mutation" else "lookup",
+            "action": "started",
+            **({"domains": domains} if domains else {}),
+            "intent": intent,
+        })
         tracer.event(
             "graph.tools",
             "Entering tools node.",
@@ -83,6 +116,14 @@ def create_tools_node(
                 tool_dispatcher,
             )
         results = rejected_results + results
+
+        existing_results = state.get("tool_results", [])
+        existing_batches = {r.get("batch_index") for r in existing_results if r.get("batch_index") is not None}
+        current_batch = max(existing_batches, default=-1) + 1
+        for result in results:
+            result["batch_index"] = current_batch
+            result["service"] = result.get("service") or get_service(result.get("tool_name", "")) or _progress_domain(result.get("tool_name", "")) or ""
+
         # Tool result messages are appended so the next agent turn can synthesize
         # an answer or request another tool call with full context.
         messages.extend(tool_result_to_message(result) for result in results)
@@ -93,6 +134,12 @@ def create_tools_node(
             successes=sum(1 for result in results if result.get("success")),
             failures=sum(1 for result in results if not result.get("success")),
         )
+        tracer.progress({
+            "phase": "review",
+            "action": "completed",
+            **({"domains": domains} if domains else {}),
+            "intent": intent,
+        })
 
         return {
             "messages": messages,

@@ -503,7 +503,7 @@ class _FakeAgentClientWithTracer:
         self.tracer = NULL_TRACE
 
     def create_message(
-        self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]
+        self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]], **kwargs
     ) -> Dict[str, Any]:
         self.tracer.event("agent.request", "Calling DeepSeek chat completions.")
         return dict(self.response)

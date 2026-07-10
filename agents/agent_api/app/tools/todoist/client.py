@@ -207,6 +207,13 @@ class TodoistApiClient:
                     {"status": error.code, "body": body},
                 )
                 if _should_retry(api_error, attempt, max_attempts, retry_deadline):
+                    progress = getattr(self.tracer, "progress", None)
+                    if callable(progress): progress({
+                        "phase": "retrying",
+                        "action": "retrying",
+                        "domains": ["todoist"],
+                        "retry": {"target": "domain", "domain": "todoist", "reason": "rate_limited" if api_error.kind == "rate-limit" else "service_unavailable"},
+                    })
                     _sleep_before_retry(api_error, attempt, retry_deadline)
                     continue
                 raise api_error from error
@@ -228,6 +235,13 @@ class TodoistApiClient:
                     error=str(getattr(error, "reason", error)),
                 )
                 if _should_retry(api_error, attempt, max_attempts, retry_deadline):
+                    progress = getattr(self.tracer, "progress", None)
+                    if callable(progress): progress({
+                        "phase": "retrying",
+                        "action": "retrying",
+                        "domains": ["todoist"],
+                        "retry": {"target": "domain", "domain": "todoist", "reason": "temporary_connection"},
+                    })
                     _sleep_before_retry(api_error, attempt, retry_deadline)
                     continue
                 raise api_error from error

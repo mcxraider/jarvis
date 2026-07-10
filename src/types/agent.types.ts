@@ -35,6 +35,36 @@ export const AgentResponseSchema = z.object({
   interrupt: LangGraphInterruptSchema.nullish(),
   tool_results: z.array(z.record(z.unknown())).nullish(),
   error: z.string().nullish(),
+  error_details: z.record(z.unknown()).nullish(),
+});
+
+export const ProgressDomainSchema = z.enum(['todoist', 'calendar', 'gmail', 'notion']);
+export const ProgressFactSchema = z.object({
+  phase: z.enum([
+    'request',
+    'routing',
+    'lookup',
+    'review',
+    'preparing_change',
+    'awaiting_confirmation',
+    'applying_change',
+    'finalizing',
+    'retrying',
+    'failed',
+  ]),
+  action: z.enum(['started', 'completed', 'waiting', 'retrying', 'failed']),
+  domains: z.array(ProgressDomainSchema).nullish(),
+  intent: z.enum(['read', 'mutation', 'clarify', 'confirm']).optional(),
+  retry: z.object({
+    target: z.enum(['domain', 'model', 'router']).optional(),
+    domain: ProgressDomainSchema.optional(),
+    reason: z.enum([
+      'temporary_connection',
+      'rate_limited',
+      'service_unavailable',
+      'timeout',
+    ]),
+  }).optional(),
 });
 
 // Streaming protocol: each line of the NDJSON stream is either a progress event
@@ -42,8 +72,11 @@ export const AgentResponseSchema = z.object({
 export const StreamProgressEventSchema = z.object({
   type: z.literal('progress'),
   sequence: z.number().optional(),
-  stage: z.string(),
-  message: z.string(),
+  // Legacy fields remain accepted while clients migrate to fact-based progress.
+  stage: z.string().optional(),
+  message: z.string().optional(),
+  fact: ProgressFactSchema.optional(),
+  metadata: z.record(z.unknown()).optional(),
 });
 
 export const StreamFinalEventSchema = z.object({
@@ -59,6 +92,7 @@ export const StreamEventSchema = z.discriminatedUnion('type', [
 export type LangGraphInterrupt = z.infer<typeof LangGraphInterruptSchema>;
 export type TelegramIdentityPayload = z.infer<typeof TelegramIdentitySchema>;
 export type AgentResponse = z.infer<typeof AgentResponseSchema>;
+export type ProgressFact = z.infer<typeof ProgressFactSchema>;
 export type StreamProgressEvent = z.infer<typeof StreamProgressEventSchema>;
 export type StreamFinalEvent = z.infer<typeof StreamFinalEventSchema>;
 export type StreamEvent = z.infer<typeof StreamEventSchema>;

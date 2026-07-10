@@ -191,6 +191,22 @@ class TestAgentResponse:
         assert resp.error is not None
         assert "DeepSeek" in resp.error
 
+    def test_accepts_failed_response_with_error_details(self):
+        data = load_fixture("response-failed.json")
+        data["error_details"] = {
+            "source": "deepseek",
+            "type": "timeout",
+            "retryable": True,
+            "attempts": 3,
+            "timeout_kind": "read",
+            "request_timeout_seconds": 90.0,
+            "total_elapsed_ms": 275000.0,
+            "provider_request_id": "req_123",
+        }
+        resp = AgentResponse.model_validate(data)
+        assert resp.error_details is not None
+        assert resp.error_details["type"] == "timeout"
+
     def test_serialization_roundtrip(self):
         """model_dump() produces the expected shape for all variants."""
         for fixture_name in [

@@ -1,6 +1,7 @@
 # Ideas
 
 
+
 ### Latency
 - User query cache (need versioning for preferences schema etc as it may change or maybe everytime they edit preferences then need to scrub their cache). Do this using a hash(user preferences version  + query) cache
 
@@ -16,8 +17,7 @@
 
 
 ### Agent capability enhancements
-- query difficulty routing to different models (deterministic. 2 domain = flash, 3+ = pro)
-
+- when at the prepare_confirm stage, if user gives input instead of clicking Accept/ Decline, then it should route back to the model. With the correct context. Ie, the confirm message, and the users input. Need a way to check if another node should fix this because if model asks for prepare confirm, then the user gives like "yes, but change one part" then the model should redo the thing, fix it edit out that part, and clarify again. but if the guy says "yes all is good". then it should bypass the permissions and dont need to go prepare_confirm anymore because user already implied yes. 
 
 ### LLM
 #### Query intelligence (maybe add this to the router features)
@@ -37,13 +37,7 @@ This is one of the more interesting decisions in the architecture. There are fou
 
 
 ### UX
-- better logging to the user on telegram:
-  -> User asks: "When am i free next week" -> "Routing..." -> router 
-    -> router determines domains 
-      -> [Async] reply to user: "Got it — I’m loading Todoist/Google Calendar..."
-      -> [Async] Orchestrator starts fetching
-        -> [After router reply to user] "Preparing app tools..." -> "Running App request..." -> "Received App Response..."
-          -> [orchestrator reply to user] model answer
+
 
 ### Speech
 

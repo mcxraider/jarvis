@@ -36,6 +36,7 @@ class FakeDeepSeekAgentClient:
         self,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
+        **kwargs,
     ) -> Dict[str, Any]:
         self.calls.append(copy.deepcopy(messages))
         self.tool_calls.append(copy.deepcopy(tools))
@@ -1664,6 +1665,7 @@ class JarvisGraphTests(unittest.TestCase):
                 self,
                 _messages: List[Dict[str, Any]],
                 _tools: List[Dict[str, Any]],
+                **kwargs,
             ) -> Dict[str, Any]:
                 raise jarvis.DeepSeekAgentClientError(payload)
 

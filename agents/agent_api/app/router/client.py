@@ -338,6 +338,13 @@ class RouterClient:
                 else None
             ),
         )
+        progress = getattr(self.tracer, "progress", None)
+        if callable(progress):
+            progress({
+                "phase": "retrying",
+                "action": "retrying",
+                "retry": {"target": "router", "reason": "temporary_connection"},
+            })
 
     def _is_retryable_error(self, error: BaseException) -> bool:
         if isinstance(error, (APITimeoutError, APIConnectionError)):

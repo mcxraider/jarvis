@@ -36,6 +36,9 @@ DEEPSEEK_REASONING_EFFORT = settings.deepseek_reasoning_effort
 DEEPSEEK_REQUEST_TIMEOUT_SECONDS = settings.deepseek_request_timeout_seconds
 DEEPSEEK_MAX_RETRY_ATTEMPTS = settings.deepseek_max_retry_attempts
 DEEPSEEK_RETRY_MAX_DELAY_SECONDS = settings.deepseek_retry_max_delay_seconds
+DEEPSEEK_SDK_MAX_RETRIES = settings.deepseek_sdk_max_retries
+DEEPSEEK_MAX_TOKENS = settings.deepseek_max_tokens
+DEEPSEEK_THINKING_ENABLED = settings.deepseek_thinking_enabled
 
 # Query router (pre-orchestrator domain classifier). Opt-in and non-critical:
 # see app/router/ and the RouterToolSelector. TOOL_SELECTOR chooses the strategy.
@@ -79,6 +82,9 @@ __all__ = [
     "DEEPSEEK_REQUEST_TIMEOUT_SECONDS",
     "DEEPSEEK_MAX_RETRY_ATTEMPTS",
     "DEEPSEEK_RETRY_MAX_DELAY_SECONDS",
+    "DEEPSEEK_SDK_MAX_RETRIES",
+    "DEEPSEEK_MAX_TOKENS",
+    "DEEPSEEK_THINKING_ENABLED",
     "ROUTER_ENABLED",
     "ROUTER_MODEL",
     "ROUTER_BASE_URL",
