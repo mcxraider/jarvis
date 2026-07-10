@@ -41,6 +41,13 @@ def _positive_int_env(name: str, default: int) -> int:
     return value
 
 
+def _non_negative_int_env(name: str, default: int) -> int:
+    value = _int_env(name, default)
+    if value < 0:
+        raise ValueError(f"{name} must be zero or greater.")
+    return value
+
+
 def _positive_float_env(name: str, default: float) -> float:
     value = _float_env(name, default)
     if value <= 0:
@@ -58,6 +65,9 @@ class Settings:
     deepseek_request_timeout_seconds: float
     deepseek_max_retry_attempts: int
     deepseek_retry_max_delay_seconds: float
+    deepseek_sdk_max_retries: int
+    deepseek_max_tokens: int
+    deepseek_thinking_enabled: bool
     # Query router (pre-orchestrator domain classifier). Opt-in via router_enabled;
     # tool_selector selects the strategy ("static" | "keyword" | "router"). The
     # router reuses the DeepSeek OpenAI-compatible endpoint but with tighter,
@@ -151,6 +161,9 @@ def load_settings() -> Settings:
         deepseek_request_timeout_seconds=_float_env("DEEPSEEK_REQUEST_TIMEOUT_SECONDS", 30.0),
         deepseek_max_retry_attempts=_int_env("DEEPSEEK_MAX_RETRY_ATTEMPTS", 3),
         deepseek_retry_max_delay_seconds=_float_env("DEEPSEEK_RETRY_MAX_DELAY_SECONDS", 8.0),
+        deepseek_sdk_max_retries=_non_negative_int_env("DEEPSEEK_SDK_MAX_RETRIES", 0),
+        deepseek_max_tokens=_positive_int_env("DEEPSEEK_MAX_TOKENS", 13000),
+        deepseek_thinking_enabled=_bool_env("DEEPSEEK_THINKING_ENABLED", True),
         # Router defaults: reuse the DeepSeek endpoint/key, reasoning off, and a
         # modest budget (per-attempt 5s timeout, 2 attempts) — the router is
         # non-critical and always degrades to the static selector on failure.

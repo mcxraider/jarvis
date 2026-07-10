@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -17,11 +18,14 @@ from tenacity.nap import sleep as tenacity_sleep
 
 from agents.agent_api.app.constants import (
     DEEPSEEK_BASE_URL,
+    DEEPSEEK_MAX_TOKENS,
     DEEPSEEK_MAX_RETRY_ATTEMPTS,
     DEEPSEEK_MODEL,
     DEEPSEEK_REASONING_EFFORT,
     DEEPSEEK_REQUEST_TIMEOUT_SECONDS,
     DEEPSEEK_RETRY_MAX_DELAY_SECONDS,
+    DEEPSEEK_SDK_MAX_RETRIES,
+    DEEPSEEK_THINKING_ENABLED,
 )
 from agents.agent_api.app.graph.prompts.context import build_user_prompt_with_request_datetime
 from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
@@ -195,8 +199,10 @@ class DeepSeekAgentClient:
     ):
         self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
         self.model = model
+        self.base_url = base_url
         self.reasoning_effort = reasoning_effort
         self.tracer = tracer or NULL_TRACE
+        self.request_timeout_seconds = request_timeout_seconds
         # Token usage accumulated across every turn/retry of one Jarvis run, read
         # by run_jarvis for the per-run log footer. LangSmith gets per-call usage
         # automatically via wrap_openai; this is the on-disk fallback.
@@ -211,13 +217,9 @@ class DeepSeekAgentClient:
                 api_key=self.api_key,
                 base_url=base_url,
                 timeout=request_timeout_seconds,
+                max_retries=DEEPSEEK_SDK_MAX_RETRIES,
             )
         )
-
-    def apply_selection(self, model: str, reasoning_effort: str) -> None:
-        """Swap model and reasoning effort for the next create_message call."""
-        self.model = model
-        self.reasoning_effort = reasoning_effort
 
     @traceable(
         name="deepseek_create_message",
@@ -227,29 +229,59 @@ class DeepSeekAgentClient:
         self,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
+        *,
+        model: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> Dict[str, Any]:
+        use_model = model or self.model
+        use_effort = reasoning_effort or self.reasoning_effort
         self.tracer.event(
             "agent.request",
             "Calling DeepSeek chat completions.",
-            model=self.model,
-            reasoning_effort=self.reasoning_effort,
+            model=use_model,
+            reasoning_effort=use_effort,
             messages=len(messages),
             tools=len(tools),
+            request_timeout_seconds=self.request_timeout_seconds,
+            sdk_max_retries=DEEPSEEK_SDK_MAX_RETRIES,
+            max_retry_attempts=self.max_retry_attempts,
+            retry_max_delay_seconds=self.retry_max_delay_seconds,
+            max_tokens=DEEPSEEK_MAX_TOKENS,
+            thinking_enabled=DEEPSEEK_THINKING_ENABLED,
+            base_url=self.base_url,
         )
         attempts = 0
+        request_started = time.monotonic()
 
         def create_completion() -> Any:
             nonlocal attempts
             attempts += 1
-            return self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto",
-                max_tokens=13000,
-                reasoning_effort=self.reasoning_effort,
-                extra_body={"thinking": {"type": "enabled"}},
-            )
+            attempt_started = time.monotonic()
+            try:
+                return self.client.chat.completions.create(
+                    model=use_model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto",
+                    max_tokens=DEEPSEEK_MAX_TOKENS,
+                    reasoning_effort=use_effort,
+                    extra_body={
+                        "thinking": {
+                            "type": "enabled" if DEEPSEEK_THINKING_ENABLED else "disabled"
+                        }
+                    },
+                )
+            except Exception as error:
+                self.tracer.event(
+                    "agent.attempt.error",
+                    "DeepSeek chat completion attempt failed.",
+                    attempt=attempts,
+                    error_type=self._error_type(error),
+                    status_code=self._status_code(error),
+                    elapsed_ms=round((time.monotonic() - attempt_started) * 1000, 1),
+                    **self._error_details(error),
+                )
+                raise
 
         try:
             response = self._retrying()(create_completion)
@@ -258,7 +290,9 @@ class DeepSeekAgentClient:
             self.usage.add(turn_usage)
             message = raw_message_from_openai(response.choices[0].message)
         except Exception as error:
+            total_elapsed_ms = round((time.monotonic() - request_started) * 1000, 1)
             payload = self._failure_payload(error, attempts)
+            payload["total_elapsed_ms"] = total_elapsed_ms
             self.tracer.event(
                 "agent.error",
                 "DeepSeek chat completion failed.",
@@ -266,6 +300,16 @@ class DeepSeekAgentClient:
                 retryable=payload["retryable"],
                 attempts=payload["attempts"],
                 status_code=payload.get("status_code"),
+                provider_request_id=payload.get("provider_request_id"),
+                exception_type=payload.get("exception_type"),
+                exception_module=payload.get("exception_module"),
+                timeout_kind=payload.get("timeout_kind"),
+                base_url=payload.get("base_url"),
+                request_timeout_seconds=payload.get("request_timeout_seconds"),
+                sdk_max_retries=payload.get("sdk_max_retries"),
+                max_retry_attempts=payload.get("max_retry_attempts"),
+                retry_max_delay_seconds=payload.get("retry_max_delay_seconds"),
+                total_elapsed_ms=payload.get("total_elapsed_ms"),
             )
             raise DeepSeekAgentClientError(payload) from error
 
@@ -308,7 +352,33 @@ class DeepSeekAgentClient:
             attempt=retry_state.attempt_number,
             error_type=self._error_type(error),
             status_code=self._status_code(error),
+            provider_request_id=self._provider_request_id(error),
+            exception_type=type(error).__name__ if error is not None else None,
+            exception_module=type(error).__module__ if error is not None else None,
+            timeout_kind=self._timeout_kind(error),
+            retry_sleep_seconds=(
+                round(retry_state.next_action.sleep, 3)
+                if getattr(retry_state, "next_action", None) is not None
+                else None
+            ),
         )
+        progress = getattr(self.tracer, "progress", None)
+        if callable(progress):
+            progress({
+                "phase": "retrying",
+                "action": "retrying",
+                "retry": {"target": "model", "reason": self._progress_retry_reason(error)},
+            })
+
+    def _progress_retry_reason(self, error: Optional[BaseException]) -> str:
+        error_type = self._error_type(error)
+        if error_type == "rate_limit":
+            return "rate_limited"
+        if error_type == "server_error":
+            return "service_unavailable"
+        if error_type == "timeout":
+            return "timeout"
+        return "temporary_connection"
 
     def _is_retryable_error(self, error: BaseException) -> bool:
         if isinstance(error, (APITimeoutError, APIConnectionError)):
@@ -330,10 +400,66 @@ class DeepSeekAgentClient:
             "retryable": self._is_retryable_error(error),
             "attempts": attempts,
             "message": str(error),
+            "error_message": str(error),
+            "base_url": self.base_url,
+            "request_timeout_seconds": self.request_timeout_seconds,
+            "sdk_max_retries": DEEPSEEK_SDK_MAX_RETRIES,
+            "retry_max_delay_seconds": self.retry_max_delay_seconds,
+            "max_retry_attempts": self.max_retry_attempts,
+            **self._error_details(error),
         }
         if status_code is not None:
             payload["status_code"] = status_code
         return payload
+
+    def _error_details(self, error: Optional[BaseException]) -> Dict[str, Any]:
+        if error is None:
+            return {
+                "exception_type": None,
+                "exception_module": None,
+                "error_message": None,
+                "provider_request_id": None,
+                "timeout_kind": None,
+            }
+        return {
+            "exception_type": type(error).__name__,
+            "exception_module": type(error).__module__,
+            "error_message": str(error),
+            "provider_request_id": self._provider_request_id(error),
+            "timeout_kind": self._timeout_kind(error),
+        }
+
+    def _provider_request_id(self, error: Optional[BaseException]) -> Optional[str]:
+        response = getattr(error, "response", None)
+        headers = getattr(response, "headers", None)
+        if headers is None:
+            return None
+        for name in ("x-request-id", "x-ds-request-id", "request-id"):
+            value = headers.get(name)
+            if value:
+                return str(value)
+        return None
+
+    def _timeout_kind(self, error: Optional[BaseException]) -> Optional[str]:
+        seen: set[int] = set()
+        current: Optional[BaseException] = error
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            name = type(current).__name__.lower()
+            if "connecttimeout" in name or "connectiontimeout" in name:
+                return "connect"
+            if "readtimeout" in name:
+                return "read"
+            if "writetimeout" in name:
+                return "write"
+            if "pooltimeout" in name:
+                return "pool"
+            current = (
+                current.__cause__
+                if current.__cause__ is not None
+                else current.__context__
+            )
+        return "timeout" if isinstance(error, APITimeoutError) else None
 
     def _error_type(self, error: Optional[BaseException]) -> str:
         if error is None:
@@ -491,7 +617,6 @@ def create_agent_node(
             return {
                 "error": error,
                 "final_response": user_message,
-                "next": "end",
             }
 
         messages = copy.deepcopy(state.get("messages", []))
@@ -529,6 +654,21 @@ def create_agent_node(
         if not clarification_history and not active_domains and selector_decision:
             active_domains = list(effective_router_domains(selector_decision))
 
+        routed_domains = [
+            {"google_calendar": "calendar"}.get(domain, domain)
+            for domain in (active_domains or [])
+            if domain in {"todoist", "google_calendar", "calendar", "gmail", "notion"}
+        ]
+        selected_specs = [registry.get(name) for name in selected_tool_names]
+        intent = "mutation" if any(spec and spec.mutating for spec in selected_specs) else "read"
+        if routed_domains:
+            tracer.progress({
+                "phase": "routing",
+                "action": "completed",
+                "domains": sorted(set(routed_domains)),
+                "intent": intent,
+            })
+
         tracer.event(
             "graph.tools.selected",
             "Selected tools for this turn.",
@@ -549,9 +689,12 @@ def create_agent_node(
         # On the first turn, swap in the router's cleaned-up restatement (if any);
         # the original query stays in state["user_prompt"]. No-op on later turns.
         _apply_router_query_rewrite(messages, tool_selector, state, tracer)
+        model_override = None
+        effort_override = None
         if model_router is not None and selector_decision is not None:
             selection = model_router.select(selector_decision)
-            agent_client.apply_selection(selection.model, selection.reasoning_effort)
+            model_override = selection.model
+            effort_override = selection.reasoning_effort
             tracer.event(
                 "model_router.selected",
                 "Model router selected model for this turn.",
@@ -559,7 +702,10 @@ def create_agent_node(
                 reasoning_effort=selection.reasoning_effort,
             )
         try:
-            assistant_message = agent_client.create_message(messages, tool_schemas)
+            assistant_message = agent_client.create_message(
+                messages, tool_schemas,
+                model=model_override, reasoning_effort=effort_override,
+            )
         except DeepSeekAgentClientError as error:
             tracer.event(
                 "graph.agent",
@@ -570,12 +716,10 @@ def create_agent_node(
             return {
                 "error": json.dumps(error.payload, sort_keys=True),
                 "final_response": LLM_FAILURE_MESSAGE,
-                "next": "end",
             }
         messages.append(assistant_message)
 
         final_response = ""
-        next_node = "end"
 
         if not assistant_message.get("tool_calls"):
             content = assistant_message.get("content") or ""
@@ -591,7 +735,6 @@ def create_agent_node(
                         },
                     }
                 ]
-                next_node = "hitl"
                 tracer.event(
                     "agent.question_detected",
                     "Model asked in plain text; routing to HITL.",
@@ -599,6 +742,7 @@ def create_agent_node(
                 )
             else:
                 final_response = content
+                tracer.progress({"phase": "finalizing", "action": "started"})
                 tracer.payload("agent.final", "content", final_response)
                 run_log = getattr(tracer, "run_log", None)
                 if run_log is not None:
@@ -606,17 +750,10 @@ def create_agent_node(
                         "final_turn_input (context sent to LLM on ANSWER turn)",
                         messages[:-1],
                     )
-        else:
-            tool_calls = assistant_message.get("tool_calls") or []
-            if any(is_ask_user_tool_call(tc) for tc in tool_calls):
-                next_node = "hitl"
-            elif tool_calls:
-                next_node = "tools"
 
         tracer.event(
             "graph.route",
             "Agent node completed.",
-            next=next_node,
             turn=turn_count + 1,
         )
 
@@ -624,7 +761,6 @@ def create_agent_node(
             "messages": messages,
             "turn_count": turn_count + 1,
             "final_response": final_response,
-            "next": next_node,
             "selected_tool_names": selected_tool_names,
             "active_domains": active_domains,
         }

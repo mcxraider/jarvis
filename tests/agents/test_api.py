@@ -141,6 +141,8 @@ class JarvisApiTests(unittest.TestCase):
     def test_invoke_stream_emits_progress_and_final_response(self) -> None:
         def fake_run(**kwargs):
             tracer = kwargs["tracer"]
+            tracer.progress({"phase": "request", "action": "started"})
+            tracer.progress({"phase": "lookup", "action": "started", "domains": ["todoist"], "intent": "read"})
             tracer.event("runtime.start", "Starting graph invocation.", resuming=False)
             tracer.event("graph.agent", "Entering agent node.", turn=1, max_turns=20)
             tracer.event("agent.request", "Calling DeepSeek chat completions.")
@@ -168,13 +170,14 @@ class JarvisApiTests(unittest.TestCase):
         events = [json.loads(line) for line in response.text.strip().splitlines()]
         self.assertEqual(events[-1]["type"], "final")
         self.assertEqual(events[-1]["response"]["response"], "Done.")
-        progress_messages = [event["message"] for event in events if event["type"] == "progress"]
-        self.assertIn("Agent started and opened a Jarvis run", progress_messages)
-        self.assertIn("Calling Todoist (1 request(s))", progress_messages)
+        progress_facts = [event.get("fact") for event in events if event["type"] == "progress"]
+        self.assertIn({"phase": "request", "action": "started"}, progress_facts)
+        self.assertIn({"phase": "lookup", "action": "started", "domains": ["todoist"], "intent": "read"}, progress_facts)
 
     def test_resume_stream_emits_resume_progress(self) -> None:
         def fake_run(**kwargs):
             tracer = kwargs["tracer"]
+            tracer.progress({"phase": "request", "action": "started"})
             tracer.event("runtime.start", "Starting graph invocation.", resuming=True)
             tracer.event("runtime.done", "Graph invocation completed.", interrupted=False)
             return {
@@ -197,7 +200,7 @@ class JarvisApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         events = [json.loads(line) for line in response.text.strip().splitlines()]
-        self.assertEqual(events[0]["message"], "Resuming the previous Jarvis run")
+        self.assertEqual(events[0]["fact"], {"phase": "request", "action": "started"})
         self.assertEqual(events[-1]["response"]["response"], "Updated.")
 
     def test_resume_uses_thread_id_and_reply(self) -> None:

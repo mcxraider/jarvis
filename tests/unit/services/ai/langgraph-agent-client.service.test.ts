@@ -60,6 +60,7 @@ describe('LangGraphAgentClient', () => {
       interrupt: undefined,
       toolResults: [{ tool_name: 'add_todoist_task' }],
       error: undefined,
+      errorDetails: undefined,
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -205,6 +206,16 @@ describe('LangGraphAgentClient', () => {
             response: 'Jarvis is temporarily unavailable. Please try again in a moment.',
             tool_results: [],
             error: 'Stored user preferences failed schema validation.',
+            error_details: {
+              source: 'deepseek',
+              type: 'timeout',
+              retryable: true,
+              attempts: 3,
+              timeout_kind: 'read',
+              request_timeout_seconds: 90,
+              total_elapsed_ms: 275000,
+              provider_request_id: 'req_deepseek_123',
+            },
           },
         },
       ]),
@@ -218,6 +229,14 @@ describe('LangGraphAgentClient', () => {
       expect.objectContaining({
         status: 'failed',
         agentError: 'Stored user preferences failed schema validation.',
+        backendErrorSource: 'deepseek',
+        backendErrorType: 'timeout',
+        backendErrorRetryable: true,
+        backendErrorAttempts: 3,
+        backendErrorTimeoutKind: 'read',
+        backendErrorRequestTimeoutSeconds: 90,
+        backendErrorTotalElapsedMs: 275000,
+        backendErrorProviderRequestId: 'req_deepseek_123',
       }),
     );
   });

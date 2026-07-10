@@ -56,7 +56,7 @@ class _RecordingClient:
         self.seen_tools: List[Dict[str, Any]] = []
         self._response = response or {"role": "assistant", "content": "done"}
 
-    def create_message(self, messages, tools):
+    def create_message(self, messages, tools, **kwargs):
         self.seen_messages = list(messages)
         self.seen_tools = list(tools)
         return self._response

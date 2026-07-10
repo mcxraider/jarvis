@@ -123,6 +123,11 @@ def create_hitl_node(tracer: Optional[TracePrinter] = None):
             deferred_tools=len(deferred_tool_calls),
             extra_questions=len(extra_ask_user_calls),
         )
+        tracer.progress({
+            "phase": "awaiting_confirmation",
+            "action": "waiting",
+            "intent": "clarify",
+        })
 
         human_reply = interrupt(payload)
         reply_text = str(human_reply)

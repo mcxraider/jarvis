@@ -87,9 +87,11 @@ def test_calendar_reads_are_not_gated():
 
 
 def test_calendar_bulk_crosses_threshold():
-    # Enough prior mutations that the next calendar mutation trips the bulk gate.
-    state = {"tool_results": [{"tool_name": "create_calendar_event"}] * risk.BULK_THRESHOLD}
-    assert risk.classify_risk(_tool_call("create_calendar_event"), state) == "risky"
+    # A batch of >= BULK_THRESHOLD calendar mutations trips the bulk gate.
+    calls = [_tool_call("create_calendar_event") for _ in range(risk.BULK_THRESHOLD)]
+    risky, safe = risk.partition_tool_calls(calls, {"tool_results": []})
+    assert len(risky) == risk.BULK_THRESHOLD
+    assert safe == []
 
 
 # -- 3. dynamic prompt --------------------------------------------------------

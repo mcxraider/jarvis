@@ -146,6 +146,7 @@ class AgentResponse(BaseModel):
     interrupt: Optional[Dict[str, Any]] = None
     tool_results: List[Dict[str, Any]] = Field(default_factory=list)
     error: Optional[str] = None
+    error_details: Optional[Dict[str, Any]] = None
 
 
 class BulkAgentResponse(BaseModel):

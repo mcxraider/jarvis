@@ -105,6 +105,7 @@ def create_prepare_confirm_node(tracer: Optional[TracePrinter] = None):
             tool_names=list({h["tool_name"] for h in held_calls}),
             deferred_count=len(safe),
         )
+        tracer.progress({"phase": "preparing_change", "action": "started", "intent": "mutation"})
 
         return {
             "held_calls": held_calls,

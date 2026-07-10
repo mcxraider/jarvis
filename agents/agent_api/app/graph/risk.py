@@ -2,7 +2,7 @@
 
 Classifies tool calls by risk level *before* execution so risky actions can be
 routed to the confirm gate instead of executing immediately. Classification is
-based purely on the call signature and cumulative mutation count — no model call.
+based purely on the call signature and current batch size — no model call.
 """
 
 from typing import Any, Dict, List, Tuple
@@ -15,9 +15,6 @@ from agents.agent_api.app.tools.todoist.schemas import MUTATING_TOOL_NAMES
 
 RISKY_TOOLS = always_risky_tools()
 
-# Every domain's mutating tools share one gate: a single mutation is "low"
-# (executes normally), but crossing the bulk threshold in a turn — or being
-# individually always-risky, like a delete — routes to the confirm gate.
 MUTATING_TOOLS = frozenset(MUTATING_TOOL_NAMES | MUTATING_CALENDAR_TOOLS)
 
 BULK_THRESHOLD = CONFIRM_BULK_THRESHOLD
@@ -26,16 +23,15 @@ BULK_THRESHOLD = CONFIRM_BULK_THRESHOLD
 def classify_risk(tool_call: Dict[str, Any], state: Dict[str, Any]) -> str:
     """Classify a single tool call as "risky", "low", or "read".
 
-    - "risky": irreversible or bulk-threshold-exceeding mutation → confirm gate
+    - "risky": always-risky (e.g. delete) → confirm gate
     - "low": single reversible mutation → execute normally
     - "read": non-mutating → execute normally
+
+    Note: batch-level bulk gating is handled by partition_tool_calls, not here.
     """
     name = tool_call_name(tool_call)
 
     if name in RISKY_TOOLS:
-        return "risky"
-
-    if name in MUTATING_TOOLS and _mutation_count_this_turn(state) >= BULK_THRESHOLD:
         return "risky"
 
     if name in MUTATING_TOOLS:
@@ -48,27 +44,29 @@ def partition_tool_calls(
     tool_calls: List[Dict[str, Any]],
     state: Dict[str, Any],
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Split tool calls into (risky, safe) based on risk classification."""
+    """Split tool calls into (risky, safe) based on risk classification.
+
+    Batch-aware: if the current batch contains >= BULK_THRESHOLD mutations,
+    ALL mutations in the batch are classified as risky regardless of history.
+    """
     risky: List[Dict[str, Any]] = []
     safe: List[Dict[str, Any]] = []
 
+    current_mutation_count = sum(
+        1 for call in tool_calls if tool_call_name(call) in MUTATING_TOOLS
+    )
+    batch_is_bulk = current_mutation_count >= BULK_THRESHOLD
+
     for tool_call in tool_calls:
-        if classify_risk(tool_call, state) == "risky":
+        name = tool_call_name(tool_call)
+        if name in RISKY_TOOLS:
+            risky.append(tool_call)
+        elif batch_is_bulk and name in MUTATING_TOOLS:
             risky.append(tool_call)
         else:
             safe.append(tool_call)
 
     return risky, safe
-
-
-def _mutation_count_this_turn(state: Dict[str, Any]) -> int:
-    """Count mutating tool results accumulated so far in this turn."""
-    tool_results = state.get("tool_results") or []
-    return sum(
-        1
-        for result in tool_results
-        if result.get("tool_name") in MUTATING_TOOLS
-    )
 
 
 __all__ = ["BULK_THRESHOLD", "RISKY_TOOLS", "classify_risk", "partition_tool_calls"]

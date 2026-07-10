@@ -54,7 +54,7 @@ class TestPassthrough:
             [_tool_call("delete_todoist_task", args={"task_id": "t1"})],
             tool_results=[_result([{"id": "t1"}])],
         )
-        assert _node()(state) == {"next": "confirm"}
+        assert _node()(state) == {"next": "prepare_confirm"}
 
     def test_fail_open_for_tools_without_requirements(self):
         # add_todoist_task has no entity requirements -> passes even with no reads.

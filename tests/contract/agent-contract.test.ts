@@ -128,8 +128,8 @@ describe('Agent API contract — rejection cases', () => {
     expect(result.success).toBe(false);
   });
 
-  it('rejects progress event without stage', () => {
-    const data = { type: 'progress', message: 'Working...' };
+  it('rejects progress events with an invalid semantic fact', () => {
+    const data = { type: 'progress', fact: { phase: 'unknown', action: 'started' } };
     const result = StreamProgressEventSchema.safeParse(data);
     expect(result.success).toBe(false);
   });

@@ -123,6 +123,11 @@ def create_confirm_node(tracer: Optional[TracePrinter] = None):
             tool_names=payload["tool_names"],
             summary=summary,
         )
+        tracer.progress({
+            "phase": "awaiting_confirmation",
+            "action": "waiting",
+            "intent": "confirm",
+        })
 
         human_reply = interrupt(payload)
         decision = parse_decision(human_reply)

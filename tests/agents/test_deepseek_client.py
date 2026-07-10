@@ -1,5 +1,6 @@
 """Unit tests for DeepSeekAgentClient retry/backoff logic."""
 
+import inspect
 import os
 from unittest.mock import MagicMock, patch
 
@@ -14,13 +15,14 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 for _proxy_var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"):
     os.environ.pop(_proxy_var, None)
 
-from httpx import Request, Response as HttpxResponse
+from httpx import ReadTimeout, Request, Response as HttpxResponse
 from openai import APIConnectionError, APIStatusError, APITimeoutError, RateLimitError
 
 # Patch wrap_openai before importing the client so it does not decorate the
 # OpenAI client with actual LangSmith instrumentation during tests.
 with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
     from agents.agent_api.app.graph.nodes.orchestrator import (
+        DEEPSEEK_MAX_TOKENS,
         DeepSeekAgentClient,
         DeepSeekAgentClientError,
         LLM_FAILURE_MESSAGE,
@@ -102,15 +104,47 @@ def make_status_error(status_code: int, message: str = "Error"):
     )
 
 
+def make_status_error_with_request_id():
+    """Create an APIStatusError carrying a DeepSeek-style request id header."""
+    request = Request("POST", "https://api.deepseek.com/v1/chat/completions")
+    response = HttpxResponse(
+        500,
+        json={"error": {"message": "server error"}},
+        request=request,
+        headers={"x-ds-request-id": "req_deepseek_123"},
+    )
+    return APIStatusError(
+        message="server error",
+        response=response,
+        body={"error": {"message": "server error"}},
+    )
+
+
+def make_read_timeout_error():
+    """Create an APITimeoutError with a nested httpx read timeout cause."""
+    error = make_timeout_error()
+    error.__cause__ = ReadTimeout("read timed out")
+    return error
+
+
 def build_client(max_retry_attempts=3):
     """Build a DeepSeekAgentClient with test defaults, patching wrap_openai."""
     with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
         client = DeepSeekAgentClient(
             api_key="test-key",
+            reasoning_effort="high",
             max_retry_attempts=max_retry_attempts,
             retry_sleep=NO_SLEEP,
         )
     return client
+
+
+class RecordingTracer:
+    def __init__(self):
+        self.events = []
+
+    def event(self, stage, message, **fields):
+        self.events.append({"stage": stage, "message": message, "fields": fields})
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +211,55 @@ class TestRetryableErrors:
             result = client.create_message(messages=[{"role": "user", "content": "hi"}], tools=[])
         assert result["content"] == "server recovered"
         assert mock_create.call_count == 2
+
+    def test_retry_trace_includes_attempt_metadata(self):
+        tracer = RecordingTracer()
+        client = DeepSeekAgentClient(
+            api_key="test-key",
+            max_retry_attempts=3,
+            retry_sleep=NO_SLEEP,
+            tracer=tracer,
+        )
+        with patch.object(
+            client.client.chat.completions,
+            "create",
+            side_effect=[make_timeout_error(), make_response()],
+        ):
+            client.create_message(messages=[{"role": "user", "content": "hi"}], tools=[])
+        retry_events = [event for event in tracer.events if event["stage"] == "agent.retry"]
+        assert len(retry_events) == 1
+        fields = retry_events[0]["fields"]
+        assert fields["attempt"] == 1
+        assert fields["error_type"] == "timeout"
+        assert fields["exception_type"] == "APITimeoutError"
+        assert fields["exception_module"] == "openai"
+        assert fields["timeout_kind"] == "timeout"
+        assert "retry_sleep_seconds" in fields
+
+    def test_attempt_error_trace_includes_elapsed_and_error_metadata(self):
+        tracer = RecordingTracer()
+        client = DeepSeekAgentClient(
+            api_key="test-key",
+            max_retry_attempts=2,
+            retry_sleep=NO_SLEEP,
+            tracer=tracer,
+        )
+        with patch.object(
+            client.client.chat.completions,
+            "create",
+            side_effect=[make_read_timeout_error(), make_response()],
+        ):
+            client.create_message(messages=[{"role": "user", "content": "hi"}], tools=[])
+        attempt_events = [
+            event for event in tracer.events if event["stage"] == "agent.attempt.error"
+        ]
+        assert len(attempt_events) == 1
+        fields = attempt_events[0]["fields"]
+        assert fields["attempt"] == 1
+        assert fields["error_type"] == "timeout"
+        assert fields["exception_type"] == "APITimeoutError"
+        assert fields["timeout_kind"] == "read"
+        assert fields["elapsed_ms"] >= 0
 
 
 class TestNonRetryableErrors:
@@ -248,6 +331,75 @@ class TestErrorPayloadStructure:
         assert payload["type"] == "timeout"
         assert payload["retryable"] is True
         assert payload["attempts"] == 1
+        assert payload["error_message"] == payload["message"]
+        assert payload["exception_type"] == "APITimeoutError"
+        assert payload["exception_module"] == "openai"
+        assert payload["timeout_kind"] == "timeout"
+        assert payload["base_url"] == client.base_url
+        assert payload["request_timeout_seconds"] == client.request_timeout_seconds
+        assert payload["sdk_max_retries"] == 0
+        assert payload["max_retry_attempts"] == 1
+        assert payload["retry_max_delay_seconds"] == client.retry_max_delay_seconds
+        assert payload["total_elapsed_ms"] >= 0
+
+    def test_status_error_payload_includes_provider_request_id(self):
+        client = build_client(max_retry_attempts=1)
+        with patch.object(
+            client.client.chat.completions,
+            "create",
+            side_effect=make_status_error_with_request_id(),
+        ):
+            with pytest.raises(DeepSeekAgentClientError) as exc_info:
+                client.create_message(messages=[{"role": "user", "content": "hi"}], tools=[])
+        assert exc_info.value.payload["provider_request_id"] == "req_deepseek_123"
+
+    def test_timeout_kind_identifies_nested_read_timeout(self):
+        client = build_client(max_retry_attempts=1)
+        with patch.object(
+            client.client.chat.completions,
+            "create",
+            side_effect=make_read_timeout_error(),
+        ):
+            with pytest.raises(DeepSeekAgentClientError) as exc_info:
+                client.create_message(messages=[{"role": "user", "content": "hi"}], tools=[])
+        assert exc_info.value.payload["timeout_kind"] == "read"
+
+    def test_request_trace_includes_budget_fields_without_payload_sizing(self):
+        tracer = RecordingTracer()
+        client = DeepSeekAgentClient(
+            api_key="test-key",
+            tracer=tracer,
+            retry_sleep=NO_SLEEP,
+        )
+        with patch.object(
+            client.client.chat.completions,
+            "create",
+            return_value=make_response(),
+        ):
+            client.create_message(messages=[{"role": "user", "content": "hi"}], tools=[])
+        request_event = next(event for event in tracer.events if event["stage"] == "agent.request")
+        fields = request_event["fields"]
+        assert fields["request_timeout_seconds"] == client.request_timeout_seconds
+        assert fields["sdk_max_retries"] == 0
+        assert fields["max_retry_attempts"] == client.max_retry_attempts
+        assert fields["retry_max_delay_seconds"] == client.retry_max_delay_seconds
+        assert fields["base_url"] == client.base_url
+        assert fields["max_tokens"] == DEEPSEEK_MAX_TOKENS
+        assert fields["thinking_enabled"] is True
+
+    def test_create_message_diagnostics_do_not_serialize_hot_path_payloads(self):
+        source = inspect.getsource(DeepSeekAgentClient.create_message)
+        forbidden = (
+            "json.dumps(messages",
+            "json.dumps(tools",
+            "messages_bytes",
+            "tools_bytes",
+            "tiktoken",
+            "requests.",
+            "urllib.",
+        )
+        for pattern in forbidden:
+            assert pattern not in source
 
 
 class TestUsageAccumulation:

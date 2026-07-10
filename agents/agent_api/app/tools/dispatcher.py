@@ -78,6 +78,8 @@ def build_tool_result(
     error: Optional[str] = None,
     mutation_blocked: bool = False,
     classified_error: Optional[Dict[str, Any]] = None,
+    batch_index: Optional[int] = None,
+    service: Optional[str] = None,
 ) -> Dict[str, Any]:
     """The canonical Jarvis tool-result envelope shared across the runtime."""
 
@@ -89,6 +91,8 @@ def build_tool_result(
         "error": error,
         "mutation_blocked": mutation_blocked,
         "classified_error": classified_error,
+        "batch_index": batch_index,
+        "service": service,
     }
 
 
