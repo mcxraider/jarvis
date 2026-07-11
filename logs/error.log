@@ -1829,3 +1829,10 @@
 {"level":"error","message":"ordering_51785_1783667074366","seq":97,"timestamp":"2026-07-10 15:04:41"}
 {"level":"error","message":"ordering_51785_1783667074366","seq":98,"timestamp":"2026-07-10 15:04:41"}
 {"level":"error","message":"ordering_51785_1783667074366","seq":99,"timestamp":"2026-07-10 15:04:41"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-10 23:52:02"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-10 23:52:02"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-10 23:52:02"}
+{"error":"read ECONNRESET","level":"error","message":"process.uncaught_exception","stack":"Error: read ECONNRESET\n    at TCP.onStreamRead (node:internal/stream_base_commons:218:20)","timestamp":"2026-07-11 01:57:22"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-11 11:06:34"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-11 11:06:34"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-11 11:06:34"}
