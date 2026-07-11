@@ -159,6 +159,7 @@ class TestQueryRewrite:
     def test_rewrite_applied_on_turn_zero(self):
         snapshot = make_snapshot(active=("todoist",))
         state = _state_turn0(snapshot)
+        original_context = state["messages"][-1]["content"].split("\nUser request:\n", 1)[0]
         selector = FakeDecisionSelector(
             RouterDecision(domains=["todoist"], rewritten_query=REWRITE_MARKER)
         )
@@ -169,6 +170,7 @@ class TestQueryRewrite:
         assert REWRITE_MARKER in user_content
         # The request-datetime wrapper is preserved around the rewritten text.
         assert "User request:" in user_content
+        assert user_content.split("\nUser request:\n", 1)[0] == original_context
 
     def test_original_user_prompt_preserved_in_state(self):
         snapshot = make_snapshot(active=("todoist",))

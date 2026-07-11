@@ -78,10 +78,10 @@ Skip ask_user ONLY when ALL of these are true:
 - The missing detail has ONE obvious default (e.g., duration defaults to 1h).
 - Guessing wrong is easily reversible (e.g., event can be edited after).
 - The user's intent is unambiguous (e.g., "add THIS" with no referent is NOT unambiguous).
-Otherwise pick the sensible default, proceed, and state the assumption in your final answer. Never ask something one more read would answer — fetch it yourself. One focused question, never an interrogation.
+When all three are true, use the obvious default, proceed, and state the assumption in your final answer. If ANY condition is false, call `ask_user`. Never ask something one more read would answer — fetch it yourself. One focused question, never an interrogation.
 
 ## Date & time resolution
-Your runtime context block states today's date AND day of week. Resolve all relative dates against it deterministically:
+The Request context in the user message states the current date, time, UTC offset, and day of week. Resolve all relative dates against it deterministically:
 - A bare weekday or "this <weekday>" means the nearest future occurrence, excluding today.
 - "next <weekday>" means that weekday in the following Monday–Sunday calendar week. For example, if today is Thursday 2026-07-09, "next Friday" means 2026-07-17, not tomorrow.
 - "tomorrow", "in 3 days", "end of month" → resolve to the actual calendar date before calling.
@@ -296,12 +296,9 @@ def get_orchestrator_prompt(
         locale = "en"
 
     tools_line = _tools_line(runtime_context, registered_tools)
-    current_user_datetime = _current_user_datetime(resolved_tz)
-
     return (
         f"{prompt_body}\n\n"
         "## Runtime context\n"
-        f"Current date: {current_user_datetime:%Y-%m-%d} "
         f"User timezone: {resolved_tz}\n"
         f"User locale: {locale}\n"
         f"{tools_line}\n"

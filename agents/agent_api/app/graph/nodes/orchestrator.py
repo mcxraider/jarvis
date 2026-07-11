@@ -573,10 +573,15 @@ def _apply_router_query_rewrite(
     if not messages or messages[-1].get("role") != "user":
         return
 
-    messages[-1] = {
-        **messages[-1],
-        "content": build_user_prompt_with_request_datetime(rewritten),
-    }
+    existing_content = messages[-1].get("content", "")
+    marker = "\nUser request:\n"
+    request_context, separator, _original_request = existing_content.partition(marker)
+    rewritten_content = (
+        f"{request_context}{separator}{rewritten}"
+        if separator
+        else build_user_prompt_with_request_datetime(rewritten)
+    )
+    messages[-1] = {**messages[-1], "content": rewritten_content}
     # Trace the event, never the rewritten text (mirrors the no-content policy of
     # the LLM clients). Original query stays in state["user_prompt"].
     tracer.event("router.rewrite", "Applied router query rewrite on turn 0.")
