@@ -9,7 +9,11 @@ offline/DI runs), so the prompt's capability claims always match the live
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 
-from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
+from agents.agent_api.app.graph.prompts.orchestrator import (
+    _current_user_datetime,
+    _user_timezone,
+    get_system_prompt,
+)
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 USER_PROMPTS: List[str] = [
@@ -298,13 +302,20 @@ USER_PROMPTS: List[str] = [
 USER_PROMPT = USER_PROMPTS[0] if USER_PROMPTS else ""
 
 
-def build_user_prompt_with_request_datetime(user_prompt: str) -> str:
-    """Add the current request timestamp to the user message content."""
+def build_user_prompt_with_request_datetime(
+    user_prompt: str,
+    timezone: Optional[str] = None,
+    request_datetime: Optional[datetime] = None,
+) -> str:
+    """Add one timezone-resolved request timestamp to the user message content."""
+
+    current = request_datetime or _current_user_datetime(_user_timezone(timezone))
 
     return "\n".join(
         [
             "Request context:",
-            f"Current request date and time: {datetime.now().astimezone().isoformat(timespec='seconds')}",
+            "Current request date and time: "
+            f"{current.isoformat(timespec='seconds')} ({current:%A})",
             "",
             "User request:",
             user_prompt,
@@ -338,7 +349,13 @@ def build_initial_messages(
                 relevant_domains=relevant_domains,
             ),
         },
-        {"role": "user", "content": build_user_prompt_with_request_datetime(user_prompt)},
+        {
+            "role": "user",
+            "content": build_user_prompt_with_request_datetime(
+                user_prompt,
+                timezone=(runtime_context.timezone if runtime_context is not None else timezone),
+            ),
+        },
     ]
 
 

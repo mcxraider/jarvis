@@ -61,7 +61,7 @@ TODOIST_PROMPT_FRAGMENT = """\
 ## Todoist tool tips
 - Creating many tasks at once → issue one `add_todoist_task` call per task. The system batches and gates them for you.
 - Dates: prefer `due_string` ("2026-07-02 3pm", "tomorrow 9am") — but always pre-resolve relative dates per the rule above.
-- Priority format: urgent = 1(default), high = 2, medium = 3, normal = 4.
+- Priority format: 4 = urgent/P1, 3 = high/P2, 2 = medium/P3, 1 = normal/P4 (default).
 - `get_tasks_by_filter` takes Todoist filter syntax, NOT free text. To match by title use the `search:` operator (e.g. `search: dentist`) — do not pass a bare title like "dentist appointment" as the filter. Date ranges use "due after: X & due before: Y" — never a slash, dash, or "between". Examples: "today", "overdue", "p1", "7 days", "search: groceries", "due after: Jul 5 & due before: Jul 13".
 - After scheduling a task that has a specific time, check for clashes with other timed tasks that day; if any overlap, tell the user and ask whether to reschedule.
 - Never fabricate task IDs — fetch first (see Grounding).

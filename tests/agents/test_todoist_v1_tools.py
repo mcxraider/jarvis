@@ -15,6 +15,7 @@ from agents.agent_api.app.tools.todoist.schemas import (
     get_todoist_tool_schemas,
 )
 from agents.agent_api.app.tools.todoist.tools import (
+    TODOIST_PROMPT_FRAGMENT,
     build_todoist_langchain_tools,
     get_todoist_tool_specs,
 )
@@ -65,6 +66,17 @@ class TestSchemaRegistration:
         ]
         assert "highest urgency" in desc
         assert "1 normal, 2 low" not in desc
+
+    def test_priority_prompt_matches_add_and_update_schema(self):
+        expected = "4 = urgent/P1, 3 = high/P2, 2 = medium/P3, 1 = normal/P4 (default)"
+
+        assert expected in TODOIST_PROMPT_FRAGMENT
+        for tool_name in ("add_todoist_task", "update_todoist_task"):
+            description = _schema(tool_name)["function"]["parameters"]["properties"][
+                "priority"
+            ]["description"]
+            assert "4 = highest urgency" in description
+            assert "3 = P2, 2 = P3, 1 = normal/default (P4)" in description
 
 
 class TestLayerConsistency:

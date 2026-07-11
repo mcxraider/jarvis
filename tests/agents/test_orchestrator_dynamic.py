@@ -59,15 +59,21 @@ class TestOfflinePrompt:
         assert "## Todoist tool tips" not in prompt
         assert "## Google Calendar tool tips" not in prompt
 
-    def test_runtime_date_and_weekday_use_offline_timezone_override(self):
-        instant = datetime(2026, 7, 9, 16, 30, tzinfo=timezone.utc)
+    def test_request_date_and_weekday_use_offline_timezone_override(self):
+        instant = datetime.fromisoformat("2026-07-09T11:30:00-05:00")
         with patch(
-            "agents.agent_api.app.graph.prompts.orchestrator._current_user_datetime",
+            "agents.agent_api.app.graph.prompts.context._current_user_datetime",
             return_value=instant,
         ):
-            prompt = get_orchestrator_prompt("America/Chicago", user_name="X")
+            messages = build_initial_messages(
+                "hello", timezone="America/Chicago", user_name="X"
+            )
 
-        assert "Current date: 2026-07-09 (Thursday)" in prompt
+        assert "Current date:" not in messages[0]["content"]
+        assert (
+            "Current request date and time: 2026-07-09T11:30:00-05:00 (Thursday)"
+            in messages[1]["content"]
+        )
 
 
 class TestRuntimeContextPrompt:
@@ -127,17 +133,21 @@ class TestRuntimeContextPrompt:
         assert "Task provider: todoist" in prompt
         assert "Event provider: todoist" in prompt
 
-    def test_runtime_date_and_weekday_come_from_one_executor_datetime(self):
-        instant = datetime(2026, 7, 10, 0, 30, tzinfo=timezone.utc)
+    def test_request_date_and_weekday_come_from_one_executor_datetime(self):
+        instant = datetime.fromisoformat("2026-07-10T08:30:00+08:00")
         snapshot = make_snapshot(timezone_name="Asia/Singapore")
         with patch(
-            "agents.agent_api.app.graph.prompts.orchestrator._current_user_datetime",
+            "agents.agent_api.app.graph.prompts.context._current_user_datetime",
             return_value=instant,
         ) as current_datetime:
-            prompt = get_orchestrator_prompt(runtime_context=snapshot)
+            messages = build_initial_messages("hello", runtime_context=snapshot)
 
         current_datetime.assert_called_once_with("Asia/Singapore")
-        assert "Current date: 2026-07-10 (Friday)" in prompt
+        assert "Current date:" not in messages[0]["content"]
+        assert (
+            "Current request date and time: 2026-07-10T08:30:00+08:00 (Friday)"
+            in messages[1]["content"]
+        )
 
     def test_relative_weekday_semantics_are_deterministic(self):
         prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
@@ -146,6 +156,13 @@ class TestRuntimeContextPrompt:
         assert '"next <weekday>" means that weekday in the following Monday–Sunday calendar week' in prompt
         assert '"next Friday" means 2026-07-17, not tomorrow' in prompt
         assert 'Never emit a relative "next <weekday>" phrase to a tool' in prompt
+
+    def test_clarification_default_policy_has_explicit_branches(self):
+        prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
+
+        assert "When all three are true, use the obvious default" in prompt
+        assert "If ANY condition is false, call `ask_user`" in prompt
+        assert "Otherwise pick the sensible default" not in prompt
 
     def test_hard_invariants_are_front_loaded(self):
         prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
