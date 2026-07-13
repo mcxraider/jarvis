@@ -20,7 +20,7 @@ function domainLabel(domains: ProgressFact['domains']): string | undefined {
 
 /** Reduces safe graph facts plus elapsed time into user-facing Telegram copy. */
 export class ProgressNarrator {
-  private current = 'Reading your request…';
+  private current = 'Thinking…';
   private pending?: string;
   private retrying = false;
   private startedAt?: number;
@@ -29,7 +29,7 @@ export class ProgressNarrator {
 
   start(now = Date.now()): void {
     this.startedAt = now;
-    this.current = 'Reading your request…';
+    this.current = 'Thinking…';
     this.pending = this.current;
     this.retrying = false;
     this.lastRenderedAt = undefined;
