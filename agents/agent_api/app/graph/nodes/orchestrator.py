@@ -27,7 +27,6 @@ from agents.agent_api.app.constants import (
     DEEPSEEK_SDK_MAX_RETRIES,
     DEEPSEEK_THINKING_ENABLED,
 )
-from agents.agent_api.app.graph.prompts.context import build_user_prompt_with_request_datetime
 from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.router.model_router import ModelRouter
@@ -544,49 +543,6 @@ def _apply_router_prompt_slimming(
     )
 
 
-def _apply_router_query_rewrite(
-    messages: List[Dict[str, Any]],
-    tool_selector: ToolSelector,
-    state: JarvisState,
-    tracer: TracePrinter,
-) -> None:
-    """Replace the user message with the router's rewrite, on turn 0 only.
-
-    When the router proposes a clearer restatement of the request, swap it into
-    the user message so the orchestrator reasons over the cleaned-up text — but
-    keep ``state["user_prompt"]`` as the ORIGINAL for audit/telemetry (the node
-    never returns user_prompt, so leaving state untouched preserves it).
-
-    Turn-0 only and history-safe: on later turns the last message is a tool
-    result, not the user request, and the rewrite must not touch it. The guard on
-    ``turn_count == 0`` plus a role check makes this a no-op on every later turn.
-    """
-
-    if state.get("turn_count", 0) != 0:
-        return
-    decision = getattr(tool_selector, "decision", None)
-    if decision is None:
-        return
-    rewritten = (decision.rewritten_query or "").strip()
-    if not rewritten:
-        return
-    if not messages or messages[-1].get("role") != "user":
-        return
-
-    existing_content = messages[-1].get("content", "")
-    marker = "\nUser request:\n"
-    request_context, separator, _original_request = existing_content.partition(marker)
-    rewritten_content = (
-        f"{request_context}{separator}{rewritten}"
-        if separator
-        else build_user_prompt_with_request_datetime(rewritten)
-    )
-    messages[-1] = {**messages[-1], "content": rewritten_content}
-    # Trace the event, never the rewritten text (mirrors the no-content policy of
-    # the LLM clients). Original query stays in state["user_prompt"].
-    tracer.event("router.rewrite", "Applied router query rewrite on turn 0.")
-
-
 def create_agent_node(
     agent_client: Any,
     registry: ToolRegistry,
@@ -691,9 +647,6 @@ def create_agent_node(
             tracer,
             selected_tool_names,
         )
-        # On the first turn, swap in the router's cleaned-up restatement (if any);
-        # the original query stays in state["user_prompt"]. No-op on later turns.
-        _apply_router_query_rewrite(messages, tool_selector, state, tracer)
         model_override = None
         effort_override = None
         if model_router is not None and selector_decision is not None:
@@ -768,6 +721,9 @@ def create_agent_node(
             "final_response": final_response,
             "selected_tool_names": selected_tool_names,
             "active_domains": active_domains,
+            "router_outcome": (
+                selector_decision.outcome.value if selector_decision is not None else None
+            ),
         }
 
     return agent_node

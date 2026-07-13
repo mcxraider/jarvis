@@ -1,6 +1,6 @@
 
 .github/copilot-instructions.md
-
+.claude/
 # dependencies
 /node_modules
 /.pnp
@@ -51,6 +51,7 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.sample
+!.env.production.example
 
 # vercel
 .vercel

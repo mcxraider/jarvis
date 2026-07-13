@@ -162,7 +162,6 @@ def load_personas(users_dir: Path, *, user_filters: Optional[Sequence[str]] = No
                 active_providers=list(data.get("active_providers", [])),
             )
         )
-        break
     if not personas:
         requested = ", ".join(sorted(filters)) if filters else str(users_dir)
         raise ValueError(f"No router persona fixtures matched: {requested}")

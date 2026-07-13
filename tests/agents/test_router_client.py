@@ -38,7 +38,7 @@ from tests.agents.runtime_helpers import make_snapshot
 
 NO_SLEEP = lambda _: None  # noqa: E731 — skip real delays in retry loops
 
-VALID_DECISION_JSON = '{"domains": ["todoist"], "rewritten_query": null, "reasoning": "task"}'
+VALID_DECISION_JSON = '{"outcome": "routed", "domains": ["todoist"], "uncertain": false, "candidate_domains": [], "reasoning": "task"}'
 
 SNAPSHOT = make_snapshot()
 
@@ -397,14 +397,14 @@ class TestSuccessfulDecision:
             client.client.chat.completions,
             "create",
             return_value=make_response(
-                content='{"domains": ["todoist", "google_calendar"], '
-                '"rewritten_query": "schedule dentist", "reasoning": "spans both"}'
+                content='{"outcome": "routed", "domains": ["todoist", "google_calendar"], '
+                '"uncertain": false, "candidate_domains": [], "reasoning": "spans both"}'
             ),
         ):
             decision = classify(client)
         assert isinstance(decision, RouterDecision)
         assert decision.domains == ["todoist", "google_calendar"]
-        assert decision.rewritten_query == "schedule dentist"
+        assert decision.outcome == "routed"
 
     def test_empty_domains_is_valid(self):
         """A greeting routes to no domain -> empty list, not an error."""
@@ -412,7 +412,7 @@ class TestSuccessfulDecision:
         with patch.object(
             client.client.chat.completions,
             "create",
-            return_value=make_response(content='{"domains": [], "reasoning": "greeting"}'),
+            return_value=make_response(content='{"outcome": "conversation", "domains": [], "uncertain": false, "candidate_domains": [], "reasoning": "greeting"}'),
         ):
             decision = classify(client)
         assert decision.domains == []

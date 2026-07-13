@@ -12,11 +12,10 @@ const DOMAIN_LABELS: Record<string, string> = {
 
 function domainLabel(domains: ProgressFact['domains']): string | undefined {
   if (!domains?.length) return undefined;
-  return domains.map((domain) => DOMAIN_LABELS[domain]).filter(Boolean).join(' and ');
-}
-
-function lowerFirst(text: string): string {
-  return text ? text[0].toLowerCase() + text.slice(1) : text;
+  return domains
+    .map((domain) => DOMAIN_LABELS[domain])
+    .filter(Boolean)
+    .join(' and ');
 }
 
 /** Reduces safe graph facts plus elapsed time into user-facing Telegram copy. */
@@ -51,9 +50,9 @@ export class ProgressNarrator {
     const elapsedLabel = this.elapsedLabel(elapsed);
     if (elapsedLabel && !this.retrying && !this.pending) this.pending = elapsedLabel;
 
-    const dueForChange = this.pending && (
-      this.lastRenderedAt === undefined || now - this.lastRenderedAt >= PROGRESS_MIN_RENDER_MS
-    );
+    const dueForChange =
+      this.pending &&
+      (this.lastRenderedAt === undefined || now - this.lastRenderedAt >= PROGRESS_MIN_RENDER_MS);
     if (dueForChange) {
       this.current = this.pending!;
       this.pending = undefined;
@@ -69,48 +68,58 @@ export class ProgressNarrator {
   }
 
   private labelFor(fact: ProgressFact): string | undefined {
-    if (fact.phase === 'request') return 'Reading your request…';
+    if (fact.phase === 'request') return 'Thinking…';
     if (fact.phase === 'routing') {
       const domains = domainLabel(fact.domains);
-      return domains ? `Checking your ${domains}…` : 'Working out the best way to help…';
+      return domains ? `Pulling up ${domains}…` : 'Planning the next steps…';
     }
     if (fact.phase === 'lookup') {
       const domains = domainLabel(fact.domains);
-      return domains ? `Checking your ${domains}…` : 'Checking what I need…';
+      return domains ? `Pulling up ${domains}…` : 'Checking what I need…';
     }
     if (fact.phase === 'review') return 'Reviewing what I found…';
     if (fact.phase === 'preparing_change') return 'Preparing the update…';
     if (fact.phase === 'awaiting_confirmation') {
-      return fact.intent === 'clarify' ? 'Waiting for your details…' : 'Waiting for your confirmation…';
+      return fact.intent === 'clarify'
+        ? 'Waiting for your details…'
+        : 'Awaiting your confirmation…';
     }
-    if (fact.phase === 'applying_change') return 'Applying the update…';
+    if (fact.phase === 'applying_change') return 'Making the changes…';
     if (fact.phase === 'finalizing') return 'Putting the answer together…';
     if (fact.phase === 'retrying') {
       const domain = fact.retry?.domain ? DOMAIN_LABELS[fact.retry.domain] : undefined;
-      return domain ? `Retrying ${domain}…` : 'Retrying after a temporary connection problem…';
+      return domain ? `Retrying ${domain}…` : 'Reconnecting…';
     }
-    if (fact.phase === 'failed') return 'Finishing up…';
+    if (fact.phase === 'failed') return 'Unable to complete that step…';
     return undefined;
   }
 
   private elapsedLabel(elapsed: number): string | undefined {
-    if (elapsed >= 115_000 && this.lastElapsedBand < 115_000) {
-      this.lastElapsedBand = 115_000;
-      return 'Still working — I’m continuing to check this.';
+    if (elapsed >= 120_000 && this.lastElapsedBand < 120_000) {
+      this.lastElapsedBand = 120_000;
+
+      return this.current
+        ? `${removeEllipsis(this.current)} — this is taking longer than expected…`
+        : 'This is taking longer than expected, but I’m still on it…';
     }
-    if (elapsed >= 60_000) {
-      const band = 60_000 + Math.floor((elapsed - 60_000) / 30_000) * 30_000;
-      if (band > this.lastElapsedBand) {
-        this.lastElapsedBand = band;
-        return this.current.startsWith('Still working')
-          ? this.current
-          : `Still working — ${lowerFirst(this.current)}`;
-      }
+
+    if (elapsed >= 75_000 && this.lastElapsedBand < 75_000) {
+      this.lastElapsedBand = 75_000;
+
+      return this.current
+        ? `${removeEllipsis(this.current)} — still working on it…`
+        : 'Still working on this…';
     }
+
     if (elapsed >= 45_000 && this.lastElapsedBand < 45_000) {
       this.lastElapsedBand = 45_000;
-      return 'Still working — this is taking a little longer than usual…';
+      return 'Taking a little longer than usual…';
     }
+
     return undefined;
   }
+}
+
+function removeEllipsis(value: string): string {
+  return value.replace(/(?:\.\.\.|…)\s*$/, '');
 }

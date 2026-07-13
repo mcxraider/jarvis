@@ -54,38 +54,60 @@ class FakeRouterClient:
         return self._decision
 
 
-def _selector(decision=None, error=None, snapshot=None, fallback_selector=None):
+def _selector(decision=None, error=None, snapshot=None, fallback_selector=None, tracer=None):
     return RouterToolSelector(
         router_client=FakeRouterClient(decision=decision, error=error),
         snapshot=snapshot or make_snapshot(),
         fallback_selector=fallback_selector,
+        tracer=tracer,
     )
 
 
 class TestDomainFiltering:
     def test_todoist_only_exposes_todoist_tools_plus_ask_user(self):
-        selector = _selector(decision=RouterDecision(domains=["todoist"]))
+        selector = _selector(decision=RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], reasoning="test"))
         result = _names(selector.select_schemas("add buy milk", _build_registry()))
         assert result == {"ask_user", *_TODOIST_TOOLS}
         assert "list_calendar_events" not in result
 
     def test_calendar_only_exposes_calendar_tools_plus_ask_user(self):
-        selector = _selector(decision=RouterDecision(domains=["google_calendar"]))
+        selector = _selector(decision=RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], reasoning="test"))
         result = _names(selector.select_schemas("what's on my google calendar", _build_registry()))
         assert result == {"ask_user", *_CALENDAR_TOOLS}
 
     def test_both_domains_expose_all_tools(self):
         selector = _selector(
-            decision=RouterDecision(domains=["todoist", "google_calendar"])
+            decision=RouterDecision(outcome="routed", domains=["todoist", "google_calendar"], uncertain=False, candidate_domains=[], reasoning="test")
         )
         result = _names(selector.select_schemas("schedule this in google calendar", _build_registry()))
         assert result == set(_ALL_TOOLS)
+
+    def test_logged_multi_domain_request_keeps_calendar_and_todoist(self):
+        selector = _selector(
+            decision=RouterDecision(
+                outcome="routed",
+                domains=["google_calendar", "todoist"],
+                uncertain=False,
+                candidate_domains=[],
+                reasoning="calendar lookup and task update",
+            )
+        )
+        result = _names(
+            selector.select_schemas(
+                "pull my events from my govtech google calendar and then update "
+                "lunch with grandparents on todoist to p3 task.",
+                _build_registry(),
+            )
+        )
+        assert result == set(_ALL_TOOLS)
+        assert selector.decision.outcome == "routed"
+        assert set(selector.decision.domains) == {"google_calendar", "todoist"}
 
 
 class TestEdgeDecisions:
     def test_empty_domains_exposes_only_ask_user(self):
         """A greeting routes to no domain -> ask_user only (fastest path)."""
-        selector = _selector(decision=RouterDecision(domains=[]))
+        selector = _selector(decision=RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], reasoning="test"))
         result = _names(selector.select_schemas("hello there", _build_registry()))
         assert result == {"ask_user"}
 
@@ -93,17 +115,15 @@ class TestEdgeDecisions:
         """Calendar requested but not connected -> no calendar tools, just ask_user."""
         snapshot = make_snapshot(active=("todoist",))
         selector = _selector(
-            decision=RouterDecision(domains=["google_calendar"]),
+            decision=RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], reasoning="test"),
             snapshot=snapshot,
         )
         result = _names(selector.select_schemas("cancel my google calendar meeting", _build_registry()))
         assert result == {"ask_user"}
 
-    def test_unknown_domain_name_is_ignored(self):
-        """An invented domain key intersects to nothing -> ask_user only."""
-        selector = _selector(decision=RouterDecision(domains=["gmail"]))
-        result = _names(selector.select_schemas("email bob", _build_registry()))
-        assert result == {"ask_user"}
+    def test_unknown_domain_name_is_rejected(self):
+        with pytest.raises(Exception):
+            RouterDecision(outcome="routed", domains=["gmail"], uncertain=False, candidate_domains=[], reasoning="test")
 
 
 class TestRoutingGuardrails:
@@ -118,43 +138,62 @@ class TestRoutingGuardrails:
         ],
     )
     def test_empty_unsupported_provider_decision_stays_empty(self, query):
-        selector = _selector(decision=RouterDecision(domains=[]))
+        selector = _selector(decision=RouterDecision(outcome="unsupported_provider", domains=[], uncertain=False, candidate_domains=[], reasoning="test"))
         result = _names(selector.select_schemas(query, _build_registry()))
         assert result == {"ask_user"}
         assert selector.decision.domains == []
 
     def test_empty_generic_calendar_decision_routes_to_event_provider(self):
-        selector = _selector(decision=RouterDecision(domains=[]))
+        selector = _selector(decision=RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], reasoning="test"))
         result = _names(selector.select_schemas("what's on my calendar this week", _build_registry()))
         assert result == {"ask_user", *_TODOIST_TOOLS}
         assert selector.decision.domains == ["todoist"]
+        assert selector.decision.outcome == "routed"
 
     def test_empty_generic_cal_decision_routes_to_event_provider(self):
-        selector = _selector(decision=RouterDecision(domains=[]))
+        selector = _selector(decision=RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], reasoning="test"))
         result = _names(selector.select_schemas("whats on my cal for this week", _build_registry()))
         assert result == {"ask_user", *_TODOIST_TOOLS}
         assert selector.decision.domains == ["todoist"]
 
+    def test_empty_task_classifier_miss_routes_to_task_provider(self):
+        class RecordingTracer:
+            def __init__(self):
+                self.events = []
+
+            def event(self, stage, message, **fields):
+                self.events.append((stage, message, fields))
+
+        tracer = RecordingTracer()
+        selector = _selector(
+            decision=RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], reasoning="miss"),
+            tracer=tracer,
+        )
+        result = _names(selector.select_schemas("show my tasks", _build_registry()))
+        assert result == {"ask_user", *_TODOIST_TOOLS}
+        assert selector.decision.outcome == "routed"
+        assert any(event[0] == "router.classifier_miss_corrected" for event in tracer.events)
+
     def test_generic_schedule_removes_google_calendar_when_explicit_only(self):
-        selector = _selector(decision=RouterDecision(domains=["todoist", "google_calendar"]))
+        selector = _selector(decision=RouterDecision(outcome="routed", domains=["todoist", "google_calendar"], uncertain=False, candidate_domains=[], reasoning="test"))
         result = _names(selector.select_schemas("schedule my 3pm task", _build_registry()))
         assert result == {"ask_user", *_TODOIST_TOOLS}
         assert selector.decision.domains == ["todoist"]
 
     def test_generic_free_busy_removes_google_calendar_when_explicit_only(self):
-        selector = _selector(decision=RouterDecision(domains=["google_calendar"]))
+        selector = _selector(decision=RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], reasoning="test"))
         result = _names(selector.select_schemas("when am i free this week", _build_registry()))
         assert result == {"ask_user", *_TODOIST_TOOLS}
         assert selector.decision.domains == ["todoist"]
 
     def test_explicit_google_calendar_mention_keeps_calendar_route(self):
-        selector = _selector(decision=RouterDecision(domains=[]))
+        selector = _selector(decision=RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], reasoning="test"))
         result = _names(selector.select_schemas("what's on my google calendar this week", _build_registry()))
         assert result == {"ask_user", *_CALENDAR_TOOLS}
         assert selector.decision.domains == ["google_calendar"]
 
     def test_explicit_supported_provider_survives_unsupported_anchor(self):
-        selector = _selector(decision=RouterDecision(domains=[]))
+        selector = _selector(decision=RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], reasoning="test"))
         result = _names(
             selector.select_schemas(
                 "check my gmail and google calendar for tomorrow",
@@ -169,31 +208,31 @@ class TestUncertainDecisions:
     def test_uncertain_decision_uses_candidate_domains(self):
         selector = _selector(
             decision=RouterDecision(
+                outcome="routed",
                 domains=["todoist"],
                 uncertain=True,
                 candidate_domains=["todoist", "google_calendar"],
+                reasoning="test",
             )
         )
         result = _names(selector.select_schemas("ambiguous planning request", _build_registry()))
         assert result == set(_ALL_TOOLS)
 
-    def test_certain_decision_ignores_candidate_domains(self):
-        selector = _selector(
-            decision=RouterDecision(
-                domains=["todoist"],
-                uncertain=False,
-                candidate_domains=["todoist", "google_calendar"],
+    def test_certain_decision_rejects_candidate_domains(self):
+        with pytest.raises(Exception):
+            RouterDecision(
+                outcome="routed", domains=["todoist"], uncertain=False,
+                candidate_domains=["todoist", "google_calendar"], reasoning="test",
             )
-        )
-        result = _names(selector.select_schemas("add buy milk", _build_registry()))
-        assert result == {"ask_user", *_TODOIST_TOOLS}
 
     def test_explicit_only_does_not_discard_uncertain_candidate_domains(self):
         selector = _selector(
             decision=RouterDecision(
+                outcome="routed",
                 domains=["todoist"],
                 uncertain=True,
                 candidate_domains=["todoist", "google_calendar"],
+                reasoning="test",
             )
         )
         result = _names(selector.select_schemas("schedule my 3pm task", _build_registry()))
@@ -219,6 +258,43 @@ class TestFallback:
         selector = _selector(error=error)
         selector.select_schemas("add buy milk", _build_registry())
         assert selector.decision is None
+
+    def test_non_retryable_failure_is_cached_for_same_query(self):
+        error = RouterClientError(
+            {"source": "router", "type": "client_error", "retryable": False, "attempts": 1, "message": "x"}
+        )
+        client = FakeRouterClient(error=error)
+        selector = RouterToolSelector(router_client=client, snapshot=make_snapshot())
+        registry = _build_registry()
+
+        assert _names(selector.select_schemas("add buy milk", registry)) == set(_ALL_TOOLS)
+        assert _names(selector.select_schemas("add buy milk", registry)) == set(_ALL_TOOLS)
+        assert client.calls == 1
+        assert selector.decision is None
+
+    def test_changed_query_retries_after_cached_non_retryable_failure(self):
+        error = RouterClientError(
+            {"source": "router", "type": "client_error", "retryable": False, "attempts": 1, "message": "x"}
+        )
+        client = FakeRouterClient(error=error)
+        selector = RouterToolSelector(router_client=client, snapshot=make_snapshot())
+        registry = _build_registry()
+
+        selector.select_schemas("add buy milk", registry)
+        selector.select_schemas("show my google calendar", registry)
+        assert client.calls == 2
+
+    def test_retryable_failure_is_not_cached(self):
+        error = RouterClientError(
+            {"source": "router", "type": "timeout", "retryable": True, "attempts": 2, "message": "x"}
+        )
+        client = FakeRouterClient(error=error)
+        selector = RouterToolSelector(router_client=client, snapshot=make_snapshot())
+        registry = _build_registry()
+
+        selector.select_schemas("add buy milk", registry)
+        selector.select_schemas("add buy milk", registry)
+        assert client.calls == 2
 
     def test_custom_fallback_selector_is_used(self):
         """A provided fallback selector is honored over the default static one."""
@@ -261,7 +337,7 @@ class TestFallback:
 
 class TestDecisionExposure:
     def test_decision_populated_on_success(self):
-        decision = RouterDecision(domains=["todoist"], rewritten_query="add milk")
+        decision = RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], reasoning="test")
         selector = _selector(decision=decision)
         selector.select_schemas("add milk", _build_registry())
         assert selector.decision is decision
@@ -272,7 +348,7 @@ class TestDecisionExposure:
         Uses distinct queries so the per-query cache does not short-circuit the
         second call — we need it to actually reach the (now-erroring) client.
         """
-        client = FakeRouterClient(decision=RouterDecision(domains=["todoist"]))
+        client = FakeRouterClient(decision=RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], reasoning="test"))
         selector = RouterToolSelector(router_client=client, snapshot=make_snapshot())
         registry = _build_registry()
         selector.select_schemas("add milk", registry)
@@ -289,7 +365,7 @@ class TestDecisionExposure:
 class TestDecisionCaching:
     def test_repeat_query_uses_cache_and_calls_classify_once(self):
         """The router LLM is called only once per unique query, even across many turns."""
-        client = FakeRouterClient(decision=RouterDecision(domains=["todoist"]))
+        client = FakeRouterClient(decision=RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], reasoning="test"))
         selector = RouterToolSelector(router_client=client, snapshot=make_snapshot())
         registry = _build_registry()
         for _ in range(5):
@@ -301,7 +377,7 @@ class TestDecisionCaching:
 
     def test_different_query_invalidates_cache_and_reclassifies(self):
         """A new routing query (e.g. HITL redirect) is a natural cache miss."""
-        client = FakeRouterClient(decision=RouterDecision(domains=["todoist"]))
+        client = FakeRouterClient(decision=RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], reasoning="test"))
         selector = RouterToolSelector(router_client=client, snapshot=make_snapshot())
         registry = _build_registry()
         selector.select_schemas("add milk", registry)
@@ -321,7 +397,7 @@ class TestDecisionCaching:
 
         tracer = RecordingTracer()
         selector = RouterToolSelector(
-            router_client=FakeRouterClient(decision=RouterDecision(domains=["todoist"])),
+            router_client=FakeRouterClient(decision=RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], reasoning="test")),
             snapshot=make_snapshot(),
             tracer=tracer,
         )
@@ -340,7 +416,7 @@ class TestFactory:
 
         selector = get_selector(
             "router",
-            router_client=FakeRouterClient(decision=RouterDecision()),
+            router_client=FakeRouterClient(decision=RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], reasoning="test")),
             snapshot=make_snapshot(),
         )
         assert isinstance(selector, RouterToolSelector)

@@ -17,6 +17,8 @@ from agents.agent_api.app.router.model_router import (
 )
 from agents.agent_api.app.router.prompt import (
     RouterDecision,
+    RouterDomain,
+    RouterOutcome,
     build_router_messages,
     build_router_system_prompt,
 )
@@ -27,6 +29,8 @@ __all__ = [
     "RouterClient",
     "RouterClientError",
     "RouterDecision",
+    "RouterDomain",
+    "RouterOutcome",
     "build_router_messages",
     "build_router_system_prompt",
     "create_default_model_router",

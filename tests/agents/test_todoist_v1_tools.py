@@ -120,6 +120,24 @@ class TestUpdateTaskWrapper:
             "priority": 4,
         }
 
+    def test_priority_and_duration_update_passes_only_supplied(self):
+        # Mirrors the real failing request ("... 1130 to 2pm p1"): must not raise and
+        # must forward exactly the supplied fields, leaving clearable fields
+        # (assignee_id/deadline_date) out so they are not wiped.
+        assert self._invoke(
+            {
+                "task_id": "task-1",
+                "priority": 4,
+                "duration": 150,
+                "duration_unit": "minute",
+            }
+        ) == {
+            "task_id": "task-1",
+            "priority": 4,
+            "duration": 150,
+            "duration_unit": "minute",
+        }
+
     def test_explicit_null_is_preserved(self):
         assert self._invoke({"task_id": "task-1", "assignee_id": None}) == {
             "task_id": "task-1",

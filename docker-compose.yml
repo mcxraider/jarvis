@@ -1,7 +1,8 @@
-# Single-box topology: caddy (TLS) -> web (Node) -> agent (Python).
-# The database is Supabase (external, managed) — no postgres container here.
-# Both services read their Supabase pooler DSN from .env (see plans/dockerize.md §4).
-# Only caddy publishes ports; web/agent stay on the internal network.
+x-logging: &bounded-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
 
 services:
   agent:
@@ -11,10 +12,21 @@ services:
     env_file: .env
     environment:
       NODE_ENV: production
-    # JARVIS_POSTGRES_DSN (Supabase transaction pooler) comes from .env and
-    # switches the agent to the durable Postgres checkpoint backend automatically.
+      JARVIS_POSTGRES_DSN: ${AGENT_POSTGRES_DSN:?AGENT_POSTGRES_DSN is required}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    volumes:
+      - agent_logs:/app/logs
+    logging: *bounded-logging
     restart: unless-stopped
-    # No published ports — only `web` reaches it via the internal network.
 
   web:
     build:
@@ -23,13 +35,26 @@ services:
     env_file: .env
     environment:
       NODE_ENV: production
-      LOG_FORMAT: json                    # structured logs to `docker logs`
+      LOG_FORMAT: json
       PORT: "3000"
       LANGGRAPH_AGENT_URL: http://agent:8000
-    # TELEGRAM_PENDING_POSTGRES_DSN (Supabase pooler) comes from .env for durable
-    # clarification routing across restarts.
+      JARVIS_POSTGRES_DSN: ${WEB_POSTGRES_DSN:?WEB_POSTGRES_DSN is required}
     depends_on:
-      - agent
+      agent:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/ping').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    volumes:
+      - web_logs:/app/logs
+    logging: *bounded-logging
     restart: unless-stopped
 
   caddy:
@@ -44,9 +69,13 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - web
+      web:
+        condition: service_healthy
+    logging: *bounded-logging
     restart: unless-stopped
 
 volumes:
   caddy_data:
   caddy_config:
+  web_logs:
+  agent_logs:

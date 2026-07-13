@@ -138,8 +138,7 @@ Tell Jarvis which calendar to use for each category. Enter the exact calendar na
 - Personal:
 - Work:
 - Social:
-- Classes:
-- Lectures:
+- School:
 - Other category:
 - Other category:
 

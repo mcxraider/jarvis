@@ -11,8 +11,9 @@ timeout, fewer Tenacity attempts, and no SDK-internal retries). The router is
 Two things differ from the orchestrator client:
 1. Reasoning is OFF by default — the router is a fast classifier, so it
    explicitly disables DeepSeek ``thinking`` mode unless configured otherwise.
-   We also request ``response_format=json_object`` so the completion is directly
-   parseable.
+   We request DeepSeek's stable JSON Output mode. The provider guarantees JSON
+   syntax; :class:`RouterDecision` remains the authoritative schema and is
+   enforced locally with Pydantic.
 2. The failure surface is wider: a non-retryable transport error AND an
    unparseable / schema-invalid completion both raise ``RouterClientError``. A
    malformed body is not worth retrying (the model will likely repeat it), so it
@@ -46,9 +47,9 @@ from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 # Cap the classifier's output. It only ever returns a small JSON object
-# (domains + an optional short rewrite/reasoning), so a tight ceiling keeps the
+# (outcome, domains, uncertainty, and short reasoning), so a tight ceiling keeps the
 # call fast and cheap without ever truncating a valid decision.
-_ROUTER_MAX_TOKENS = 800
+_ROUTER_MAX_TOKENS = 400
 _ROUTER_SDK_MAX_RETRIES = 0
 _THINKING_DISABLED = {"thinking": {"type": "disabled"}}
 _THINKING_ENABLED = {"thinking": {"type": "enabled"}}
@@ -234,7 +235,7 @@ class RouterClient:
             "router.response",
             "Received router decision.",
             domains=len(decision.domains),
-            has_rewrite=bool(decision.rewritten_query),
+            outcome=decision.outcome.value,
             prompt_tokens=turn_usage.prompt_tokens or None,
             completion_tokens=turn_usage.completion_tokens or None,
             total_elapsed_ms=round((time.monotonic() - classify_started) * 1000, 1),

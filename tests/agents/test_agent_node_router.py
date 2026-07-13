@@ -105,7 +105,7 @@ class TestPromptSlimming:
     def test_decision_slims_system_prompt_to_routed_domain(self):
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_with_history(snapshot)
-        selector = FakeDecisionSelector(RouterDecision(domains=["todoist"]))
+        selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], reasoning="test"))
 
         client, _result = _run_node(state, selector)
 
@@ -117,7 +117,7 @@ class TestPromptSlimming:
         """Slimming rebuilds only messages[0]; the tool result must remain."""
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_with_history(snapshot)
-        selector = FakeDecisionSelector(RouterDecision(domains=["todoist"]))
+        selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], reasoning="test"))
 
         client, result = _run_node(state, selector)
 
@@ -131,7 +131,7 @@ class TestPromptSlimming:
     def test_empty_decision_slims_to_no_domain_fragments(self):
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_with_history(snapshot)
-        selector = FakeDecisionSelector(RouterDecision(domains=[]))
+        selector = FakeDecisionSelector(RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], reasoning="test"))
 
         client, _result = _run_node(state, selector)
 
@@ -140,9 +140,6 @@ class TestPromptSlimming:
         assert "## Google Calendar tool tips" not in system
         # Availability summary still present so the model knows what exists.
         assert "- Todoist: available" in system
-
-
-REWRITE_MARKER = "REWRITTEN create a Todoist task buy milk in Groceries"
 
 
 def _state_turn0(snapshot, user_prompt="add buy milk"):
@@ -155,69 +152,26 @@ def _state_turn0(snapshot, user_prompt="add buy milk"):
     }
 
 
-class TestQueryRewrite:
-    def test_rewrite_applied_on_turn_zero(self):
-        snapshot = make_snapshot(active=("todoist",))
-        state = _state_turn0(snapshot)
-        original_context = state["messages"][-1]["content"].split("\nUser request:\n", 1)[0]
-        selector = FakeDecisionSelector(
-            RouterDecision(domains=["todoist"], rewritten_query=REWRITE_MARKER)
-        )
-
-        client, _result = _run_node(state, selector)
-
-        user_content = client.seen_messages[-1]["content"]
-        assert REWRITE_MARKER in user_content
-        # The request-datetime wrapper is preserved around the rewritten text.
-        assert "User request:" in user_content
-        assert user_content.split("\nUser request:\n", 1)[0] == original_context
-
-    def test_original_user_prompt_preserved_in_state(self):
-        snapshot = make_snapshot(active=("todoist",))
-        state = _state_turn0(snapshot)
-        selector = FakeDecisionSelector(
-            RouterDecision(domains=["todoist"], rewritten_query=REWRITE_MARKER)
-        )
-
-        _client, _result = _run_node(state, selector)
-
-        # Audit trail: state keeps the ORIGINAL query, not the rewrite.
-        assert state["user_prompt"] == "add buy milk"
-
-    def test_no_rewrite_when_rewritten_query_absent(self):
+class TestOriginalQueryPreservation:
+    def test_original_request_is_unchanged_on_turn_zero(self):
         snapshot = make_snapshot(active=("todoist",))
         state = _state_turn0(snapshot)
         original_user = state["messages"][-1]["content"]
-        selector = FakeDecisionSelector(RouterDecision(domains=["todoist"]))
+        selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], reasoning="test"))
 
         client, _result = _run_node(state, selector)
 
         assert client.seen_messages[-1]["content"] == original_user
-
-    def test_rewrite_not_applied_after_turn_zero(self):
-        """A rewrite must never rewrite mid-run — turn_count guard blocks it."""
-        snapshot = make_snapshot(active=("todoist",))
-        state = _state_turn0(snapshot)
-        state["turn_count"] = 1  # simulate a later turn
-        original_user = state["messages"][-1]["content"]
-        selector = FakeDecisionSelector(
-            RouterDecision(domains=["todoist"], rewritten_query=REWRITE_MARKER)
-        )
-
-        client, _result = _run_node(state, selector)
-
-        assert client.seen_messages[-1]["content"] == original_user
-        assert REWRITE_MARKER not in client.seen_messages[-1]["content"]
-
 
 class TestEndToEndThroughRealSelector:
-    """The real RouterToolSelector + agent_node compose: filter, slim, and rewrite."""
+    """The real RouterToolSelector + agent_node compose: filter and slim."""
 
-    def test_router_selector_filters_slims_and_rewrites_in_one_turn(self):
+    def test_router_selector_filters_and_slims_in_one_turn(self):
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_turn0(snapshot)
         decision = RouterDecision(
-            domains=["todoist"], rewritten_query=REWRITE_MARKER
+            outcome="routed", domains=["todoist"], uncertain=False,
+            candidate_domains=[], reasoning="test",
         )
         selector = RouterToolSelector(
             router_client=_CannedRouterClient(decision),
@@ -235,14 +189,13 @@ class TestEndToEndThroughRealSelector:
         assert "## Google Calendar tool tips" not in system
         assert "Available tools: ask_user, add_todoist_task, get_tasks" in system
         assert "list_calendar_events" not in system
-        # (5) user query rewritten on turn 0
-        assert REWRITE_MARKER in client.seen_messages[-1]["content"]
+        assert "add buy milk" in client.seen_messages[-1]["content"]
 
     def test_calendar_route_does_not_advertise_todoist_tools(self):
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_turn0(snapshot, user_prompt="what's on my google calendar")
         selector = RouterToolSelector(
-            router_client=_CannedRouterClient(RouterDecision(domains=["google_calendar"])),
+            router_client=_CannedRouterClient(RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], reasoning="test")),
             snapshot=snapshot,
         )
 
@@ -259,7 +212,7 @@ class TestEndToEndThroughRealSelector:
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_turn0(snapshot, user_prompt="check my todoist calendar")
         selector = RouterToolSelector(
-            router_client=_CannedRouterClient(RouterDecision(domains=[])),
+            router_client=_CannedRouterClient(RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], reasoning="test")),
             snapshot=snapshot,
         )
 
@@ -276,9 +229,11 @@ class TestEndToEndThroughRealSelector:
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_turn0(snapshot, user_prompt="ambiguous planning request")
         decision = RouterDecision(
+            outcome="routed",
             domains=["todoist"],
             uncertain=True,
             candidate_domains=["todoist", "google_calendar"],
+            reasoning="test",
         )
         selector = RouterToolSelector(
             router_client=_CannedRouterClient(decision),
@@ -303,13 +258,14 @@ class TestEndToEndThroughRealSelector:
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_turn0(snapshot)
         selector = RouterToolSelector(
-            router_client=_CannedRouterClient(RouterDecision(domains=["todoist"])),
+            router_client=_CannedRouterClient(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], reasoning="test")),
             snapshot=snapshot,
         )
 
         _client, result = _run_node(state, selector)
 
         assert result["selected_tool_names"] == ["ask_user", "add_todoist_task", "get_tasks"]
+        assert result["router_outcome"] == "routed"
 
 
 class TestNoSlimming:
@@ -330,7 +286,7 @@ class TestNoSlimming:
         state = _state_with_history(snapshot)
         state["runtime_context"] = {}  # no snapshot -> no slimming
         original_system = state["messages"][0]["content"]
-        selector = FakeDecisionSelector(RouterDecision(domains=["todoist"]))
+        selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], reasoning="test"))
 
         client, _result = _run_node(state, selector)
 

@@ -1,6 +1,47 @@
 import { classifyError } from '../../../../../src/services/telegram/errors/classified-error';
+import { GroqTranscriptionError } from '../../../../../src/services/ai/groq-transcription-error';
 
 describe('classifyError', () => {
+  describe('typed Groq transcription errors', () => {
+    it('returns rate-limit retry guidance', () => {
+      const result = classifyError(
+        new GroqTranscriptionError({
+          category: 'rate_limit',
+          message: 'rate limited',
+          retryable: true,
+          status: 429,
+          attempts: 2,
+          retryAfterSeconds: 4,
+        }),
+      );
+
+      expect(result).toEqual({
+        category: 'transient',
+        userMessage:
+          'Voice transcription is temporarily rate-limited. Please try again in about 4 seconds.',
+        shouldLog: 'warn',
+      });
+    });
+
+    it('keeps authentication details out of the user response', () => {
+      const result = classifyError(
+        new GroqTranscriptionError({
+          category: 'authentication',
+          message: 'invalid secret key',
+          retryable: false,
+          status: 401,
+          attempts: 1,
+        }),
+      );
+
+      expect(result).toEqual({
+        category: 'permanent',
+        userMessage: 'Voice transcription is currently unavailable. The service has been notified.',
+        shouldLog: 'error',
+      });
+    });
+  });
+
   describe('user_actionable errors', () => {
     it('classifies empty message error', () => {
       const result = classifyError(new Error('Message cannot be empty'));
@@ -13,7 +54,9 @@ describe('classifyError', () => {
     });
 
     it('classifies message exceeding maximum length', () => {
-      const result = classifyError(new Error('Input exceeds maximum allowed length of 4000 characters'));
+      const result = classifyError(
+        new Error('Input exceeds maximum allowed length of 4000 characters'),
+      );
 
       expect(result).toEqual({
         category: 'user_actionable',
@@ -43,11 +86,14 @@ describe('classifyError', () => {
     });
 
     it('classifies audio conversion unavailable', () => {
-      const result = classifyError(new Error('Audio format conversion is not available on this system'));
+      const result = classifyError(
+        new Error('Audio format conversion is not available on this system'),
+      );
 
       expect(result).toEqual({
         category: 'user_actionable',
-        userMessage: 'This format requires conversion but the converter is unavailable. Please send MP3 or WAV.',
+        userMessage:
+          'This format requires conversion but the converter is unavailable. Please send MP3 or WAV.',
         shouldLog: 'warn',
       });
     });
@@ -163,9 +209,7 @@ describe('classifyError', () => {
         // This message contains patterns for both the max-length rule (index 1) and
         // the file-size rule (index 2). The max-length rule appears first in
         // ERROR_RULES, so it wins.
-        const result = classifyError(
-          new Error('File size 30MB exceeds maximum allowed length')
-        );
+        const result = classifyError(new Error('File size 30MB exceeds maximum allowed length'));
 
         expect(result).toEqual({
           category: 'user_actionable',
@@ -176,9 +220,7 @@ describe('classifyError', () => {
 
       it('matches file-size rule when message has "File size" and "exceeds" but NOT "maximum allowed length"', () => {
         // Only the file-size rule matches here, verifying its pattern independently.
-        const result = classifyError(
-          new Error('File size 30MB exceeds the upload limit')
-        );
+        const result = classifyError(new Error('File size 30MB exceeds the upload limit'));
 
         expect(result).toEqual({
           category: 'user_actionable',
@@ -228,7 +270,7 @@ describe('classifyError', () => {
     describe('partial matches work within longer messages', () => {
       it('matches empty message rule embedded in longer text', () => {
         const result = classifyError(
-          new Error('Validation failed: Message cannot be empty (field: body)')
+          new Error('Validation failed: Message cannot be empty (field: body)'),
         );
         expect(result.category).toBe('user_actionable');
         expect(result.userMessage).toBe('Please send a message with some text.');
@@ -236,23 +278,31 @@ describe('classifyError', () => {
 
       it('matches temporarily unavailable embedded in longer text', () => {
         const result = classifyError(
-          new Error('LangGraph agent at http://localhost:8000 is temporarily unavailable (connection refused)')
+          new Error(
+            'LangGraph agent at http://localhost:8000 is temporarily unavailable (connection refused)',
+          ),
         );
         expect(result.category).toBe('transient');
-        expect(result.userMessage).toBe('Jarvis is temporarily unavailable. Please try again in a moment.');
+        expect(result.userMessage).toBe(
+          'Jarvis is temporarily unavailable. Please try again in a moment.',
+        );
       });
 
       it('matches download failure with full URL context', () => {
         const result = classifyError(
-          new Error('Failed to download https://api.telegram.org/file/bot123/voice.ogg: 403 Forbidden')
+          new Error(
+            'Failed to download https://api.telegram.org/file/bot123/voice.ogg: 403 Forbidden',
+          ),
         );
         expect(result.category).toBe('transient');
-        expect(result.userMessage).toBe('Could not download the file. Please try sending it again.');
+        expect(result.userMessage).toBe(
+          'Could not download the file. Please try sending it again.',
+        );
       });
 
       it('matches 5xx regex with surrounding context', () => {
         const result = classifyError(
-          new Error('Request to /invoke failed: API returned 502 after 3 retries')
+          new Error('Request to /invoke failed: API returned 502 after 3 retries'),
         );
         expect(result.category).toBe('transient');
       });

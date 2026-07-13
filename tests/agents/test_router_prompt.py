@@ -20,52 +20,61 @@ from tests.agents.runtime_helpers import make_preferences, make_snapshot
 
 
 class TestRouterDecisionSchema:
-    def test_defaults_are_empty(self):
-        """A bare decision has no domains, no rewrite, and empty reasoning."""
-        decision = RouterDecision()
-        assert decision.domains == []
-        assert decision.uncertain is False
-        assert decision.candidate_domains == []
-        assert decision.rewritten_query is None
-        assert decision.reasoning == ""
+    def test_all_fields_are_required(self):
+        with pytest.raises(ValidationError):
+            RouterDecision.model_validate({})
 
     def test_round_trips_from_dict(self):
         data = {
+            "outcome": "routed",
             "domains": ["todoist", "google_calendar"],
             "uncertain": True,
             "candidate_domains": ["todoist", "google_calendar"],
-            "rewritten_query": "add buy milk to my list",
             "reasoning": "task + explicit time",
         }
         decision = RouterDecision.model_validate(data)
         assert decision.domains == ["todoist", "google_calendar"]
         assert decision.uncertain is True
         assert decision.candidate_domains == ["todoist", "google_calendar"]
-        assert decision.rewritten_query == "add buy milk to my list"
         assert decision.model_dump() == data
 
     def test_rejects_unknown_fields(self):
         """extra='forbid' guards against the model inventing fields."""
         with pytest.raises(ValidationError):
-            RouterDecision.model_validate({"domains": [], "confidence": 0.9})
+            RouterDecision.model_validate({
+                "outcome": "conversation", "domains": [], "uncertain": False,
+                "candidate_domains": [], "reasoning": "greeting", "confidence": 0.9,
+            })
 
     def test_rejects_wrong_domain_type(self):
         with pytest.raises(ValidationError):
-            RouterDecision.model_validate({"domains": "todoist"})
+            RouterDecision.model_validate({
+                "outcome": "routed", "domains": "todoist", "uncertain": False,
+                "candidate_domains": [], "reasoning": "task",
+            })
 
     def test_effective_domains_use_candidates_only_when_uncertain(self):
         certain = RouterDecision(
+            outcome="routed",
             domains=["todoist"],
             uncertain=False,
-            candidate_domains=["google_calendar"],
+            candidate_domains=[],
+            reasoning="task",
         )
         uncertain = RouterDecision(
+            outcome="routed",
             domains=["todoist"],
             uncertain=True,
-            candidate_domains=["todoist", "google_calendar", "todoist"],
+            candidate_domains=["todoist", "google_calendar"],
+            reasoning="ambiguous",
         )
         assert effective_router_domains(certain) == ["todoist"]
         assert effective_router_domains(uncertain) == ["todoist", "google_calendar"]
+        with pytest.raises(ValidationError):
+            RouterDecision(
+                outcome="routed", domains=["todoist"], uncertain=True,
+                candidate_domains=["todoist", "todoist"], reasoning="duplicate",
+            )
 
 
 class TestRouterSystemPrompt:
@@ -124,8 +133,8 @@ class TestRouterSystemPrompt:
         not hardcoded strings — this keeps the pattern-teaching general."""
         prefs = make_preferences(task_provider="todoist", event_provider="google_calendar")
         prompt = build_router_system_prompt(make_snapshot(preferences=prefs))
-        assert '{"domains": ["todoist"]' in prompt
-        assert '{"domains": ["google_calendar"]' in prompt
+        assert '"outcome": "routed", "domains": ["todoist"]' in prompt
+        assert '"outcome": "routed", "domains": ["google_calendar"]' in prompt
 
     def test_output_schema_constrains_reasoning_length(self):
         """The reasoning field should be capped to save tokens on filler."""
@@ -139,20 +148,17 @@ class TestRouterSystemPrompt:
         assert "most-likely minimal route" in prompt
         assert "expanded safe set when uncertain" in prompt
 
-    def test_prompt_documents_rewrite_fidelity_rules(self):
+    def test_prompt_has_no_query_rewrite_contract(self):
         prompt = build_router_system_prompt(make_snapshot())
-        assert "## Rewrite rules" in prompt
-        assert "preserve timing modifiers" in prompt
-        assert "Do not turn recommendations" in prompt
-        assert "Do not add missing task/event details" in prompt
-        assert "Preserve uncertainty and wording strength" in prompt
+        assert "Rewrite" not in prompt
+        assert "rewritten_query" not in prompt
 
     def test_instructs_json_only_output(self):
         prompt = build_router_system_prompt(make_snapshot())
         # response_format=json_object requires the word "JSON" to appear.
         assert "JSON" in prompt
         assert "domains" in prompt
-        assert "rewritten_query" in prompt
+        assert '"outcome"' in prompt
         assert "## Output format" in prompt
 
 

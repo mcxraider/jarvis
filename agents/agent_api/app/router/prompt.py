@@ -14,33 +14,64 @@ provider secrets or the full orchestrator policy — the router only needs enoug
 to route.
 """
 
-from typing import Any, Dict, List, Optional
+from enum import Enum
+from typing import Any, Dict, List
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents.agent_api.app.tools.domain_adapters import DOMAIN_ADAPTERS
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 
-class RouterDecision(BaseModel):
-    """Structured router output: which domains a query needs, plus an optional rewrite.
+class RouterDomain(str, Enum):
+    """Service-domain identifiers accepted from the router model."""
 
-    ``domains`` is a subset of the known domain keys (``DOMAIN_ADAPTERS``). An
-    empty list means the query needs no service domain (greetings, small talk,
-    meta questions). When ``uncertain`` is true, ``domains`` remains the most
-    likely minimal route and ``candidate_domains`` is the expanded safe set used
-    for tool exposure. ``rewritten_query`` is an optional cleaned-up restatement
-    the orchestrator can use instead of the raw text; ``reasoning`` is a short,
-    non-authoritative rationale kept only for tracing/debugging.
-    """
+    TODOIST = "todoist"
+    GOOGLE_CALENDAR = "google_calendar"
+
+
+class RouterOutcome(str, Enum):
+    ROUTED = "routed"
+    CONVERSATION = "conversation"
+    UNSUPPORTED_PROVIDER = "unsupported_provider"
+    AMBIGUOUS = "ambiguous"
+
+
+if {member.value for member in RouterDomain} != set(DOMAIN_ADAPTERS):
+    raise RuntimeError("RouterDomain must exactly match DOMAIN_ADAPTERS keys")
+
+
+class RouterDecision(BaseModel):
+    """Strict structured classification returned by the query router."""
 
     model_config = ConfigDict(extra="forbid")
 
-    domains: List[str] = Field(default_factory=list)
-    uncertain: bool = False
-    candidate_domains: List[str] = Field(default_factory=list)
-    rewritten_query: Optional[str] = None
-    reasoning: str = ""
+    outcome: RouterOutcome
+    domains: List[RouterDomain] = Field(strict=True)
+    uncertain: bool
+    candidate_domains: List[RouterDomain] = Field(strict=True)
+    reasoning: str
+
+    @model_validator(mode="after")
+    def validate_consistency(self) -> "RouterDecision":
+        if len(set(self.domains)) != len(self.domains):
+            raise ValueError("domains must not contain duplicates")
+        if len(set(self.candidate_domains)) != len(self.candidate_domains):
+            raise ValueError("candidate_domains must not contain duplicates")
+        if self.outcome == RouterOutcome.ROUTED and not self.domains:
+            raise ValueError("routed outcome requires at least one domain")
+        if self.outcome != RouterOutcome.ROUTED and self.domains:
+            raise ValueError("non-routed outcomes require an empty domains list")
+        if not self.uncertain and self.candidate_domains:
+            raise ValueError("candidate_domains must be empty when uncertain is false")
+        if self.uncertain:
+            if not self.candidate_domains:
+                raise ValueError("uncertain decisions require candidate_domains")
+            if not set(self.domains).issubset(self.candidate_domains):
+                raise ValueError("candidate_domains must contain every routed domain")
+        if self.outcome == RouterOutcome.AMBIGUOUS and not self.uncertain:
+            raise ValueError("ambiguous outcome must be uncertain")
+        return self
 
 
 def effective_router_domains(decision: RouterDecision) -> List[str]:
@@ -51,7 +82,7 @@ def effective_router_domains(decision: RouterDecision) -> List[str]:
         if decision.uncertain and decision.candidate_domains
         else decision.domains
     )
-    return list(dict.fromkeys(domains))
+    return [domain.value for domain in domains]
 
 
 def _domain_catalogue() -> List[str]:
@@ -104,7 +135,17 @@ def _routing_rules(snapshot: RuntimeContextSnapshot) -> List[str]:
         )
         next_index += 1
     rules.append(
-        f"{next_index}. Greetings, small talk, and meta questions return an empty `domains` list."
+        f"{next_index}. Greetings, small talk, and meta questions use outcome `conversation` and empty domains."
+    )
+    next_index += 1
+    rules.append(
+        f"{next_index}. Requests explicitly targeting an unlisted provider use outcome "
+        "`unsupported_provider` and empty domains."
+    )
+    next_index += 1
+    rules.append(
+        f"{next_index}. If service access is needed but the domain is genuinely unclear, use "
+        "outcome `ambiguous`, set `uncertain` true, and return the safe candidate domains."
     )
     next_index += 1
     rules.append(
@@ -132,14 +173,20 @@ def _few_shot_examples(snapshot: RuntimeContextSnapshot) -> List[str]:
     event_provider = routing.event_provider
     examples = [
         f'User: "what tasks do I have today?" -> '
-        f'{{"domains": ["{task_provider}"], "uncertain": false, "candidate_domains": [], '
-        f'"rewritten_query": null, "reasoning": "task lookup"}}',
+        f'{{"outcome": "routed", "domains": ["{task_provider}"], "uncertain": false, '
+        f'"candidate_domains": [], "reasoning": "task lookup"}}',
         f'User: "what\'s on my schedule this week?" -> '
-        f'{{"domains": ["{event_provider}"], "uncertain": false, "candidate_domains": [], '
-        f'"rewritten_query": null, "reasoning": "schedule query"}}',
+        f'{{"outcome": "routed", "domains": ["{event_provider}"], "uncertain": false, '
+        f'"candidate_domains": [], "reasoning": "schedule query"}}',
         'User: "hello!" -> '
-        '{"domains": [], "uncertain": false, "candidate_domains": [], '
-        '"rewritten_query": null, "reasoning": "greeting"}',
+        '{"outcome": "conversation", "domains": [], "uncertain": false, '
+        '"candidate_domains": [], "reasoning": "greeting"}',
+        'User: "check my Slack messages" -> '
+        '{"outcome": "unsupported_provider", "domains": [], "uncertain": false, '
+        '"candidate_domains": [], "reasoning": "unsupported Slack request"}',
+        'User: "check my plans somewhere" -> '
+        '{"outcome": "ambiguous", "domains": [], "uncertain": true, '
+        '"candidate_domains": ["todoist", "google_calendar"], "reasoning": "service domain unclear"}',
     ]
     # Only include the explicit-Google-Calendar example when the domain exists
     # in the adapter catalogue — otherwise it references a domain the model
@@ -147,26 +194,10 @@ def _few_shot_examples(snapshot: RuntimeContextSnapshot) -> List[str]:
     if "google_calendar" in DOMAIN_ADAPTERS:
         examples.append(
             'User: "add a meeting to my google calendar" -> '
-            '{"domains": ["google_calendar"], "uncertain": false, "candidate_domains": [], '
-            '"rewritten_query": null, "reasoning": "explicit google calendar mention"}'
+            '{"outcome": "routed", "domains": ["google_calendar"], "uncertain": false, '
+            '"candidate_domains": [], "reasoning": "explicit google calendar mention"}'
         )
     return examples
-
-
-def _rewrite_rules() -> List[str]:
-    """Rules that keep optional rewrites faithful to the raw request."""
-
-    return [
-        "1. If the request is already clear, set `rewritten_query` to null.",
-        "2. A rewrite must preserve timing modifiers such as `later today`, "
-        "`tomorrow`, `next week`, time ranges, and recurrence hints.",
-        "3. Do not turn recommendations, comparisons, or planning requests into "
-        "pure lookups.",
-        "4. Do not add missing task/event details, names, locations, attendees, "
-        "durations, or dates.",
-        "5. Preserve uncertainty and wording strength: do not turn `maybe`, "
-        "`could`, or `which one should` into a definite action.",
-    ]
 
 
 def build_router_system_prompt(snapshot: RuntimeContextSnapshot) -> str:
@@ -191,16 +222,13 @@ def build_router_system_prompt(snapshot: RuntimeContextSnapshot) -> str:
             "## Examples",
             *_few_shot_examples(snapshot),
             "",
-            "## Rewrite rules",
-            *_rewrite_rules(),
-            "",
             "## Output format",
             "Return exactly one JSON object. No prose, no code fences.",
             "Schema: {",
+            '  "outcome": <one of "routed", "conversation", "unsupported_provider", "ambiguous">,',
             f'  "domains": [<subset of {valid_keys}> — most-likely minimal route],',
             '  "uncertain": <boolean — true only for real domain ambiguity>,',
             f'  "candidate_domains": [<subset of {valid_keys}> — expanded safe set when uncertain, else []],',
-            '  "rewritten_query": <string or null — faithful restatement, or null if already clear>,',
             '  "reasoning": <short string, 10 words or fewer>',
             "}",
         ]
@@ -221,6 +249,8 @@ def build_router_messages(
 
 __all__ = [
     "RouterDecision",
+    "RouterDomain",
+    "RouterOutcome",
     "build_router_messages",
     "build_router_system_prompt",
     "effective_router_domains",
