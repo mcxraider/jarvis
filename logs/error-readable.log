@@ -10189,6 +10189,7 @@
     {
       "error": "Bot is not running!"
     }
+<<<<<<< Updated upstream
 [2026-07-12 11:30:12] WARN conversation_gate.inconsistent_state
   chatId: [REDACTED_ID]
   messageId: 11
@@ -10808,4 +10809,98 @@
   details:
     {
       "seq": 99
+=======
+[2026-07-11 11:56:09] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-11 15:37:45] WARN whisper.download.unexpected_content_type
+  requestId: tg_update_564452489
+  updateId: 564452489
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1234
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-07-11 15:40:13] WARN whisper.download.unexpected_content_type
+  requestId: tg_update_564452490
+  updateId: 564452490
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1237
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-07-12 07:00:10] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-12 07:00:10] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-12 13:03:46] WARN whisper.download.unexpected_content_type
+  requestId: tg_update_564452512
+  updateId: 564452512
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1286
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "contentType": "application/octet-stream"
+    }
+[2026-07-12 23:21:13] ERROR process.uncaught_exception
+  details:
+    {
+      "error": "read ECONNRESET"
+    }
+  stack:
+    Error: read ECONNRESET
+        at TCP.onStreamRead (node:internal/stream_base_commons:218:20)
+[2026-07-13 02:02:17] ERROR process.uncaught_exception
+  details:
+    {
+      "error": "read ECONNRESET"
+    }
+  stack:
+    Error: read ECONNRESET
+        at TCP.onStreamRead (node:internal/stream_base_commons:218:20)
+[2026-07-13 07:59:39] ERROR process.uncaught_exception
+  details:
+    {
+      "error": "read ECONNRESET"
+    }
+  stack:
+    Error: read ECONNRESET
+        at TCP.onStreamRead (node:internal/stream_base_commons:218:20)
+[2026-07-13 08:56:27] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-13 08:56:27] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-13 09:26:35] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "getaddrinfo ENOTFOUND aws-1-ap-southeast-1.pooler.supabase.com"
+>>>>>>> Stashed changes
     }

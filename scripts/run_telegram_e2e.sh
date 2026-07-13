@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Run: ./scripts/run_telegram_e2e.sh
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

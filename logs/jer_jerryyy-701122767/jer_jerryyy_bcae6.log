@@ -1,0 +1,174 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-11T13:32:26+08:00
+request_id: tg_update_564452482
+thread_id: de03b072-bf21-408f-8988-cebb408bcae6
+user_id: telegram:701122767
+telegram_id: 701122767
+identity_username: jer_jerryyy
+telegram_user_id: None
+telegram_username: None
+telegram_first_name: None
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-11 13:32:26.873 | section              | === Jarvis LangGraph Run ===
+2026-07-11 13:32:26.873 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_564452482
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: de03b072-bf21-408f-8988-cebb408bcae6
+      request_source: telegram
+      resuming: false
+2026-07-11 13:32:26.873 | runtime.prompt       | [payload] user_prompt: /schedule_next_week
+2026-07-11 13:32:27.155 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-11 13:32:27.214 | graph.agent          | Entering agent node.
+      turn: 1
+      max_turns: 20
+      messages: 2
+2026-07-11 13:32:27.214 | router.start         | Classifying query domains.
+2026-07-11 13:32:27.215 | router.prompt        | [payload] system_prompt:
+      You are a fast query router for a personal assistant. Classify which service domains the user's request needs. Do not answer the request or call any tools — only classify.
+
+## Domains
+- "todoist" (Todoist): tasks, calendar_events, projects, comments
+- "google_calendar" (Google Calendar): calendar_events, free_busy
+
+## Connection status
+- Todoist: connected
+- Google Calendar: connected
+
+## Routing rules
+1. Route tasks, to-dos, and projects to `todoist`.
+2. Route events, schedules, availability, free-time, and busy-time requests to `todoist`.
+3. Treat Todoist as able to answer scheduled-item, event, availability, and free/busy questions — generic calendar or schedule requests route to `todoist`.
+4. `google_calendar` is explicit-only: route to it only when the user says `google calendar`, `google cal`, `gcal`, or `google_calendar`. Generic words like `calendar`, `schedule`, `free`, or `busy` do NOT trigger `google_calendar`.
+5. Greetings, small talk, and meta questions return an empty `domains` list.
+6. Multi-domain requests: return every domain the request touches.
+7. Prefer connected domains, but if the request clearly needs a disconnected domain, still return it so the assistant can explain.
+
+## Examples
+User: "what tasks do I have today?" -> {"domains": ["todoist"], "uncertain": false, "candidate_domains": [], "rewritten_query": null, "reasoning": "task lookup"}
+User: "what's on my schedule this week?" -> {"domains": ["todoist"], "uncertain": false, "candidate_domains": [], "rewritten_query": null, "reasoning": "schedule query"}
+User: "hello!" -> {"domains": [], "uncertain": false, "candidate_domains": [], "rewritten_query": null, "reasoning": "greeting"}
+User: "add a meeting to my google calendar" -> {"domains": ["google_calendar"], "uncertain": false, "candidate_domains": [], "rewritten_query": null, "reasoning": "explicit google calendar mention"}
+
+## Rewrite rules
+1. If the request is already clear, set `rewritten_query` to null.
+2. A rewrite must preserve timing modifiers such as `later today`, `tomorrow`, `next week`, time ranges, and recurrence hints.
+3. Do not turn recommendations, comparisons, or planning requests into pure lookups.
+4. Do not add missing task/event details, names, locations, attendees, durations, or dates.
+5. Preserve uncertainty and wording strength: do not turn `maybe`, `could`, or `which one should` into a definite action.
+
+## Output format
+Return exactly one JSON object. No prose, no code fences.
+Schema: {
+  "domains": [<subset of "todoist", "google_calendar"> — most-likely minimal route],
+  "uncertain": <boolean — true only for real domain ambiguity>,
+  "candidate_domains": [<subset of "todoist", "google_calendar"> — expanded safe set when uncertain, else []],
+  "rewritten_query": <string or null — faithful restatement, or null if already clear>,
+  "reasoning": <short string, 10 words or fewer>
+}
+2026-07-11 13:32:27.215 | router.prompt        | [payload] user_prompt: User request:
+/schedule_next_week
+2026-07-11 13:32:27.215 | router.request       | Calling router classifier.
+      model: deepseek-v4-flash
+      reasoning: off
+      messages: 2
+      request_timeout_seconds: 5.0
+      sdk_max_retries: 0
+      max_retry_attempts: 2
+      retry_max_delay_seconds: 2.0
+      base_url: https://api.deepseek.com
+      response_format: json_object
+      thinking_enabled: false
+2026-07-11 13:32:27.215 | router.attempt.start | Starting router classification attempt.
+      attempt: 1
+      request_timeout_seconds: 5.0
+2026-07-11 13:32:28.408 | router.attempt.done  | Router classification attempt completed.
+      attempt: 1
+      elapsed_ms: 1192.2
+2026-07-11 13:32:28.409 | router.response      | Received router decision.
+      domains: 1
+      has_rewrite: false
+      prompt_tokens: 773
+      completion_tokens: 45
+      total_elapsed_ms: 1193.6
+2026-07-11 13:32:28.410 | router.response      | Router decision received.
+      raw_domains: [todoist]
+      candidate_domains: []
+      uncertain: false
+      effective_domains: [todoist]
+      has_rewrite: false
+2026-07-11 13:32:28.410 | router.tools.selected | Selected tools for routed domains.
+      relevant: [todoist]
+      available: 22
+      selected: 15
+2026-07-11 13:32:28.410 | graph.tools.selected | Selected tools for this turn.
+      available: 22
+      selected: 15
+      tool_names: [ask_user, add_todoist_task, get_todoist_task, get_tasks, get_tasks_by_filter, update_todoist_task, complete_task, uncomplete_task, delete_todoist_task, get_completed_todoist_tasks_by_completion_date, get_comments, add_comment, get_labels, get_projects, create_project]
+2026-07-11 13:32:28.410 | router.prompt.slimmed | Rebuilt system prompt for routed domains.
+      relevant: [todoist]
+2026-07-11 13:32:28.410 | model_router.selected | Model router selected model for this turn.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+2026-07-11 13:32:28.413 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 2
+      tools: 15
+      request_timeout_seconds: 30.0
+      sdk_max_retries: 0
+      max_retry_attempts: 3
+      retry_max_delay_seconds: 8.0
+      max_tokens: 13000
+      thinking_enabled: true
+      base_url: https://api.deepseek.com
+2026-07-11 13:32:33.478 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 5926
+      completion_tokens: 502
+      total_tokens: 6428
+      cached_tokens: 5888
+      cache_hit_rate: 99.4
+2026-07-11 13:32:33.479 | graph.route          | Agent node completed.
+      turn: 1
+2026-07-11 13:32:33.484 | graph.hitl           | Interrupting for user clarification.
+      question: What would you like to schedule for next week? Please share the details (tasks, times, etc.).
+      deferred_tools: 0
+      extra_questions: 0
+2026-07-11 13:32:33.567 | runtime.done         | Graph invocation completed.
+      request_id: tg_update_564452482
+      turns: 1
+      tool_results: 0
+      has_error: false
+      interrupted: true
+      interrupt_type: clarify
+      total_tokens: 6428
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-07-11T13:32:33+08:00
+duration_seconds: 6.798
+request_id: tg_update_564452482
+turns: 1
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 5926
+completion_tokens: 502
+total_tokens: 6428
+cached_tokens: 5888
+cache_hit_rate: 99.4
+reasoning_tokens: 326
+==============================================================================

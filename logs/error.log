@@ -1836,6 +1836,7 @@
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-11 11:06:34"}
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-11 11:06:34"}
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-11 11:06:34"}
+<<<<<<< Updated upstream
 {"chatId":"[REDACTED_ID]","gateKey":"telegram-chat:57fe127d914c5340094559798ef10222","level":"warn","message":"conversation_gate.inconsistent_state","messageId":11,"timestamp":"2026-07-12 11:30:12"}
 {"chatId":"[REDACTED_ID]","durationMs":1,"error":"network timeout","level":"error","message":"text_processor.failed","messageId":11,"messageLength":16,"timestamp":"2026-07-12 11:30:12","userId":"[REDACTED_ID]"}
 {"chatId":"[REDACTED_ID]","durationMs":0,"error":"network timeout","level":"error","message":"text_processor.failed","messageId":11,"messageLength":16,"timestamp":"2026-07-12 11:30:12","userId":"[REDACTED_ID]"}
@@ -1954,3 +1955,17 @@
 {"level":"error","message":"ordering_14596_1783915845910","seq":97,"timestamp":"2026-07-13 12:10:54"}
 {"level":"error","message":"ordering_14596_1783915845910","seq":98,"timestamp":"2026-07-13 12:10:54"}
 {"level":"error","message":"ordering_14596_1783915845910","seq":99,"timestamp":"2026-07-13 12:10:54"}
+=======
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-11 11:56:09"}
+{"chatId":"[REDACTED_ID]","contentType":"application/octet-stream","level":"warn","message":"whisper.download.unexpected_content_type","messageId":1234,"messageType":"voice","requestId":"tg_update_564452489","telegramFirstName":"jerry","telegramUsername":"jer_jerryyy","timestamp":"2026-07-11 15:37:45","updateId":564452489,"userId":"[REDACTED_ID]"}
+{"chatId":"[REDACTED_ID]","contentType":"application/octet-stream","level":"warn","message":"whisper.download.unexpected_content_type","messageId":1237,"messageType":"voice","requestId":"tg_update_564452490","telegramFirstName":"jerry","telegramUsername":"jer_jerryyy","timestamp":"2026-07-11 15:40:13","updateId":564452490,"userId":"[REDACTED_ID]"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-12 07:00:10"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-12 07:00:10"}
+{"chatId":"[REDACTED_ID]","contentType":"application/octet-stream","level":"warn","message":"whisper.download.unexpected_content_type","messageId":1286,"messageType":"voice","requestId":"tg_update_564452512","telegramFirstName":"Zac","telegramUsername":"zackam","timestamp":"2026-07-12 13:03:46","updateId":564452512,"userId":"[REDACTED_ID]"}
+{"error":"read ECONNRESET","level":"error","message":"process.uncaught_exception","stack":"Error: read ECONNRESET\n    at TCP.onStreamRead (node:internal/stream_base_commons:218:20)","timestamp":"2026-07-12 23:21:13"}
+{"error":"read ECONNRESET","level":"error","message":"process.uncaught_exception","stack":"Error: read ECONNRESET\n    at TCP.onStreamRead (node:internal/stream_base_commons:218:20)","timestamp":"2026-07-13 02:02:17"}
+{"error":"read ECONNRESET","level":"error","message":"process.uncaught_exception","stack":"Error: read ECONNRESET\n    at TCP.onStreamRead (node:internal/stream_base_commons:218:20)","timestamp":"2026-07-13 07:59:39"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-13 08:56:27"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-13 08:56:27"}
+{"error":"getaddrinfo ENOTFOUND aws-1-ap-southeast-1.pooler.supabase.com","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-13 09:26:35"}
+>>>>>>> Stashed changes
