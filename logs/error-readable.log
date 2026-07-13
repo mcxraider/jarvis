@@ -10189,3 +10189,623 @@
     {
       "error": "Bot is not running!"
     }
+[2026-07-12 11:30:12] WARN conversation_gate.inconsistent_state
+  chatId: [REDACTED_ID]
+  messageId: 11
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-12 11:30:12] ERROR text_processor.failed
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 11
+  details:
+    {
+      "messageLength": 16,
+      "error": "network timeout",
+      "durationMs": 1
+    }
+[2026-07-12 11:30:12] ERROR text_processor.failed
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 11
+  details:
+    {
+      "messageLength": 16,
+      "error": "network timeout",
+      "durationMs": 0
+    }
+[2026-07-13 12:09:22] ERROR whisper.api.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "model": "whisper-large-v3",
+      "error": "Invalid file format",
+      "durationMs": 1
+    }
+[2026-07-13 12:09:22] WARN audio.transcription.direct_failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "originalFormat": "ogg",
+      "normalizedFormat": "ogg",
+      "error": "Unsupported audio format. Please use a supported audio file format."
+    }
+[2026-07-13 12:09:22] ERROR whisper.api.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "model": "whisper-large-v3",
+      "error": "Rate limit exceeded",
+      "durationMs": 0
+    }
+[2026-07-13 12:09:22] WARN audio.transcription.direct_failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "originalFormat": "ogg",
+      "normalizedFormat": "ogg",
+      "error": "OpenAI API error: Rate limit exceeded"
+    }
+[2026-07-13 12:09:22] ERROR whisper.transcription.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]",
+      "error": "OpenAI API error: Rate limit exceeded",
+      "processingTimeMs": 1
+    }
+[2026-07-13 12:09:22] WARN audio_processor.transcription_send_failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "error": "Telegram send failed"
+    }
+[2026-07-13 12:09:22] WARN audio_processor.text_processing_failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "transcribedText": "Add a Todoist task to buy milk tomorrow",
+      "error": "Agent unavailable",
+      "durationMs": 1
+    }
+[2026-07-13 12:09:22] ERROR audio_processor.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "error": "Whisper unavailable",
+      "durationMs": 1
+    }
+[2026-07-13 12:10:45] ERROR logger.queue.priority_test
+[2026-07-13 12:10:46] ERROR circular_test_14596
+  details:
+    {
+      "name": "circular_test_14596",
+      "self": "[Circular]"
+    }
+[2026-07-13 12:10:47] ERROR error_chain_test_14596
+  details:
+    {
+      "err": {
+        "name": "Error",
+        "message": "outer error",
+        "stack": "Error: outer error\n    at Object.<anonymous> (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/tests/unit/utils/logger.test.ts:106:19)\n    at Promise.then.completed (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:298:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:231:10)\n    at _callCircusTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:316:40)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at _runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:252:3)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:126:9)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:121:9)\n    at run (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:71:3)\n    at runAndTransformResultsToJestFormat (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)\n    at jestAdapter (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)\n    at runTestInternal (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:367:16)\n    at runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:444:34)"
+      }
+    }
+[2026-07-13 12:10:48] ERROR types_test_14596
+  details:
+    {
+      "marker": "types_test_14596",
+      "big": "9007199254740991",
+      "sym": "Symbol(test-symbol)",
+      "buf": "[Buffer 5 bytes]",
+      "fn": "[Function myFunc]"
+    }
+[2026-07-13 12:10:51] ERROR after_restart_14596
+  details:
+    {
+      "recovered": true
+    }
+[2026-07-13 12:10:54] ERROR shutdown_timeout_warmup
+[2026-07-13 12:10:54] ERROR flush_timeout_warmup
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 0
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 1
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 2
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 3
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 4
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 5
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 6
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 7
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 8
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 9
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 10
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 11
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 12
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 13
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 14
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 15
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 16
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 17
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 18
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 19
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 20
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 21
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 22
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 23
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 24
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 25
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 26
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 27
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 28
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 29
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 30
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 31
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 32
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 33
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 34
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 35
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 36
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 37
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 38
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 39
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 40
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 41
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 42
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 43
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 44
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 45
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 46
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 47
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 48
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 49
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 50
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 51
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 52
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 53
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 54
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 55
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 56
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 57
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 58
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 59
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 60
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 61
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 62
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 63
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 64
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 65
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 66
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 67
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 68
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 69
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 70
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 71
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 72
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 73
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 74
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 75
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 76
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 77
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 78
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 79
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 80
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 81
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 82
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 83
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 84
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 85
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 86
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 87
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 88
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 89
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 90
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 91
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 92
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 93
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 94
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 95
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 96
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 97
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 98
+    }
+[2026-07-13 12:10:54] ERROR ordering_14596_1783915845910
+  details:
+    {
+      "seq": 99
+    }

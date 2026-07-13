@@ -1,6 +1,9 @@
 node_modules
 dist
 venv
+.venv
+__pycache__
+*.py[cod]
 logs
 coverage
 reports
@@ -13,3 +16,5 @@ data
 .DS_Store
 tests
 plans
+.github
+onboard/private

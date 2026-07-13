@@ -26,7 +26,7 @@ class TestModelSelection:
 class TestModelRouter:
     def test_returns_default_when_disabled(self):
         router = create_default_model_router(enabled=False)
-        decision = RouterDecision(domains=["todoist", "google_calendar"], uncertain=True)
+        decision = RouterDecision(outcome="routed", domains=["todoist", "google_calendar"], uncertain=True, candidate_domains=["todoist", "google_calendar"], reasoning="test")
         result = router.select(decision)
         assert result == router.default
 
@@ -42,8 +42,11 @@ class TestModelRouter:
             multi_domain_reasoning="high",
         )
         decision = RouterDecision(
+            outcome="routed",
             domains=["todoist", "google_calendar"],
             uncertain=True,
+            candidate_domains=["todoist", "google_calendar"],
+            reasoning="test",
         )
         result = router.select(decision)
         assert result.model == "pro"
@@ -54,7 +57,7 @@ class TestModelRouter:
             complex_model="pro",
             multi_domain_reasoning="high",
         )
-        decision = RouterDecision(domains=["todoist", "google_calendar"])
+        decision = RouterDecision(outcome="routed", domains=["todoist", "google_calendar"], uncertain=False, candidate_domains=[], reasoning="test")
         result = router.select(decision)
         assert result.model == "pro"
         assert result.reasoning_effort == "high"
@@ -65,14 +68,14 @@ class TestModelRouter:
             default_reasoning="max",
             complex_model="pro",
         )
-        decision = RouterDecision(domains=["todoist"])
+        decision = RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], reasoning="test")
         result = router.select(decision)
         assert result.model == "flash"
         assert result.reasoning_effort == "max"
 
     def test_empty_domains_uses_default(self):
         router = create_default_model_router(default_model="flash")
-        decision = RouterDecision(domains=[])
+        decision = RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], reasoning="test")
         result = router.select(decision)
         assert result.model == "flash"
 
@@ -85,7 +88,7 @@ class TestModelRouter:
         )
         default = ModelSelection(model="default", reasoning_effort="max")
         router = ModelRouter([custom_rule], default)
-        decision = RouterDecision(domains=["todoist"])
+        decision = RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], reasoning="test")
         assert router.select(decision) == custom_selection
 
     def test_first_matching_rule_wins(self):
@@ -97,4 +100,4 @@ class TestModelRouter:
         ]
         default = ModelSelection(model="default", reasoning_effort="max")
         router = ModelRouter(rules, default)
-        assert router.select(RouterDecision(domains=["x"])) == sel_a
+        assert router.select(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], reasoning="test")) == sel_a

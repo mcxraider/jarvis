@@ -22,7 +22,11 @@ import re
 from typing import Any, Dict, List, Optional, Set
 
 from agents.agent_api.app.router.client import RouterClient, RouterClientError
-from agents.agent_api.app.router.prompt import RouterDecision, effective_router_domains
+from agents.agent_api.app.router.prompt import (
+    RouterDecision,
+    RouterOutcome,
+    effective_router_domains,
+)
 from agents.agent_api.app.tools.base import ToolRegistry
 from agents.agent_api.app.tools.control import ASK_USER_TOOL_NAME
 from agents.agent_api.app.tools.selectors.static import StaticToolSelector
@@ -35,6 +39,10 @@ _EXPLICIT_GOOGLE_CALENDAR_PATTERN = re.compile(
 )
 _GENERIC_EVENT_PATTERN = re.compile(
     r"\b(?:cal|calendar|schedule|free|busy|availability|available|event|events|meeting|meetings|appointment|appointments)\b",
+    re.IGNORECASE,
+)
+_TASK_PATTERN = re.compile(
+    r"\b(?:task|tasks|to-?do|todo|project|projects|deadline|deadlines)\b",
     re.IGNORECASE,
 )
 _UNSUPPORTED_PROVIDER_PATTERN = re.compile(
@@ -70,6 +78,11 @@ class RouterToolSelector:
         # created per run, so the cache scope matches the run scope naturally.
         self._cached_query: Optional[str] = None
         self._cached_decision: Optional[RouterDecision] = None
+        # Non-retryable failures (invalid request/response contract) are stable
+        # for an unchanged query. Remember them for this run so every agent turn
+        # does not repeat the same doomed router request. A changed clarification
+        # query is a different key and gets a fresh classification attempt.
+        self._failed_queries: Set[str] = set()
 
     @property
     def decision(self) -> Optional[RouterDecision]:
@@ -95,11 +108,20 @@ class RouterToolSelector:
                 effective_domains=len(effective_router_domains(self._cached_decision)),
             )
             decision = self._cached_decision
+        elif query in self._failed_queries:
+            self._tracer.event(
+                "router.fallback_cache_hit",
+                "Reusing static fallback after non-retryable router failure.",
+                fallback_selector=type(self._fallback).__name__,
+            )
+            return self._fallback.select_schemas(query, registry)
         else:
             self._tracer.event("router.start", "Classifying query domains.")
             try:
                 decision = self._client.classify(query, self._snapshot)
             except RouterClientError as error:
+                if not error.payload.get("retryable", False):
+                    self._failed_queries.add(query)
                 self._tracer.event(
                     "router.fallback",
                     "Router failed; using fallback selector.",
@@ -121,7 +143,7 @@ class RouterToolSelector:
             candidate_domains=decision.candidate_domains,
             uncertain=decision.uncertain,
             effective_domains=effective_router_domains(decision),
-            has_rewrite=bool(decision.rewritten_query),
+            outcome=decision.outcome.value,
         )
 
         # Keep only domains the router named AND that are actually connected. A
@@ -173,6 +195,7 @@ class RouterToolSelector:
         routing = self._snapshot.preferences.routing
         explicit_google_calendar = bool(_EXPLICIT_GOOGLE_CALENDAR_PATTERN.search(query))
         generic_event_request = bool(_GENERIC_EVENT_PATTERN.search(query))
+        task_request = bool(_TASK_PATTERN.search(query))
         unsupported_provider_request = bool(_UNSUPPORTED_PROVIDER_PATTERN.search(query))
 
         if explicit_google_calendar and "google_calendar" not in domains:
@@ -190,7 +213,17 @@ class RouterToolSelector:
             if provider != "google_calendar" or explicit_google_calendar:
                 domains.append(provider)
 
-        if domains == original_effective_domains:
+        if not domains and task_request and not unsupported_provider_request:
+            domains.append(routing.task_provider)
+
+        corrected_miss = (
+            decision.outcome in {
+                RouterOutcome.CONVERSATION,
+                RouterOutcome.UNSUPPORTED_PROVIDER,
+            }
+            and bool(domains)
+        )
+        if domains == original_effective_domains and not corrected_miss:
             return decision
 
         self._tracer.event(
@@ -204,20 +237,38 @@ class RouterToolSelector:
             explicit_google_calendar=explicit_google_calendar,
             generic_event_request=generic_event_request,
             unsupported_provider_request=unsupported_provider_request,
+            task_request=task_request,
         )
+        if corrected_miss:
+            self._tracer.event(
+                "router.classifier_miss_corrected",
+                "Corrected router outcome using deterministic service anchors.",
+                original_outcome=decision.outcome.value,
+                adjusted_outcome=RouterOutcome.ROUTED.value,
+                adjusted_domains=domains,
+                matched_event_anchor=generic_event_request,
+                matched_task_anchor=task_request,
+                matched_explicit_calendar=explicit_google_calendar,
+            )
         if use_candidates:
+            primary_domains = [
+                domain.value for domain in decision.domains if domain.value in domains
+            ]
+            outcome = decision.outcome
+            if outcome == RouterOutcome.ROUTED and not primary_domains:
+                primary_domains = domains[:1]
             return RouterDecision(
-                domains=decision.domains,
+                outcome=outcome,
+                domains=primary_domains,
                 uncertain=decision.uncertain,
                 candidate_domains=domains,
-                rewritten_query=decision.rewritten_query,
                 reasoning=decision.reasoning,
             )
         return RouterDecision(
+            outcome=RouterOutcome.ROUTED,
             domains=domains,
-            uncertain=decision.uncertain,
-            candidate_domains=decision.candidate_domains,
-            rewritten_query=decision.rewritten_query,
+            uncertain=False,
+            candidate_domains=[],
             reasoning=decision.reasoning,
         )
 

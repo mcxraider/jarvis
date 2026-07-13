@@ -112,7 +112,15 @@ class UpdateTodoistTaskInput(BaseModel):
 
 
 class SuppliedFieldsStructuredTool(StructuredTool):
-    """Keep optional schema defaults from becoming synthetic tool arguments."""
+    """Keep optional schema defaults from becoming synthetic tool arguments.
+
+    Supplied fields are derived from the raw ``tool_input`` (what the model actually
+    sent) plus the injected ``tool_call_id`` — deliberately NOT from any langchain
+    internal. An earlier version consulted ``self._injected_args_keys``, which exists
+    only in newer langchain-core; on the pinned version it is absent and every update
+    raised ``AttributeError``. Deriving supplied fields locally keeps this
+    version-agnostic.
+    """
 
     def _parse_input(
         self,
@@ -123,7 +131,6 @@ class SuppliedFieldsStructuredTool(StructuredTool):
         parsed = super()._parse_input(tool_input, tool_call_id)
         if not isinstance(parsed, dict):
             return parsed
-        supplied_fields.update(self._injected_args_keys)
         supplied_fields.add("tool_call_id")
         return {key: value for key, value in parsed.items() if key in supplied_fields}
 

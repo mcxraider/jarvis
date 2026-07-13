@@ -1,4 +1,11 @@
-const mockTranscriptionsCreate = jest.fn();
+const mockTranscriptionOutcome = jest.fn();
+const mockTranscriptionsCreate: jest.Mock<any, any[]> = jest.fn((...args: any[]) => ({
+  withResponse: async () => ({
+    data: await mockTranscriptionOutcome(...args),
+    response: new Response(null, { status: 200 }),
+    request_id: 'groq-test-request',
+  }),
+}));
 
 jest.mock('openai', () =>
   jest.fn().mockImplementation(() => ({
@@ -11,11 +18,12 @@ jest.mock('openai', () =>
 );
 
 import { WhisperService } from '../../../../src/services/ai/whisper.service';
+import { GroqTranscriptionError } from '../../../../src/services/ai/groq-transcription-error';
 import { AudioConverter } from '../../../../src/utils/ai/audioConverter';
 import { logger } from '../../../../src/utils/logger';
 
 const DEFAULT_AUDIO_PROMPT =
-  'Telegram voice memo for a personal productivity assistant. Preserve task names, dates, labels, project names, Todoist, Groq, DeepSeek, and technical terms. Use clear punctuation.';
+  'Telegram voice note to Jarvis, a personal assistant for tasks, events, reminders, and scheduling. Preserve task titles, dates, times, names, and app names accurately.';
 
 function mockTelegramAudioDownload(contentType = 'audio/ogg'): void {
   global.fetch = jest.fn().mockResolvedValue({
@@ -27,6 +35,20 @@ function mockTelegramAudioDownload(contentType = 'audio/ogg'): void {
   }) as any;
 }
 
+function groqApiError(status: number, retryAfter?: string): Error {
+  const headers = new Headers({
+    'x-request-id': `groq-${status}`,
+    'x-ratelimit-remaining-requests': '9',
+  });
+  if (retryAfter !== undefined) headers.set('retry-after', retryAfter);
+  return Object.assign(new Error(`Groq returned ${status}`), {
+    status,
+    headers,
+    requestID: `groq-${status}`,
+    type: status === 429 ? 'rate_limit_error' : 'api_error',
+  });
+}
+
 describe('WhisperService', () => {
   const originalFetch = global.fetch;
   const originalGroqApiKey = process.env.GROQ_API_KEY;
@@ -34,7 +56,7 @@ describe('WhisperService', () => {
 
   beforeEach(() => {
     process.env.GROQ_API_KEY = 'groq-test-key';
-    mockTranscriptionsCreate.mockResolvedValue({
+    mockTranscriptionOutcome.mockResolvedValue({
       text: 'transcribed text',
       language: 'en',
       segments: [
@@ -63,6 +85,14 @@ describe('WhisperService', () => {
   afterEach(() => {
     global.fetch = originalFetch;
     mockTranscriptionsCreate.mockReset();
+    mockTranscriptionsCreate.mockImplementation((...args: any[]) => ({
+      withResponse: async () => ({
+        data: await mockTranscriptionOutcome(...args),
+        response: new Response(null, { status: 200 }),
+        request_id: 'groq-test-request',
+      }),
+    }));
+    mockTranscriptionOutcome.mockReset();
     convertToMp3Spy.mockRestore();
 
     if (originalGroqApiKey === undefined) {
@@ -81,31 +111,38 @@ describe('WhisperService', () => {
     ['m4a', 'audio.m4a', 'audio/m4a'],
     ['wav', 'audio.wav', 'audio/wav'],
     ['mp4', 'audio.mp4', 'audio/mp4'],
-  ])('transcribes .%s directly without conversion', async (extension, expectedName, expectedType) => {
-    const service = new WhisperService();
+  ])(
+    'transcribes .%s directly without conversion',
+    async (extension, expectedName, expectedType) => {
+      const service = new WhisperService();
 
-    await expect(
-      service.transcribeAudio(`https://api.telegram.org/file/bottoken/voice/file.${extension}`),
-    ).resolves.toMatchObject({
-      text: 'transcribed text',
-      fileSizeBytes: 3,
-    });
+      await expect(
+        service.transcribeAudio(`https://api.telegram.org/file/bottoken/voice/file.${extension}`),
+      ).resolves.toMatchObject({
+        text: 'transcribed text',
+        fileSizeBytes: 3,
+      });
 
-    expect(convertToMp3Spy).not.toHaveBeenCalled();
-    expect(mockTranscriptionsCreate).toHaveBeenCalledTimes(1);
+      expect(convertToMp3Spy).not.toHaveBeenCalled();
+      expect(mockTranscriptionsCreate).toHaveBeenCalledTimes(1);
+      expect(mockTranscriptionsCreate.mock.calls[0][1]).toMatchObject({
+        timeout: 12_000,
+        maxRetries: 0,
+      });
 
-    const request = mockTranscriptionsCreate.mock.calls[0][0];
-    expect(request).toMatchObject({
-      model: 'whisper-large-v3',
-      language: 'en',
-      response_format: 'verbose_json',
-      prompt: DEFAULT_AUDIO_PROMPT,
-      timestamp_granularities: ['segment'],
-      temperature: 0,
-    });
-    expect(request.file.name).toBe(expectedName);
-    expect(request.file.type).toBe(expectedType);
-  });
+      const request = mockTranscriptionsCreate.mock.calls[0][0];
+      expect(request).toMatchObject({
+        model: 'whisper-large-v3',
+        language: 'en',
+        response_format: 'verbose_json',
+        prompt: DEFAULT_AUDIO_PROMPT,
+        timestamp_granularities: ['segment'],
+        temperature: 0,
+      });
+      expect(request.file.name).toBe(expectedName);
+      expect(request.file.type).toBe(expectedType);
+    },
+  );
 
   it('keeps converting unsupported convertible formats before transcription', async () => {
     const service = new WhisperService();
@@ -126,7 +163,7 @@ describe('WhisperService', () => {
   });
 
   it('converts and retries once when direct transcription rejects a convertible format', async () => {
-    mockTranscriptionsCreate
+    mockTranscriptionOutcome
       .mockRejectedValueOnce(new Error('Invalid file format'))
       .mockResolvedValueOnce({
         text: 'fallback transcription',
@@ -154,17 +191,95 @@ describe('WhisperService', () => {
   });
 
   it('does not convert or retry direct transcription failures unrelated to file format', async () => {
-    mockTranscriptionsCreate.mockRejectedValueOnce(new Error('Rate limit exceeded'));
+    mockTranscriptionOutcome.mockRejectedValueOnce(new Error('Invalid API request'));
 
     const service = new WhisperService();
 
     await expect(
       service.transcribeAudio('https://api.telegram.org/file/bottoken/voice/file.ogg'),
-    ).rejects.toThrow('Transcription failed: OpenAI API error: Rate limit exceeded');
+    ).rejects.toThrow('Invalid API request');
 
     expect(convertToMp3Spy).not.toHaveBeenCalled();
     expect(mockTranscriptionsCreate).toHaveBeenCalledTimes(1);
   });
+
+  it('retries one transient provider failure with bounded jitter', async () => {
+    const retrySleep = jest.fn().mockResolvedValue(undefined);
+    mockTranscriptionOutcome
+      .mockRejectedValueOnce(groqApiError(503))
+      .mockResolvedValueOnce({ text: 'recovered', segments: [] });
+    const service = new WhisperService({ retrySleep, retryRandom: () => 1 });
+
+    await expect(
+      service.transcribeAudio('https://api.telegram.org/file/bottoken/voice/file.ogg'),
+    ).resolves.toMatchObject({ text: 'recovered' });
+
+    expect(mockTranscriptionsCreate).toHaveBeenCalledTimes(2);
+    expect(retrySleep).toHaveBeenCalledWith(250);
+    expect(convertToMp3Spy).not.toHaveBeenCalled();
+  });
+
+  it('does not convert after the shared provider attempt budget is exhausted', async () => {
+    mockTranscriptionOutcome
+      .mockRejectedValueOnce(groqApiError(503))
+      .mockRejectedValueOnce(new Error('Invalid file format'));
+    const service = new WhisperService({
+      retrySleep: jest.fn().mockResolvedValue(undefined),
+      retryRandom: () => 0,
+    });
+
+    await expect(
+      service.transcribeAudio('https://api.telegram.org/file/bottoken/voice/file.ogg'),
+    ).rejects.toMatchObject({ category: 'invalid_audio', attempts: 2 });
+    expect(mockTranscriptionsCreate).toHaveBeenCalledTimes(2);
+    expect(convertToMp3Spy).not.toHaveBeenCalled();
+  });
+
+  it('honors a short Retry-After value for 429 responses', async () => {
+    const retrySleep = jest.fn().mockResolvedValue(undefined);
+    mockTranscriptionOutcome
+      .mockRejectedValueOnce(groqApiError(429, '2'))
+      .mockResolvedValueOnce({ text: 'after rate limit', segments: [] });
+    const service = new WhisperService({ retrySleep });
+
+    await service.transcribeAudio('https://api.telegram.org/file/bottoken/voice/file.ogg');
+
+    expect(retrySleep).toHaveBeenCalledWith(2_000);
+    expect(mockTranscriptionsCreate).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails immediately when Retry-After exceeds the interactive cap', async () => {
+    const retrySleep = jest.fn().mockResolvedValue(undefined);
+    mockTranscriptionOutcome.mockRejectedValueOnce(groqApiError(429, '30'));
+    const service = new WhisperService({ retrySleep });
+
+    const failure = service.transcribeAudio(
+      'https://api.telegram.org/file/bottoken/voice/file.ogg',
+    );
+    await expect(failure).rejects.toMatchObject({
+      category: 'rate_limit',
+      status: 429,
+      attempts: 1,
+      retryAfterSeconds: 30,
+    } satisfies Partial<GroqTranscriptionError>);
+    expect(retrySleep).not.toHaveBeenCalled();
+    expect(mockTranscriptionsCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([400, 401, 403, 404, 413, 422, 499])(
+    'does not retry non-retryable Groq status %s',
+    async (status) => {
+      const retrySleep = jest.fn().mockResolvedValue(undefined);
+      mockTranscriptionOutcome.mockRejectedValueOnce(groqApiError(status));
+      const service = new WhisperService({ retrySleep });
+
+      await expect(
+        service.transcribeAudio('https://api.telegram.org/file/bottoken/voice/file.ogg'),
+      ).rejects.toBeInstanceOf(GroqTranscriptionError);
+      expect(mockTranscriptionsCreate).toHaveBeenCalledTimes(1);
+      expect(retrySleep).not.toHaveBeenCalled();
+    },
+  );
 
   it('supports custom prompt, quality monitoring, and threshold config', async () => {
     const service = new WhisperService({
@@ -208,7 +323,7 @@ describe('WhisperService', () => {
   });
 
   it('parses verbose_json text while returning quality metadata', async () => {
-    mockTranscriptionsCreate.mockResolvedValueOnce({
+    mockTranscriptionOutcome.mockResolvedValueOnce({
       text: 'Add project review tomorrow',
       language: 'en',
       segments: [
@@ -247,7 +362,7 @@ describe('WhisperService', () => {
 
   it('flags low confidence, likely non-speech, and unusual compression segments', async () => {
     const loggerWarnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => logger as any);
-    mockTranscriptionsCreate.mockResolvedValueOnce({
+    mockTranscriptionOutcome.mockResolvedValueOnce({
       text: 'unclear audio',
       segments: [
         {

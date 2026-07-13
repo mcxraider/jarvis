@@ -10,7 +10,7 @@
 
 with input as (
   select
-    701122767::bigint as telegram_id,
+    <id>::bigint as telegram_id,
     'google_calendar'::text as provider,
 
     -- Paste the base64-encoded token JSON between these quotes.

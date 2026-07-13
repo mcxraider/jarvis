@@ -12,4 +12,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY agents ./agents
 EXPOSE 8000
 # 0.0.0.0 (not 127.0.0.1) so the `web` container can reach it over the Docker network.
-CMD ["uvicorn", "agents.api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "agents.agent_api.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,726 +1,291 @@
-# Tool-Result Context Management
+# Tool-Result and Long-Document Context Architecture
 
-## Problem Statement
+## Summary
 
-Every DeepSeek call re-sends `state["messages"]` verbatim — including every prior tool result. Tool results are raw Todoist REST payloads (15–25 fields per task) wrapped in an envelope and JSON-serialised whole (`agents/agent_api/app/tools/dispatcher.py:487-496`). No field projection, no byte cap, no cross-turn compaction. The only compression is a list-length-triggered summariser (`SUMMARIZE_THRESHOLD=50` items, `agents/agent_api/app/graph/nodes/summarize.py`) that runs only on the current turn's trailing tool messages.
+Replace the current Todoist-specific “summarize large lists” design with a domain-neutral context pipeline that supports structured records and long documents from Todoist, Notion, Gmail, and Google Drive.
 
-**Failure modes.**
-1. **Cumulative bloat.** Five 30-item read results over eight turns each stay verbatim forever — the summariser never fires because no single result crosses 50 items, but the aggregate is huge.
-2. **Fat single-object payloads.** `get_todoist_task` on a task with many comments/subtasks/labels, or a `get_projects` response with rich metadata, never trips a list-length trigger.
-3. **Stale mutation reads.** After a `complete_task` succeeds, the `get_tasks` result that led to it remains verbatim in history even though it is no longer actionable.
-4. **Expensive fallback.** When the summariser LLM call fails, `_truncate_fallback` (`summarize.py:121-124`) dumps 50 full REST objects as JSON — still tens of KB.
-5. **No observability.** No token counter, no byte-size log; input growth is silent until DeepSeek rejects the request.
+The key architectural rule is:
 
-**Non-goals.** Do not touch the router prompt-slimming layer. Do not change the DeepSeek `max_tokens` output cap. Do not swap the LangGraph `messages` reducer. Do not migrate to LangChain's `trim_messages`.
+> Large provider payloads never enter LangGraph message history directly. They are normalized, stored as thread-scoped artifacts, and represented in model context by compact references plus query-relevant passages.
 
-**Design principle.** Shrink at the source first (field projection), guard the send site second (byte budget + compactor), refine the existing summariser third. Each stage ships independently and can be reverted without touching the next.
+This separates:
 
----
+- Canonical conversation history from the bounded prompt sent to the model.
+- Raw source content from compact tool observations.
+- Exact source evidence from lossy summaries.
+- Provider-specific fetching from domain-neutral storage, retrieval, and budgeting.
 
-## Stage 0: Instrumentation — Measure Before Optimising
+The existing plan’s Todoist projection remains useful, but byte-triggered LLM summarization and destructive history elision become fallback mechanisms rather than the primary architecture.
 
-### Goal
-Get a repeatable, low-overhead measurement of every DeepSeek call's input payload size so subsequent stages can be judged empirically, not by feel. Without this, tier-1 changes look plausible but their impact is invisible.
+## Implementation Changes
 
-### Changes
+### 1. Establish typed tool-output and context contracts
 
-| File | What |
-|------|------|
-| `agents/agent_api/app/graph/nodes/orchestrator.py` | Log `messages` byte size + tool-message count immediately before `create_message` |
-| `agents/agent_api/app/tools/dispatcher.py` | Log per-tool-result byte size in `tool_result_to_message` at debug level |
-| `agents/agent_api/app/graph/nodes/summarize.py` | Extend the existing `graph.summarize.processing` event with `pre_bytes` / `post_bytes` |
-| `agents/agent_api/app/constants.py` | Add `CONTEXT_METRICS_ENABLED = _bool_env("JARVIS_CONTEXT_METRICS", True)` |
-
-### Implementation Details
-
-In `orchestrator.py` just before line 509 (`assistant_message = agent_client.create_message(...)`):
+Extend `ToolSpec` with an `output_policy`:
 
 ```python
-if CONTEXT_METRICS_ENABLED:
-    payload_bytes = len(json.dumps(messages, default=str))
-    tool_msg_count = sum(1 for m in messages if m.get("role") == "tool")
-    tracer.event(
-        "graph.agent.send",
-        "Preparing DeepSeek send.",
-        payload_bytes=payload_bytes,
-        message_count=len(messages),
-        tool_message_count=tool_msg_count,
-        turn=turn_count,
-    )
+@dataclass(frozen=True)
+class ToolOutputPolicy:
+    kind: Literal["mutation", "recordset", "document", "scalar"]
+    inline_token_limit: int
+    normalizer: Optional[Callable[[Any], NormalizedToolOutput]] = None
+    sensitive: bool = False
 ```
 
-In `dispatcher.py` `tool_result_to_message`, after the `json.dumps`:
+Use a versioned envelope for every tool result:
 
-```python
-content_str = json.dumps(result, default=str)
-if CONTEXT_METRICS_ENABLED:
-    logger.debug(
-        "tool.result.serialized",
-        extra={"tool_name": result["tool_name"], "bytes": len(content_str)},
-    )
-return {"role": "tool", ..., "content": content_str}
-```
-
-### Testing
-
-**Unit.**
-```bash
-python -m pytest tests/agents/test_orchestrator.py -k "metrics" -v
-```
-Add a test that patches the tracer, invokes one turn, and asserts a `graph.agent.send` event was emitted with `payload_bytes > 0` and `tool_message_count` matching the tool-run count.
-
-**Integration.**
-```bash
-npm run test:integration -- --runInBand
-```
-No behavioural change expected. Confirm existing tests still pass.
-
-**Live smoke.**
-```bash
-# Baseline capture: run three canned queries and read the metric off the logs
-scripts/run_telegram_e2e.sh "show me all my tasks"       # list-shaped, large
-scripts/run_telegram_e2e.sh "add task buy milk tomorrow" # mutation, small
-scripts/run_telegram_e2e.sh "what's on today"            # small read
-
-tail -n 200 logs/app-readable.log | grep graph.agent.send
-```
-Record `payload_bytes` for each — these become the reference numbers stages 1–5 must beat.
-
-### Acceptance Criteria
-- [ ] `graph.agent.send` event visible for every LLM call
-- [ ] Byte count and tool-message count both non-zero for realistic turns
-- [ ] `JARVIS_CONTEXT_METRICS=false` disables emission (proven by test)
-- [ ] Baseline numbers captured in a comment on the tracking issue, before stage 1 lands
-- [ ] Existing tests pass: `python -m pytest tests/agents/ -x --timeout=30`
-
-### Rollback
-Setting `JARVIS_CONTEXT_METRICS=false` disables all emission with no code revert needed.
-
----
-
-## Stage 1: Field Projection at the Todoist Client Boundary
-
-### Goal
-Cut every read-tool payload by ~60–70 % permanently, upstream of the summariser and of history bloat. Whitelist the fields the agent actually uses; drop the rest at the client. This is the single largest reduction available and it costs nothing at runtime — pure Python dict projection.
-
-### Changes
-
-| File | What |
-|------|------|
-| `agents/agent_api/app/tools/todoist/client.py` | Add `_slim_task`, `_slim_project`, `_slim_label`, `_slim_comment` helpers; apply in read paths |
-| `agents/agent_api/app/tools/todoist/schemas.py` | Update tool-spec `description` strings so the LLM sees the shape it will actually receive |
-| `agents/agent_api/app/constants.py` | Add `TODOIST_SLIM_ENABLED` (default `True`) for kill-switch |
-| `tests/agents/test_todoist_client_slim.py` (new) | Whitelist assertions per tool |
-
-### Implementation Details
-
-Whitelists (starting values — tune during review):
-
-```python
-_TASK_KEEP = {
-    "id", "content", "description", "due", "deadline",
-    "priority", "project_id", "section_id", "parent_id", "labels", "duration",
+```json
+{
+  "schema_version": 2,
+  "tool_call_id": "call_123",
+  "tool_name": "notion_fetch",
+  "success": true,
+  "delivery": "inline|artifact",
+  "content": {},
+  "artifacts": [],
+  "error": null,
+  "is_mutation": false
 }
-_PROJECT_KEEP = {"id", "name", "parent_id", "is_favorite", "view_style"}
-_LABEL_KEEP   = {"id", "name", "color", "is_favorite"}
-_COMMENT_KEEP = {"id", "task_id", "project_id", "posted_at", "content"}
 ```
 
-Helper (defensive against non-dict entries):
+Define a provider-neutral document contract:
 
 ```python
-def _project(obj: Any, keep: set[str]) -> Any:
-    if isinstance(obj, dict):
-        return {k: v for k, v in obj.items() if k in keep and v not in (None, "", [], {})}
-    if isinstance(obj, list):
-        return [_project(item, keep) for item in obj]
-    return obj
-
-def _slim_task(data):    return _project(data, _TASK_KEEP)    if TODOIST_SLIM_ENABLED else data
-def _slim_project(data): return _project(data, _PROJECT_KEEP) if TODOIST_SLIM_ENABLED else data
-# ... etc.
+class SourceDocument:
+    source: Literal["notion", "gmail", "google_drive"]
+    source_id: str
+    revision: Optional[str]
+    title: str
+    canonical_url: Optional[str]
+    media_type: str
+    text: str
+    metadata: Dict[str, JsonValue]
 ```
 
-Apply in the four read handlers (`client.py:240-313`):
+Provider adapters normalize results as follows:
+
+- Notion pages: enhanced Markdown with page ID, URL, title, timestamps, and revision metadata.
+- Gmail: one normalized document per message, preserving thread/message IDs, sender, recipients, subject, timestamp, and decoded text body.
+- Drive: exported textual content with file ID, URL, MIME type, owner, and modified time.
+- Binary attachments are metadata-only until a separate extraction pipeline exists.
+- Todoist lists remain `recordset` outputs and use field projection, not document chunking.
+
+### 2. Add a thread-scoped artifact and chunk store
+
+Create a context-store interface independent of Postgres:
 
 ```python
-def get_todoist_task(self, arguments):
-    return _slim_task(self._request(f"{TODOIST_REST_BASE_URL}/tasks/{arguments['task_id']}"))
-
-def get_tasks(self, arguments):
-    ...
-    return _slim_task(self._request(...))
-
-def get_tasks_by_filter(self, arguments):
-    ...
-    return _slim_task(self._request(...))
-
-def get_completed_todoist_tasks_by_completion_date(self, arguments):
-    ...
-    return {"items": _slim_task(data.get("items", [])), "next_cursor": data.get("next_cursor")}
-
-def get_projects(self, arguments):
-    ...
-    return _slim_project(data if search is None else _filter_by_name(data, search))
+class ContextStore(Protocol):
+    def ingest(document, *, user_id, thread_id, ttl) -> ArtifactRef: ...
+    def search(query, *, user_id, thread_id, artifact_ids, limit) -> list[Passage]: ...
+    def read(artifact_id, *, user_id, thread_id, chunk_ids, token_limit) -> list[Passage]: ...
+    def delete_thread(thread_id, *, user_id) -> None: ...
+    def purge_expired() -> int: ...
 ```
 
-Mutations (`add_todoist_task`, `update_todoist_task`, `create_project`) return small envelopes and stay untouched — the model uses their `id` field, which is in the whitelist anyway.
+Initial Postgres implementation:
 
-### Testing
+- `context_artifacts`: ownership, source identity, revision, title, URL, media type, content hash, byte/token counts, expiry, and status.
+- `context_chunks`: ordered chunk text, heading path, character offsets, token count, citation label, full-text-search vector, and optional embedding.
+- Unique identity: `(user_id, thread_id, source, source_id, revision)`.
+- Re-fetching an unchanged revision reuses the existing artifact; a changed revision creates a new artifact and marks the prior version superseded.
+- Every read filters by both resolved `user_id` and `thread_id`; RLS is enabled using the repository’s current service-role posture.
+- Default raw-content TTL is 24 hours after the thread’s last activity. Expiry removes chunks and raw content while retaining only compact provenance and aggregate telemetry.
+- Thread deletion and user deletion cascade to all artifacts.
+- Raw source text, passages, email addresses, and document titles never appear in logs; logging records IDs, hashes, counts, sizes, and timings only.
 
-**Unit.**
-```bash
-python -m pytest tests/agents/test_todoist_client_slim.py -v
-```
-Assertions per handler:
-- Returned task dicts contain **only** whitelisted keys.
-- `TODOIST_SLIM_ENABLED=False` returns full REST shape.
-- Nested list shapes (e.g. completed-tasks `items`) are recursively slimmed.
-- Non-dict responses (error strings, `None`) pass through untouched.
+Chunk documents structurally before indexing:
 
-**Regression.**
-```bash
-python -m pytest tests/agents/ -x --timeout=30
-```
-Existing tests must pass. Any test asserting non-whitelisted fields on tool output either had a real dependency (upgrade the whitelist) or was over-specifying (update the test).
+- Split first on Markdown headings, email message boundaries, paragraphs, and list/table boundaries.
+- Target 800 tokens per chunk, 120-token overlap, hard maximum 1,200 tokens.
+- Preserve heading path and exact character offsets for citation and reconstruction.
+- Never use an LLM to create the canonical chunk text.
 
-**Integration.**
-```bash
-npm run test:integration -- --runInBand
-```
-Compare `graph.agent.send.payload_bytes` from stage 0 baseline. Expect **≥ 50 % reduction** on the "show me all my tasks" scenario.
+Implement hybrid retrieval behind one interface:
 
-**Live smoke.**
-Repeat the three canned queries from stage 0. Verify:
-- Same agent responses (semantic equivalence, IDs unchanged).
-- `graph.agent.send.payload_bytes` down ≥ 50 % on the list-shaped case.
-- Zero DeepSeek errors.
+- PostgreSQL full-text search and metadata filters are always available.
+- Optional embeddings add semantic candidates when an embedding provider is configured.
+- Merge lexical and semantic candidates with reciprocal-rank fusion, then cap duplicate adjacent chunks.
+- If embeddings are unavailable or fail, retrieval degrades to lexical search without failing the user request.
 
-### Acceptance Criteria
-- [ ] All four read handlers slim their output
-- [ ] Whitelist unit tests pass and are exhaustive per handler
-- [ ] Stage-0 baseline payload sizes drop ≥ 50 % on list-shaped queries
-- [ ] Existing integration + regression suites green
-- [ ] `TODOIST_SLIM_ENABLED=false` restores previous shape (verified in a test)
+### 3. Replace raw tool observations with artifact-aware processing
 
-### Rollback
-Set `TODOIST_SLIM_ENABLED=false`. Behaviour reverts fully; no restart required beyond env reload.
+Add a domain-neutral `process_tool_outputs` stage after tool execution:
 
----
-
-## Stage 2: Byte-Based Summariser Trigger
-
-### Goal
-Extend the summariser to fire on byte size, not just list length. Catches fat single-object payloads (a task with many comments) and mid-sized lists of rich items that today slip below the 50-item bar.
-
-### Changes
-
-| File | What |
-|------|------|
-| `agents/agent_api/app/graph/edges.py` | Add byte check to `route_after_tools` (line 39) alongside item-count check |
-| `agents/agent_api/app/constants.py` | Add `SUMMARIZE_BYTES_THRESHOLD` (default 4096) |
-| `agents/agent_api/app/config.py` | Add `summarize_bytes_threshold = _int_env("JARVIS_SUMMARIZE_BYTES", 4096)` |
-| `agents/agent_api/app/graph/nodes/summarize.py` | Accept both list-shaped and non-list oversized results (small extension to the loop at `summarize.py:230-267`) |
-
-### Implementation Details
-
-In `edges.py:39-67`:
-
-```python
-def route_after_tools(state: JarvisState) -> str:
-    tool_results = state.get("tool_results", [])
-    if not tool_results:
-        return "agent"
-
-    messages = state.get("messages", [])
-    latest_tool_count = 0
-    for msg in reversed(messages):
-        if msg.get("role") == "tool":
-            latest_tool_count += 1
-        else:
-            break
-    results_to_check = tool_results[-latest_tool_count:] if latest_tool_count else tool_results[-1:]
-
-    for result in results_to_check:
-        content = result.get("content")
-        if content is None:
-            continue
-        items = extract_list_from_content(content)
-        if items is not None and len(items) > SUMMARIZE_THRESHOLD:
-            return "summarize"
-        # NEW: byte trigger for non-list or short-but-fat payloads
-        if len(json.dumps(content, default=str)) > SUMMARIZE_BYTES_THRESHOLD:
-            return "summarize"
-    return "agent"
+```mermaid
+flowchart LR
+    A["Provider tool"] --> B["Normalize output"]
+    B --> C{"Fits inline budget?"}
+    C -->|Yes| D["Projected inline result"]
+    C -->|No| E["Artifact store and chunking"]
+    E --> F["Artifact reference and preview"]
+    D --> G["Context retrieval"]
+    F --> G
+    G --> H["Bounded model input"]
 ```
 
-In `summarize.py`, extend the tail loop so that if `extract_list_from_content` returns `None` but the message's `content` still exceeds the byte threshold, the summariser is called with a single-item wrapper `[inner]`. The existing LLM prompt already handles "list of N tasks" phrasing; wrap with `items=[inner]` so `_call_summarizer` receives a homogeneous input. The ID-coverage validator is a no-op when `original_ids` is empty (it already returns `True`), so this path is safe.
+Processing rules:
 
-### Testing
+- Scalars, mutations, and small projected recordsets remain inline.
+- Document outputs and oversized recordsets are persisted before a tool message is created.
+- The tool message contains an artifact reference, metadata, a short deterministic preview, and retrieval instructions—never the full document.
+- `tool_results` stores the same compact envelope and must not duplicate raw content held by the artifact store.
+- Failed ingestion returns a bounded provider error; it must not fall back to injecting the full raw payload into messages.
+- A successfully ingested document remains available even if automatic retrieval or summarization later fails.
 
-**Unit.**
-```bash
-python -m pytest tests/agents/test_edges.py -k "byte_trigger" -v
-python -m pytest tests/agents/test_summarize.py -k "non_list_oversized" -v
-```
-- Verify `route_after_tools` returns `"summarize"` when a result is a large single dict (~5 KB).
-- Verify list-length trigger still fires independently (both triggers work).
-- Verify a small non-list result (below both thresholds) still routes to `"agent"`.
-- Verify the summariser handles the wrapped single-item input without ID-coverage failure.
+Register two internal read-only tools for iterative research:
 
-**Integration.**
-```bash
-npm run test:integration -- --runInBand
-```
-Add a scenario that calls `get_todoist_task` on a fixture task with a bloated `description` — assert `graph.summarize.processing` fires.
-
-**Live smoke.**
-```bash
-scripts/run_telegram_e2e.sh "show me my current task with all its comments"
-tail -n 200 logs/app-readable.log | grep -E "graph.summarize|graph.agent.send"
-```
-Confirm the summariser fires and `payload_bytes` on the next `graph.agent.send` is materially smaller than before summarisation.
-
-### Acceptance Criteria
-- [ ] Byte trigger routes oversized non-list payloads to `summarize`
-- [ ] List-length trigger untouched — existing behaviour preserved
-- [ ] Single-item wrapper path passes ID-coverage validation gate
-- [ ] Config knob `JARVIS_SUMMARIZE_BYTES` overrides threshold at runtime
-- [ ] Existing summariser tests still pass unchanged
-
-### Rollback
-Set `JARVIS_SUMMARIZE_BYTES` to a huge value (e.g. `10_000_000`). Byte trigger effectively off; list-length trigger continues to work.
-
----
-
-## Stage 3: History Byte-Budget Guardrail + Compactor
-
-### Goal
-Add the safety net the current design lacks: a bounded byte budget on the outgoing `messages` array, enforced immediately before `create_message`. If the budget is exceeded, an imperative compactor rewrites *older* tool-message `content` fields to short stubs — preserving envelope shape and IDs, dropping bodies. This is the change that fixes cumulative bloat.
-
-### Changes
-
-| File | What |
-|------|------|
-| `agents/agent_api/app/graph/nodes/orchestrator.py` | Insert `compact_history_if_over_budget(messages, budget, tracer)` between the router helpers and the `create_message` call (around line 508) |
-| `agents/agent_api/app/graph/history.py` (new) | Compactor implementation, unit-test-friendly, no orchestrator imports |
-| `agents/agent_api/app/constants.py` | Add `HISTORY_BYTE_BUDGET` (default 60_000), `HISTORY_KEEP_LAST_N_TOOL_MSGS` (default 4) |
-| `agents/agent_api/app/config.py` | Corresponding `_int_env` reads |
-
-### Implementation Details
-
-`history.py`:
-
-```python
-"""History compactor: shrink outgoing messages when they exceed a byte budget."""
-
-import json
-from typing import Any, Dict, List, Optional
-
-from agents.agent_api.app.constants import (
-    HISTORY_BYTE_BUDGET,
-    HISTORY_KEEP_LAST_N_TOOL_MSGS,
-)
-from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
-
-_ELIDED_MARKER = "__jarvis_elided__"
-
-
-def _bytes(messages: List[Dict[str, Any]]) -> int:
-    return len(json.dumps(messages, default=str))
-
-
-def _elide(msg: Dict[str, Any], turn_hint: str) -> Dict[str, Any]:
-    """Rewrite a tool message's content to a compact stub, keeping envelope."""
-    try:
-        parsed = json.loads(msg.get("content", "") or "{}")
-    except (json.JSONDecodeError, TypeError):
-        parsed = {}
-    stub = {
-        "tool_call_id": parsed.get("tool_call_id") or msg.get("tool_call_id"),
-        "tool_name": parsed.get("tool_name") or msg.get("name"),
-        "success": parsed.get("success", True),
-        "content": f"[elided: prior tool result from {turn_hint}]",
-        _ELIDED_MARKER: True,
-    }
-    for k in ("error", "mutation_blocked", "classified_error"):
-        if k in parsed and parsed[k] is not None:
-            stub[k] = parsed[k]
-    new = dict(msg)
-    new["content"] = json.dumps(stub, default=str)
-    return new
-
-
-def compact_history_if_over_budget(
-    messages: List[Dict[str, Any]],
-    budget: int = HISTORY_BYTE_BUDGET,
-    keep_last_n_tools: int = HISTORY_KEEP_LAST_N_TOOL_MSGS,
-    tracer: Optional[TracePrinter] = None,
-) -> List[Dict[str, Any]]:
-    tracer = tracer or NULL_TRACE
-    before = _bytes(messages)
-    if before <= budget:
-        return messages
-
-    tool_positions = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
-    if len(tool_positions) <= keep_last_n_tools:
-        return messages
-
-    protected = set(tool_positions[-keep_last_n_tools:])
-    elide_candidates = [i for i in tool_positions if i not in protected]
-    already_elided = {
-        i for i in elide_candidates
-        if _ELIDED_MARKER in (messages[i].get("content") or "")
-    }
-    elide_candidates = [i for i in elide_candidates if i not in already_elided]
-
-    if not elide_candidates:
-        tracer.event(
-            "graph.history.compact.noop",
-            "Over budget but nothing to elide.",
-            payload_bytes=before, budget=budget,
-        )
-        return messages
-
-    new_messages = list(messages)
-    elided_count = 0
-    for i in elide_candidates:
-        new_messages[i] = _elide(new_messages[i], turn_hint=f"position {i}")
-        elided_count += 1
-        if _bytes(new_messages) <= budget:
-            break
-
-    after = _bytes(new_messages)
-    tracer.event(
-        "graph.history.compact",
-        "Compacted history over byte budget.",
-        payload_bytes_before=before,
-        payload_bytes_after=after,
-        budget=budget,
-        elided=elided_count,
-    )
-    return new_messages
+```text
+search_context(query, artifact_ids?, source?, limit=8)
+read_context(artifact_id, chunk_ids, token_limit?)
 ```
 
-Orchestrator wiring — insert after `_apply_router_query_rewrite(...)`, before `create_message`:
+Both tools:
 
-```python
-messages = compact_history_if_over_budget(messages, tracer=tracer)
+- Enforce user/thread ownership internally.
+- Return stable citation handles such as `[notion:artifact_id:chunk_4]`.
+- Include source title, URL where available, heading/message metadata, and exact passage text.
+- Apply a hard per-call evidence budget.
+- Reject arbitrary offsets or artifact IDs outside the active thread.
+
+Automatically retrieve an initial evidence set after a document fetch using the current user request. The model can call the internal tools when it needs another section, exact wording, comparisons, or follow-up evidence.
+
+### 4. Build a token-budgeted prompt projection
+
+Introduce a pure `ContextManager.prepare_model_input(...)` step immediately before every model call. It receives canonical state and returns a bounded prompt projection without rewriting the artifact store or audit records.
+
+Budget against the selected model’s configured context window:
+
+```text
+available input =
+  model context window
+  - maximum output tokens
+  - fixed safety reserve
 ```
 
-**Design notes.**
-- Compactor is *pure*: takes `messages`, returns new `messages`. No state mutation, no side effects beyond tracer events.
-- Elides oldest tool messages first; protects the last N so recent context is preserved.
-- Idempotent: recognises its own `__jarvis_elided__` marker and does not re-process.
-- Preserves envelope keys (`success`, `error`, `mutation_blocked`) so the model can still reason about historical outcomes.
-- Does not touch assistant messages (they include `tool_calls` structure the model needs for coherence) or the system/user messages.
+Allocate the available input in priority order:
 
-### Testing
+1. System prompt and selected tool schemas.
+2. Current user request and clarification/confirmation state.
+3. Complete current tool-call batch, including errors and mutations.
+4. Retrieved source passages required for the current request.
+5. Recent conversational turns.
+6. Rolling conversation summary.
+7. Compact historical tool stubs and artifact references.
 
-**Unit.**
-```bash
-python -m pytest tests/agents/test_history_compactor.py -v
-```
-Cases:
-- Under-budget input returns identical list (no allocation churn beyond the size check).
-- Over-budget input with 6 tool messages elides oldest 2, keeps last 4.
-- Elides only until under budget, then stops (efficiency).
-- Idempotent second pass is a no-op.
-- Preserves envelope keys on the elided message.
-- Handles malformed tool `content` (not JSON) without crashing.
-- `keep_last_n_tools >= tool count` returns input unchanged.
+Rules:
 
-**Integration.**
-```bash
-npm run test:integration -- --runInBand
-```
-Add a simulated long thread (8 turns, moderate tool payloads) and assert:
-- `graph.history.compact` event emitted on the turn where budget would otherwise be exceeded.
-- Final agent response semantically unchanged from pre-compaction baseline.
+- Use token estimates for preflight budgeting; retain byte counts as operational telemetry.
+- Never split assistant tool calls from their matching tool-result messages.
+- Never truncate the current user message, confirmation state, provider errors, or retrieved citation metadata.
+- Drop redundant evidence and adjacent duplicate chunks before shortening passages.
+- If fixed content alone exceeds the model limit, fail with a controlled “request too large” response rather than relying on provider rejection.
+- Keep canonical checkpoints compact by ensuring raw artifacts never enter `messages`; do not use LangGraph checkpoint rows as document storage.
+- Maintain a rolling conversation summary for old ordinary chat turns. Summaries contain durable decisions, named entities, artifact references, and unresolved questions, but never replace source passages required for quotations.
 
-**Live smoke — the critical one.**
-```bash
-# Simulate a long thread with the telegram simulator
-scripts/simulate_telegram_update.ts \
-  --thread jarvis-context-test \
-  --messages "list my tasks" "which are due today" "add one for tomorrow" \
-             "reschedule the milk one to friday" "show me projects" \
-             "add a task in work" "what's coming up next week" "summarize my day"
+Replace the current Todoist-specific summarize node with two optional services:
 
-tail -n 400 logs/app-readable.log \
-  | grep -E "graph.agent.send|graph.history.compact"
-```
-Expect `payload_bytes` to plateau near the budget instead of growing linearly. Expect at least one `graph.history.compact` event mid-run. Response quality on turn 8 should be indistinguishable from turn 3.
+- `RecordsetReducer`: deterministic projection, filtering, grouping, and pagination for large structured lists.
+- `ArtifactSummarizer`: cached, query-aware overview for navigation only. It may improve latency but is never the sole retained representation of a document.
 
-### Acceptance Criteria
-- [ ] Compactor is pure, unit-tested, and covered by ≥ 8 test cases above
-- [ ] Idempotent — repeated calls do not re-elide
-- [ ] `graph.history.compact` visible in live smoke logs on long threads
-- [ ] `payload_bytes` bounded by `HISTORY_BYTE_BUDGET + slack` on 8-turn thread
-- [ ] Recent-turn context preserved (last 4 tool results kept full)
-- [ ] `HISTORY_BYTE_BUDGET=10_000_000` disables the mechanism (verified)
+Remove these unsafe assumptions from the existing plan:
 
-### Rollback
-Set `HISTORY_BYTE_BUDGET` to a large value. Compactor's `if before <= budget: return messages` short-circuits.
+- Item count is not a proxy for context size.
+- A one-element wrapper does not make arbitrary document text a task list.
+- Descriptions cannot be discarded globally because document analysis may depend on them.
+- “Immediately followed by an assistant message” is not a valid consumed-result test with parallel tool calls.
+- Preserving only a percentage of IDs is insufficient validation for exact source recall.
 
----
+Tag tool batches with `run_id`, `turn_id`, and `batch_id`. Collapse successful mutation bodies only after the entire batch has been consumed, retaining the mutation target, resulting ID, revision, and status. Preserve failed mutations until their error has been summarized into durable conversation state.
 
-## Stage 4: Post-Mutation Observation Collapse
+### 5. Delivery stages, observability, and rollout
 
-### Goal
-After a mutation succeeds and the next assistant turn has read the result, collapse the mutation's tool message body to just `{success, tool_name, id_hint}` — the model has already consumed it, keeping the full response body serves no purpose. Complements stage 3 by shrinking payloads at their source-of-staleness, not just when the total budget is breached.
+1. **Measurement and contracts**
+   - Record estimated input tokens, provider-reported prompt tokens, serialized bytes, per-role contribution, tool-result sizes, and model context headroom.
+   - Add `ToolOutputPolicy`, v2 envelopes, batch identity, and compatibility parsing for existing v1 envelopes.
+   - Update all new diagnostics through `RunFileLog`/`FileLoggingTracer`; flush logs before assertions.
 
-### Changes
+2. **Bounded structured results**
+   - Apply Todoist field projection and `RecordsetReducer`.
+   - Add token-based inline limits and deterministic bounded fallbacks.
+   - Keep the current summarizer behind a kill switch only during migration.
 
-| File | What |
-|------|------|
-| `agents/agent_api/app/tools/dispatcher.py` | Tag mutation results with `is_mutation: True` in the envelope |
-| `agents/agent_api/app/graph/history.py` | Add `collapse_consumed_mutations(messages)` alongside compactor |
-| `agents/agent_api/app/graph/nodes/orchestrator.py` | Call the collapse pass alongside the compactor |
-| `agents/agent_api/app/tools/registry_factory.py` | Ensure each tool spec declares `mutation: bool` (many already do via risk classification) |
+3. **Artifact storage and retrieval**
+   - Add migrations, `ContextStore`, structural chunking, lexical retrieval, ownership checks, TTL cleanup, and the two internal context tools.
+   - Route synthetic large-document fixtures through artifacts without requiring live connectors.
 
-### Implementation Details
+4. **Prompt projection and history lifecycle**
+   - Introduce model capability/context-window configuration and `ContextManager`.
+   - Add rolling conversation summaries and tool-batch-aware collapse.
+   - Stop cumulative growth in both `messages` and `tool_results`.
 
-Mutation detection reuses the existing risk classifier — mutations are the tools already flagged for the confirm-node path in `graph/risk.py`. Tag them in the envelope so downstream code doesn't need to re-derive the fact:
+5. **Connector adoption**
+   - Make future Notion, Gmail, and Drive fetch handlers return `SourceDocument`.
+   - Add optional embeddings and hybrid rank fusion without changing connector contracts.
+   - Remove the legacy Todoist-only summarize routing after artifact and recordset paths have proven stable.
 
-```python
-# dispatcher.py, build_tool_result path
-envelope["is_mutation"] = tool_spec.classification.is_mutation
-```
+Feature flags:
 
-Collapse rule:
-- Message must be `role: tool`, `is_mutation: True`, `success: True`.
-- The next assistant message (i.e. the one **immediately after** it in the list) must exist — meaning the model has already consumed this observation.
-- The mutation's original body is replaced with `{success: True, tool_name, id_hint}` where `id_hint` is any `id` field found in the original body.
+- `JARVIS_CONTEXT_PIPELINE_V2`
+- `JARVIS_ARTIFACT_STORE_ENABLED`
+- `JARVIS_CONTEXT_TTL_SECONDS`
+- `JARVIS_INLINE_TOOL_TOKEN_LIMIT`
+- `JARVIS_CONTEXT_INPUT_RATIO`
+- `JARVIS_CONTEXT_RETRIEVAL_LIMIT`
+- `JARVIS_EMBEDDINGS_ENABLED`
 
-```python
-def collapse_consumed_mutations(messages):
-    new = list(messages)
-    for i, msg in enumerate(new):
-        if msg.get("role") != "tool":
-            continue
-        if i + 1 >= len(new):  # not consumed yet
-            continue
-        if new[i + 1].get("role") != "assistant":
-            continue
-        try:
-            parsed = json.loads(msg.get("content", "") or "{}")
-        except (json.JSONDecodeError, TypeError):
-            continue
-        if not parsed.get("is_mutation") or not parsed.get("success"):
-            continue
-        if parsed.get("__jarvis_collapsed__"):
-            continue
-        body = parsed.get("content") or {}
-        id_hint = None
-        if isinstance(body, dict):
-            id_hint = body.get("id")
-        stub = {
-            "tool_call_id": parsed.get("tool_call_id"),
-            "tool_name": parsed.get("tool_name"),
-            "success": True,
-            "is_mutation": True,
-            "content": {"success": True, "id": id_hint},
-            "__jarvis_collapsed__": True,
-        }
-        new_msg = dict(msg)
-        new_msg["content"] = json.dumps(stub, default=str)
-        new[i] = new_msg
-    return new
-```
+Roll out with shadow metrics first, then enable per environment. Kill switches revert to bounded inline results, never to unlimited raw payloads.
 
-Wire in the orchestrator right before the compactor:
+## Public Interfaces and Compatibility
 
-```python
-messages = collapse_consumed_mutations(messages)
-messages = compact_history_if_over_budget(messages, tracer=tracer)
-```
+- `ToolSpec.output_policy` defaults to `scalar` with the existing inline behavior so current tools continue to work.
+- `ToolResultEnvelopeV2` is accepted alongside existing envelopes during migration.
+- `JarvisState` gains compact `artifact_refs`, `conversation_summary`, and tool-batch metadata; it does not contain raw documents or embeddings.
+- `DomainAdapter` remains the integration registration point. New providers supply clients, tool specs, prompt fragments, and normalizers without changing graph orchestration.
+- API responses continue exposing `tool_results`, but artifact results expose metadata and handles only; raw private content is not returned unless explicitly read through an authorized endpoint/tool.
+- Citation handles are internal stable identifiers. User-facing answers render source title and canonical URL while retaining the handle in structured trace metadata.
 
-### Testing
+## Test Plan and Acceptance Criteria
 
-**Unit.**
-```bash
-python -m pytest tests/agents/test_history_collapse.py -v
-```
-Cases:
-- Mutation followed by assistant turn is collapsed.
-- Mutation not yet followed (still last message) is untouched.
-- Failed mutation (`success: False`) is untouched — the model may need the error body.
-- Idempotent — second call is a no-op via `__jarvis_collapsed__`.
-- Reads (non-mutations) are untouched regardless of position.
-- Preserves `id_hint` when present in body.
+### Unit and contract tests
 
-**Integration.**
-```bash
-python -m pytest tests/agents/test_orchestrator.py -k "mutation_collapse" -v
-```
-Full-turn test:
-1. Turn 1 executes `add_todoist_task` — observation stays full-fat (next assistant not yet produced).
-2. Turn 2 produces an assistant message.
-3. Before turn 3's LLM call, the turn-1 observation is collapsed.
+- Every output policy selects the correct inline/artifact path at boundary sizes.
+- V1 and v2 envelopes parse correctly; malformed envelopes fail boundedly.
+- Chunking preserves complete ordered text, stable offsets, heading paths, and overlap limits.
+- Artifact ingestion is idempotent for identical revisions and versions changed documents.
+- Search/read cannot cross user or thread boundaries.
+- Lexical fallback works when embeddings are disabled or fail.
+- Prompt budgeting preserves tool-call/result pairs and never exceeds the configured input budget.
+- Mutation collapse handles parallel batches and preserves failures.
+- Log tests flush async run logs and prove source text and sensitive metadata are absent.
 
-**Live smoke.**
-```bash
-scripts/run_telegram_e2e.sh "add a task 'buy milk' for tomorrow"
-scripts/run_telegram_e2e.sh "did that save?"   # forces a next-turn read
-tail -n 200 logs/app-readable.log | grep graph.agent.send
-```
-Turn-2 `payload_bytes` should be lower than turn-1 baseline for the same fixture — the mutation body no longer travels.
+### Integration scenarios
 
-### Acceptance Criteria
-- [ ] `is_mutation` tag reliably set for all mutation tools
-- [ ] Collapse fires only when the observation has been consumed
-- [ ] Failed mutations preserve their error body
-- [ ] Collapsed message still parses as a valid envelope for the model
-- [ ] Unit + integration cases all pass
-- [ ] Live smoke shows measurable byte drop turn-over-turn
+- Fetch a 200 KB Notion page, answer from a late section, and return a valid passage citation without placing the full page in `messages` or checkpoints.
+- Fetch a long Gmail thread, distinguish senders and dates, quote an exact passage, and prevent access from another user/thread.
+- Fetch multiple Drive documents, compare evidence across files, and cite each source independently.
+- Continue a thread after process restart while its artifacts are live; repeat after expiry and receive a clear refetch requirement.
+- Re-fetch a changed provider revision and answer from the newest version without mixing stale chunks.
+- Run an eight-turn Todoist conversation and verify prompt size plateaus while recent task IDs remain actionable.
+- Simulate storage, embedding, summarizer, and provider failures independently; none may inject an unbounded raw payload.
 
-### Rollback
-Comment out the `collapse_consumed_mutations` call in the orchestrator. No other stage depends on it.
+### Quantitative gates
 
----
+- No serialized model request exceeds its calculated input budget.
+- No individual tool observation exceeds its configured inline-token ceiling.
+- Raw document size in LangGraph checkpoints remains zero.
+- Retrieval evaluation includes exact-ID, exact-phrase, date/sender, semantic, and cross-document queries; target recall@8 is at least 90% on the curated fixture set.
+- Citation validation confirms every cited passage is an exact substring of its stored canonical chunk.
+- Context telemetry reports median/p95 prompt tokens, budget utilization, inline versus artifact counts, retrieval latency, ingestion latency, fallback counts, and expired-artifact misses.
+- Run the Python agent suite, relevant integration tests, `git diff --check`, TypeScript tests, lint, and build before each stage merges.
 
-## Stage 5: Deterministic Pre-Summary Compaction
+## Assumptions and Defaults
 
-### Goal
-Before the summariser LLM is called, run a cheap Python pass that removes dead/redundant fields per tool. This often makes the LLM call unnecessary (payload now under threshold) and, when it doesn't, gives the summariser a much smaller input — cutting summariser latency and DeepSeek cost on the hot path.
-
-### Changes
-
-| File | What |
-|------|------|
-| `agents/agent_api/app/graph/nodes/summarize.py` | Insert pre-compaction step at the top of `_call_summarizer` (and before the threshold recheck) |
-| `agents/agent_api/app/graph/compaction.py` (new) | Deterministic per-tool field pruners |
-
-### Implementation Details
-
-Given stage 1 already trimmed at the client boundary, this stage targets *second-order* fat — mostly nested comment lists, filter results with duplicated project metadata, empty arrays, and null-heavy fields. Pruners take `items: List[dict]` and return `List[dict]` with additional field removal appropriate to the item shape:
-
-```python
-_DEEP_STRIPS = {
-    "description",  # long-form free text; usually not needed for filtering
-    "url",          # deep-link, model doesn't use
-    "duration",     # kept in the whitelist but frequently null
-}
-
-def deep_prune(items, extra_drop=None):
-    drop = _DEEP_STRIPS | (extra_drop or set())
-    result = []
-    for item in items:
-        if not isinstance(item, dict):
-            result.append(item); continue
-        pruned = {k: v for k, v in item.items() if k not in drop and v not in (None, "", [], {})}
-        result.append(pruned)
-    return result
-```
-
-In `summarize.py` `_call_summarizer`, add a first step:
-
-```python
-pre_bytes = len(json.dumps(items, default=str))
-items = deep_prune(items)
-post_bytes = len(json.dumps(items, default=str))
-tracer.event("graph.summarize.pre_prune",
-             pre_bytes=pre_bytes, post_bytes=post_bytes, item_count=count)
-# Recheck: if the pruned payload is now under the byte AND item thresholds,
-# short-circuit — no LLM needed.
-if len(items) <= SUMMARIZE_THRESHOLD and post_bytes <= SUMMARIZE_BYTES_THRESHOLD:
-    tracer.event("graph.summarize.skipped_after_prune",
-                 "Pruned payload under thresholds; skipping LLM.")
-    return json.dumps(items, default=str)
-```
-
-### Testing
-
-**Unit.**
-```bash
-python -m pytest tests/agents/test_summarize_prune.py -v
-```
-Cases:
-- Rich-field task list is pruned; total byte size drops materially.
-- Empty/null fields are dropped; non-empty preserved.
-- Short-circuit fires when prune brings the payload under both thresholds.
-- Short-circuit output is valid JSON deserialisable by the orchestrator.
-- Idempotent: pruning twice equals pruning once.
-
-**Integration.**
-```bash
-npm run test:integration -- --runInBand
-```
-Fixture: a 60-task result that today triggers the summariser LLM. After stage 5, `graph.summarize.skipped_after_prune` should be emitted for a subset of those fixtures — verifying the short-circuit path is exercised end-to-end.
-
-**Live smoke.**
-```bash
-scripts/run_telegram_e2e.sh "show me all my tasks"
-tail -n 200 logs/app-readable.log \
-  | grep -E "graph.summarize|graph.agent.send"
-```
-Compare summariser LLM call count against the stage-2 baseline. Expect meaningful reduction (target: at least 30 % of stage-2 summariser calls short-circuit after prune).
-
-### Acceptance Criteria
-- [ ] Pre-prune reliably reduces byte size on realistic fixtures
-- [ ] Short-circuit path fires when justified — validated by integration test
-- [ ] Response quality unchanged on the "list all tasks" scenario
-- [ ] Tracer events distinguish `pre_prune` / `skipped_after_prune` / normal `processing`
-- [ ] Summariser LLM call count reduced ≥ 30 % on the canned fixtures
-
-### Rollback
-Remove the two-line `items = deep_prune(items)` step (or gate on an env flag `JARVIS_PRE_PRUNE=false`).
-
----
-
-## Cross-Cutting: Observability & Regression Gates
-
-### Metrics to track across all stages
-
-Every stage adds or extends tracer events. To judge outcomes, keep a small script that reads a log window and prints:
-- Median / p95 `graph.agent.send.payload_bytes` per turn index.
-- Count of `graph.summarize.processing` vs `graph.summarize.skipped*` vs `graph.summarize.bypass_*`.
-- Count of `graph.history.compact` events.
-- Any `graph.summarize.validation_failed_final` occurrences (regression signal).
-
-Suggested location: `scripts/analyze_context_metrics.py` (add in stage 0). Consumed manually after each stage's live smoke.
-
-### Regression suite (run before merging any stage)
-
-```bash
-python -m pytest tests/agents/ -x --timeout=30
-npm test -- --runInBand
-npm run test:integration -- --runInBand
-npm run lint
-npm run build
-```
-
-### Gate on the Python venv drift issue
-
-Per project memory, agent tests fail collection when the venv's `starlette` diverges from `0.41.3`. Before running any of the above:
-
-```bash
-source .venv/bin/activate
-pip install "starlette==0.41.3"
-```
-
-Do not commit `pip freeze` output; the pin is intentional and lives elsewhere in the project.
-
----
-
-## Deferred / Out of Scope
-
-- **Out-of-band tool-result store with `recall_tool_result` meta-tool.** Architecturally powerful, adds a moving part; revisit if tier-1+2 does not hold long threads.
-- **Sliding-window + rolling summary.** LangChain-standard, but tier 1–5 handles Jarvis's actual thread lengths.
-- **Real token counting (tiktoken).** Byte budgets are proxies; adding real token accounting is worthwhile only if fine-tuning against DeepSeek's exact tokeniser becomes necessary.
-- **Router prompt slimming changes.** Orthogonal layer; healthy as-is.
-- **Schema-level tool response contracts.** Would formalise the whitelists into typed models; useful, not required to ship this work.
-
----
-
-## Suggested Merge Order & Cadence
-
-1. Stage 0 (day 1) — instrumentation only, low risk, unblocks judging every subsequent stage.
-2. Stage 1 (day 2–3) — largest single win; ship independently.
-3. Stage 2 (day 4) — small extension of the existing summariser trigger.
-4. Stage 3 (day 5–7) — highest-value defensive stage; take time on the compactor unit tests.
-5. Stage 4 (day 8) — smaller win, complements stage 3.
-6. Stage 5 (day 9) — cost/latency reduction on top; ship last so pruning heuristics are shaped by observed post-stage-1–4 data.
-
-Each stage is independently revertable via env flag. Do not batch stages into a single PR.
+- Fetched content is private, user-owned, and thread-scoped.
+- Raw normalized text is retained for 24 hours after last thread activity; only provenance metadata survives expiry.
+- Exact recall and source citations are required.
+- Retrieval is hybrid when embeddings are configured and lexical-only otherwise.
+- PostgreSQL is the initial artifact store; the `ContextStore` abstraction permits later movement of large bodies to Supabase Storage without changing tools or graph nodes.
+- Connector implementation and binary attachment extraction are outside the first delivery stages, but their contracts are defined now.
+- Byte metrics remain useful operationally, but token budgets—not byte thresholds or list lengths—control model input.
+- Stages ship separately and retain compatibility until the v2 pipeline is proven; no stage reintroduces unlimited raw tool results as a fallback.

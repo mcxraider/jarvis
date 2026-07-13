@@ -17,7 +17,7 @@ from agents.agent_api.app.graph.prompts.orchestrator import (
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 USER_PROMPTS: List[str] = [
-    "pull my events from my govtech google calendar and then update lunch with grandparents on todoist to p3 task."
+    # "pull my events from my govtech google calendar and then update lunch with grandparents on todoist to p3 task."
     
     # "Find the plans i have with feebee in the next 2 weeks, put them into google calendar events, then add to todoist a new dinner with feebee church friends next saturday."
     
@@ -74,6 +74,7 @@ USER_PROMPTS: List[str] = [
     # "set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of priority"
     # rity based on when im most free"
     # "check phoebe google calendar and my calendar tell me when good day to have dinner with her next week"
+    # "i have an AG retreat from 4-6 sept add it in, p1 whole day event."
     # "when am i free next week?"
     # "delete my dinner with zac in my cal monday 8pm"
     # "meeting zac at night on friday, add it in" # always add it in first, then check for conflicts and report back if conflict else end.
