@@ -242,7 +242,10 @@ class RunFileLogWritingTests(TestCase):
             path = run_logging.Path(tmp) / "run.log"
             log = run_logging.RunFileLog(path, background=False)
             payload = "x" * (run_logging.MAX_BUFFER_BYTES // 2)
-            for index in range(5):
+            entry_count = (
+                run_logging.MAX_BUFFER_BYTES // run_logging.MAX_PAYLOAD_BYTES
+            ) + 2
+            for index in range(entry_count):
                 log.write_line("payload", f"payload-{index} {payload}")
 
             self.assertLessEqual(log._buffer_bytes, run_logging.MAX_BUFFER_BYTES)
@@ -251,7 +254,7 @@ class RunFileLogWritingTests(TestCase):
             content = path.read_text(encoding="utf-8")
 
         self.assertIn("events_dropped:", content)
-        self.assertNotIn("payload-4", content)
+        self.assertNotIn(f"payload-{entry_count - 1}", content)
 
     def test_buffer_event_cap(self) -> None:
         import tempfile

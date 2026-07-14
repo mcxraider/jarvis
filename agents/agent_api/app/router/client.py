@@ -47,8 +47,8 @@ from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 # Cap the classifier's output. It only ever returns a small JSON object
-# (outcome, domains, uncertainty, and short reasoning), so a tight ceiling keeps the
-# call fast and cheap without ever truncating a valid decision.
+# (outcome, domains, uncertainty, complexity, and short reasoning), so a tight
+# ceiling keeps the call fast and cheap without ever truncating a valid decision.
 _ROUTER_MAX_TOKENS = 400
 _ROUTER_SDK_MAX_RETRIES = 0
 _THINKING_DISABLED = {"thinking": {"type": "disabled"}}
@@ -236,6 +236,7 @@ class RouterClient:
             "Received router decision.",
             domains=len(decision.domains),
             outcome=decision.outcome.value,
+            complexity=decision.complexity.value,
             prompt_tokens=turn_usage.prompt_tokens or None,
             completion_tokens=turn_usage.completion_tokens or None,
             total_elapsed_ms=round((time.monotonic() - classify_started) * 1000, 1),

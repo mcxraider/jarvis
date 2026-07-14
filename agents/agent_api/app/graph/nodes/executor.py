@@ -14,10 +14,16 @@ calls when the upstream service is consistently failing.
 
 import contextvars
 import json
+import logging
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Dict, List, Optional, Tuple
+
+_logger = logging.getLogger(__name__)
+
+REAPER_JOIN_TIMEOUT_SECONDS = 5.0
 
 from agents.agent_api.app.constants import (
     EXECUTOR_BATCH_TIMEOUT_SECONDS,
@@ -36,6 +42,25 @@ from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.dispatcher import ToolDispatcher, tool_result_to_message
 from agents.agent_api.app.tools.metadata import get_service
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
+
+
+def _reap_pool(pool: ThreadPoolExecutor) -> None:
+    """Spawn a background daemon that waits for orphaned threads to drain."""
+    def _join():
+        pool.shutdown(wait=True)
+        # If we get here within the timeout, threads drained cleanly.
+
+    def _monitor():
+        reaper = threading.Thread(target=_join, daemon=True)
+        reaper.start()
+        reaper.join(timeout=REAPER_JOIN_TIMEOUT_SECONDS)
+        if reaper.is_alive():
+            _logger.warning(
+                "Executor pool threads did not drain within %.1fs — orphaned threads may still be running.",
+                REAPER_JOIN_TIMEOUT_SECONDS,
+            )
+
+    threading.Thread(target=_monitor, daemon=True).start()
 
 
 def _decline_message(held: dict) -> dict:
@@ -86,14 +111,21 @@ def create_executor_node(
         throttle: BatchThrottle,
         breaker: BatchCircuitBreaker,
         batch_deadline: float,
+        cancelled: threading.Event,
     ) -> Dict[str, any]:
         """Execute a single held call with resilience checks."""
+        if cancelled.is_set():
+            return timeout_error_envelope(held, EXECUTOR_BATCH_TIMEOUT_SECONDS)
+
         if breaker.is_open():
             return circuit_breaker_error_envelope(held, breaker.open_reason() or "transient")
 
         remaining = max(0.0, batch_deadline - time.monotonic())
         if EXECUTOR_THROTTLE_ENABLED:
             throttle.wait_if_paused(timeout=remaining)
+
+        if cancelled.is_set():
+            return timeout_error_envelope(held, EXECUTOR_BATCH_TIMEOUT_SECONDS)
 
         if breaker.is_open():
             return circuit_breaker_error_envelope(held, breaker.open_reason() or "transient")
@@ -193,6 +225,7 @@ def create_executor_node(
             batch_deadline = time.monotonic() + EXECUTOR_BATCH_TIMEOUT_SECONDS
             throttle = BatchThrottle()
             breaker = BatchCircuitBreaker(threshold=EXECUTOR_CIRCUIT_BREAKER_THRESHOLD)
+            cancelled = threading.Event()
 
             tracer.event(
                 "graph.executor",
@@ -213,7 +246,7 @@ def create_executor_node(
                 )
                 ctx = contextvars.copy_context()
                 future = pool.submit(
-                    ctx.run, _execute_one, held, tool_dispatcher, throttle, breaker, batch_deadline
+                    ctx.run, _execute_one, held, tool_dispatcher, throttle, breaker, batch_deadline, cancelled
                 )
                 future_to_idx[future] = (idx, held)
 
@@ -241,6 +274,7 @@ def create_executor_node(
                     )
                     execution_results[idx] = result
             except FuturesTimeoutError:
+                cancelled.set()
                 tracer.event(
                     "graph.executor",
                     "Batch timeout reached.",
@@ -256,6 +290,7 @@ def create_executor_node(
                         )
             finally:
                 pool.shutdown(wait=False, cancel_futures=True)
+                _reap_pool(pool)
 
         # Phase 3: Reassemble results in original order
         result_messages: List[dict] = []

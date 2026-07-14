@@ -2,16 +2,17 @@
 
 The router is a lightweight *pre-orchestrator* classifier: given the user's raw
 query and the resolved runtime snapshot, it decides which service domains the
-query actually needs. Its output (a :class:`RouterDecision`) later drives tool-
-schema filtering and prompt slimming — but this module owns only the schema and
-the prompt text, with no LLM or wiring (see ``router/client.py`` for the call).
+query actually needs and how intrinsically complex the query is. Its output (a
+:class:`RouterDecision`) later drives tool-schema filtering, prompt slimming,
+and model routing — but this module owns only the schema and the prompt text,
+with no LLM or wiring (see ``router/client.py`` for the call).
 
-The prompt is deliberately small (~300 tokens): the domain keys + their
-capabilities pulled from ``DOMAIN_ADAPTERS``, an availability line per domain, a
-compact routing-preferences block (mirroring the orchestrator's
-``_preference_block``), and a strict JSON-output instruction. It never contains
+The prompt is deliberately compact: the domain keys + their capabilities pulled
+from ``DOMAIN_ADAPTERS``, an availability line per domain, a compact routing-
+preferences block (mirroring the orchestrator's ``_preference_block``), a query-
+complexity rubric, and a strict JSON-output instruction. It never contains
 provider secrets or the full orchestrator policy — the router only needs enough
-to route.
+to classify.
 """
 
 from enum import Enum
@@ -37,6 +38,14 @@ class RouterOutcome(str, Enum):
     AMBIGUOUS = "ambiguous"
 
 
+class QueryComplexity(str, Enum):
+    """Intrinsic reasoning complexity of the current user query."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 if {member.value for member in RouterDomain} != set(DOMAIN_ADAPTERS):
     raise RuntimeError("RouterDomain must exactly match DOMAIN_ADAPTERS keys")
 
@@ -50,6 +59,7 @@ class RouterDecision(BaseModel):
     domains: List[RouterDomain] = Field(strict=True)
     uncertain: bool
     candidate_domains: List[RouterDomain] = Field(strict=True)
+    complexity: QueryComplexity
     reasoning: str
 
     @model_validator(mode="after")
@@ -174,19 +184,26 @@ def _few_shot_examples(snapshot: RuntimeContextSnapshot) -> List[str]:
     examples = [
         f'User: "what tasks do I have today?" -> '
         f'{{"outcome": "routed", "domains": ["{task_provider}"], "uncertain": false, '
-        f'"candidate_domains": [], "reasoning": "task lookup"}}',
+        f'"candidate_domains": [], "complexity": "low", "reasoning": "task lookup"}}',
         f'User: "what\'s on my schedule this week?" -> '
         f'{{"outcome": "routed", "domains": ["{event_provider}"], "uncertain": false, '
-        f'"candidate_domains": [], "reasoning": "schedule query"}}',
+        f'"candidate_domains": [], "complexity": "low", "reasoning": "schedule query"}}',
         'User: "hello!" -> '
         '{"outcome": "conversation", "domains": [], "uncertain": false, '
-        '"candidate_domains": [], "reasoning": "greeting"}',
+        '"candidate_domains": [], "complexity": "low", "reasoning": "greeting"}',
         'User: "check my Slack messages" -> '
         '{"outcome": "unsupported_provider", "domains": [], "uncertain": false, '
-        '"candidate_domains": [], "reasoning": "unsupported Slack request"}',
+        '"candidate_domains": [], "complexity": "low", "reasoning": "unsupported Slack request"}',
         'User: "check my plans somewhere" -> '
         '{"outcome": "ambiguous", "domains": [], "uncertain": true, '
-        '"candidate_domains": ["todoist", "google_calendar"], "reasoning": "service domain unclear"}',
+        '"candidate_domains": ["todoist", "google_calendar"], "complexity": "low", '
+        '"reasoning": "service domain unclear"}',
+        'User: "which overdue tasks should I do first today?" -> '
+        f'{{"outcome": "routed", "domains": ["{task_provider}"], "uncertain": false, '
+        '"candidate_domains": [], "complexity": "medium", "reasoning": "prioritize overdue tasks"}',
+        'User: "analyze all my projects and build an optimized monthly execution plan" -> '
+        f'{{"outcome": "routed", "domains": ["{task_provider}"], "uncertain": false, '
+        '"candidate_domains": [], "complexity": "high", "reasoning": "complex project optimization"}',
     ]
     # Only include the explicit-Google-Calendar example when the domain exists
     # in the adapter catalogue — otherwise it references a domain the model
@@ -195,7 +212,8 @@ def _few_shot_examples(snapshot: RuntimeContextSnapshot) -> List[str]:
         examples.append(
             'User: "add a meeting to my google calendar" -> '
             '{"outcome": "routed", "domains": ["google_calendar"], "uncertain": false, '
-            '"candidate_domains": [], "reasoning": "explicit google calendar mention"}'
+            '"candidate_domains": [], "complexity": "low", '
+            '"reasoning": "explicit google calendar mention"}'
         )
     return examples
 
@@ -207,8 +225,9 @@ def build_router_system_prompt(snapshot: RuntimeContextSnapshot) -> str:
     return "\n".join(
         [
             "You are a fast query router for a personal assistant. Classify which "
-            "service domains the user's request needs. Do not answer the request "
-            "or call any tools — only classify.",
+            "service domains the user's request needs and the intrinsic complexity "
+            "of the current user query. Do not answer the request or call any tools "
+            "— only classify.",
             "",
             "## Domains",
             *_domain_catalogue(),
@@ -218,6 +237,14 @@ def build_router_system_prompt(snapshot: RuntimeContextSnapshot) -> str:
             "",
             "## Routing rules",
             *_routing_rules(snapshot),
+            "",
+            "## Query complexity",
+            "Classify the intrinsic reasoning and workflow difficulty of the current user query:",
+            "- `low`: a direct lookup, simple conversation, or straightforward single-item action.",
+            "- `medium`: multiple steps, items, comparisons, constraints, or moderate synthesis.",
+            "- `high`: complex planning, optimization, substantial analysis, or many interdependent constraints.",
+            "Judge complexity independently of the selected domains, number of domains, query length, "
+            "or mutation risk. Domain breadth is handled separately by deterministic model routing.",
             "",
             "## Examples",
             *_few_shot_examples(snapshot),
@@ -229,6 +256,7 @@ def build_router_system_prompt(snapshot: RuntimeContextSnapshot) -> str:
             f'  "domains": [<subset of {valid_keys}> — most-likely minimal route],',
             '  "uncertain": <boolean — true only for real domain ambiguity>,',
             f'  "candidate_domains": [<subset of {valid_keys}> — expanded safe set when uncertain, else []],',
+            '  "complexity": <one of "low", "medium", "high" — intrinsic difficulty of the current user query>,',
             '  "reasoning": <short string, 10 words or fewer>',
             "}",
         ]
@@ -251,6 +279,7 @@ __all__ = [
     "RouterDecision",
     "RouterDomain",
     "RouterOutcome",
+    "QueryComplexity",
     "build_router_messages",
     "build_router_system_prompt",
     "effective_router_domains",

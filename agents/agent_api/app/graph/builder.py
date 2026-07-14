@@ -79,6 +79,15 @@ _builder_logger = logging.getLogger(__name__)
 _USE_DEFAULT_CHECKPOINTER = object()
 
 
+def _retarget_tracer(client, tracer: TracePrinter):
+    """Rebind a client's tracer for this run, preferring immutable with_tracer."""
+    if hasattr(client, "with_tracer"):
+        return client.with_tracer(tracer)
+    if hasattr(client, "tracer"):
+        client.tracer = tracer
+    return client
+
+
 def _register_thread(
     thread_id: str,
     identity: Optional[TelegramIdentity],
@@ -531,6 +540,7 @@ def run_jarvis(
     tracer.payload("runtime.prompt", "user_prompt", user_prompt)
 
     agent_client = agent_client or DeepSeekAgentClient(tracer=tracer)
+    agent_client = _retarget_tracer(agent_client, tracer)
     offline_tool_names: Optional[list] = None
     if runtime_context is not None:
         registry, run_clients, tool_names_by_provider = build_runtime_registry(
@@ -544,16 +554,10 @@ def run_jarvis(
         # No credential resolution happens here — production always resolves a
         # runtime context above.
         todoist_client = todoist_client or TodoistApiClient(tracer=tracer)
+        todoist_client = _retarget_tracer(todoist_client, tracer)
         registry = build_registry_from_clients(todoist_client=todoist_client)
         run_clients = [todoist_client]
         offline_tool_names = [spec.name for spec in registry.specs]
-
-    # Caller-provided clients (e.g. the CLI runner) are built before run_jarvis
-    # wraps the tracer, so retarget them at this run's tracer to keep their
-    # agent.* / todoist.* / calendar.* events flowing into the per-run file log.
-    for client in (agent_client, *run_clients):
-        if client is not None and getattr(client, "tracer", None) is not None:
-            client.tracer = tracer
     dispatcher = ToolDispatcher(
         registry,
         allow_mutations=allow_mutations,
@@ -684,8 +688,8 @@ def run_jarvis(
             total_tokens=usage.total_tokens,
             cached_tokens=usage.cached_tokens,
             cache_hit_rate=cache_hit_rate,
-        reasoning_tokens=usage.reasoning_tokens,
-    )
+            reasoning_tokens=usage.reasoning_tokens,
+        )
     if result.get("error"):
         tracer.progress({"phase": "failed", "action": "failed"})
     elif result.get("interrupted"):
@@ -696,7 +700,8 @@ def run_jarvis(
         })
     else:
         tracer.progress({"phase": "finalizing", "action": "completed"})
-        result["run_log_path"] = str(run_log.path.resolve())
+        if run_log is not None:
+            result["run_log_path"] = str(run_log.path.resolve())
 
     duration_ms = int((finished_at - started_at).total_seconds() * 1000)
     _log_usage(identity, thread_id, usage, duration_ms, DEEPSEEK_MODEL)

@@ -15,14 +15,12 @@ current fixes
 
 
 ### Latency
-- async for the agent stuff 
+- async for the agent stuff, is prompt building all async? 
 - User query cache (need versioning for preferences schema etc as it may change or maybe everytime they edit preferences then need to scrub their cache). Do this using a hash(user preferences version  + query) cache
 
 ### Reliability
-- what if user asks simultaneously from phone and web and desktop app?
 - if user input is above a certain number of words, reject?
-- https://console.groq.com/docs/rate-limits check this so that error reporting from the groq voice model is adequate. 
-
+- must have a round trip second call validator to check that the tool call resulted in actually deleting or adding to prevent model hallucinations. like after the user approves/ rejects then need to check that the tool call fired/ didnt fire. 
 
 ### Safety
 - detect prompt attacks using rivalAI
@@ -32,7 +30,7 @@ current fixes
 
 ### Agent capability enhancements
 - when at the prepare_confirm stage, if user gives input instead of clicking Accept/ Decline, then it should route back to the model. With the correct context. Ie, the confirm message, and the users input. Need a way to check if another node should fix this because if model asks for prepare confirm, then the user gives like "yes, but change one part" then the model should redo the thing, fix it edit out that part, and clarify again. but if the guy says "yes all is good". then it should bypass the permissions and dont need to go prepare_confirm anymore because user already implied yes. 
-  
+
 
 ### LLM
 

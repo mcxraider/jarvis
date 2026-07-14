@@ -100,6 +100,7 @@ class JarvisApiTests(unittest.TestCase):
                 "interrupt": None,
                 "tool_results": [{"tool_name": "add_todoist_task"}],
                 "error": None,
+                "error_details": None,
             },
         )
         run.assert_called_once()

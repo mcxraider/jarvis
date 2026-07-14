@@ -16,6 +16,7 @@ from agents.agent_api.app.router.model_router import (
     create_default_model_router,
 )
 from agents.agent_api.app.router.prompt import (
+    QueryComplexity,
     RouterDecision,
     RouterDomain,
     RouterOutcome,
@@ -26,6 +27,7 @@ from agents.agent_api.app.router.prompt import (
 __all__ = [
     "ModelRouter",
     "ModelSelection",
+    "QueryComplexity",
     "RouterClient",
     "RouterClientError",
     "RouterDecision",

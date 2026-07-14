@@ -21,6 +21,8 @@ from agents.agent_api.app.tracing import UserProgressTracePrinter
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+STREAM_LIVENESS_TIMEOUT_SECONDS = 120.0
+
 
 def allow_mutations(request_value: Optional[bool]) -> bool:
     if request_value is not None:
@@ -155,11 +157,27 @@ def stream_agent_run(
         finally:
             events.put(None)
 
-    threading.Thread(target=worker, daemon=True).start()
+    worker_thread = threading.Thread(target=worker, daemon=True)
+    worker_thread.start()
 
     def iterator():
         while True:
-            event = events.get()
+            try:
+                event = events.get(timeout=STREAM_LIVENESS_TIMEOUT_SECONDS)
+            except queue.Empty:
+                if not worker_thread.is_alive():
+                    logger.error("Stream worker thread died without sending sentinel.")
+                    yield json.dumps({
+                        "type": "final",
+                        "response": {
+                            "status": "failed",
+                            "thread_id": "",
+                            "response": "Jarvis encountered an internal error. Please try again.",
+                            "error": "Worker thread terminated unexpectedly.",
+                        },
+                    }, default=str) + "\n"
+                    break
+                continue
             if event is None:
                 break
             yield json.dumps(event, default=str) + "\n"

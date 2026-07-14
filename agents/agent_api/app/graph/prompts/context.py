@@ -39,7 +39,7 @@ USER_PROMPTS: List[str] = [
     
     # "Find everything overdue in Todoist that looks like a social plan, move them to this weekend if I’m free, and put the confirmed ones into Google Calendar.",
     
-    # "For every Google Calendar event next week that includes dinner, create a Todoist reminder task 2 hours before it, unless one already exists.",
+    # "For every event this week that includes dinner in todoist, create a Google calendar reminder 2 hours before it, unless one already exists.",
     
     # "Add dinner with Feebee and church friends next Saturday evening, but only if I don’t already have plans with Feebee that day. If I do, combine them into one calendar event and update the Todoist task title accordingly.",
 

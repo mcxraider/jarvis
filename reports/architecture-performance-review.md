@@ -62,7 +62,7 @@ All four Python-side P1 priorities from §8 (items 7–10) were implemented on t
 
 | Stage | P1 # | Status | Notes |
 |---|---|---|---|
-| 6 | #8 | Deferred | **Telegram `/cancel` propagation** — requires TypeScript-side changes to wire `LangGraphAgentClient.cancel()` to the new Python `/runs/cancel` endpoint. |
+| 6 | #8 (TS layer) | ✅ Done (P2 pass) | **Telegram `/cancel` propagation** — `LangGraphAgentClient.cancelRun()`, gate `setActiveRequestId/getActiveRequestId`, `TextProcessorService` stores requestId on acquire, `CommandHandlers` fires cancel before gate release. |
 | 8 | #10 | Deferred | **DB pool consolidation** — requires Supabase SQL migration (`begin_request` function, shared pool, batched resume rehydration). |
 | 9 | — | Deferred | **Integration benchmarks** — p50/p95 comparison against Stage 0 baseline with identical fixtures. |
 
@@ -86,6 +86,29 @@ All four Python-side P1 priorities from §8 (items 7–10) were implemented on t
 - **9 pre-existing failures** (unchanged from before P1 work)
 - **0 regressions** introduced by P1 stages
 - **58 new Stage-specific tests** covering async nodes, streaming, cancellation, fast path, and cache
+
+---
+
+## P2 Implementation Log (July 2026)
+
+Five P2 items from §8 were implemented on the `latency-reduction-p0` branch, continuing the P0/P1 work.
+
+### Changes implemented
+
+| Stage | Item # | What changed |
+|---|---|---|
+| 1 | #12 | **Shallow list copies in graph nodes.** Replaced `copy.deepcopy(state.get("messages", []))` with `list(...)` in `orchestrator.py`, `tools.py`, and `hitl.py`. Replaced `copy.deepcopy(message)` in `raw_message_from_openai` with `dict(message)`. Safe: mutations are list-level only (append / index-rebind to fresh dicts); no in-place dict mutation occurs on history elements. Removed the `import copy` from all three files. New test file: `tests/agents/test_shallow_copy_isolation.py` (9 tests). |
+| 2 | #13 | **Progress painter: 4.5s tick + 429 backoff.** `TICK_INTERVAL_MS` raised from `1_000` to `4_500` (just above the narrator's 4s render floor — every timer wake-up can now produce a real paint). Added `blockedUntil: number` field; `applyRateLimit()` detects `error_code === 429` or `description.includes('Too Many Requests')`, reads `parameters.retry_after`, and sets `Date.now() + waitMs`. `paintDue()` returns early while `Date.now() < this.blockedUntil`. Applied in all three paint paths (`sendRichDraft`, `editMessageText`, `replyWithMarkdown`). Tests updated + 4 new tests added. |
+| 3 | #11 | **Parallel summarizer + history compaction.** `summarize_node` now collects oversized candidates in a first pass, then submits all to a `ThreadPoolExecutor(max_workers=min(n,4))` and applies results by index. History compaction (`_compact_history`) is opt-in via `JARVIS_COMPACT_TURNS_THRESHOLD` env var (default `0` = disabled); when triggered, old turns are folded into a `[Earlier conversation summary: ...]` system message. New test file: `tests/agents/test_summarize_parallel.py` (8 tests). |
+| 4 | #16 | **Calendar client: per-call `AuthorizedHttp`, lock scope reduced.** `_execute()` now creates `AuthorizedHttp(self._credentials, http=httplib2.Http())` per call (using `google-auth-httplib2`, already in requirements). `self._credentials` is populated during lazy service construction in the `service` property. The `_lock` is retained for the one-time lazy init only — no longer held across network I/O. Test-injection path (`credentials=None`) falls back to bare `request.execute()`. Updated `TestThreadSafety` to assert `max_concurrent > 1`. New test file: `tests/agents/test_calendar_parallel.py` (3 tests). |
+| 5 | #8 (TS) | **TS `/cancel` wiring.** Python side already existed (`ActiveRunRegistry`, `POST /runs/cancel`, commit `347300d`). Added to TS: `ConversationGateStore` interface gains `setActiveRequestId` / `getActiveRequestId` (in-memory Map on both `MemoryConversationGateStore` and `PostgresConversationGateStore` — no schema change). `TextProcessorService` stores `logContext.requestId` on the gate after `tryAcquire`. `LangGraphAgentClient.cancelRun()` POSTs to `/runs/cancel` with 5s timeout. `CommandHandlers` gets optional `agentClient` param; `handleCancel` reads requestId from gate and fires cancel as fire-and-forget with `.catch(logger.warn)`. `app.ts` passes `agentClient` to `CommandHandlers`. 3 new tests added to `command-handlers.test.ts`. |
+
+### Test results
+
+- **17/17** calendar client + parallel tests pass (Stage 4)
+- **13/13** command handler tests pass (Stage 5, including 3 new cancel-wiring tests)
+- **Zero new failures** introduced across the full Python (1178 passing) and TypeScript (387 passing) test suites
+- Pre-existing failures unchanged: 9 Python (`test_jarvis.py`, `test_router_eval_harness.py`, `test_run_logging.py`) and 11 TypeScript (`message-handlers.test.ts`, `whisper.service.test.ts`)
 
 ---
 
@@ -637,20 +660,21 @@ Ranked by (expected gain) ÷ (effort × risk).
 | # | Change | Gain | Effort | Status |
 |---|---|---|---|---|
 | 7 | **Async migration of the Python agent path.** `async def` routes; `AsyncOpenAI`; `httpx.AsyncClient` for Todoist; nodes become `async def`; `app.ainvoke`; replace thread+queue streaming with `asyncio.Queue` + async generator. Calendar stays sync → wrap in `asyncio.to_thread`. | Throughput ceiling ~15 → hundreds/process; client-disconnect detection; cooperative cancellation; removes 3 threads/request | L | ✅ Done (Stages 1–4) |
-| 8 | **Cancellation + deadline propagation**: 120s request deadline; active-run registry; `POST /runs/cancel` endpoint; cooperative task cancellation. TS `/cancel` wiring deferred. | Kills zombie runs, caps tail latency | M | ✅ Python done (Stage 5); TS deferred |
+| 8 | **Cancellation + deadline propagation**: 120s request deadline; active-run registry; `POST /runs/cancel` endpoint; cooperative task cancellation. TS `/cancel` wiring completed in P2 pass. | Kills zombie runs, caps tail latency | M | ✅ Done — Python Stage 5 (commit `347300d`); TS cancel wiring done (P2) |
 | 9 | **Router latency**: deterministic fast path for keyword-obvious queries; LRU decision cache (1024 entries, 5-min TTL). | −0.4–1.3s on many fresh requests | M | ✅ Done (Stage 7) |
 | 10 | **Consolidate DB access**: one pool per process (share with checkpointer via its pool arg), one-roundtrip `begin_request` SQL function, one-roundtrip TS gate acquire, batched resume rehydration. | −4–8 RTs/request; predictable pool sizing | M | Deferred (SQL migration) |
 
-### P2 — scale and polish
+### P2 — scale and polish ✅ Items #8, #11, #12, #13, #16 done (July 2026)
 
-| # | Change | Gain | Effort |
-|---|---|---|---|
-| 11 | Parallel summarizer calls; compact *old* history turns to bound state growth (fixes O(turns²) checkpoint cost). | Tail latency; memory; checkpoint size | M |
-| 12 | Replace deepcopy with shallow list copies + new-dict edits in agent/tools nodes. | CPU under GIL, per turn | S |
-| 13 | Progress painting: event-driven only + 429-aware backoff; needed before multi-user. | Telegram rate-limit headroom | S |
-| 14 | Gate expiry via `SKIP LOCKED` sweeps instead of in-process timers; share one pg Pool across TS stores. | Multi-instance readiness | M |
-| 15 | Multi-worker uvicorn (requires: postgres checkpointer in prod — already supported; no other in-process state on the Python side blocks it once 14's TS work is done). | Linear scale-out | S–M |
-| 16 | Calendar client: per-thread http or httpx REST; drop the global lock. | Intra-turn calendar parallelism | M |
+| # | Change | Gain | Effort | Status |
+|---|---|---|---|---|
+| 8 (TS) | **TS `/cancel` wiring**: `LangGraphAgentClient.cancelRun()`; gate stores active `requestId`; `CommandHandlers` fires cancel before gate release (fire-and-forget with `.catch()`). | Kills Python zombie runs on user cancel | S | ✅ Done |
+| 11 | **Parallel summarizer + history compaction**: `ThreadPoolExecutor` across oversized tool messages; opt-in `JARVIS_COMPACT_TURNS_THRESHOLD` compaction of old turns into a summary system message. | Tail latency when >1 oversized result; bounds O(turns²) checkpoint growth | M | ✅ Done |
+| 12 | **Shallow list copies** in agent, tools, and hitl nodes (replace `deepcopy` with `list()`; single-dict replacement uses `dict()`). Safe: only list-level mutations and fresh-dict appends. | CPU under GIL, per turn | S | ✅ Done |
+| 13 | **Progress painter**: tick interval raised 1s → 4.5s (matches narrator's 4s floor); 429 detection + `blockedUntil` backoff in `applyRateLimit()`. | Telegram rate-limit headroom; removes 4× redundant ticks | S | ✅ Done |
+| 14 | Gate expiry via `SKIP LOCKED` sweeps instead of in-process timers; share one pg Pool across TS stores. | Multi-instance readiness | M | Deferred |
+| 15 | Multi-worker uvicorn (requires: postgres checkpointer in prod — already supported; no other in-process state on the Python side blocks it once 14's TS work is done). | Linear scale-out | S–M | Deferred |
+| 16 | **Calendar client per-call `AuthorizedHttp`**: each `_execute()` call creates its own `httplib2.Http()` connection via `google-auth-httplib2`; lock scope reduced to service lazy-init only. | Intra-turn calendar parallelism; eliminates serialization on concurrent calendar tool calls | M | ✅ Done |
 
 ---
 

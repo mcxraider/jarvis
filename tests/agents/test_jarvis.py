@@ -565,7 +565,8 @@ class ToolSelectionTests(unittest.TestCase):
         class FirstToolOnlySelector:
             """Test selector: records the query and exposes only the first tool."""
 
-            def select_schemas(self, query, registry):
+            def select_schemas(self, query, registry, active_domains=None):
+                del active_domains
                 recorded.append(query)
                 return registry.openai_schemas()[:1]
 
@@ -690,7 +691,7 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(result["final_response"], "Hello.")
         self.assertEqual(result["tool_results"], [])
 
-    def test_question_like_text_is_a_final_response(self) -> None:
+    def test_question_like_text_routes_to_clarification_interrupt(self) -> None:
         responses = [
             "Want me to continue?",
             "Would you like me to continue",
@@ -703,10 +704,12 @@ class JarvisGraphTests(unittest.TestCase):
                     [{"role": "assistant", "content": response}]
                 )
 
-                self.assertEqual(result["final_response"], response)
-                self.assertEqual(result["next"], "end")
-                self.assertNotIn("__interrupt__", result)
-                self.assertFalse(result.get("interrupted", False))
+                self.assertEqual(result["final_response"], "")
+                self.assertEqual(result["next"], "hitl")
+                self.assertTrue(result["interrupted"])
+                self.assertEqual(result["pending_interrupt"], "clarify")
+                self.assertEqual(result["interrupt_payload"]["question"], response)
+                self.assertIn("__interrupt__", result)
 
     def test_run_jarvis_generates_request_id_when_omitted(self) -> None:
         captured: List[Dict[str, Any]] = []
@@ -1440,7 +1443,7 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(len(todoist_client.calls), 2)
         self.assertGreaterEqual(todoist_client.max_active_calls, 2)
 
-    def test_unsupported_tool_returns_error(self) -> None:
+    def test_unsupported_tool_is_rejected_before_execution(self) -> None:
         result = self.run_graph_with_fakes(
             [
                 {
@@ -1452,9 +1455,16 @@ class JarvisGraphTests(unittest.TestCase):
             ]
         )
 
-        tool_result = result["tool_results"][0]
+        self.assertEqual(result["tool_results"], [])
+        tool_messages = [
+            message for message in result["messages"] if message.get("role") == "tool"
+        ]
+        self.assertEqual(len(tool_messages), 1)
+        tool_result = json.loads(tool_messages[0]["content"])
         self.assertFalse(tool_result["success"])
-        self.assertIn("Unsupported tool", tool_result["error"])
+        self.assertTrue(tool_result["out_of_route_tool"])
+        self.assertIn("was not selected for this turn", tool_result["error"])
+        self.assertEqual(result["final_response"], "That tool is unsupported.")
 
     def test_classified_todoist_error_survives_tool_result_and_message(self) -> None:
         result = jarvis.run_jarvis(

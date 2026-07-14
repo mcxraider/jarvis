@@ -38,7 +38,7 @@ from tests.agents.runtime_helpers import make_snapshot
 
 NO_SLEEP = lambda _: None  # noqa: E731 — skip real delays in retry loops
 
-VALID_DECISION_JSON = '{"outcome": "routed", "domains": ["todoist"], "uncertain": false, "candidate_domains": [], "reasoning": "task"}'
+VALID_DECISION_JSON = '{"outcome": "routed", "domains": ["todoist"], "uncertain": false, "candidate_domains": [], "complexity": "low", "reasoning": "task"}'
 
 SNAPSHOT = make_snapshot()
 
@@ -302,6 +302,23 @@ class TestInvalidResponses:
         assert exc_info.value.payload["validation_error_count"] > 0
         assert mock_create.call_count == 1
 
+    def test_missing_complexity_is_terminal(self):
+        client = build_client(max_retry_attempts=3)
+        missing_complexity = (
+            '{"outcome": "routed", "domains": ["todoist"], "uncertain": false, '
+            '"candidate_domains": [], "reasoning": "task"}'
+        )
+        with patch.object(
+            client.client.chat.completions,
+            "create",
+            return_value=make_response(content=missing_complexity),
+        ) as mock_create:
+            with pytest.raises(RouterClientError) as exc_info:
+                classify(client)
+        assert exc_info.value.payload["type"] == "invalid_response"
+        assert exc_info.value.payload["validation_error_count"] > 0
+        assert mock_create.call_count == 1
+
     def test_empty_content_is_terminal(self):
         client = build_client(max_retry_attempts=3)
         with patch.object(
@@ -398,7 +415,7 @@ class TestSuccessfulDecision:
             "create",
             return_value=make_response(
                 content='{"outcome": "routed", "domains": ["todoist", "google_calendar"], '
-                '"uncertain": false, "candidate_domains": [], "reasoning": "spans both"}'
+                '"uncertain": false, "candidate_domains": [], "complexity": "low", "reasoning": "spans both"}'
             ),
         ):
             decision = classify(client)
@@ -412,7 +429,7 @@ class TestSuccessfulDecision:
         with patch.object(
             client.client.chat.completions,
             "create",
-            return_value=make_response(content='{"outcome": "conversation", "domains": [], "uncertain": false, "candidate_domains": [], "reasoning": "greeting"}'),
+            return_value=make_response(content='{"outcome": "conversation", "domains": [], "uncertain": false, "candidate_domains": [], "complexity": "low", "reasoning": "greeting"}'),
         ):
             decision = classify(client)
         assert decision.domains == []
@@ -470,6 +487,11 @@ class TestSuccessfulDecision:
         assert fields["base_url"] == client.base_url
         assert fields["response_format"] == "json_object"
         assert fields["thinking_enabled"] is False
+
+        response_event = next(
+            event for event in tracer.events if event["stage"] == "router.response"
+        )
+        assert response_event["fields"]["complexity"] == "low"
 
     def test_logs_full_router_prompts(self):
         tracer = RecordingTracer()

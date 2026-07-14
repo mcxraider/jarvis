@@ -49,7 +49,7 @@ def test_router_eval_loads_fixtures_and_formats_markdown_without_api_call(tmp_pa
     queries_file = tmp_path / "router_queries.py"
     queries_file.write_text('ROUTER_QUERIES = ["put in my cal"]\n', encoding="utf-8")
     queries = load_queries(queries_file, query_filters=["put in my cal"])
-    client = FakeRouterClient(RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], reasoning="raw cal"))
+    client = FakeRouterClient(RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], complexity="low", reasoning="raw cal"))
 
     results = run_grid(personas, queries, client)
     markdown = format_markdown(

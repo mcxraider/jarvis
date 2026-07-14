@@ -87,6 +87,8 @@ The router is enabled by default:
 
 Set `ROUTER_ENABLED=false` or `TOOL_SELECTOR=static` to expose every registered tool each turn. Set `TOOL_SELECTOR=keyword` to use the static keyword table instead of the LLM router.
 
+The router also labels the intrinsic complexity of the current query as `low`, `medium`, or `high`. Model routing fuses that label with domain breadth and uncertainty: low, certain single-domain requests use V4 Flash/high; medium or multi-domain requests use V4 Pro/high; and high-complexity or domain-uncertain requests use V4 Pro/max. Complexity is assessed independently of query length, mutation risk, and the number of selected domains.
+
 ## Features
 
 ### Telegram UX
