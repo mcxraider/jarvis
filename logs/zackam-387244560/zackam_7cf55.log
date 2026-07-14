@@ -1,0 +1,485 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-14T17:01:00+08:00
+request_id: tg_update_564452576
+thread_id: 81ef4f98-7e70-4ed4-a32d-da91b907cf55
+user_id: telegram:387244560
+telegram_id: 387244560
+identity_username: zackam
+telegram_user_id: None
+telegram_username: None
+telegram_first_name: None
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-14 17:01:00.334 | section              | === Jarvis LangGraph Run ===
+2026-07-14 17:01:00.335 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_564452576
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: 81ef4f98-7e70-4ed4-a32d-da91b907cf55
+      request_source: telegram
+      resuming: false
+2026-07-14 17:01:00.336 | runtime.prompt       | [payload] user_prompt:
+      this is my itinerary in ho chi minh on 18july, can you add it to my personal calendar. anytimes fitness is from 11am-12pm, and we will be shopping a the other locations from 1pm-7pm, space them out accordingly: Anytime Fitness Vo Thi Sau
+Aufra
+Happyzoo Store
+PRADIES Trần Quang Diệu
+Nagashoes — 95 Trần Quang Diệu
+PRADIES Lý Tự Trọng
+Hũ Bơ HCM (buttercupvn)
+LIBÉ Lý Tự Trọng
+LIBÉ Nguyễn Trãi
+PRADIES Nguyễn Trãi
+THE C.I.U Shop
+Return to M Village Hotel
+2026-07-14 17:01:00.507 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-14 17:01:00.542 | graph.agent          | Entering agent node.
+      turn: 1
+      max_turns: 20
+      messages: 2
+2026-07-14 17:01:00.542 | router.start         | Classifying query domains.
+2026-07-14 17:01:00.544 | router.prompt        | [payload] system_prompt:
+      You are a fast query router for a personal assistant. Classify which service domains the user's request needs. Do not answer the request or call any tools — only classify.
+
+## Domains
+- "todoist" (Todoist): tasks, calendar_events, projects, comments
+- "google_calendar" (Google Calendar): calendar_events, free_busy
+
+## Connection status
+- Todoist: connected
+- Google Calendar: connected
+
+## Routing rules
+1. Route tasks, to-dos, and projects to `todoist`.
+2. Route events, schedules, availability, free-time, and busy-time requests to `google_calendar`.
+3. Greetings, small talk, and meta questions use outcome `conversation` and empty domains.
+4. Requests explicitly targeting an unlisted provider use outcome `unsupported_provider` and empty domains.
+5. If service access is needed but the domain is genuinely unclear, use outcome `ambiguous`, set `uncertain` true, and return the safe candidate domains.
+6. Multi-domain requests: return every domain the request touches.
+7. Prefer connected domains, but if the request clearly needs a disconnected domain, still return it so the assistant can explain.
+
+## Examples
+User: "what tasks do I have today?" -> {"outcome": "routed", "domains": ["todoist"], "uncertain": false, "candidate_domains": [], "reasoning": "task lookup"}
+User: "what's on my schedule this week?" -> {"outcome": "routed", "domains": ["google_calendar"], "uncertain": false, "candidate_domains": [], "reasoning": "schedule query"}
+User: "hello!" -> {"outcome": "conversation", "domains": [], "uncertain": false, "candidate_domains": [], "reasoning": "greeting"}
+User: "check my Slack messages" -> {"outcome": "unsupported_provider", "domains": [], "uncertain": false, "candidate_domains": [], "reasoning": "unsupported Slack request"}
+User: "check my plans somewhere" -> {"outcome": "ambiguous", "domains": [], "uncertain": true, "candidate_domains": ["todoist", "google_calendar"], "reasoning": "service domain unclear"}
+User: "add a meeting to my google calendar" -> {"outcome": "routed", "domains": ["google_calendar"], "uncertain": false, "candidate_domains": [], "reasoning": "explicit google calendar mention"}
+
+## Output format
+Return exactly one JSON object. No prose, no code fences.
+Schema: {
+  "outcome": <one of "routed", "conversation", "unsupported_provider", "ambiguous">,
+  "domains": [<subset of "todoist", "google_calendar"> — most-likely minimal route],
+  "uncertain": <boolean — true only for real domain ambiguity>,
+  "candidate_domains": [<subset of "todoist", "google_calendar"> — expanded safe set when uncertain, else []],
+  "reasoning": <short string, 10 words or fewer>
+}
+2026-07-14 17:01:00.544 | router.prompt        | [payload] user_prompt:
+      User request:
+this is my itinerary in ho chi minh on 18july, can you add it to my personal calendar. anytimes fitness is from 11am-12pm, and we will be shopping a the other locations from 1pm-7pm, space them out accordingly: Anytime Fitness Vo Thi Sau
+Aufra
+Happyzoo Store
+PRADIES Trần Quang Diệu
+Nagashoes — 95 Trần Quang Diệu
+PRADIES Lý Tự Trọng
+Hũ Bơ HCM (buttercupvn)
+LIBÉ Lý Tự Trọng
+LIBÉ Nguyễn Trãi
+PRADIES Nguyễn Trãi
+THE C.I.U Shop
+Return to M Village Hotel
+2026-07-14 17:01:00.544 | router.request       | Calling router classifier.
+      model: deepseek-v4-flash
+      reasoning: off
+      messages: 2
+      request_timeout_seconds: 5.0
+      sdk_max_retries: 0
+      max_retry_attempts: 2
+      retry_max_delay_seconds: 2.0
+      base_url: https://api.deepseek.com
+      response_format: json_object
+      thinking_enabled: false
+2026-07-14 17:01:00.545 | router.attempt.start | Starting router classification attempt.
+      attempt: 1
+      request_timeout_seconds: 5.0
+2026-07-14 17:01:01.695 | router.attempt.done  | Router classification attempt completed.
+      attempt: 1
+      elapsed_ms: 1150.0
+2026-07-14 17:01:01.696 | router.response      | Received router decision.
+      domains: 1
+      outcome: routed
+      prompt_tokens: 882
+      completion_tokens: 50
+      total_elapsed_ms: 1151.3
+2026-07-14 17:01:01.696 | router.response      | Router decision received.
+      raw_domains: [RouterDomain.GOOGLE_CALENDAR]
+      candidate_domains: []
+      uncertain: false
+      effective_domains: [google_calendar]
+      outcome: routed
+2026-07-14 17:01:01.696 | router.tools.selected | Selected tools for routed domains.
+      relevant: [google_calendar]
+      available: 22
+      selected: 8
+2026-07-14 17:01:01.697 | graph.tools.selected | Selected tools for this turn.
+      available: 22
+      selected: 8
+      tool_names: [ask_user, list_calendars, list_calendar_events, get_calendar_event, create_calendar_event, update_calendar_event, delete_calendar_event, get_freebusy]
+2026-07-14 17:01:01.697 | router.prompt.slimmed | Rebuilt system prompt for routed domains.
+      relevant: [google_calendar]
+2026-07-14 17:01:01.697 | model_router.selected | Model router selected model for this turn.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+2026-07-14 17:01:01.699 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 2
+      tools: 8
+      request_timeout_seconds: 30.0
+      sdk_max_retries: 0
+      max_retry_attempts: 3
+      retry_max_delay_seconds: 8.0
+      max_tokens: 13000
+      thinking_enabled: true
+      base_url: https://api.deepseek.com
+2026-07-14 17:01:09.278 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 4082
+      completion_tokens: 753
+      total_tokens: 4835
+      cached_tokens: 3840
+      cache_hit_rate: 94.1
+2026-07-14 17:01:09.279 | graph.route          | Agent node completed.
+      turn: 1
+2026-07-14 17:01:09.285 | graph.validate       | All entity references verified.
+      tool_calls: 1
+      next: tools
+2026-07-14 17:01:09.289 | graph.tools          | Entering tools node.
+      tool_calls: 1
+      accumulated_results: 0
+2026-07-14 17:01:09.292 | tool.start           | Preparing tool call.
+      id: call_00_xRQ37TJG3negl0sxvvQg2099
+      name: list_calendars
+      mutating: false
+2026-07-14 17:01:09.292 | tool.args            | [payload] list_calendars:
+      (empty)
+2026-07-14 17:01:09.481 | calendar.request     | Sending Calendar API request.
+      operation: calendar.calendars.list
+      attempt: 1
+      max_attempts: 3
+2026-07-14 17:01:10.281 | calendar.response    | Received Calendar API response.
+      operation: calendar.calendars.list
+      attempt: 1
+2026-07-14 17:01:10.281 | tool.done            | Tool call completed.
+      name: list_calendars
+2026-07-14 17:01:10.281 | tool.result          | [payload] list_calendars:
+      calendars:
+      (10 items)
+            calendar_id: ac4a0ae593d728a54e248a3c3abb79fb5fff8b3ffeaec819e99279460fdba5a6@group.calendar.google.com
+            summary: special calendar
+            time_zone: Asia/Singapore
+
+            calendar_id: 777zachary@gmail.com
+            summary: Personal (Zac Kam)
+            primary: true
+            time_zone: Asia/Singapore
+
+            calendar_id: 872a5a534d174126cd828a75b54f16f5cf5232bc68486e7b17f90a6c51e22f57@group.calendar.google.com
+            summary: NUS Schedule
+            time_zone: Asia/Singapore
+
+            calendar_id: 2631ef239ab11c6df810e86020b48baed48ef1f37ae62aaeba5280ae632374da@group.calendar.google.com
+            summary: Work (Zac Kam)
+            time_zone: Asia/Singapore
+
+            calendar_id: 4b875b4e225f1fc1dff65218ef40a756fb4e882bef9e5299fbc3f8411e4455e7@group.calendar.google.com
+            summary: Personal 
+            time_zone: Asia/Singapore
+
+            calendar_id: b61dbf556f021b5acda51a58b5e6144b7764633e91f130564277cf026613624e@group.calendar.google.com
+            summary: TAT ALLIANCE CALENDAR
+            time_zone: Asia/Singapore
+
+            calendar_id: lidazou97@gmail.com
+            summary: lidazou97@gmail.com
+            time_zone: Asia/Singapore
+
+            calendar_id: jugwofe@gmail.com
+            summary: Justin Tay
+            time_zone: Asia/Singapore
+
+            calendar_id: 5288a5913cbd2d5f869a2557e609a57bfb6f8fcde61df6683b3eb0c2f0a4a3f4@group.calendar.google.com
+            summary: reena's schedule
+            time_zone: Asia/Singapore
+
+            calendar_id: zach.advisory@gmail.com
+            summary: TFG Calendar 
+            time_zone: Asia/Singapore
+2026-07-14 17:01:10.286 | graph.route          | Tools node completed.
+      next: agent
+      successes: 1
+      failures: 0
+2026-07-14 17:01:10.291 | graph.agent          | Entering agent node.
+      turn: 2
+      max_turns: 20
+      messages: 4
+2026-07-14 17:01:10.291 | router.cache_hit     | Reusing cached router decision for same query.
+      domains: 1
+      effective_domains: 1
+2026-07-14 17:01:10.291 | router.response      | Router decision received.
+      raw_domains: [RouterDomain.GOOGLE_CALENDAR]
+      candidate_domains: []
+      uncertain: false
+      effective_domains: [google_calendar]
+      outcome: routed
+2026-07-14 17:01:10.291 | router.tools.selected | Selected tools for routed domains.
+      relevant: [google_calendar]
+      available: 22
+      selected: 8
+2026-07-14 17:01:10.292 | graph.tools.selected | Selected tools for this turn.
+      available: 22
+      selected: 8
+      tool_names: [ask_user, list_calendars, list_calendar_events, get_calendar_event, create_calendar_event, update_calendar_event, delete_calendar_event, get_freebusy]
+2026-07-14 17:01:10.292 | router.prompt.slimmed | Rebuilt system prompt for routed domains.
+      relevant: [google_calendar]
+2026-07-14 17:01:10.292 | model_router.selected | Model router selected model for this turn.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+2026-07-14 17:01:10.294 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 4
+      tools: 8
+      request_timeout_seconds: 30.0
+      sdk_max_retries: 0
+      max_retry_attempts: 3
+      retry_max_delay_seconds: 8.0
+      max_tokens: 13000
+      thinking_enabled: true
+      base_url: https://api.deepseek.com
+2026-07-14 17:01:24.010 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 5529
+      completion_tokens: 1464
+      total_tokens: 6993
+      cached_tokens: 4736
+      cache_hit_rate: 85.7
+2026-07-14 17:01:24.011 | graph.route          | Agent node completed.
+      turn: 2
+2026-07-14 17:01:24.019 | graph.validate       | All entity references verified.
+      tool_calls: 1
+      next: tools
+2026-07-14 17:01:24.021 | graph.tools          | Entering tools node.
+      tool_calls: 1
+      accumulated_results: 1
+2026-07-14 17:01:24.027 | tool.start           | Preparing tool call.
+      id: call_00_NlEMAl0OHFB4jcDire529625
+      name: get_freebusy
+      mutating: false
+2026-07-14 17:01:24.027 | tool.args            | [payload] get_freebusy:
+      time_min: 2026-07-18T00:00:00+08:00
+      time_max: 2026-07-18T23:59:00+08:00
+      calendar_ids: [777zachary@gmail.com]
+2026-07-14 17:01:24.028 | calendar.request     | Sending Calendar API request.
+      operation: calendar.freebusy.query
+      attempt: 1
+      max_attempts: 3
+2026-07-14 17:01:24.329 | calendar.response    | Received Calendar API response.
+      operation: calendar.freebusy.query
+      attempt: 1
+2026-07-14 17:01:24.329 | tool.done            | Tool call completed.
+      name: get_freebusy
+2026-07-14 17:01:24.329 | tool.result          | [payload] get_freebusy:
+      calendars:
+            777zachary@gmail.com:  (empty)
+2026-07-14 17:01:24.331 | graph.route          | Tools node completed.
+      next: agent
+      successes: 1
+      failures: 0
+2026-07-14 17:01:24.336 | graph.agent          | Entering agent node.
+      turn: 3
+      max_turns: 20
+      messages: 6
+2026-07-14 17:01:24.336 | router.cache_hit     | Reusing cached router decision for same query.
+      domains: 1
+      effective_domains: 1
+2026-07-14 17:01:24.336 | router.response      | Router decision received.
+      raw_domains: [RouterDomain.GOOGLE_CALENDAR]
+      candidate_domains: []
+      uncertain: false
+      effective_domains: [google_calendar]
+      outcome: routed
+2026-07-14 17:01:24.336 | router.tools.selected | Selected tools for routed domains.
+      relevant: [google_calendar]
+      available: 22
+      selected: 8
+2026-07-14 17:01:24.336 | graph.tools.selected | Selected tools for this turn.
+      available: 22
+      selected: 8
+      tool_names: [ask_user, list_calendars, list_calendar_events, get_calendar_event, create_calendar_event, update_calendar_event, delete_calendar_event, get_freebusy]
+2026-07-14 17:01:24.338 | router.prompt.slimmed | Rebuilt system prompt for routed domains.
+      relevant: [google_calendar]
+2026-07-14 17:01:24.338 | model_router.selected | Model router selected model for this turn.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+2026-07-14 17:01:24.341 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 6
+      tools: 8
+      request_timeout_seconds: 30.0
+      sdk_max_retries: 0
+      max_retry_attempts: 3
+      retry_max_delay_seconds: 8.0
+      max_tokens: 13000
+      thinking_enabled: true
+      base_url: https://api.deepseek.com
+2026-07-14 17:01:41.305 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 12
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 7095
+      completion_tokens: 2576
+      total_tokens: 9671
+      cached_tokens: 6912
+      cache_hit_rate: 97.4
+2026-07-14 17:01:41.306 | graph.route          | Agent node completed.
+      turn: 3
+2026-07-14 17:01:41.317 | graph.validate       | All entity references verified.
+      tool_calls: 12
+      next: prepare_confirm
+2026-07-14 17:01:41.324 | graph.prepare_confirm | Froze risky actions into held_calls.
+      held_call_count: 12
+      tool_names: [create_calendar_event]
+      deferred_count: 0
+2026-07-14 17:01:41.328 | graph.confirm        | Interrupting for user confirmation.
+      count: 12
+      tool_names: [create_calendar_event]
+      summary:I'm adding 12 items:
+  1. Add event "Anytime Fitness Vo Thi Sau" (google calendar).
+  2. Add event "Aufra" (google calendar).
+  3. Add event "Happyzoo Store" (google calendar).
+  4. Add event "PRADIES Trần Quang Diệu" (google calendar).
+  5. Add event "Nagashoes — 95 Trần Quang Diệu" (google calendar).
+  6. Add event "PRADIES Lý Tự Trọng" (google calendar).
+  7. Add event "Hũ Bơ HCM (buttercupvn)" (google calendar).
+  8. Add event "LIBÉ Lý Tự Trọng" (google calendar).
+  9. Add event "LIBÉ Nguyễn Trãi" (google calendar).
+  10. Add event "PRADIES Nguyễn Trãi" (google calendar).
+  11. Add event "THE C.I.U Shop" (google calendar).
+  12. Add event "Return to M Village Hotel" (google calendar).
+Please confirm to proceed.
+2026-07-14 17:01:41.485 | runtime.done         | Graph invocation completed.
+      request_id: tg_update_564452576
+      turns: 3
+      tool_results: 2
+      has_error: false
+      interrupted: true
+      interrupt_type: confirm
+      total_tokens: 21499
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-07-14T17:01:41+08:00
+duration_seconds: 41.237
+request_id: tg_update_564452576
+turns: 3
+tool_results: 2
+has_error: False
+interrupted: True
+prompt_tokens: 16706
+completion_tokens: 4793
+total_tokens: 21499
+cached_tokens: 15488
+cache_hit_rate: 92.7
+reasoning_tokens: 2653
+partial_flushes: 1
+==============================================================================
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-14T17:02:52+08:00
+request_id: cb_mrkfb5dy_9j8599
+thread_id: 81ef4f98-7e70-4ed4-a32d-da91b907cf55
+user_id: telegram:387244560
+telegram_id: 387244560
+identity_username: zackam
+telegram_user_id: None
+telegram_username: None
+telegram_first_name: None
+request_source: telegram
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: True
+------------------------------------------------------------------------------
+2026-07-14 17:02:53.012 | section              | === Jarvis LangGraph Run ===
+2026-07-14 17:02:53.012 | runtime.start        | Starting graph invocation.
+      request_id: cb_mrkfb5dy_9j8599
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: 81ef4f98-7e70-4ed4-a32d-da91b907cf55
+      request_source: telegram
+      resuming: true
+2026-07-14 17:02:53.013 | runtime.prompt       | [payload] user_prompt: decline
+2026-07-14 17:02:53.134 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-14 17:02:53.192 | graph.confirm        | Interrupting for user confirmation.
+      count: 12
+      tool_names: [create_calendar_event]
+      summary:I'm adding 12 items:
+  1. Add event "Anytime Fitness Vo Thi Sau" (google calendar).
+  2. Add event "Aufra" (google calendar).
+  3. Add event "Happyzoo Store" (google calendar).
+  4. Add event "PRADIES Trần Quang Diệu" (google calendar).
+  5. Add event "Nagashoes — 95 Trần Quang Diệu" (google calendar).
+  6. Add event "PRADIES Lý Tự Trọng" (google calendar).
+  7. Add event "Hũ Bơ HCM (buttercupvn)" (google calendar).
+  8. Add event "LIBÉ Lý Tự Trọng" (google calendar).
+  9. Add event "LIBÉ Nguyễn Trãi" (google calendar).
+  10. Add event "PRADIES Nguyễn Trãi" (google calendar).
+  11. Add event "THE C.I.U Shop" (google calendar).
+  12. Add event "Return to M Village Hotel" (google calendar).
+Please confirm to proceed.
+2026-07-14 17:02:53.192 | graph.confirm        | Resumed from user confirmation.
+      decision: decline
+      count: 12
+2026-07-14 17:02:53.251 | runtime.done         | Graph invocation completed.
+      request_id: cb_mrkfb5dy_9j8599
+      turns: 3
+      tool_results: 2
+      has_error: false
+      interrupted: false
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-07-14T17:02:53+08:00
+duration_seconds: 0.333
+request_id: cb_mrkfb5dy_9j8599
+turns: 3
+tool_results: 2
+has_error: False
+interrupted: False
+prompt_tokens: 0
+completion_tokens: 0
+total_tokens: 0
+cached_tokens: 0
+cache_hit_rate: 0.0
+reasoning_tokens: 0
+==============================================================================

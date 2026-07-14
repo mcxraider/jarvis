@@ -39569,3 +39569,15 @@
 {"i":497,"level":"info","message":"info.fill","timestamp":"2026-07-14 19:27:31"}
 {"i":498,"level":"info","message":"info.fill","timestamp":"2026-07-14 19:27:31"}
 {"i":499,"level":"info","message":"info.fill","timestamp":"2026-07-14 19:27:31"}
+{"level":"info","message":"app.startup.validation_completed","nodeEnv":"development","requiredEnvVars":5,"timestamp":"2026-07-15 01:23:06"}
+{"emergencyDeniedUsers":0,"level":"info","message":"telegram.authorization.configured","store":"postgres","timestamp":"2026-07-15 01:23:06"}
+{"enforceEnglishOnly":true,"language":"en","level":"info","maxFileSizeMB":25,"maxRetryAfterMs":5000,"maxRetryAttempts":2,"message":"WhisperService initialized","model":"whisper-large-v3","promptLength":166,"qualityMonitoringEnabled":true,"qualityThresholds":{"maxCompressionRatio":2.4,"maxNoSpeechProb":0.6,"minAvgLogprob":-0.5,"minCompressionRatio":0.8},"requestTimeoutMs":12000,"responseFormat":"verbose_json","retryMaxDelayMs":2000,"retryTotalTimeoutMs":20000,"sdkMaxRetries":0,"timestamp":"2026-07-15 01:23:06"}
+{"level":"info","message":"telegram.pending_store.configured","store":"postgres","timestamp":"2026-07-15 01:23:06"}
+{"level":"info","message":"telegram.gate_store.configured","store":"postgres","timestamp":"2026-07-15 01:23:06"}
+{"level":"info","message":"telegram.bot.initialized","timestamp":"2026-07-15 01:23:06"}
+{"audioTranscriptionConfigured":true,"langGraphAgentConfigured":true,"level":"info","message":"app.services.initialized","telegramConfigured":true,"telegramPendingStoreConfigured":true,"timestamp":"2026-07-15 01:23:06"}
+{"level":"info","message":"server.started","timestamp":"2026-07-15 01:23:06","url":"http://localhost:3000"}
+{"level":"info","message":"telegram.webhook.awaiting_updates","path":"/webhook/:secret","timestamp":"2026-07-15 01:23:06"}
+{"inheritedRole":"jarvis_runtime","level":"info","message":"database.runtime.ready","requiredTables":6,"role":"jarvis_app","timestamp":"2026-07-15 01:23:07"}
+{"baseUrl":"https://bfde-116-87-102-52.ngrok-free.app","level":"info","message":"telegram.webhook.setup_started","path":"/webhook/[REDACTED]","timestamp":"2026-07-15 01:23:07"}
+{"baseUrl":"https://bfde-116-87-102-52.ngrok-free.app","level":"info","message":"telegram.webhook.configured","path":"/webhook/[REDACTED]","timestamp":"2026-07-15 01:23:08"}

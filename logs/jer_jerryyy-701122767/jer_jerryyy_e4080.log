@@ -1,0 +1,62 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-14T02:01:25+08:00
+request_id: tg_update_564452547
+thread_id: cb8c20ae-d7d4-42f4-8714-5774997e4080
+user_id: telegram:701122767
+telegram_id: 701122767
+identity_username: jer_jerryyy
+telegram_user_id: None
+telegram_username: None
+telegram_first_name: None
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-14 02:01:25.738 | section              | === Jarvis LangGraph Run ===
+2026-07-14 02:01:25.738 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_564452547
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: cb8c20ae-d7d4-42f4-8714-5774997e4080
+      request_source: telegram
+      resuming: false
+2026-07-14 02:01:25.739 | runtime.prompt       | [payload] user_prompt: What are my busiest days this week?
+2026-07-14 02:01:25.853 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+RUN CRASH
+timestamp: 2026-07-14 02:01:25.863
+error_type: OperationalError
+error: consuming input failed: server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Traceback (most recent call last):
+  File "/Users/Spare/Desktop/jarvis-mcp/agents/agent_api/app/graph/builder.py", line 621, in run_jarvis
+    result = app.invoke(
+  File "/Users/Spare/Desktop/jarvis-mcp/venv/lib/python3.10/site-packages/langgraph/pregel/main.py", line 3085, in invoke
+    for chunk in self.stream(
+  File "/Users/Spare/Desktop/jarvis-mcp/venv/lib/python3.10/site-packages/langgraph/pregel/main.py", line 2610, in stream
+    with SyncPregelLoop(
+  File "/Users/Spare/Desktop/jarvis-mcp/venv/lib/python3.10/site-packages/langgraph/pregel/_loop.py", line 1049, in __enter__
+    saved = self.checkpointer.get_tuple(self.checkpoint_config)
+  File "/Users/Spare/Desktop/jarvis-mcp/venv/lib/python3.10/site-packages/langgraph/checkpoint/postgres/__init__.py", line 227, in get_tuple
+    cur.execute(
+  File "/Users/Spare/Desktop/jarvis-mcp/venv/lib/python3.10/site-packages/psycopg/cursor.py", line 97, in execute
+    raise ex.with_traceback(None)
+psycopg.OperationalError: consuming input failed: server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

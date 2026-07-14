@@ -1,0 +1,344 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-14T16:26:32+08:00
+request_id: tg_update_564452574
+thread_id: 7f8a1270-30fa-4815-bd05-f209cdc3eabf
+user_id: telegram:387244560
+telegram_id: 387244560
+identity_username: zackam
+telegram_user_id: None
+telegram_username: None
+telegram_first_name: None
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-14 16:26:33.017 | section              | === Jarvis LangGraph Run ===
+2026-07-14 16:26:33.017 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_564452574
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: 7f8a1270-30fa-4815-bd05-f209cdc3eabf
+      request_source: telegram
+      resuming: false
+2026-07-14 16:26:33.017 | runtime.prompt       | [payload] user_prompt: add in juice3 flight to spain at 1130pm
+2026-07-14 16:26:33.182 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-14 16:26:33.215 | graph.agent          | Entering agent node.
+      turn: 1
+      max_turns: 20
+      messages: 2
+2026-07-14 16:26:33.215 | router.start         | Classifying query domains.
+2026-07-14 16:26:33.215 | router.prompt        | [payload] system_prompt:
+      You are a fast query router for a personal assistant. Classify which service domains the user's request needs. Do not answer the request or call any tools — only classify.
+
+## Domains
+- "todoist" (Todoist): tasks, calendar_events, projects, comments
+- "google_calendar" (Google Calendar): calendar_events, free_busy
+
+## Connection status
+- Todoist: connected
+- Google Calendar: connected
+
+## Routing rules
+1. Route tasks, to-dos, and projects to `todoist`.
+2. Route events, schedules, availability, free-time, and busy-time requests to `google_calendar`.
+3. Greetings, small talk, and meta questions use outcome `conversation` and empty domains.
+4. Requests explicitly targeting an unlisted provider use outcome `unsupported_provider` and empty domains.
+5. If service access is needed but the domain is genuinely unclear, use outcome `ambiguous`, set `uncertain` true, and return the safe candidate domains.
+6. Multi-domain requests: return every domain the request touches.
+7. Prefer connected domains, but if the request clearly needs a disconnected domain, still return it so the assistant can explain.
+
+## Examples
+User: "what tasks do I have today?" -> {"outcome": "routed", "domains": ["todoist"], "uncertain": false, "candidate_domains": [], "reasoning": "task lookup"}
+User: "what's on my schedule this week?" -> {"outcome": "routed", "domains": ["google_calendar"], "uncertain": false, "candidate_domains": [], "reasoning": "schedule query"}
+User: "hello!" -> {"outcome": "conversation", "domains": [], "uncertain": false, "candidate_domains": [], "reasoning": "greeting"}
+User: "check my Slack messages" -> {"outcome": "unsupported_provider", "domains": [], "uncertain": false, "candidate_domains": [], "reasoning": "unsupported Slack request"}
+User: "check my plans somewhere" -> {"outcome": "ambiguous", "domains": [], "uncertain": true, "candidate_domains": ["todoist", "google_calendar"], "reasoning": "service domain unclear"}
+User: "add a meeting to my google calendar" -> {"outcome": "routed", "domains": ["google_calendar"], "uncertain": false, "candidate_domains": [], "reasoning": "explicit google calendar mention"}
+
+## Output format
+Return exactly one JSON object. No prose, no code fences.
+Schema: {
+  "outcome": <one of "routed", "conversation", "unsupported_provider", "ambiguous">,
+  "domains": [<subset of "todoist", "google_calendar"> — most-likely minimal route],
+  "uncertain": <boolean — true only for real domain ambiguity>,
+  "candidate_domains": [<subset of "todoist", "google_calendar"> — expanded safe set when uncertain, else []],
+  "reasoning": <short string, 10 words or fewer>
+}
+2026-07-14 16:26:33.216 | router.prompt        | [payload] user_prompt: User request:
+add in juice3 flight to spain at 1130pm
+2026-07-14 16:26:33.216 | router.request       | Calling router classifier.
+      model: deepseek-v4-flash
+      reasoning: off
+      messages: 2
+      request_timeout_seconds: 5.0
+      sdk_max_retries: 0
+      max_retry_attempts: 2
+      retry_max_delay_seconds: 2.0
+      base_url: https://api.deepseek.com
+      response_format: json_object
+      thinking_enabled: false
+2026-07-14 16:26:33.216 | router.attempt.start | Starting router classification attempt.
+      attempt: 1
+      request_timeout_seconds: 5.0
+2026-07-14 16:26:34.599 | router.attempt.done  | Router classification attempt completed.
+      attempt: 1
+      elapsed_ms: 1383.4
+2026-07-14 16:26:34.600 | router.response      | Received router decision.
+      domains: 1
+      outcome: routed
+      prompt_tokens: 733
+      completion_tokens: 42
+      total_elapsed_ms: 1384.2
+2026-07-14 16:26:34.601 | router.response      | Router decision received.
+      raw_domains: [RouterDomain.GOOGLE_CALENDAR]
+      candidate_domains: []
+      uncertain: false
+      effective_domains: [google_calendar]
+      outcome: routed
+2026-07-14 16:26:34.601 | router.tools.selected | Selected tools for routed domains.
+      relevant: [google_calendar]
+      available: 22
+      selected: 8
+2026-07-14 16:26:34.601 | graph.tools.selected | Selected tools for this turn.
+      available: 22
+      selected: 8
+      tool_names: [ask_user, list_calendars, list_calendar_events, get_calendar_event, create_calendar_event, update_calendar_event, delete_calendar_event, get_freebusy]
+2026-07-14 16:26:34.601 | router.prompt.slimmed | Rebuilt system prompt for routed domains.
+      relevant: [google_calendar]
+2026-07-14 16:26:34.601 | model_router.selected | Model router selected model for this turn.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+2026-07-14 16:26:34.603 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 2
+      tools: 8
+      request_timeout_seconds: 30.0
+      sdk_max_retries: 0
+      max_retry_attempts: 3
+      retry_max_delay_seconds: 8.0
+      max_tokens: 13000
+      thinking_enabled: true
+      base_url: https://api.deepseek.com
+2026-07-14 16:26:47.437 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 3933
+      completion_tokens: 1259
+      total_tokens: 5192
+      cached_tokens: 3840
+      cache_hit_rate: 97.6
+2026-07-14 16:26:47.437 | graph.route          | Agent node completed.
+      turn: 1
+2026-07-14 16:26:47.444 | graph.hitl           | Interrupting for user clarification.
+      question: What date is this flight on? Also, should the event cover the full flight duration (e.g., until arrival) or just mark the departure time?
+      deferred_tools: 0
+      extra_questions: 0
+2026-07-14 16:26:47.519 | runtime.done         | Graph invocation completed.
+      request_id: tg_update_564452574
+      turns: 1
+      tool_results: 0
+      has_error: false
+      interrupted: true
+      interrupt_type: clarify
+      total_tokens: 5192
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-07-14T16:26:47+08:00
+duration_seconds: 14.585
+request_id: tg_update_564452574
+turns: 1
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 3933
+completion_tokens: 1259
+total_tokens: 5192
+cached_tokens: 3840
+cache_hit_rate: 97.6
+reasoning_tokens: 1067
+==============================================================================
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-14T16:26:58+08:00
+request_id: tg_update_564452575
+thread_id: 7f8a1270-30fa-4815-bd05-f209cdc3eabf
+user_id: telegram:387244560
+telegram_id: 387244560
+identity_username: zackam
+telegram_user_id: None
+telegram_username: None
+telegram_first_name: None
+request_source: telegram
+invocation_type: resume
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: True
+------------------------------------------------------------------------------
+2026-07-14 16:26:58.774 | section              | === Jarvis LangGraph Run ===
+2026-07-14 16:26:58.775 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_564452575
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: 7f8a1270-30fa-4815-bd05-f209cdc3eabf
+      request_source: telegram
+      resuming: true
+2026-07-14 16:26:58.775 | runtime.prompt       | [payload] user_prompt: wait its on 2 aug
+2026-07-14 16:26:58.883 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+2026-07-14 16:26:58.920 | graph.hitl           | Interrupting for user clarification.
+      question: What date is this flight on? Also, should the event cover the full flight duration (e.g., until arrival) or just mark the departure time?
+      deferred_tools: 0
+      extra_questions: 0
+2026-07-14 16:26:58.920 | graph.hitl           | Resumed from user clarification.
+2026-07-14 16:26:58.921 | graph.agent          | Entering agent node.
+      turn: 2
+      max_turns: 20
+      messages: 5
+2026-07-14 16:26:58.921 | router.start         | Classifying query domains.
+2026-07-14 16:26:58.922 | router.prompt        | [payload] system_prompt:
+      You are a fast query router for a personal assistant. Classify which service domains the user's request needs. Do not answer the request or call any tools — only classify.
+
+## Domains
+- "todoist" (Todoist): tasks, calendar_events, projects, comments
+- "google_calendar" (Google Calendar): calendar_events, free_busy
+
+## Connection status
+- Todoist: connected
+- Google Calendar: connected
+
+## Routing rules
+1. Route tasks, to-dos, and projects to `todoist`.
+2. Route events, schedules, availability, free-time, and busy-time requests to `google_calendar`.
+3. Greetings, small talk, and meta questions use outcome `conversation` and empty domains.
+4. Requests explicitly targeting an unlisted provider use outcome `unsupported_provider` and empty domains.
+5. If service access is needed but the domain is genuinely unclear, use outcome `ambiguous`, set `uncertain` true, and return the safe candidate domains.
+6. Multi-domain requests: return every domain the request touches.
+7. Prefer connected domains, but if the request clearly needs a disconnected domain, still return it so the assistant can explain.
+
+## Examples
+User: "what tasks do I have today?" -> {"outcome": "routed", "domains": ["todoist"], "uncertain": false, "candidate_domains": [], "reasoning": "task lookup"}
+User: "what's on my schedule this week?" -> {"outcome": "routed", "domains": ["google_calendar"], "uncertain": false, "candidate_domains": [], "reasoning": "schedule query"}
+User: "hello!" -> {"outcome": "conversation", "domains": [], "uncertain": false, "candidate_domains": [], "reasoning": "greeting"}
+User: "check my Slack messages" -> {"outcome": "unsupported_provider", "domains": [], "uncertain": false, "candidate_domains": [], "reasoning": "unsupported Slack request"}
+User: "check my plans somewhere" -> {"outcome": "ambiguous", "domains": [], "uncertain": true, "candidate_domains": ["todoist", "google_calendar"], "reasoning": "service domain unclear"}
+User: "add a meeting to my google calendar" -> {"outcome": "routed", "domains": ["google_calendar"], "uncertain": false, "candidate_domains": [], "reasoning": "explicit google calendar mention"}
+
+## Output format
+Return exactly one JSON object. No prose, no code fences.
+Schema: {
+  "outcome": <one of "routed", "conversation", "unsupported_provider", "ambiguous">,
+  "domains": [<subset of "todoist", "google_calendar"> — most-likely minimal route],
+  "uncertain": <boolean — true only for real domain ambiguity>,
+  "candidate_domains": [<subset of "todoist", "google_calendar"> — expanded safe set when uncertain, else []],
+  "reasoning": <short string, 10 words or fewer>
+}
+2026-07-14 16:26:58.922 | router.prompt        | [payload] user_prompt:
+      User request:
+add in juice3 flight to spain at 1130pm [assistant asked: What date is this flight on? Also, should the event cover the full flight duration (e.g., until arrival) or just mark the departure time?] [user replied: wait its on 2 aug]
+2026-07-14 16:26:58.922 | router.request       | Calling router classifier.
+      model: deepseek-v4-flash
+      reasoning: off
+      messages: 2
+      request_timeout_seconds: 5.0
+      sdk_max_retries: 0
+      max_retry_attempts: 2
+      retry_max_delay_seconds: 2.0
+      base_url: https://api.deepseek.com
+      response_format: json_object
+      thinking_enabled: false
+2026-07-14 16:26:58.922 | router.attempt.start | Starting router classification attempt.
+      attempt: 1
+      request_timeout_seconds: 5.0
+2026-07-14 16:26:59.719 | router.attempt.done  | Router classification attempt completed.
+      attempt: 1
+      elapsed_ms: 797.0
+2026-07-14 16:26:59.719 | router.response      | Received router decision.
+      domains: 1
+      outcome: routed
+      prompt_tokens: 781
+      completion_tokens: 48
+      total_elapsed_ms: 797.5
+2026-07-14 16:26:59.720 | router.response      | Router decision received.
+      raw_domains: [RouterDomain.GOOGLE_CALENDAR]
+      candidate_domains: []
+      uncertain: false
+      effective_domains: [google_calendar]
+      outcome: routed
+2026-07-14 16:26:59.720 | router.tools.selected | Selected tools for routed domains.
+      relevant: [google_calendar]
+      available: 22
+      selected: 8
+2026-07-14 16:26:59.720 | graph.tools.selected | Selected tools for this turn.
+      available: 22
+      selected: 8
+      tool_names: [ask_user, list_calendars, list_calendar_events, get_calendar_event, create_calendar_event, update_calendar_event, delete_calendar_event, get_freebusy]
+2026-07-14 16:26:59.720 | router.prompt.slimmed | Rebuilt system prompt for routed domains.
+      relevant: [google_calendar]
+2026-07-14 16:26:59.720 | model_router.selected | Model router selected model for this turn.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+2026-07-14 16:26:59.723 | agent.request        | Calling DeepSeek chat completions.
+      model: deepseek-v4-flash
+      reasoning_effort: max
+      messages: 5
+      tools: 8
+      request_timeout_seconds: 30.0
+      sdk_max_retries: 0
+      max_retry_attempts: 3
+      retry_max_delay_seconds: 8.0
+      max_tokens: 13000
+      thinking_enabled: true
+      base_url: https://api.deepseek.com
+2026-07-14 16:27:04.712 | agent.response       | Received assistant message.
+      has_tool_calls: true
+      tool_calls: 1
+      has_content: true
+      has_reasoning: true
+      prompt_tokens: 5293
+      completion_tokens: 477
+      total_tokens: 5770
+      cached_tokens: 5120
+      cache_hit_rate: 96.7
+2026-07-14 16:27:04.713 | graph.route          | Agent node completed.
+      turn: 2
+2026-07-14 16:27:04.718 | graph.hitl           | Interrupting for user clarification.
+      question: Should the event be just a 1-hour marker at 11:30 PM departure, or should it span the full flight duration (e.g., 11:30 PM to roughly 12:30 PM the next day)?
+      deferred_tools: 0
+      extra_questions: 0
+2026-07-14 16:27:04.789 | runtime.done         | Graph invocation completed.
+      request_id: tg_update_564452575
+      turns: 2
+      tool_results: 0
+      has_error: false
+      interrupted: true
+      interrupt_type: clarify
+      total_tokens: 5770
+------------------------------------------------------------------------------
+Run finished
+finished_at: 2026-07-14T16:27:04+08:00
+duration_seconds: 6.315
+request_id: tg_update_564452575
+turns: 2
+tool_results: 0
+has_error: False
+interrupted: True
+prompt_tokens: 5293
+completion_tokens: 477
+total_tokens: 5770
+cached_tokens: 5120
+cache_hit_rate: 96.7
+reasoning_tokens: 316
+==============================================================================
