@@ -700,8 +700,9 @@ def run_jarvis(
         })
     else:
         tracer.progress({"phase": "finalizing", "action": "completed"})
-        if run_log is not None:
-            result["run_log_path"] = str(run_log.path.resolve())
+
+    if run_log is not None:
+        result["run_log_path"] = str(run_log.path.resolve())
 
     duration_ms = int((finished_at - started_at).total_seconds() * 1000)
     _log_usage(identity, thread_id, usage, duration_ms, DEEPSEEK_MODEL)
