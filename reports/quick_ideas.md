@@ -4,6 +4,7 @@ current fixes
 - Also, if no date specified like "Check govtech events and do..." it should default to only searching for the forward 1 month (30 day) period not everything. is there a way to limit the number of things that can be fetched by the tool? 
 - Audio messages are sent directly to the transcription service (Groq Whisper) without first-layer validation. Long recordings or oversized files could hit API limits, waste quota, or fail silently.
 - Context window management. Strategy for if context window exceeds a certain point due to large tool calls, need a running number of tokens tracker. 
+- 
 
 
 ### Db
