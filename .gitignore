@@ -1,6 +1,7 @@
 
 .github/copilot-instructions.md
 .claude/
+
 # dependencies
 /node_modules
 /.pnp
@@ -41,6 +42,8 @@ google_client_secret*.json
 # misc
 .DS_Store
 *.pem
+*\ 2.*
+*\ 2/
 
 # debug
 npm-debug.log*
