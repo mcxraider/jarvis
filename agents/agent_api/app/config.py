@@ -114,8 +114,8 @@ class Settings:
     idempotency_wait_seconds: float
     idempotency_poll_interval_seconds: float
     idempotency_cleanup_interval_seconds: int
-    # Model router: dynamically selects model + reasoning effort per turn based
-    # on the query router's decision (domain count, uncertainty).
+    # Model router: dynamically selects model + reasoning effort per turn using
+    # fused query complexity, domain count, and uncertainty signals.
     model_router_enabled: bool
     model_router_default_model: str
     model_router_default_reasoning: str
@@ -239,7 +239,7 @@ def load_settings() -> Settings:
             "MODEL_ROUTER_DEFAULT_MODEL",
             os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
         ),
-        model_router_default_reasoning=os.getenv("MODEL_ROUTER_DEFAULT_REASONING", "max"),
+        model_router_default_reasoning=os.getenv("MODEL_ROUTER_DEFAULT_REASONING", "high"),
         model_router_complex_model=os.getenv("MODEL_ROUTER_COMPLEX_MODEL", "deepseek-v4-pro"),
         model_router_complex_reasoning=os.getenv("MODEL_ROUTER_COMPLEX_REASONING", "max"),
         model_router_multi_domain_reasoning=os.getenv("MODEL_ROUTER_MULTI_DOMAIN_REASONING", "high"),

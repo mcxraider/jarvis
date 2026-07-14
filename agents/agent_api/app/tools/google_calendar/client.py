@@ -11,6 +11,7 @@ Tracing logs operation + status + attempt only — never request/response bodies
 these objects anyway).
 """
 
+import copy
 import logging
 import random
 import threading
@@ -137,7 +138,7 @@ class GoogleCalendarClient:
         credential_json: Optional[str] = None,
         persist_callback: Optional[Callable[..., None]] = None,
     ):
-        self.tracer = tracer or NULL_TRACE
+        self._tracer = tracer or NULL_TRACE
         # Injected in tests; lazily built from local credentials in production.
         self._service = service
         self._token_path = token_path
@@ -151,6 +152,15 @@ class GoogleCalendarClient:
         # touches the shared socket. A single-user assistant makes rare calendar
         # calls, so serializing them costs nothing meaningful.
         self._lock = threading.Lock()
+
+    @property
+    def tracer(self) -> TracePrinter:
+        return self._tracer
+
+    def with_tracer(self, tracer: TracePrinter) -> "GoogleCalendarClient":
+        clone = copy.copy(self)
+        clone._tracer = tracer
+        return clone
 
     @property
     def service(self) -> Any:

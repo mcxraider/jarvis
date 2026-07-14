@@ -399,3 +399,92 @@ class TestThrottleIntegration:
         if len(call_times) == 2:
             delay = call_times[1] - call_times[0]
             assert delay >= 0.15
+
+
+class TestCooperativeCancellation:
+    @patch("agents.agent_api.app.graph.nodes.executor.EXECUTOR_BATCH_TIMEOUT_SECONDS", 0.3)
+    def test_cancelled_event_prevents_execution_after_timeout(self):
+        """After timeout fires, pending calls see the cancelled event and skip execution."""
+        held_calls = []
+        for i in range(3):
+            tc = {"id": f"call_{i}", "function": {"name": "add_todoist_task", "arguments": json.dumps({"content": f"task {i}"})}}
+            held_calls.append(build_held_call(tc, "thread_1", 1))
+
+        executed_ids = []
+
+        def execute_side_effect(call_id, name, args, **_kwargs):
+            executed_ids.append(call_id)
+            time.sleep(0.5)
+            return {
+                "tool_call_id": call_id,
+                "tool_name": name,
+                "success": True,
+                "content": {"created": True},
+                "error": None,
+            }
+
+        dispatcher = MagicMock()
+        dispatcher.allow_mutations = True
+        dispatcher.execute_tool.side_effect = execute_side_effect
+
+        with patch("agents.agent_api.app.graph.nodes.executor.EXECUTOR_MAX_WORKERS", 1):
+            node = create_executor_node(dispatcher)
+            state = {
+                "held_calls": held_calls,
+                "confirm_decision": "approve",
+                "consumed_call_ids": [],
+                "messages": [],
+                "tool_results": [],
+            }
+            result = node(state)
+
+        # With max_workers=1, only the first call starts before timeout.
+        # Remaining calls should see cancelled and not call execute_tool.
+        assert len(executed_ids) <= 2
+        # All 3 messages should exist (some as timeout envelopes)
+        assert len(result["messages"]) == 3
+        timeout_msgs = [
+            m for m in result["messages"]
+            if "timed out" in json.loads(m["content"]).get("error", "")
+        ]
+        assert len(timeout_msgs) >= 1
+
+    @patch("agents.agent_api.app.graph.nodes.executor.EXECUTOR_BATCH_TIMEOUT_SECONDS", 0.2)
+    def test_cancellation_checked_before_execute(self):
+        """If cancelled is set before _execute_one starts, it returns immediately."""
+        held_calls = []
+        for i in range(4):
+            tc = {"id": f"call_{i}", "function": {"name": "add_todoist_task", "arguments": json.dumps({"content": f"task {i}"})}}
+            held_calls.append(build_held_call(tc, "thread_1", 1))
+
+        def execute_side_effect(call_id, name, args, **_kwargs):
+            time.sleep(2)
+            return {
+                "tool_call_id": call_id,
+                "tool_name": name,
+                "success": True,
+                "content": {"created": True},
+                "error": None,
+            }
+
+        dispatcher = MagicMock()
+        dispatcher.allow_mutations = True
+        dispatcher.execute_tool.side_effect = execute_side_effect
+
+        with patch("agents.agent_api.app.graph.nodes.executor.EXECUTOR_MAX_WORKERS", 1):
+            node = create_executor_node(dispatcher)
+            state = {
+                "held_calls": held_calls,
+                "confirm_decision": "approve",
+                "consumed_call_ids": [],
+                "messages": [],
+                "tool_results": [],
+            }
+            start = time.monotonic()
+            result = node(state)
+            elapsed = time.monotonic() - start
+
+        # Should not wait for all 4 calls (4 * 2s = 8s). The cancelled event
+        # stops subsequent calls from even starting execute_tool.
+        assert elapsed < 3.0
+        assert dispatcher.execute_tool.call_count <= 2

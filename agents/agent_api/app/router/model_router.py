@@ -1,8 +1,9 @@
-"""Model router: selects model + reasoning effort based on the query router decision.
+"""Model router: selects model + reasoning effort from fused routing signals.
 
 Pure in-memory rule evaluation — zero network calls, microsecond latency. The router
-evaluates a priority-ordered rule list against the RouterDecision and returns the first
-match. When disabled or when no RouterDecision is available, returns the default.
+evaluates a priority-ordered rule list against query complexity, domain uncertainty,
+and domain count, then returns the first match. When disabled or when no
+RouterDecision is available, returns the default.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
-from agents.agent_api.app.router.prompt import RouterDecision
+from agents.agent_api.app.router.prompt import QueryComplexity, RouterDecision
 
 
 @dataclass(frozen=True)
@@ -70,31 +71,35 @@ def create_default_model_router(
     *,
     enabled: bool = True,
     default_model: str = "deepseek-v4-flash",
-    default_reasoning: str = "max",
+    default_reasoning: str = "high",
     complex_model: str = "deepseek-v4-pro",
     complex_reasoning: str = "max",
     multi_domain_reasoning: str = "high",
 ) -> ModelRouter:
     """Build the standard model router from configuration values.
 
-    Rule priority (first match wins):
-    1. uncertain → complex_model / complex_reasoning
-    2. multi-domain (>1) → complex_model / multi_domain_reasoning
-    3. default → default_model / default_reasoning
+    Strongest-signal-wins priority (first match wins):
+    1. uncertain or high complexity → complex_model / complex_reasoning
+    2. multi-domain (>1) or medium complexity → complex_model / multi_domain_reasoning
+    3. low complexity, certain, single/empty domain → default selection
     """
     default = ModelSelection(model=default_model, reasoning_effort=default_reasoning)
 
     rules: List[ModelRoutingRule] = [
         ModelRoutingRule(
-            name="uncertain",
-            condition=lambda d: d.uncertain,
+            name="high_complexity_or_uncertain",
+            condition=lambda d: (
+                d.uncertain or d.complexity == QueryComplexity.HIGH
+            ),
             selection=ModelSelection(
                 model=complex_model, reasoning_effort=complex_reasoning
             ),
         ),
         ModelRoutingRule(
-            name="multi_domain",
-            condition=lambda d: len(d.domains) > 1,
+            name="medium_complexity_or_multi_domain",
+            condition=lambda d: (
+                len(d.domains) > 1 or d.complexity == QueryComplexity.MEDIUM
+            ),
             selection=ModelSelection(
                 model=complex_model, reasoning_effort=multi_domain_reasoning
             ),

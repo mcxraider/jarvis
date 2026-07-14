@@ -11,6 +11,7 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 from pydantic import ValidationError
 
 from agents.agent_api.app.router.prompt import (
+    QueryComplexity,
     RouterDecision,
     build_router_messages,
     build_router_system_prompt,
@@ -30,27 +31,69 @@ class TestRouterDecisionSchema:
             "domains": ["todoist", "google_calendar"],
             "uncertain": True,
             "candidate_domains": ["todoist", "google_calendar"],
+            "complexity": "low",
             "reasoning": "task + explicit time",
         }
         decision = RouterDecision.model_validate(data)
         assert decision.domains == ["todoist", "google_calendar"]
         assert decision.uncertain is True
         assert decision.candidate_domains == ["todoist", "google_calendar"]
+        assert decision.complexity is QueryComplexity.LOW
         assert decision.model_dump() == data
+
+    @pytest.mark.parametrize("complexity", ["low", "medium", "high"])
+    def test_accepts_every_query_complexity_label(self, complexity):
+        decision = RouterDecision.model_validate(
+            {
+                "outcome": "conversation",
+                "domains": [],
+                "uncertain": False,
+                "candidate_domains": [],
+                "complexity": complexity,
+                "reasoning": "test",
+            }
+        )
+        assert decision.complexity.value == complexity
+
+    @pytest.mark.parametrize("complexity", ["LOW", "extreme", 1, None])
+    def test_rejects_invalid_query_complexity(self, complexity):
+        with pytest.raises(ValidationError):
+            RouterDecision.model_validate(
+                {
+                    "outcome": "conversation",
+                    "domains": [],
+                    "uncertain": False,
+                    "candidate_domains": [],
+                    "complexity": complexity,
+                    "reasoning": "test",
+                }
+            )
+
+    def test_complexity_is_required(self):
+        with pytest.raises(ValidationError):
+            RouterDecision.model_validate(
+                {
+                    "outcome": "conversation",
+                    "domains": [],
+                    "uncertain": False,
+                    "candidate_domains": [],
+                    "reasoning": "test",
+                }
+            )
 
     def test_rejects_unknown_fields(self):
         """extra='forbid' guards against the model inventing fields."""
         with pytest.raises(ValidationError):
             RouterDecision.model_validate({
                 "outcome": "conversation", "domains": [], "uncertain": False,
-                "candidate_domains": [], "reasoning": "greeting", "confidence": 0.9,
+                "candidate_domains": [], "complexity": "low", "reasoning": "greeting", "confidence": 0.9,
             })
 
     def test_rejects_wrong_domain_type(self):
         with pytest.raises(ValidationError):
             RouterDecision.model_validate({
                 "outcome": "routed", "domains": "todoist", "uncertain": False,
-                "candidate_domains": [], "reasoning": "task",
+                "candidate_domains": [], "complexity": "low", "reasoning": "task",
             })
 
     def test_effective_domains_use_candidates_only_when_uncertain(self):
@@ -59,6 +102,7 @@ class TestRouterDecisionSchema:
             domains=["todoist"],
             uncertain=False,
             candidate_domains=[],
+            complexity="low",
             reasoning="task",
         )
         uncertain = RouterDecision(
@@ -66,6 +110,7 @@ class TestRouterDecisionSchema:
             domains=["todoist"],
             uncertain=True,
             candidate_domains=["todoist", "google_calendar"],
+            complexity="low",
             reasoning="ambiguous",
         )
         assert effective_router_domains(certain) == ["todoist"]
@@ -73,7 +118,7 @@ class TestRouterDecisionSchema:
         with pytest.raises(ValidationError):
             RouterDecision(
                 outcome="routed", domains=["todoist"], uncertain=True,
-                candidate_domains=["todoist", "todoist"], reasoning="duplicate",
+                candidate_domains=["todoist", "todoist"], complexity="low", reasoning="duplicate",
             )
 
 
@@ -147,6 +192,26 @@ class TestRouterSystemPrompt:
         assert '"candidate_domains"' in prompt
         assert "most-likely minimal route" in prompt
         assert "expanded safe set when uncertain" in prompt
+
+    def test_prompt_defines_query_complexity_independently_of_routing(self):
+        prompt = build_router_system_prompt(make_snapshot())
+        assert "## Query complexity" in prompt
+        assert '"complexity"' in prompt
+        assert "`low`" in prompt
+        assert "`medium`" in prompt
+        assert "`high`" in prompt
+        assert "current user query" in prompt
+        assert "independently of the selected domains" in prompt
+        assert "Domain breadth is handled separately" in prompt
+
+    def test_every_few_shot_example_contains_complexity(self):
+        prompt = build_router_system_prompt(make_snapshot())
+        examples = prompt.split("## Examples\n", 1)[1].split("\n\n## Output format", 1)[0]
+        example_lines = [line for line in examples.splitlines() if line.startswith("User:")]
+        assert example_lines
+        assert all('"complexity":' in line for line in example_lines)
+        for complexity in ("low", "medium", "high"):
+            assert f'"complexity": "{complexity}"' in examples
 
     def test_prompt_has_no_query_rewrite_contract(self):
         prompt = build_router_system_prompt(make_snapshot())

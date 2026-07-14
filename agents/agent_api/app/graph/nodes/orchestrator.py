@@ -200,7 +200,7 @@ class DeepSeekAgentClient:
         self.model = model
         self.base_url = base_url
         self.reasoning_effort = reasoning_effort
-        self.tracer = tracer or NULL_TRACE
+        self._tracer = tracer or NULL_TRACE
         self.request_timeout_seconds = request_timeout_seconds
         # Token usage accumulated across every turn/retry of one Jarvis run, read
         # by run_jarvis for the per-run log footer. LangSmith gets per-call usage
@@ -219,6 +219,15 @@ class DeepSeekAgentClient:
                 max_retries=DEEPSEEK_SDK_MAX_RETRIES,
             )
         )
+
+    @property
+    def tracer(self) -> "TracePrinter":
+        return self._tracer
+
+    def with_tracer(self, tracer: "TracePrinter") -> "DeepSeekAgentClient":
+        clone = copy.copy(self)
+        clone._tracer = tracer
+        return clone
 
     @traceable(
         name="deepseek_create_message",
@@ -578,6 +587,7 @@ def create_agent_node(
             return {
                 "error": error,
                 "final_response": user_message,
+                "next": "end",
             }
 
         messages = copy.deepcopy(state.get("messages", []))
@@ -674,6 +684,7 @@ def create_agent_node(
             return {
                 "error": json.dumps(error.payload, sort_keys=True),
                 "final_response": LLM_FAILURE_MESSAGE,
+                "next": "end",
             }
         messages.append(assistant_message)
 

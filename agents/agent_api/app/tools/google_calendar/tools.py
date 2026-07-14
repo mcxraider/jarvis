@@ -33,15 +33,20 @@ CALENDAR_GROUNDING_NOTE = (
 CALENDAR_PROMPT_FRAGMENT = """\
 ## Google Calendar tool tips
 - All datetimes use RFC 3339 with timezone offset (e.g. 2026-07-02T14:00:00+08:00). Resolve relative dates to concrete ISO first, using the user's timezone from Runtime context.
-- Timed events need BOTH start_datetime and end_datetime. If the user gives only a start, infer a duration (default 1h; "coffee" ~30min, "dinner" ~2h).
+- Timed events need BOTH start_datetime and end_datetime. If the user gives only a start, infer a duration (default 1h; "coffee" ~30min, "dinner" ~2h). If similar past events exist, prefer their duration over the generic default.
 - All-day events use start_date/end_date; end is exclusive (a 1-day event on Jul 2 → start_date=2026-07-02, end_date=2026-07-03).
 - calendar_id defaults to "primary" — pass it only when the user names another calendar.
 - Before creating a timed event, call get_freebusy for that slot and warn of conflicts. Do not silently double-book.
+- Keep reads bounded: always pass explicit time_min/time_max, use a small default window (e.g. next 30 days) when the user doesn't state one, and page within that window before widening it.
+- For recurring events, don't infer scope from a single occurrence — read the master series/recurrence_id first, then set update_scope to this_instance, entire_series, or this_and_following as appropriate. Recurrence uses RRULE strings (e.g. ["RRULE:FREQ=WEEKLY;BYDAY=TU,TH;COUNT=10"]).
+- On updates, preserve title, attendees, location, meeting link, and notes unless the user asked to change them — don't drop fields silently.
+- Treat deletes and any broad availability/reminder changes as high-impact: restate the exact event(s) and diff before writing, don't just execute.
+- Reminders: use the structured reminders object (use_default + overrides with method/minutes), not free-form text.
+- Temporary holds: default to transparent (non-blocking) unless the user wants a blocking focus block.
+- There's no reliable global room search — build a candidate room list from past meetings/locations/resource attendees, then check availability on that set.
+- Attendees are email addresses. If the user gives a name without an email, check a bounded recent-events search for that contact before asking.
 - Calendar creates and updates count toward the shared 5+ mutations-per-turn bulk gate.
-- Recurring events use RRULE strings in the recurrence array (e.g. ["RRULE:FREQ=WEEKLY;BYDAY=TU,TH;COUNT=10"]).
-- Attendees are email addresses. If the user gives a name without an email, ask for it.
 - When listing events, keep single_events=true so recurrences expand into instances."""
-
 
 def get_calendar_tool_specs(calendar_client: Any) -> List[ToolSpec]:
     """Build one :class:`ToolSpec` per Calendar tool (schema + handler + mutating)."""

@@ -262,6 +262,7 @@ class RouterToolSelector:
                 domains=primary_domains,
                 uncertain=decision.uncertain,
                 candidate_domains=domains,
+                complexity=decision.complexity,
                 reasoning=decision.reasoning,
             )
         return RouterDecision(
@@ -269,6 +270,7 @@ class RouterToolSelector:
             domains=domains,
             uncertain=False,
             candidate_domains=[],
+            complexity=decision.complexity,
             reasoning=decision.reasoning,
         )
 

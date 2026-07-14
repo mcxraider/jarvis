@@ -7,6 +7,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import copy
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -128,7 +129,16 @@ class TodoistApiClient:
         tracer: Optional[TracePrinter] = None,
     ):
         self.api_key = api_key
-        self.tracer = tracer or NULL_TRACE
+        self._tracer = tracer or NULL_TRACE
+
+    @property
+    def tracer(self) -> TracePrinter:
+        return self._tracer
+
+    def with_tracer(self, tracer: TracePrinter) -> "TodoistApiClient":
+        clone = copy.copy(self)
+        clone._tracer = tracer
+        return clone
 
     @traceable(
         name="todoist_api_request",
