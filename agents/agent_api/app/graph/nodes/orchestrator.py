@@ -211,6 +211,7 @@ class DeepSeekAgentClient:
         self.retry_sleep = retry_sleep
         if not self.api_key:
             raise RuntimeError("DEEPSEEK_API_KEY is required to run Jarvis.")
+        # SDK retries disabled (default 0); tenacity wraps calls with backoff + per-attempt tracing.
         self.client = wrap_openai(
             OpenAI(
                 api_key=self.api_key,
