@@ -68,7 +68,7 @@ def create_prepare_confirm_node(tracer: Optional[TracePrinter] = None):
         latest_message = messages[-1] if messages else {}
         tool_calls = latest_message.get("tool_calls") or []
 
-        risky, safe = partition_tool_calls(tool_calls, state)
+        risky, safe = partition_tool_calls(tool_calls)
 
         if not risky:
             error = "prepare_confirm reached without any risky tool calls."

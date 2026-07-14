@@ -170,7 +170,7 @@ def create_validate_entities_node(tracer: Optional[TracePrinter] = None):
         violations = index.violations(tool_calls)
 
         if not violations:
-            risky, _safe = partition_tool_calls(tool_calls, state)
+            risky, _safe = partition_tool_calls(tool_calls)
             next_node = "prepare_confirm" if risky else "tools"
             tracer.event(
                 "graph.validate",

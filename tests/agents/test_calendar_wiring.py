@@ -71,25 +71,25 @@ def test_calendar_can_register_without_todoist():
 
 def test_calendar_delete_routes_to_confirm_gate():
     # Safety-critical: a single delete must be "risky" (confirm gate), not "low".
-    assert risk.classify_risk(_tool_call("delete_calendar_event"), {"tool_results": []}) == "risky"
+    assert risk.classify_risk(_tool_call("delete_calendar_event")) == "risky"
     assert "delete_calendar_event" in risk.RISKY_TOOLS
     assert get_meta("delete_calendar_event").irreversible is True
 
 
 def test_calendar_single_mutation_is_low():
     for name in ("create_calendar_event", "update_calendar_event"):
-        assert risk.classify_risk(_tool_call(name), {"tool_results": []}) == "low"
+        assert risk.classify_risk(_tool_call(name)) == "low"
 
 
 def test_calendar_reads_are_not_gated():
     for name in ("list_calendar_events", "get_calendar_event", "get_freebusy", "list_calendars"):
-        assert risk.classify_risk(_tool_call(name), {"tool_results": []}) == "read"
+        assert risk.classify_risk(_tool_call(name)) == "read"
 
 
 def test_calendar_bulk_crosses_threshold():
     # A batch of >= BULK_THRESHOLD calendar mutations trips the bulk gate.
     calls = [_tool_call("create_calendar_event") for _ in range(risk.BULK_THRESHOLD)]
-    risky, safe = risk.partition_tool_calls(calls, {"tool_results": []})
+    risky, safe = risk.partition_tool_calls(calls)
     assert len(risky) == risk.BULK_THRESHOLD
     assert safe == []
 

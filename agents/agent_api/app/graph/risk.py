@@ -20,7 +20,7 @@ MUTATING_TOOLS = frozenset(MUTATING_TOOL_NAMES | MUTATING_CALENDAR_TOOLS)
 BULK_THRESHOLD = CONFIRM_BULK_THRESHOLD
 
 
-def classify_risk(tool_call: Dict[str, Any], state: Dict[str, Any]) -> str:
+def classify_risk(tool_call: Dict[str, Any]) -> str:
     """Classify a single tool call as "risky", "low", or "read".
 
     - "risky": always-risky (e.g. delete) → confirm gate
@@ -42,7 +42,6 @@ def classify_risk(tool_call: Dict[str, Any], state: Dict[str, Any]) -> str:
 
 def partition_tool_calls(
     tool_calls: List[Dict[str, Any]],
-    state: Dict[str, Any],
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Split tool calls into (risky, safe) based on risk classification.
 
