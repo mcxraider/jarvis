@@ -25,7 +25,7 @@ describe('TelegramProgressReporter', () => {
     const ctx = context('group');
     const reporter = new TelegramProgressReporter(ctx);
     await reporter.start();
-    expect(ctx.reply).toHaveBeenCalledWith('Reading your request…', { parse_mode: 'MarkdownV2' });
+    expect(ctx.reply).toHaveBeenCalledWith('Thinking…', { parse_mode: 'MarkdownV2' });
 
     await reporter.record({
       stage: 'progress', message: 'ignored', fact: {
@@ -35,7 +35,7 @@ describe('TelegramProgressReporter', () => {
     expect(ctx.telegram.editMessageText).not.toHaveBeenCalled();
     await jest.advanceTimersByTimeAsync(4_000);
     expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
-      123, 77, undefined, 'Checking your Calendar…', { parse_mode: 'MarkdownV2' },
+      123, 77, undefined, 'Pulling up Calendar…', { parse_mode: 'MarkdownV2' },
     );
     await reporter.complete('Done');
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(123, 77);
@@ -46,11 +46,10 @@ describe('TelegramProgressReporter', () => {
     const privateCtx = context('private');
     const reporter = new TelegramProgressReporter(privateCtx);
     await reporter.start();
-    await jest.advanceTimersByTimeAsync(20_000);
+    // Initial paint sends one rich draft
     const calls = privateCtx.telegram.callApi.mock.calls;
-    expect(calls).toHaveLength(2);
-    expect(calls.every((call: any[]) => call[0] === 'sendRichMessageDraft')).toBe(true);
-    expect(new Set(calls.map((call: any[]) => call[1].draft_id)).size).toBe(1);
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe('sendRichMessageDraft');
     await reporter.complete('Done');
 
     const groupCtx = context('group');
@@ -64,9 +63,10 @@ describe('TelegramProgressReporter', () => {
     const ctx = context('group');
     const reporter = new TelegramProgressReporter(ctx);
     await reporter.start();
-    await jest.advanceTimersByTimeAsync(20_000);
+    // Advance past 45s elapsed band
+    await jest.advanceTimersByTimeAsync(45_000);
     expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
-      123, 77, undefined, 'Still working on this…', { parse_mode: 'MarkdownV2' },
+      123, 77, undefined, 'Taking a little longer than usual…', { parse_mode: 'MarkdownV2' },
     );
     await reporter.record({
       stage: 'progress', message: 'ignored', fact: {
