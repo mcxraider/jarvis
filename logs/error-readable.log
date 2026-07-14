@@ -10904,3 +10904,2981 @@
       "error": "getaddrinfo ENOTFOUND aws-1-ap-southeast-1.pooler.supabase.com"
 >>>>>>> Stashed changes
     }
+[2026-07-14 19:25:38] WARN telegram.edit_message.markdown_parse_failed
+  chatId: [REDACTED_ID]
+  messageId: 77
+  details:
+    {
+      "textLength": 58
+    }
+[2026-07-14 19:25:38] WARN telegram.edit_message.markdown_parse_failed
+  chatId: [REDACTED_ID]
+  messageId: 77
+  details:
+    {
+      "error": "network timeout",
+      "textLength": 58
+    }
+[2026-07-14 19:25:30] WARN conversation_gate.inconsistent_state
+  chatId: [REDACTED_ID]
+  messageId: 11
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-14 19:25:30] ERROR text_processor.failed
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 11
+  details:
+    {
+      "messageLength": 16,
+      "error": "network timeout",
+      "durationMs": 1
+    }
+[2026-07-14 19:25:30] ERROR text_processor.failed
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 11
+  details:
+    {
+      "messageLength": 16,
+      "error": "network timeout",
+      "durationMs": 0
+    }
+[2026-07-14 19:25:32] ERROR logger.queue.priority_test
+[2026-07-14 19:25:32] ERROR logger.queue.priority_test
+[2026-07-14 19:25:34] WARN telegram.rich.fallback
+  details:
+    {
+      "method": "sendRichMessage",
+      "error": "unsupported"
+    }
+[2026-07-14 19:25:34] WARN telegram.rich.fallback
+  details:
+    {
+      "method": "sendRichMessage",
+      "error": "400 Bad Request"
+    }
+[2026-07-14 19:25:32] ERROR langgraph.request.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "path": "/invoke",
+      "error": "connection refused",
+      "durationMs": 1
+    }
+[2026-07-14 19:25:30] ERROR text_processor.failed
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 5,
+      "error": "network failure",
+      "durationMs": 1
+    }
+[2026-07-14 19:25:33] WARN processor.route.unknown_type
+  userId: [REDACTED_ID]
+  messageType: unsupported
+[2026-07-14 19:25:30] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "error": "store down",
+      "strategy": "fail_open"
+    }
+[2026-07-14 19:25:30] ERROR conversation_gate.acquire_error
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "error": "store down",
+      "strategy": "fail_open"
+    }
+[2026-07-14 19:25:32] WARN langgraph.stream.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "path": "/invoke/stream",
+      "streamStarted": false,
+      "failureKind": "connection",
+      "error": "stream unavailable",
+      "durationMs": 0
+    }
+[2026-07-14 19:25:32] WARN langgraph.stream.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "path": "/invoke/stream",
+      "streamStarted": true,
+      "failureKind": "premature_eof",
+      "error": "LangGraph stream ended without a final response",
+      "durationMs": 0
+    }
+[2026-07-14 19:25:30] WARN conversation_gate.inconsistent_state
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-14 19:25:32] WARN langgraph.stream.malformed_line
+[2026-07-14 19:27:12] WARN langgraph.stream.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "path": "/invoke/stream",
+      "streamStarted": false,
+      "failureKind": "overall_timeout",
+      "error": "This operation was aborted",
+      "durationMs": 100000
+    }
+[2026-07-14 19:27:12] WARN langgraph.stream.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "path": "/invoke/stream",
+      "streamStarted": true,
+      "failureKind": "overall_timeout",
+      "error": "This operation was aborted",
+      "durationMs": 100000
+    }
+[2026-07-14 19:25:34] ERROR audio.conversion.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "originalFormat": "ogg",
+      "targetFormat": "mp3",
+      "error": "FFmpeg conversion failed: Invalid data found when processing input",
+      "conversionTimeMs": 3
+    }
+[2026-07-14 19:25:34] ERROR audio.conversion.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "originalFormat": "ogg",
+      "targetFormat": "mp3",
+      "error": "FFmpeg process error: spawn /usr/local/bin/ffmpeg ENOENT",
+      "conversionTimeMs": 1
+    }
+[2026-07-14 19:25:34] ERROR audio.conversion.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "originalFormat": "ogg",
+      "targetFormat": "mp3",
+      "error": "FFmpeg conversion failed: Invalid data found when processing input",
+      "conversionTimeMs": 2
+    }
+[2026-07-14 19:26:04] WARN audio.conversion.ffmpeg_timeout
+  userId: [REDACTED_ID]
+  details:
+    {
+      "timeoutMs": 30000
+    }
+[2026-07-14 19:26:04] ERROR audio.conversion.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "originalFormat": "ogg",
+      "targetFormat": "mp3",
+      "error": "Audio conversion timed out after 30 seconds",
+      "conversionTimeMs": 30000
+    }
+[2026-07-14 19:25:35] ERROR whisper.api.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "model": "whisper-large-v3",
+      "error": "Invalid file format",
+      "durationMs": 0
+    }
+[2026-07-14 19:25:35] WARN audio.transcription.direct_failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "originalFormat": "ogg",
+      "normalizedFormat": "ogg",
+      "error": "Unsupported audio format. Please use a supported audio file format."
+    }
+[2026-07-14 19:25:34] WARN telegram.rich.fallback
+  details:
+    {
+      "method": "sendRichMessage",
+      "error": "400 Bad Request"
+    }
+[2026-07-14 19:25:31] ERROR telegram.message.failed
+  requestId: tg_mrkkemim_plyz20
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageType: document
+  details:
+    {
+      "telegramUsername": "tester",
+      "telegramFirstName": "Test",
+      "error": "download failed",
+      "durationMs": 1
+    }
+[2026-07-14 19:25:35] ERROR whisper.api.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "model": "whisper-large-v3",
+      "error": "Rate limit exceeded",
+      "durationMs": 0
+    }
+[2026-07-14 19:25:31] WARN telegram.clarification.collapse_failed
+  requestId: tg_mrkkemkk_r22pt1
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 14
+  messageType: text
+  details:
+    {
+      "telegramUsername": "tester",
+      "telegramFirstName": "Test",
+      "method": "editMessageText",
+      "clarificationMessageId": 556,
+      "error": "edit failed"
+    }
+[2026-07-14 19:25:33] WARN telegram.rich.fallback
+  userId: [REDACTED_ID]
+  details:
+    {
+      "method": "sendRichMessage",
+      "error": "rich unavailable"
+    }
+[2026-07-14 19:25:35] WARN audio.transcription.direct_failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "originalFormat": "ogg",
+      "normalizedFormat": "ogg",
+      "error": "OpenAI API error: Rate limit exceeded"
+    }
+[2026-07-14 19:25:35] ERROR whisper.transcription.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]",
+      "error": "OpenAI API error: Rate limit exceeded",
+      "processingTimeMs": 1
+    }
+[2026-07-14 19:25:33] WARN telegram.cancel.agent_cancel_failed
+  requestId: req-fail-456
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  details:
+    {
+      "gateKey": "telegram-chat:56e9abf1799c0f5d28630a01ceffd181",
+      "error": "network timeout"
+    }
+[2026-07-14 19:25:37] ERROR telegram.callback.confirm.failed
+  requestId: cb_mrkker8e_b4help
+  userId: [REDACTED_ID]
+  threadId: tg_confirm_thread_001
+  details:
+    {
+      "decision": "approve",
+      "error": "network failure"
+    }
+[2026-07-14 19:25:30] WARN telegram.rich.fallback
+  requestId: cb_mrkkem1l_yfx0yd
+  threadId: tg_abc_msg123
+  details:
+    {
+      "telegramUsername": "tester",
+      "telegramFirstName": "Test",
+      "method": "sendRichMessage",
+      "error": "rich unsupported"
+    }
+[2026-07-14 19:25:30] WARN telegram.callback.confirm.rejected
+  requestId: cb_mrkkem1q_0yfo2g
+  userId: [REDACTED_ID]
+  threadId: tg_user_other
+  details:
+    {
+      "pendingThreadId": "tg_user_expected",
+      "reason": "thread_mismatch"
+    }
+[2026-07-14 19:25:30] WARN telegram.callback.confirm.rejected
+  requestId: cb_mrkkem1q_xd7v8m
+  userId: [REDACTED_ID]
+  threadId: tg_user_expected
+  details:
+    {
+      "pendingThreadId": "tg_user_expected",
+      "reason": "user_mismatch"
+    }
+[2026-07-14 19:25:30] ERROR telegram.callback.confirm.failed
+  requestId: cb_mrkkem1r_fidfw8
+  userId: [REDACTED_ID]
+  threadId: tg_abc_msg123
+  details:
+    {
+      "decision": "approve",
+      "error": "network failure"
+    }
+[2026-07-14 19:25:36] WARN audio_processor.transcription_send_failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "error": "Telegram send failed"
+    }
+[2026-07-14 19:25:36] WARN audio_processor.text_processing_failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "transcribedText": "Add a Todoist task to buy milk tomorrow",
+      "error": "Agent unavailable",
+      "durationMs": 2
+    }
+[2026-07-14 19:25:36] ERROR audio_processor.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "error": "Whisper unavailable",
+      "durationMs": 1
+    }
+[2026-07-14 19:25:40] ERROR circular_test_17025
+  details:
+    {
+      "name": "circular_test_17025",
+      "self": "[Circular]"
+    }
+[2026-07-14 19:25:40] ERROR circular_test_17032
+  details:
+    {
+      "name": "circular_test_17032",
+      "self": "[Circular]"
+    }
+[2026-07-14 19:25:40] WARN telegram.webhook.rejected
+  requestId: tg_update_1
+  details:
+    {
+      "ip": "127.0.0.1",
+      "hasSecret": "[REDACTED]",
+      "secretMatches": "[REDACTED]"
+    }
+[2026-07-14 19:25:40] ERROR telegram.webhook.background_failed
+  requestId: tg_update_99
+  updateId: 99
+  details:
+    {
+      "error": "boom",
+      "durationMs": 19
+    }
+  stack:
+    Error: boom
+        at Object.<anonymous> (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/.claude/worktrees/latency-p0/tests/unit/controllers/webhook.controller.test.ts:111:64)
+        at Promise.then.completed (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:298:28)
+        at new Promise (<anonymous>)
+        at callAsyncCircusFn (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:231:10)
+        at _callCircusTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:316:40)
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at _runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:252:3)
+        at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:126:9)
+        at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:121:9)
+        at run (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:71:3)
+        at runAndTransformResultsToJestFormat (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)
+        at jestAdapter (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)
+        at runTestInternal (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:367:16)
+        at runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:444:34)
+        at Object.worker (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/testWorker.js:106:12)
+[2026-07-14 19:25:43] ERROR telegram.authorization.database_failed
+  details:
+    {
+      "error": "database unavailable"
+    }
+[2026-07-14 19:25:42] ERROR Error getting file URL
+  details:
+    {
+      "error": "File path not available",
+      "fileId": "file-id"
+    }
+[2026-07-14 19:25:43] ERROR Error downloading file
+  details:
+    {
+      "error": "HTTP 502: Bad Gateway",
+      "fileId": "file-id"
+    }
+[2026-07-14 19:25:43] WARN telegram.reply.markdown_parse_failed
+  details:
+    {
+      "error": "Bad Request: can't parse entities",
+      "responseLength": 9
+    }
+[2026-07-14 19:26:29] WARN telegram.edit_message.markdown_parse_failed
+  chatId: [REDACTED_ID]
+  messageId: 77
+  details:
+    {
+      "textLength": 58
+    }
+[2026-07-14 19:26:29] WARN telegram.edit_message.markdown_parse_failed
+  chatId: [REDACTED_ID]
+  messageId: 77
+  details:
+    {
+      "error": "network timeout",
+      "textLength": 58
+    }
+[2026-07-14 19:25:40] WARN telegram.update.denied
+  requestId: tg_mrkketd6_307m7c
+  updateId: 1004
+  userId: [REDACTED_ID]
+[2026-07-14 19:25:40] WARN telegram.update.denied
+  requestId: tg_mrkketcl_xo8byw
+  updateId: 1002
+  userId: [REDACTED_ID]
+[2026-07-14 19:25:40] WARN telegram.update.denied
+  requestId: tg_mrkketd0_ba6y87
+  updateId: 1003
+  userId: [REDACTED_ID]
+[2026-07-14 19:25:48] ERROR error_chain_test_17032
+  details:
+    {
+      "err": {
+        "name": "Error",
+        "message": "outer error",
+        "stack": "Error: outer error\n    at Object.<anonymous> (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/.claude/worktrees/latency-p0/tests/unit/utils/logger.test.ts:106:19)\n    at Promise.then.completed (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:298:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:231:10)\n    at _callCircusTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:316:40)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at _runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:252:3)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:126:9)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:121:9)\n    at run (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:71:3)\n    at runAndTransformResultsToJestFormat (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)\n    at jestAdapter (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)\n    at runTestInternal (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:367:16)\n    at runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:444:34)\n    at Object.worker (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/testWorker.js:106:12)"
+      }
+    }
+[2026-07-14 19:25:49] ERROR error_chain_test_17025
+  details:
+    {
+      "err": {
+        "name": "Error",
+        "message": "outer error",
+        "stack": "Error: outer error\n    at Object.<anonymous> (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/tests/unit/utils/logger.test.ts:106:19)\n    at Promise.then.completed (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:298:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:231:10)\n    at _callCircusTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:316:40)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at _runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:252:3)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:126:9)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:121:9)\n    at run (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:71:3)\n    at runAndTransformResultsToJestFormat (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)\n    at jestAdapter (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)\n    at runTestInternal (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:367:16)\n    at runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:444:34)\n    at Object.worker (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/testWorker.js:106:12)"
+      }
+    }
+[2026-07-14 19:25:52] ERROR types_test_17032
+  details:
+    {
+      "marker": "types_test_17032",
+      "big": "9007199254740991",
+      "sym": "Symbol(test-symbol)",
+      "buf": "[Buffer 5 bytes]",
+      "fn": "[Function myFunc]"
+    }
+[2026-07-14 19:25:52] ERROR types_test_17025
+  details:
+    {
+      "marker": "types_test_17025",
+      "big": "9007199254740991",
+      "sym": "Symbol(test-symbol)",
+      "buf": "[Buffer 5 bytes]",
+      "fn": "[Function myFunc]"
+    }
+[2026-07-14 19:25:56] ERROR after_restart_17032
+  details:
+    {
+      "recovered": true
+    }
+[2026-07-14 19:25:57] ERROR after_restart_17025
+  details:
+    {
+      "recovered": true
+    }
+[2026-07-14 19:25:57] ERROR warmup_for_fallback
+[2026-07-14 19:26:00] ERROR shutdown_timeout_warmup
+[2026-07-14 19:26:00] ERROR flush_timeout_warmup
+[2026-07-14 19:26:00] ERROR shutdown_timeout_warmup
+[2026-07-14 19:26:00] ERROR flush_timeout_warmup
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 0
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 1
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 2
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 3
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 4
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 5
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 6
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 7
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 8
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 9
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 10
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 11
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 12
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 13
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 14
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 15
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 16
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 17
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 18
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 19
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 20
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 21
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 22
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 23
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 24
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 25
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 26
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 27
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 28
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 29
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 30
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 31
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 32
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 33
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 34
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 35
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 36
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 37
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 38
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 39
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 40
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 41
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 42
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 43
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 44
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 45
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 46
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 47
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 48
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 49
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 50
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 51
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 52
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 53
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 54
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 55
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 56
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 57
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 58
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 59
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 60
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 61
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 62
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 63
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 64
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 65
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 66
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 67
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 68
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 69
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 70
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 71
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 72
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 73
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 74
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 75
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 76
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 77
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 78
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 79
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 80
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 81
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 82
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 83
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 84
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 85
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 86
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 87
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 88
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 89
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 90
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 91
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 92
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 93
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 94
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 95
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 96
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 97
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 98
+    }
+[2026-07-14 19:26:02] ERROR ordering_17032_1784028332156
+  details:
+    {
+      "seq": 99
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 0
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 1
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 2
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 3
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 4
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 5
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 6
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 7
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 8
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 9
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 10
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 11
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 12
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 13
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 14
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 15
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 16
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 17
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 18
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 19
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 20
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 21
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 22
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 23
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 24
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 25
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 26
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 27
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 28
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 29
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 30
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 31
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 32
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 33
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 34
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 35
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 36
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 37
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 38
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 39
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 40
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 41
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 42
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 43
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 44
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 45
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 46
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 47
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 48
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 49
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 50
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 51
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 52
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 53
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 54
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 55
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 56
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 57
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 58
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 59
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 60
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 61
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 62
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 63
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 64
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 65
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 66
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 67
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 68
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 69
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 70
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 71
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 72
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 73
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 74
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 75
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 76
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 77
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 78
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 79
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 80
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 81
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 82
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 83
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 84
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 85
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 86
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 87
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 88
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 89
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 90
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 91
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 92
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 93
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 94
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 95
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 96
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 97
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 98
+    }
+[2026-07-14 19:26:02] ERROR ordering_17025_1784028332345
+  details:
+    {
+      "seq": 99
+    }
+[2026-07-14 19:26:04] WARN audio.conversion.ffmpeg_timeout
+  userId: [REDACTED_ID]
+  details:
+    {
+      "timeoutMs": 30000
+    }
+[2026-07-14 19:26:24] ERROR logger.queue.priority_test
+[2026-07-14 19:26:24] ERROR logger.queue.priority_test
+[2026-07-14 19:26:25] WARN telegram.rich.fallback
+  requestId: cb_mrkkfs3f_sjadtj
+  threadId: tg_abc_msg123
+  details:
+    {
+      "telegramUsername": "tester",
+      "telegramFirstName": "Test",
+      "method": "sendRichMessage",
+      "error": "rich unsupported"
+    }
+[2026-07-14 19:26:25] WARN telegram.callback.confirm.rejected
+  requestId: cb_mrkkfs3q_73jiru
+  userId: [REDACTED_ID]
+  threadId: tg_user_other
+  details:
+    {
+      "pendingThreadId": "tg_user_expected",
+      "reason": "thread_mismatch"
+    }
+[2026-07-14 19:26:25] WARN telegram.callback.confirm.rejected
+  requestId: cb_mrkkfs3r_up0xx5
+  userId: [REDACTED_ID]
+  threadId: tg_user_expected
+  details:
+    {
+      "pendingThreadId": "tg_user_expected",
+      "reason": "user_mismatch"
+    }
+[2026-07-14 19:26:25] ERROR telegram.callback.confirm.failed
+  requestId: cb_mrkkfs3s_emk44w
+  userId: [REDACTED_ID]
+  threadId: tg_abc_msg123
+  details:
+    {
+      "decision": "approve",
+      "error": "network failure"
+    }
+[2026-07-14 19:26:25] ERROR telegram.message.failed
+  requestId: tg_mrkkfrxv_cgu0bg
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageType: document
+  details:
+    {
+      "telegramUsername": "tester",
+      "telegramFirstName": "Test",
+      "error": "download failed",
+      "durationMs": 0
+    }
+[2026-07-14 19:26:25] WARN telegram.clarification.collapse_failed
+  requestId: tg_mrkkfry4_oikfk3
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 14
+  messageType: text
+  details:
+    {
+      "telegramUsername": "tester",
+      "telegramFirstName": "Test",
+      "method": "editMessageText",
+      "clarificationMessageId": 556,
+      "error": "edit failed"
+    }
+[2026-07-14 19:26:25] WARN conversation_gate.inconsistent_state
+  chatId: [REDACTED_ID]
+  messageId: 11
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-14 19:26:25] ERROR langgraph.request.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "path": "/invoke",
+      "error": "connection refused",
+      "durationMs": 1
+    }
+[2026-07-14 19:26:25] WARN langgraph.stream.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "path": "/invoke/stream",
+      "streamStarted": false,
+      "failureKind": "connection",
+      "error": "stream unavailable",
+      "durationMs": 0
+    }
+[2026-07-14 19:26:25] WARN langgraph.stream.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "path": "/invoke/stream",
+      "streamStarted": true,
+      "failureKind": "premature_eof",
+      "error": "LangGraph stream ended without a final response",
+      "durationMs": 1
+    }
+[2026-07-14 19:26:25] WARN langgraph.stream.malformed_line
+[2026-07-14 19:26:25] ERROR text_processor.failed
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 11
+  details:
+    {
+      "messageLength": 16,
+      "error": "network timeout",
+      "durationMs": 0
+    }
+[2026-07-14 19:26:25] ERROR text_processor.failed
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 11
+  details:
+    {
+      "messageLength": 16,
+      "error": "network timeout",
+      "durationMs": 0
+    }
+[2026-07-14 19:28:05] WARN langgraph.stream.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "path": "/invoke/stream",
+      "streamStarted": false,
+      "failureKind": "overall_timeout",
+      "error": "This operation was aborted",
+      "durationMs": 100000
+    }
+[2026-07-14 19:28:05] WARN langgraph.stream.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "path": "/invoke/stream",
+      "streamStarted": true,
+      "failureKind": "overall_timeout",
+      "error": "This operation was aborted",
+      "durationMs": 100000
+    }
+[2026-07-14 19:26:25] ERROR Error getting file URL
+  details:
+    {
+      "error": "File path not available",
+      "fileId": "file-id"
+    }
+[2026-07-14 19:26:25] ERROR Error downloading file
+  details:
+    {
+      "error": "HTTP 502: Bad Gateway",
+      "fileId": "file-id"
+    }
+[2026-07-14 19:26:26] ERROR telegram.callback.confirm.failed
+  requestId: cb_mrkkfsqh_mnof5l
+  userId: [REDACTED_ID]
+  threadId: tg_confirm_thread_001
+  details:
+    {
+      "decision": "approve",
+      "error": "network failure"
+    }
+[2026-07-14 19:26:24] ERROR text_processor.failed
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 5,
+      "error": "network failure",
+      "durationMs": 0
+    }
+[2026-07-14 19:26:24] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "error": "store down",
+      "strategy": "fail_open"
+    }
+[2026-07-14 19:26:24] ERROR conversation_gate.acquire_error
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "error": "store down",
+      "strategy": "fail_open"
+    }
+[2026-07-14 19:26:25] WARN conversation_gate.inconsistent_state
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-14 19:26:25] WARN telegram.webhook.rejected
+  requestId: tg_update_1
+  details:
+    {
+      "ip": "127.0.0.1",
+      "hasSecret": "[REDACTED]",
+      "secretMatches": "[REDACTED]"
+    }
+[2026-07-14 19:26:26] ERROR telegram.webhook.background_failed
+  requestId: tg_update_99
+  updateId: 99
+  details:
+    {
+      "error": "boom",
+      "durationMs": 570
+    }
+  stack:
+    Error: boom
+        at Object.<anonymous> (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/.claude/worktrees/latency-p0/tests/unit/controllers/webhook.controller.test.ts:111:64)
+        at Promise.then.completed (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:298:28)
+        at new Promise (<anonymous>)
+        at callAsyncCircusFn (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:231:10)
+        at _callCircusTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:316:40)
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at _runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:252:3)
+        at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:126:9)
+        at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:121:9)
+        at run (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:71:3)
+        at runAndTransformResultsToJestFormat (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)
+        at jestAdapter (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)
+        at runTestInternal (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:367:16)
+        at runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:444:34)
+        at Object.worker (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/testWorker.js:106:12)
+[2026-07-14 19:26:25] ERROR audio.conversion.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "originalFormat": "ogg",
+      "targetFormat": "mp3",
+      "error": "FFmpeg conversion failed: Invalid data found when processing input",
+      "conversionTimeMs": 1
+    }
+[2026-07-14 19:26:25] ERROR audio.conversion.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "originalFormat": "ogg",
+      "targetFormat": "mp3",
+      "error": "FFmpeg process error: spawn /usr/local/bin/ffmpeg ENOENT",
+      "conversionTimeMs": 0
+    }
+[2026-07-14 19:26:25] ERROR audio.conversion.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "originalFormat": "ogg",
+      "targetFormat": "mp3",
+      "error": "FFmpeg conversion failed: Invalid data found when processing input",
+      "conversionTimeMs": 0
+    }
+[2026-07-14 19:26:55] WARN audio.conversion.ffmpeg_timeout
+  userId: [REDACTED_ID]
+  details:
+    {
+      "timeoutMs": 30000
+    }
+[2026-07-14 19:26:55] ERROR audio.conversion.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "originalFormat": "ogg",
+      "targetFormat": "mp3",
+      "error": "Audio conversion timed out after 30 seconds",
+      "conversionTimeMs": 30000
+    }
+[2026-07-14 19:26:55] WARN audio.conversion.ffmpeg_timeout
+  userId: [REDACTED_ID]
+  details:
+    {
+      "timeoutMs": 30000
+    }
+[2026-07-14 19:26:26] ERROR telegram.authorization.database_failed
+  details:
+    {
+      "error": "database unavailable"
+    }
+[2026-07-14 19:26:26] WARN processor.route.unknown_type
+  userId: [REDACTED_ID]
+  messageType: unsupported
+[2026-07-14 19:26:27] WARN audio_processor.transcription_send_failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "error": "Telegram send failed"
+    }
+[2026-07-14 19:26:27] WARN telegram.reply.markdown_parse_failed
+  details:
+    {
+      "error": "Bad Request: can't parse entities",
+      "responseLength": 9
+    }
+[2026-07-14 19:26:27] WARN audio_processor.text_processing_failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "transcribedText": "Add a Todoist task to buy milk tomorrow",
+      "error": "Agent unavailable",
+      "durationMs": 1
+    }
+[2026-07-14 19:26:27] ERROR audio_processor.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "error": "Whisper unavailable",
+      "durationMs": 9
+    }
+[2026-07-14 19:26:25] WARN telegram.update.denied
+  requestId: tg_mrkkfs99_x8tvkg
+  updateId: 1003
+  userId: [REDACTED_ID]
+[2026-07-14 19:26:25] WARN telegram.update.denied
+  requestId: tg_mrkkfs93_903nxg
+  updateId: 1002
+  userId: [REDACTED_ID]
+[2026-07-14 19:26:24] ERROR whisper.api.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "model": "whisper-large-v3",
+      "error": "Invalid file format",
+      "durationMs": 0
+    }
+[2026-07-14 19:26:24] WARN audio.transcription.direct_failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "originalFormat": "ogg",
+      "normalizedFormat": "ogg",
+      "error": "Unsupported audio format. Please use a supported audio file format."
+    }
+[2026-07-14 19:26:24] ERROR whisper.api.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "model": "whisper-large-v3",
+      "error": "Rate limit exceeded",
+      "durationMs": 0
+    }
+[2026-07-14 19:26:24] WARN audio.transcription.direct_failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "originalFormat": "ogg",
+      "normalizedFormat": "ogg",
+      "error": "OpenAI API error: Rate limit exceeded"
+    }
+[2026-07-14 19:26:24] ERROR whisper.transcription.failed
+  userId: [REDACTED_ID]
+  details:
+    {
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]",
+      "error": "OpenAI API error: Rate limit exceeded",
+      "processingTimeMs": 8
+    }
+[2026-07-14 19:27:15] WARN telegram.edit_message.markdown_parse_failed
+  chatId: [REDACTED_ID]
+  messageId: 77
+  details:
+    {
+      "textLength": 58
+    }
+[2026-07-14 19:27:16] WARN telegram.edit_message.markdown_parse_failed
+  chatId: [REDACTED_ID]
+  messageId: 77
+  details:
+    {
+      "error": "network timeout",
+      "textLength": 58
+    }
+[2026-07-14 19:26:38] ERROR circular_test_19813
+  details:
+    {
+      "name": "circular_test_19813",
+      "self": "[Circular]"
+    }
+[2026-07-14 19:26:38] ERROR circular_test_19818
+  details:
+    {
+      "name": "circular_test_19818",
+      "self": "[Circular]"
+    }
+[2026-07-14 19:26:26] WARN telegram.rich.fallback
+  userId: [REDACTED_ID]
+  details:
+    {
+      "method": "sendRichMessage",
+      "error": "rich unavailable"
+    }
+[2026-07-14 19:26:26] WARN telegram.cancel.agent_cancel_failed
+  requestId: req-fail-456
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  details:
+    {
+      "gateKey": "telegram-chat:56e9abf1799c0f5d28630a01ceffd181",
+      "error": "network timeout"
+    }
+[2026-07-14 19:26:28] WARN telegram.rich.fallback
+  details:
+    {
+      "method": "sendRichMessage",
+      "error": "unsupported"
+    }
+[2026-07-14 19:26:28] WARN telegram.rich.fallback
+  details:
+    {
+      "method": "sendRichMessage",
+      "error": "400 Bad Request"
+    }
+[2026-07-14 19:26:28] WARN telegram.rich.fallback
+  details:
+    {
+      "method": "sendRichMessage",
+      "error": "400 Bad Request"
+    }
+[2026-07-14 19:26:49] ERROR error_chain_test_19813
+  details:
+    {
+      "err": {
+        "name": "Error",
+        "message": "outer error",
+        "stack": "Error: outer error\n    at Object.<anonymous> (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/.claude/worktrees/latency-p0/tests/unit/utils/logger.test.ts:106:19)\n    at Promise.then.completed (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:298:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:231:10)\n    at _callCircusTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:316:40)\n    at _runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:252:3)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:126:9)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:121:9)\n    at run (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:71:3)\n    at runAndTransformResultsToJestFormat (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)\n    at jestAdapter (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)\n    at runTestInternal (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:367:16)\n    at runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:444:34)\n    at Object.worker (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/testWorker.js:106:12)"
+      }
+    }
+[2026-07-14 19:26:49] ERROR error_chain_test_19818
+  details:
+    {
+      "err": {
+        "name": "Error",
+        "message": "outer error",
+        "stack": "Error: outer error\n    at Object.<anonymous> (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/tests/unit/utils/logger.test.ts:106:19)\n    at Promise.then.completed (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:298:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:231:10)\n    at _callCircusTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:316:40)\n    at _runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:252:3)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:126:9)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:121:9)\n    at run (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:71:3)\n    at runAndTransformResultsToJestFormat (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)\n    at jestAdapter (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)\n    at runTestInternal (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:367:16)\n    at runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:444:34)\n    at Object.worker (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/testWorker.js:106:12)"
+      }
+    }
+[2026-07-14 19:26:25] WARN telegram.update.denied
+  requestId: tg_mrkkfs9g_67mc66
+  updateId: 1004
+  userId: [REDACTED_ID]
+[2026-07-14 19:27:00] ERROR types_test_19818
+  details:
+    {
+      "marker": "types_test_19818",
+      "big": "9007199254740991",
+      "sym": "Symbol(test-symbol)",
+      "buf": "[Buffer 5 bytes]",
+      "fn": "[Function myFunc]"
+    }
+[2026-07-14 19:27:00] ERROR types_test_19813
+  details:
+    {
+      "marker": "types_test_19813",
+      "big": "9007199254740991",
+      "sym": "Symbol(test-symbol)",
+      "buf": "[Buffer 5 bytes]",
+      "fn": "[Function myFunc]"
+    }
+[2026-07-14 19:27:11] ERROR pre_crash_warmup
+[2026-07-14 19:27:11] ERROR pre_crash_warmup
+[2026-07-14 19:27:18] ERROR warmup_for_fallback
+[2026-07-14 19:27:18] ERROR warmup_for_fallback
+[2026-07-14T11:27:24.396Z] WARN logging.queue.stats
+  details:
+    {
+      "accepted": 501,
+      "droppedByLevel": {
+        "debug": 1,
+        "info": 0,
+        "warn": 0,
+        "error": 0
+      },
+      "queueHighWater": 500
+    }
+[2026-07-14T11:27:24.774Z] WARN logging.queue.stats
+  details:
+    {
+      "accepted": 501,
+      "droppedByLevel": {
+        "debug": 1,
+        "info": 0,
+        "warn": 0,
+        "error": 0
+      },
+      "queueHighWater": 500
+    }
+[2026-07-14 19:27:24] ERROR shutdown_timeout_warmup
+[2026-07-14 19:27:24] ERROR flush_timeout_warmup
+[2026-07-14 19:27:24] ERROR shutdown_timeout_warmup
+[2026-07-14 19:27:24] ERROR flush_timeout_warmup
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 0
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 1
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 2
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 3
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 4
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 5
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 6
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 7
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 8
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 9
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 10
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 11
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 12
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 13
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 14
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 15
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 16
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 17
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 18
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 19
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 20
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 21
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 22
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 23
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 24
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 25
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 26
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 27
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 28
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 29
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 30
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 31
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 32
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 33
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 34
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 35
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 36
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 37
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 38
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 39
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 40
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 41
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 42
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 43
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 44
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 45
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 46
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 47
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 48
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 49
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 50
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 51
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 52
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 53
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 54
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 55
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 56
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 57
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 58
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 59
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 60
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 61
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 62
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 63
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 64
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 65
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 66
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 67
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 68
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 69
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 70
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 71
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 72
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 73
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 74
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 75
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 76
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 77
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 78
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 79
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 80
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 81
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 82
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 83
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 84
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 85
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 86
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 87
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 88
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 89
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 90
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 91
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 92
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 93
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 94
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 95
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 96
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 97
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 98
+    }
+[2026-07-14 19:27:27] ERROR ordering_19813_1784028384392
+  details:
+    {
+      "seq": 99
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 0
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 1
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 2
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 3
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 4
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 5
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 6
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 7
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 8
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 9
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 10
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 11
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 12
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 13
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 14
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 15
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 16
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 17
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 18
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 19
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 20
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 21
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 22
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 23
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 24
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 25
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 26
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 27
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 28
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 29
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 30
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 31
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 32
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 33
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 34
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 35
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 36
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 37
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 38
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 39
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 40
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 41
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 42
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 43
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 44
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 45
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 46
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 47
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 48
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 49
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 50
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 51
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 52
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 53
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 54
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 55
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 56
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 57
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 58
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 59
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 60
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 61
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 62
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 63
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 64
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 65
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 66
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 67
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 68
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 69
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 70
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 71
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 72
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 73
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 74
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 75
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 76
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 77
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 78
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 79
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 80
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 81
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 82
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 83
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 84
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 85
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 86
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 87
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 88
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 89
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 90
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 91
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 92
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 93
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 94
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 95
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 96
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 97
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 98
+    }
+[2026-07-14 19:27:27] ERROR ordering_19818_1784028384766
+  details:
+    {
+      "seq": 99
+    }

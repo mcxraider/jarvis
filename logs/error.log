@@ -1969,3 +1969,540 @@
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-13 08:56:27"}
 {"error":"getaddrinfo ENOTFOUND aws-1-ap-southeast-1.pooler.supabase.com","level":"warn","message":"telegram.pending_store.sweep_failed","timestamp":"2026-07-13 09:26:35"}
 >>>>>>> Stashed changes
+{"chatId":"[REDACTED_ID]","level":"warn","message":"telegram.edit_message.markdown_parse_failed","messageId":77,"textLength":58,"timestamp":"2026-07-14 19:25:38"}
+{"chatId":"[REDACTED_ID]","error":"network timeout","level":"warn","message":"telegram.edit_message.markdown_parse_failed","messageId":77,"textLength":58,"timestamp":"2026-07-14 19:25:38"}
+{"chatId":"[REDACTED_ID]","gateKey":"telegram-chat:57fe127d914c5340094559798ef10222","level":"warn","message":"conversation_gate.inconsistent_state","messageId":11,"timestamp":"2026-07-14 19:25:30"}
+{"chatId":"[REDACTED_ID]","durationMs":1,"error":"network timeout","level":"error","message":"text_processor.failed","messageId":11,"messageLength":16,"timestamp":"2026-07-14 19:25:30","userId":"[REDACTED_ID]"}
+{"chatId":"[REDACTED_ID]","durationMs":0,"error":"network timeout","level":"error","message":"text_processor.failed","messageId":11,"messageLength":16,"timestamp":"2026-07-14 19:25:30","userId":"[REDACTED_ID]"}
+{"level":"error","message":"logger.queue.priority_test","timestamp":"2026-07-14 19:25:32"}
+{"level":"error","message":"logger.queue.priority_test","timestamp":"2026-07-14 19:25:32"}
+{"error":"unsupported","level":"warn","message":"telegram.rich.fallback","method":"sendRichMessage","timestamp":"2026-07-14 19:25:34"}
+{"error":"400 Bad Request","level":"warn","message":"telegram.rich.fallback","method":"sendRichMessage","timestamp":"2026-07-14 19:25:34"}
+{"durationMs":1,"error":"connection refused","level":"error","message":"langgraph.request.failed","path":"/invoke","timestamp":"2026-07-14 19:25:32","userId":"[REDACTED_ID]"}
+{"chatId":"[REDACTED_ID]","durationMs":1,"error":"network failure","level":"error","message":"text_processor.failed","messageId":1,"messageLength":5,"timestamp":"2026-07-14 19:25:30","userId":"[REDACTED_ID]"}
+{"level":"warn","message":"processor.route.unknown_type","messageType":"unsupported","timestamp":"2026-07-14 19:25:33","userId":"[REDACTED_ID]"}
+{"error":"store down","gateKey":"telegram-chat:57fe127d914c5340094559798ef10222","level":"error","message":"conversation_gate.store_error","strategy":"fail_open","timestamp":"2026-07-14 19:25:30"}
+{"error":"store down","gateKey":"telegram-chat:57fe127d914c5340094559798ef10222","level":"error","message":"conversation_gate.acquire_error","strategy":"fail_open","timestamp":"2026-07-14 19:25:30"}
+{"durationMs":0,"error":"stream unavailable","failureKind":"connection","level":"warn","message":"langgraph.stream.failed","path":"/invoke/stream","streamStarted":false,"timestamp":"2026-07-14 19:25:32","userId":"[REDACTED_ID]"}
+{"durationMs":0,"error":"LangGraph stream ended without a final response","failureKind":"premature_eof","level":"warn","message":"langgraph.stream.failed","path":"/invoke/stream","streamStarted":true,"timestamp":"2026-07-14 19:25:32","userId":"[REDACTED_ID]"}
+{"chatId":"[REDACTED_ID]","gateKey":"telegram-chat:57fe127d914c5340094559798ef10222","level":"warn","message":"conversation_gate.inconsistent_state","messageId":1,"timestamp":"2026-07-14 19:25:30"}
+{"level":"warn","message":"langgraph.stream.malformed_line","timestamp":"2026-07-14 19:25:32"}
+{"durationMs":100000,"error":"This operation was aborted","failureKind":"overall_timeout","level":"warn","message":"langgraph.stream.failed","path":"/invoke/stream","streamStarted":false,"timestamp":"2026-07-14 19:27:12","userId":"[REDACTED_ID]"}
+{"durationMs":100000,"error":"This operation was aborted","failureKind":"overall_timeout","level":"warn","message":"langgraph.stream.failed","path":"/invoke/stream","streamStarted":true,"timestamp":"2026-07-14 19:27:12","userId":"[REDACTED_ID]"}
+{"conversionTimeMs":3,"error":"FFmpeg conversion failed: Invalid data found when processing input","level":"error","message":"audio.conversion.failed","originalFormat":"ogg","targetFormat":"mp3","timestamp":"2026-07-14 19:25:34","userId":"[REDACTED_ID]"}
+{"conversionTimeMs":1,"error":"FFmpeg process error: spawn /usr/local/bin/ffmpeg ENOENT","level":"error","message":"audio.conversion.failed","originalFormat":"ogg","targetFormat":"mp3","timestamp":"2026-07-14 19:25:34","userId":"[REDACTED_ID]"}
+{"conversionTimeMs":2,"error":"FFmpeg conversion failed: Invalid data found when processing input","level":"error","message":"audio.conversion.failed","originalFormat":"ogg","targetFormat":"mp3","timestamp":"2026-07-14 19:25:34","userId":"[REDACTED_ID]"}
+{"level":"warn","message":"audio.conversion.ffmpeg_timeout","timeoutMs":30000,"timestamp":"2026-07-14 19:26:04","userId":"[REDACTED_ID]"}
+{"conversionTimeMs":30000,"error":"Audio conversion timed out after 30 seconds","level":"error","message":"audio.conversion.failed","originalFormat":"ogg","targetFormat":"mp3","timestamp":"2026-07-14 19:26:04","userId":"[REDACTED_ID]"}
+{"durationMs":0,"error":"Invalid file format","level":"error","message":"whisper.api.failed","model":"whisper-large-v3","timestamp":"2026-07-14 19:25:35","userId":"[REDACTED_ID]"}
+{"error":"Unsupported audio format. Please use a supported audio file format.","level":"warn","message":"audio.transcription.direct_failed","normalizedFormat":"ogg","originalFormat":"ogg","timestamp":"2026-07-14 19:25:35","userId":"[REDACTED_ID]"}
+{"error":"400 Bad Request","level":"warn","message":"telegram.rich.fallback","method":"sendRichMessage","timestamp":"2026-07-14 19:25:34"}
+{"chatId":"[REDACTED_ID]","durationMs":1,"error":"download failed","level":"error","message":"telegram.message.failed","messageType":"document","requestId":"tg_mrkkemim_plyz20","telegramFirstName":"Test","telegramUsername":"tester","timestamp":"2026-07-14 19:25:31","userId":"[REDACTED_ID]"}
+{"durationMs":0,"error":"Rate limit exceeded","level":"error","message":"whisper.api.failed","model":"whisper-large-v3","timestamp":"2026-07-14 19:25:35","userId":"[REDACTED_ID]"}
+{"chatId":"[REDACTED_ID]","clarificationMessageId":556,"error":"edit failed","level":"warn","message":"telegram.clarification.collapse_failed","messageId":14,"messageType":"text","method":"editMessageText","requestId":"tg_mrkkemkk_r22pt1","telegramFirstName":"Test","telegramUsername":"tester","timestamp":"2026-07-14 19:25:31","userId":"[REDACTED_ID]"}
+{"error":"rich unavailable","level":"warn","message":"telegram.rich.fallback","method":"sendRichMessage","timestamp":"2026-07-14 19:25:33","userId":"[REDACTED_ID]"}
+{"error":"OpenAI API error: Rate limit exceeded","level":"warn","message":"audio.transcription.direct_failed","normalizedFormat":"ogg","originalFormat":"ogg","timestamp":"2026-07-14 19:25:35","userId":"[REDACTED_ID]"}
+{"error":"OpenAI API error: Rate limit exceeded","fileUrl":"[REDACTED_TELEGRAM_FILE_URL]","level":"error","message":"whisper.transcription.failed","processingTimeMs":1,"timestamp":"2026-07-14 19:25:35","userId":"[REDACTED_ID]"}
+{"chatId":"[REDACTED_ID]","error":"network timeout","gateKey":"telegram-chat:56e9abf1799c0f5d28630a01ceffd181","level":"warn","message":"telegram.cancel.agent_cancel_failed","requestId":"req-fail-456","timestamp":"2026-07-14 19:25:33","userId":"[REDACTED_ID]"}
+{"decision":"approve","error":"network failure","level":"error","message":"telegram.callback.confirm.failed","requestId":"cb_mrkker8e_b4help","threadId":"tg_confirm_thread_001","timestamp":"2026-07-14 19:25:37","userId":"[REDACTED_ID]"}
+{"error":"rich unsupported","level":"warn","message":"telegram.rich.fallback","method":"sendRichMessage","requestId":"cb_mrkkem1l_yfx0yd","telegramFirstName":"Test","telegramUsername":"tester","threadId":"tg_abc_msg123","timestamp":"2026-07-14 19:25:30"}
+{"level":"warn","message":"telegram.callback.confirm.rejected","pendingThreadId":"tg_user_expected","reason":"thread_mismatch","requestId":"cb_mrkkem1q_0yfo2g","threadId":"tg_user_other","timestamp":"2026-07-14 19:25:30","userId":"[REDACTED_ID]"}
+{"level":"warn","message":"telegram.callback.confirm.rejected","pendingThreadId":"tg_user_expected","reason":"user_mismatch","requestId":"cb_mrkkem1q_xd7v8m","threadId":"tg_user_expected","timestamp":"2026-07-14 19:25:30","userId":"[REDACTED_ID]"}
+{"decision":"approve","error":"network failure","level":"error","message":"telegram.callback.confirm.failed","requestId":"cb_mrkkem1r_fidfw8","threadId":"tg_abc_msg123","timestamp":"2026-07-14 19:25:30","userId":"[REDACTED_ID]"}
+{"error":"Telegram send failed","level":"warn","message":"audio_processor.transcription_send_failed","timestamp":"2026-07-14 19:25:36","userId":"[REDACTED_ID]"}
+{"durationMs":2,"error":"Agent unavailable","level":"warn","message":"audio_processor.text_processing_failed","timestamp":"2026-07-14 19:25:36","transcribedText":"Add a Todoist task to buy milk tomorrow","userId":"[REDACTED_ID]"}
+{"durationMs":1,"error":"Whisper unavailable","level":"error","message":"audio_processor.failed","timestamp":"2026-07-14 19:25:36","userId":"[REDACTED_ID]"}
+{"level":"error","message":"circular_test_17025","name":"circular_test_17025","self":"[Circular]","timestamp":"2026-07-14 19:25:40"}
+{"level":"error","message":"circular_test_17032","name":"circular_test_17032","self":"[Circular]","timestamp":"2026-07-14 19:25:40"}
+{"hasSecret":"[REDACTED]","ip":"127.0.0.1","level":"warn","message":"telegram.webhook.rejected","requestId":"tg_update_1","secretMatches":"[REDACTED]","timestamp":"2026-07-14 19:25:40"}
+{"durationMs":19,"error":"boom","level":"error","message":"telegram.webhook.background_failed","requestId":"tg_update_99","stack":"Error: boom\n    at Object.<anonymous> (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/.claude/worktrees/latency-p0/tests/unit/controllers/webhook.controller.test.ts:111:64)\n    at Promise.then.completed (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:298:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:231:10)\n    at _callCircusTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:316:40)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at _runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:252:3)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:126:9)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:121:9)\n    at run (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:71:3)\n    at runAndTransformResultsToJestFormat (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)\n    at jestAdapter (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)\n    at runTestInternal (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:367:16)\n    at runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:444:34)\n    at Object.worker (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/testWorker.js:106:12)","timestamp":"2026-07-14 19:25:40","updateId":99}
+{"error":"database unavailable","level":"error","message":"telegram.authorization.database_failed","timestamp":"2026-07-14 19:25:43"}
+{"error":"File path not available","fileId":"file-id","level":"error","message":"Error getting file URL","timestamp":"2026-07-14 19:25:42"}
+{"error":"HTTP 502: Bad Gateway","fileId":"file-id","level":"error","message":"Error downloading file","timestamp":"2026-07-14 19:25:43"}
+{"error":"Bad Request: can't parse entities","level":"warn","message":"telegram.reply.markdown_parse_failed","responseLength":9,"timestamp":"2026-07-14 19:25:43"}
+{"chatId":"[REDACTED_ID]","level":"warn","message":"telegram.edit_message.markdown_parse_failed","messageId":77,"textLength":58,"timestamp":"2026-07-14 19:26:29"}
+{"chatId":"[REDACTED_ID]","error":"network timeout","level":"warn","message":"telegram.edit_message.markdown_parse_failed","messageId":77,"textLength":58,"timestamp":"2026-07-14 19:26:29"}
+{"level":"warn","message":"telegram.update.denied","requestId":"tg_mrkketd6_307m7c","timestamp":"2026-07-14 19:25:40","updateId":1004,"userId":"[REDACTED_ID]"}
+{"level":"warn","message":"telegram.update.denied","requestId":"tg_mrkketcl_xo8byw","timestamp":"2026-07-14 19:25:40","updateId":1002,"userId":"[REDACTED_ID]"}
+{"level":"warn","message":"telegram.update.denied","requestId":"tg_mrkketd0_ba6y87","timestamp":"2026-07-14 19:25:40","updateId":1003,"userId":"[REDACTED_ID]"}
+{"err":{"message":"outer error","name":"Error","stack":"Error: outer error\n    at Object.<anonymous> (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/.claude/worktrees/latency-p0/tests/unit/utils/logger.test.ts:106:19)\n    at Promise.then.completed (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:298:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:231:10)\n    at _callCircusTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:316:40)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at _runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:252:3)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:126:9)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:121:9)\n    at run (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:71:3)\n    at runAndTransformResultsToJestFormat (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)\n    at jestAdapter (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)\n    at runTestInternal (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:367:16)\n    at runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:444:34)\n    at Object.worker (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/testWorker.js:106:12)"},"level":"error","message":"error_chain_test_17032","timestamp":"2026-07-14 19:25:48"}
+{"err":{"message":"outer error","name":"Error","stack":"Error: outer error\n    at Object.<anonymous> (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/tests/unit/utils/logger.test.ts:106:19)\n    at Promise.then.completed (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:298:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:231:10)\n    at _callCircusTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:316:40)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at _runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:252:3)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:126:9)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:121:9)\n    at run (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:71:3)\n    at runAndTransformResultsToJestFormat (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)\n    at jestAdapter (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)\n    at runTestInternal (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:367:16)\n    at runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:444:34)\n    at Object.worker (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/testWorker.js:106:12)"},"level":"error","message":"error_chain_test_17025","timestamp":"2026-07-14 19:25:49"}
+{"big":"9007199254740991","buf":"[Buffer 5 bytes]","fn":"[Function myFunc]","level":"error","marker":"types_test_17032","message":"types_test_17032","sym":"Symbol(test-symbol)","timestamp":"2026-07-14 19:25:52"}
+{"big":"9007199254740991","buf":"[Buffer 5 bytes]","fn":"[Function myFunc]","level":"error","marker":"types_test_17025","message":"types_test_17025","sym":"Symbol(test-symbol)","timestamp":"2026-07-14 19:25:52"}
+{"level":"error","message":"after_restart_17032","recovered":true,"timestamp":"2026-07-14 19:25:56"}
+{"level":"error","message":"after_restart_17025","recovered":true,"timestamp":"2026-07-14 19:25:57"}
+{"level":"error","message":"warmup_for_fallback","timestamp":"2026-07-14 19:25:57"}
+{"level":"error","message":"shutdown_timeout_warmup","timestamp":"2026-07-14 19:26:00"}
+{"level":"error","message":"flush_timeout_warmup","timestamp":"2026-07-14 19:26:00"}
+{"level":"error","message":"shutdown_timeout_warmup","timestamp":"2026-07-14 19:26:00"}
+{"level":"error","message":"flush_timeout_warmup","timestamp":"2026-07-14 19:26:00"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":0,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":1,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":2,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":3,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":4,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":5,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":6,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":7,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":8,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":9,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":10,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":11,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":12,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":13,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":14,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":15,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":16,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":17,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":18,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":19,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":20,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":21,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":22,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":23,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":24,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":25,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":26,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":27,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":28,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":29,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":30,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":31,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":32,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":33,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":34,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":35,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":36,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":37,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":38,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":39,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":40,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":41,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":42,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":43,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":44,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":45,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":46,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":47,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":48,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":49,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":50,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":51,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":52,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":53,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":54,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":55,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":56,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":57,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":58,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":59,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":60,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":61,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":62,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":63,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":64,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":65,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":66,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":67,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":68,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":69,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":70,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":71,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":72,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":73,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":74,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":75,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":76,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":77,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":78,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":79,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":80,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":81,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":82,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":83,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":84,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":85,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":86,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":87,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":88,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":89,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":90,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":91,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":92,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":93,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":94,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":95,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":96,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":97,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":98,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17032_1784028332156","seq":99,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":0,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":1,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":2,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":3,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":4,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":5,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":6,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":7,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":8,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":9,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":10,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":11,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":12,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":13,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":14,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":15,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":16,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":17,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":18,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":19,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":20,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":21,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":22,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":23,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":24,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":25,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":26,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":27,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":28,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":29,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":30,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":31,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":32,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":33,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":34,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":35,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":36,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":37,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":38,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":39,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":40,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":41,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":42,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":43,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":44,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":45,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":46,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":47,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":48,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":49,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":50,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":51,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":52,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":53,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":54,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":55,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":56,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":57,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":58,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":59,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":60,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":61,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":62,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":63,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":64,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":65,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":66,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":67,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":68,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":69,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":70,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":71,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":72,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":73,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":74,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":75,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":76,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":77,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":78,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":79,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":80,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":81,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":82,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":83,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":84,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":85,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":86,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":87,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":88,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":89,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":90,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":91,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":92,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":93,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":94,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":95,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":96,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":97,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":98,"timestamp":"2026-07-14 19:26:02"}
+{"level":"error","message":"ordering_17025_1784028332345","seq":99,"timestamp":"2026-07-14 19:26:02"}
+{"level":"warn","message":"audio.conversion.ffmpeg_timeout","timeoutMs":30000,"timestamp":"2026-07-14 19:26:04","userId":"[REDACTED_ID]"}
+{"level":"error","message":"logger.queue.priority_test","timestamp":"2026-07-14 19:26:24"}
+{"level":"error","message":"logger.queue.priority_test","timestamp":"2026-07-14 19:26:24"}
+{"error":"rich unsupported","level":"warn","message":"telegram.rich.fallback","method":"sendRichMessage","requestId":"cb_mrkkfs3f_sjadtj","telegramFirstName":"Test","telegramUsername":"tester","threadId":"tg_abc_msg123","timestamp":"2026-07-14 19:26:25"}
+{"level":"warn","message":"telegram.callback.confirm.rejected","pendingThreadId":"tg_user_expected","reason":"thread_mismatch","requestId":"cb_mrkkfs3q_73jiru","threadId":"tg_user_other","timestamp":"2026-07-14 19:26:25","userId":"[REDACTED_ID]"}
+{"level":"warn","message":"telegram.callback.confirm.rejected","pendingThreadId":"tg_user_expected","reason":"user_mismatch","requestId":"cb_mrkkfs3r_up0xx5","threadId":"tg_user_expected","timestamp":"2026-07-14 19:26:25","userId":"[REDACTED_ID]"}
+{"decision":"approve","error":"network failure","level":"error","message":"telegram.callback.confirm.failed","requestId":"cb_mrkkfs3s_emk44w","threadId":"tg_abc_msg123","timestamp":"2026-07-14 19:26:25","userId":"[REDACTED_ID]"}
+{"chatId":"[REDACTED_ID]","durationMs":0,"error":"download failed","level":"error","message":"telegram.message.failed","messageType":"document","requestId":"tg_mrkkfrxv_cgu0bg","telegramFirstName":"Test","telegramUsername":"tester","timestamp":"2026-07-14 19:26:25","userId":"[REDACTED_ID]"}
+{"chatId":"[REDACTED_ID]","clarificationMessageId":556,"error":"edit failed","level":"warn","message":"telegram.clarification.collapse_failed","messageId":14,"messageType":"text","method":"editMessageText","requestId":"tg_mrkkfry4_oikfk3","telegramFirstName":"Test","telegramUsername":"tester","timestamp":"2026-07-14 19:26:25","userId":"[REDACTED_ID]"}
+{"chatId":"[REDACTED_ID]","gateKey":"telegram-chat:57fe127d914c5340094559798ef10222","level":"warn","message":"conversation_gate.inconsistent_state","messageId":11,"timestamp":"2026-07-14 19:26:25"}
+{"durationMs":1,"error":"connection refused","level":"error","message":"langgraph.request.failed","path":"/invoke","timestamp":"2026-07-14 19:26:25","userId":"[REDACTED_ID]"}
+{"durationMs":0,"error":"stream unavailable","failureKind":"connection","level":"warn","message":"langgraph.stream.failed","path":"/invoke/stream","streamStarted":false,"timestamp":"2026-07-14 19:26:25","userId":"[REDACTED_ID]"}
+{"durationMs":1,"error":"LangGraph stream ended without a final response","failureKind":"premature_eof","level":"warn","message":"langgraph.stream.failed","path":"/invoke/stream","streamStarted":true,"timestamp":"2026-07-14 19:26:25","userId":"[REDACTED_ID]"}
+{"level":"warn","message":"langgraph.stream.malformed_line","timestamp":"2026-07-14 19:26:25"}
+{"chatId":"[REDACTED_ID]","durationMs":0,"error":"network timeout","level":"error","message":"text_processor.failed","messageId":11,"messageLength":16,"timestamp":"2026-07-14 19:26:25","userId":"[REDACTED_ID]"}
+{"chatId":"[REDACTED_ID]","durationMs":0,"error":"network timeout","level":"error","message":"text_processor.failed","messageId":11,"messageLength":16,"timestamp":"2026-07-14 19:26:25","userId":"[REDACTED_ID]"}
+{"durationMs":100000,"error":"This operation was aborted","failureKind":"overall_timeout","level":"warn","message":"langgraph.stream.failed","path":"/invoke/stream","streamStarted":false,"timestamp":"2026-07-14 19:28:05","userId":"[REDACTED_ID]"}
+{"durationMs":100000,"error":"This operation was aborted","failureKind":"overall_timeout","level":"warn","message":"langgraph.stream.failed","path":"/invoke/stream","streamStarted":true,"timestamp":"2026-07-14 19:28:05","userId":"[REDACTED_ID]"}
+{"error":"File path not available","fileId":"file-id","level":"error","message":"Error getting file URL","timestamp":"2026-07-14 19:26:25"}
+{"error":"HTTP 502: Bad Gateway","fileId":"file-id","level":"error","message":"Error downloading file","timestamp":"2026-07-14 19:26:25"}
+{"decision":"approve","error":"network failure","level":"error","message":"telegram.callback.confirm.failed","requestId":"cb_mrkkfsqh_mnof5l","threadId":"tg_confirm_thread_001","timestamp":"2026-07-14 19:26:26","userId":"[REDACTED_ID]"}
+{"chatId":"[REDACTED_ID]","durationMs":0,"error":"network failure","level":"error","message":"text_processor.failed","messageId":1,"messageLength":5,"timestamp":"2026-07-14 19:26:24","userId":"[REDACTED_ID]"}
+{"error":"store down","gateKey":"telegram-chat:57fe127d914c5340094559798ef10222","level":"error","message":"conversation_gate.store_error","strategy":"fail_open","timestamp":"2026-07-14 19:26:24"}
+{"error":"store down","gateKey":"telegram-chat:57fe127d914c5340094559798ef10222","level":"error","message":"conversation_gate.acquire_error","strategy":"fail_open","timestamp":"2026-07-14 19:26:24"}
+{"chatId":"[REDACTED_ID]","gateKey":"telegram-chat:57fe127d914c5340094559798ef10222","level":"warn","message":"conversation_gate.inconsistent_state","messageId":1,"timestamp":"2026-07-14 19:26:25"}
+{"hasSecret":"[REDACTED]","ip":"127.0.0.1","level":"warn","message":"telegram.webhook.rejected","requestId":"tg_update_1","secretMatches":"[REDACTED]","timestamp":"2026-07-14 19:26:25"}
+{"durationMs":570,"error":"boom","level":"error","message":"telegram.webhook.background_failed","requestId":"tg_update_99","stack":"Error: boom\n    at Object.<anonymous> (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/.claude/worktrees/latency-p0/tests/unit/controllers/webhook.controller.test.ts:111:64)\n    at Promise.then.completed (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:298:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:231:10)\n    at _callCircusTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:316:40)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at _runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:252:3)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:126:9)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:121:9)\n    at run (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:71:3)\n    at runAndTransformResultsToJestFormat (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)\n    at jestAdapter (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)\n    at runTestInternal (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:367:16)\n    at runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:444:34)\n    at Object.worker (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/testWorker.js:106:12)","timestamp":"2026-07-14 19:26:26","updateId":99}
+{"conversionTimeMs":1,"error":"FFmpeg conversion failed: Invalid data found when processing input","level":"error","message":"audio.conversion.failed","originalFormat":"ogg","targetFormat":"mp3","timestamp":"2026-07-14 19:26:25","userId":"[REDACTED_ID]"}
+{"conversionTimeMs":0,"error":"FFmpeg process error: spawn /usr/local/bin/ffmpeg ENOENT","level":"error","message":"audio.conversion.failed","originalFormat":"ogg","targetFormat":"mp3","timestamp":"2026-07-14 19:26:25","userId":"[REDACTED_ID]"}
+{"conversionTimeMs":0,"error":"FFmpeg conversion failed: Invalid data found when processing input","level":"error","message":"audio.conversion.failed","originalFormat":"ogg","targetFormat":"mp3","timestamp":"2026-07-14 19:26:25","userId":"[REDACTED_ID]"}
+{"level":"warn","message":"audio.conversion.ffmpeg_timeout","timeoutMs":30000,"timestamp":"2026-07-14 19:26:55","userId":"[REDACTED_ID]"}
+{"conversionTimeMs":30000,"error":"Audio conversion timed out after 30 seconds","level":"error","message":"audio.conversion.failed","originalFormat":"ogg","targetFormat":"mp3","timestamp":"2026-07-14 19:26:55","userId":"[REDACTED_ID]"}
+{"level":"warn","message":"audio.conversion.ffmpeg_timeout","timeoutMs":30000,"timestamp":"2026-07-14 19:26:55","userId":"[REDACTED_ID]"}
+{"error":"database unavailable","level":"error","message":"telegram.authorization.database_failed","timestamp":"2026-07-14 19:26:26"}
+{"level":"warn","message":"processor.route.unknown_type","messageType":"unsupported","timestamp":"2026-07-14 19:26:26","userId":"[REDACTED_ID]"}
+{"error":"Telegram send failed","level":"warn","message":"audio_processor.transcription_send_failed","timestamp":"2026-07-14 19:26:27","userId":"[REDACTED_ID]"}
+{"error":"Bad Request: can't parse entities","level":"warn","message":"telegram.reply.markdown_parse_failed","responseLength":9,"timestamp":"2026-07-14 19:26:27"}
+{"durationMs":1,"error":"Agent unavailable","level":"warn","message":"audio_processor.text_processing_failed","timestamp":"2026-07-14 19:26:27","transcribedText":"Add a Todoist task to buy milk tomorrow","userId":"[REDACTED_ID]"}
+{"durationMs":9,"error":"Whisper unavailable","level":"error","message":"audio_processor.failed","timestamp":"2026-07-14 19:26:27","userId":"[REDACTED_ID]"}
+{"level":"warn","message":"telegram.update.denied","requestId":"tg_mrkkfs99_x8tvkg","timestamp":"2026-07-14 19:26:25","updateId":1003,"userId":"[REDACTED_ID]"}
+{"level":"warn","message":"telegram.update.denied","requestId":"tg_mrkkfs93_903nxg","timestamp":"2026-07-14 19:26:25","updateId":1002,"userId":"[REDACTED_ID]"}
+{"durationMs":0,"error":"Invalid file format","level":"error","message":"whisper.api.failed","model":"whisper-large-v3","timestamp":"2026-07-14 19:26:24","userId":"[REDACTED_ID]"}
+{"error":"Unsupported audio format. Please use a supported audio file format.","level":"warn","message":"audio.transcription.direct_failed","normalizedFormat":"ogg","originalFormat":"ogg","timestamp":"2026-07-14 19:26:24","userId":"[REDACTED_ID]"}
+{"durationMs":0,"error":"Rate limit exceeded","level":"error","message":"whisper.api.failed","model":"whisper-large-v3","timestamp":"2026-07-14 19:26:24","userId":"[REDACTED_ID]"}
+{"error":"OpenAI API error: Rate limit exceeded","level":"warn","message":"audio.transcription.direct_failed","normalizedFormat":"ogg","originalFormat":"ogg","timestamp":"2026-07-14 19:26:24","userId":"[REDACTED_ID]"}
+{"error":"OpenAI API error: Rate limit exceeded","fileUrl":"[REDACTED_TELEGRAM_FILE_URL]","level":"error","message":"whisper.transcription.failed","processingTimeMs":8,"timestamp":"2026-07-14 19:26:24","userId":"[REDACTED_ID]"}
+{"chatId":"[REDACTED_ID]","level":"warn","message":"telegram.edit_message.markdown_parse_failed","messageId":77,"textLength":58,"timestamp":"2026-07-14 19:27:15"}
+{"chatId":"[REDACTED_ID]","error":"network timeout","level":"warn","message":"telegram.edit_message.markdown_parse_failed","messageId":77,"textLength":58,"timestamp":"2026-07-14 19:27:16"}
+{"level":"error","message":"circular_test_19813","name":"circular_test_19813","self":"[Circular]","timestamp":"2026-07-14 19:26:38"}
+{"level":"error","message":"circular_test_19818","name":"circular_test_19818","self":"[Circular]","timestamp":"2026-07-14 19:26:38"}
+{"error":"rich unavailable","level":"warn","message":"telegram.rich.fallback","method":"sendRichMessage","timestamp":"2026-07-14 19:26:26","userId":"[REDACTED_ID]"}
+{"chatId":"[REDACTED_ID]","error":"network timeout","gateKey":"telegram-chat:56e9abf1799c0f5d28630a01ceffd181","level":"warn","message":"telegram.cancel.agent_cancel_failed","requestId":"req-fail-456","timestamp":"2026-07-14 19:26:26","userId":"[REDACTED_ID]"}
+{"error":"unsupported","level":"warn","message":"telegram.rich.fallback","method":"sendRichMessage","timestamp":"2026-07-14 19:26:28"}
+{"error":"400 Bad Request","level":"warn","message":"telegram.rich.fallback","method":"sendRichMessage","timestamp":"2026-07-14 19:26:28"}
+{"error":"400 Bad Request","level":"warn","message":"telegram.rich.fallback","method":"sendRichMessage","timestamp":"2026-07-14 19:26:28"}
+{"err":{"message":"outer error","name":"Error","stack":"Error: outer error\n    at Object.<anonymous> (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/.claude/worktrees/latency-p0/tests/unit/utils/logger.test.ts:106:19)\n    at Promise.then.completed (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:298:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:231:10)\n    at _callCircusTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:316:40)\n    at _runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:252:3)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:126:9)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:121:9)\n    at run (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:71:3)\n    at runAndTransformResultsToJestFormat (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)\n    at jestAdapter (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)\n    at runTestInternal (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:367:16)\n    at runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:444:34)\n    at Object.worker (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/testWorker.js:106:12)"},"level":"error","message":"error_chain_test_19813","timestamp":"2026-07-14 19:26:49"}
+{"err":{"message":"outer error","name":"Error","stack":"Error: outer error\n    at Object.<anonymous> (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/tests/unit/utils/logger.test.ts:106:19)\n    at Promise.then.completed (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:298:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/utils.js:231:10)\n    at _callCircusTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:316:40)\n    at _runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:252:3)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:126:9)\n    at _runTestsForDescribeBlock (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:121:9)\n    at run (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/run.js:71:3)\n    at runAndTransformResultsToJestFormat (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)\n    at jestAdapter (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)\n    at runTestInternal (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:367:16)\n    at runTest (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/runTest.js:444:34)\n    at Object.worker (/Users/Jerry_YANG_from.TP/Desktop/jarvis-mcp/node_modules/jest-runner/build/testWorker.js:106:12)"},"level":"error","message":"error_chain_test_19818","timestamp":"2026-07-14 19:26:49"}
+{"level":"warn","message":"telegram.update.denied","requestId":"tg_mrkkfs9g_67mc66","timestamp":"2026-07-14 19:26:25","updateId":1004,"userId":"[REDACTED_ID]"}
+{"big":"9007199254740991","buf":"[Buffer 5 bytes]","fn":"[Function myFunc]","level":"error","marker":"types_test_19818","message":"types_test_19818","sym":"Symbol(test-symbol)","timestamp":"2026-07-14 19:27:00"}
+{"big":"9007199254740991","buf":"[Buffer 5 bytes]","fn":"[Function myFunc]","level":"error","marker":"types_test_19813","message":"types_test_19813","sym":"Symbol(test-symbol)","timestamp":"2026-07-14 19:27:00"}
+{"level":"error","message":"pre_crash_warmup","timestamp":"2026-07-14 19:27:11"}
+{"level":"error","message":"pre_crash_warmup","timestamp":"2026-07-14 19:27:11"}
+{"level":"error","message":"warmup_for_fallback","timestamp":"2026-07-14 19:27:18"}
+{"level":"error","message":"warmup_for_fallback","timestamp":"2026-07-14 19:27:18"}
+{"accepted":501,"droppedByLevel":{"debug":1,"error":0,"info":0,"warn":0},"level":"warn","message":"logging.queue.stats","queueHighWater":500,"timestamp":"2026-07-14T11:27:24.396Z"}
+{"accepted":501,"droppedByLevel":{"debug":1,"error":0,"info":0,"warn":0},"level":"warn","message":"logging.queue.stats","queueHighWater":500,"timestamp":"2026-07-14T11:27:24.774Z"}
+{"level":"error","message":"shutdown_timeout_warmup","timestamp":"2026-07-14 19:27:24"}
+{"level":"error","message":"flush_timeout_warmup","timestamp":"2026-07-14 19:27:24"}
+{"level":"error","message":"shutdown_timeout_warmup","timestamp":"2026-07-14 19:27:24"}
+{"level":"error","message":"flush_timeout_warmup","timestamp":"2026-07-14 19:27:24"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":0,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":1,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":2,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":3,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":4,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":5,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":6,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":7,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":8,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":9,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":10,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":11,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":12,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":13,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":14,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":15,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":16,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":17,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":18,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":19,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":20,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":21,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":22,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":23,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":24,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":25,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":26,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":27,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":28,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":29,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":30,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":31,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":32,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":33,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":34,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":35,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":36,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":37,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":38,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":39,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":40,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":41,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":42,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":43,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":44,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":45,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":46,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":47,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":48,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":49,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":50,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":51,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":52,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":53,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":54,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":55,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":56,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":57,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":58,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":59,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":60,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":61,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":62,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":63,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":64,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":65,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":66,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":67,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":68,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":69,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":70,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":71,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":72,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":73,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":74,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":75,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":76,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":77,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":78,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":79,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":80,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":81,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":82,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":83,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":84,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":85,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":86,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":87,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":88,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":89,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":90,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":91,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":92,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":93,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":94,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":95,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":96,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":97,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":98,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19813_1784028384392","seq":99,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":0,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":1,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":2,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":3,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":4,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":5,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":6,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":7,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":8,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":9,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":10,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":11,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":12,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":13,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":14,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":15,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":16,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":17,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":18,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":19,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":20,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":21,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":22,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":23,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":24,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":25,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":26,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":27,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":28,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":29,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":30,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":31,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":32,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":33,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":34,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":35,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":36,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":37,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":38,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":39,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":40,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":41,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":42,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":43,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":44,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":45,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":46,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":47,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":48,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":49,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":50,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":51,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":52,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":53,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":54,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":55,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":56,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":57,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":58,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":59,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":60,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":61,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":62,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":63,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":64,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":65,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":66,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":67,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":68,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":69,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":70,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":71,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":72,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":73,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":74,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":75,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":76,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":77,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":78,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":79,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":80,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":81,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":82,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":83,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":84,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":85,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":86,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":87,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":88,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":89,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":90,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":91,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":92,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":93,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":94,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":95,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":96,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":97,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":98,"timestamp":"2026-07-14 19:27:27"}
+{"level":"error","message":"ordering_19818_1784028384766","seq":99,"timestamp":"2026-07-14 19:27:27"}

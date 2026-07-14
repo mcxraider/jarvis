@@ -1,7 +1,9 @@
 # Ideas
 
 current fixes 
-- Also, if no date specified like "Check govtech events and do..." it should default to only searching for the forward 1 month (30 day) period not everything. 
+- Also, if no date specified like "Check govtech events and do..." it should default to only searching for the forward 1 month (30 day) period not everything. is there a way to limit the number of things that can be fetched by the tool? 
+- Audio messages are sent directly to the transcription service (Groq Whisper) without first-layer validation. Long recordings or oversized files could hit API limits, waste quota, or fail silently.
+- Context window management. Strategy for if context window exceeds a certain point due to large tool calls, need a running number of tokens tracker. 
 
 
 ### Db
@@ -19,11 +21,10 @@ current fixes
 - User query cache (need versioning for preferences schema etc as it may change or maybe everytime they edit preferences then need to scrub their cache). Do this using a hash(user preferences version  + query) cache
 
 ### Reliability
-- if user input is above a certain number of words, reject?
+- if user input is above a certain number of words, need a decomposer, or some form of breakdown router. basically a router for the router. now currently its just V4 flash. 
 - must have a round trip second call validator to check that the tool call resulted in actually deleting or adding to prevent model hallucinations. like after the user approves/ rejects then need to check that the tool call fired/ didnt fire. 
 
 ### Safety
-- detect prompt attacks using rivalAI
 - PII scrub?
 - OpenAI Moderation API + simple regex/rules for prompt injection
 
@@ -39,6 +40,8 @@ current fixes
 
 
 ### Logging
+- Anonymising users data. need strategy. maybe new logger queue. sent for PII scrubbing. 
+  - So user run finishes: All metadata gets sent to the logger. Logging service is a queue that picks it up, post processes it with all the necesary scrubs, then logs it to the databases. 
 
 
 ### Tooling
