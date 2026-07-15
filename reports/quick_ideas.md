@@ -6,7 +6,6 @@ current fixes
 - Context window management. Strategy for if context window exceeds a certain point due to large tool calls, need a running number of tokens tracker. 
 - 
 
-
 ### Db
 - Setup OAuth process. Can just be code for now, run on my laptop. or rather, a script that i have. 
   - Setup Oauth script for: todoist, google calendar.
