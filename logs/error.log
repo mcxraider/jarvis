@@ -2518,3 +2518,5 @@
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-15 14:51:04"}
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-15 14:51:04"}
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-15 14:51:04"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-15 16:49:23"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-15 16:49:23"}
