@@ -2506,3 +2506,10 @@
 {"level":"error","message":"ordering_19818_1784028384766","seq":97,"timestamp":"2026-07-14 19:27:27"}
 {"level":"error","message":"ordering_19818_1784028384766","seq":98,"timestamp":"2026-07-14 19:27:27"}
 {"level":"error","message":"ordering_19818_1784028384766","seq":99,"timestamp":"2026-07-14 19:27:27"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-15 12:32:02"}
+{"chatId":"[REDACTED_ID]","durationMs":52,"error":"fetch failed","level":"warn","message":"langgraph.stream.failed","messageId":1463,"messageType":"text","path":"/invoke/stream","requestId":"tg_update_564452592","streamStarted":false,"telegramFirstName":"jerry","telegramUsername":"jer_jerryyy","timestamp":"2026-07-15 12:32:34","updateId":564452592,"userId":"[REDACTED_ID]"}
+{"chatId":"[REDACTED_ID]","durationMs":4,"error":"fetch failed","level":"error","message":"langgraph.request.failed","messageId":1463,"messageType":"text","path":"/invoke","requestId":"tg_update_564452592","telegramFirstName":"jerry","telegramUsername":"jer_jerryyy","timestamp":"2026-07-15 12:32:34","updateId":564452592,"userId":"[REDACTED_ID]"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-15 12:41:32"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-15 12:41:32"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-15 12:41:32"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-15 12:45:39"}
