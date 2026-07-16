@@ -1,9 +1,11 @@
 """Summarization node: condenses large tool outputs before returning to agent."""
 
+import asyncio
 import inspect
 import json
 import os
 import threading
+import weakref
 from collections import Counter
 from typing import Any, Dict, List, Optional, Set
 
@@ -29,6 +31,7 @@ from agents.agent_api.app.constants import (
     DEEPSEEK_BASE_URL,
     SUMMARIZE_THRESHOLD,
     SUMMARIZER_MAX_RETRY_ATTEMPTS,
+    SUMMARIZER_MAX_CONCURRENCY,
     SUMMARIZER_MAX_TOKENS_CEILING,
     SUMMARIZER_MIN_ID_COVERAGE,
     SUMMARIZER_MODEL,
@@ -39,6 +42,37 @@ from agents.agent_api.app.graph.extractors import extract_list_from_content
 from agents.agent_api.app.graph.run_deps import RunDeps, deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
+
+Candidate = tuple[int, List[Any], Any]
+
+_summarizer_limiters: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop,
+    dict[int, asyncio.Semaphore],
+] = weakref.WeakKeyDictionary()
+_summarizer_limiters_lock = threading.Lock()
+
+
+def _summarizer_limiter(max_concurrency: int) -> asyncio.Semaphore:
+    """Share one concurrency budget across all runs on the current event loop."""
+
+    if max_concurrency <= 0:
+        raise ValueError("max_concurrency must be greater than zero")
+    loop = asyncio.get_running_loop()
+    with _summarizer_limiters_lock:
+        by_limit = _summarizer_limiters.setdefault(loop, {})
+        limiter = by_limit.get(max_concurrency)
+        if limiter is None:
+            limiter = asyncio.Semaphore(max_concurrency)
+            by_limit[max_concurrency] = limiter
+        return limiter
+
+
+def reset_summarizer_limiters() -> None:
+    """Forget drained loop-owned limiters during shutdown and test isolation."""
+
+    with _summarizer_limiters_lock:
+        _summarizer_limiters.clear()
+
 
 SUMMARIZE_SYSTEM_PROMPT = """\
 You are a query-aware task summarizer for Jarvis, a Todoist assistant.
@@ -209,6 +243,7 @@ def create_summarize_node(
     *,
     client: Optional[Any] = None,
     model: str = SUMMARIZER_MODEL,
+    max_concurrency: int = SUMMARIZER_MAX_CONCURRENCY,
 ):
     """Create an async node over a shared, request-stateless SDK client."""
 
@@ -217,6 +252,9 @@ def create_summarize_node(
     # Resolve the process-wide transport only if a result actually needs LLM
     # summarization; failures still take the deterministic fallback below.
     summarizer_client = client
+
+    if max_concurrency <= 0:
+        raise ValueError("max_concurrency must be greater than zero")
 
     def _call_summarizer(
         items: List[Any],
@@ -412,7 +450,7 @@ def create_summarize_node(
         if not messages:
             return {"next": "agent"}
 
-        summarized_any = False
+        candidates: List[Candidate] = []
         for i in range(len(messages) - 1, -1, -1):
             msg = messages[i]
             if msg.get("role") != "tool":
@@ -459,39 +497,56 @@ def create_summarize_node(
                 item_count=item_count,
             )
 
-            injected_create = (
-                getattr(summarizer_client.chat.completions, "create", None)
-                if summarizer_client is not None
-                else None
-            )
-            if summarizer_client is None or inspect.iscoroutinefunction(injected_create):
-                summary = await _async_call_summarizer(
-                    items,
-                    user_query=user_query,
-                    tracer=tracer,
-                    client=summarizer_client,
+            candidates.append((i, items, parsed))
+
+        # The backward scan is useful for finding only the trailing tool batch,
+        # but schedule oldest-first so shared permits are fair across message order.
+        candidates.reverse()
+
+        async def summarize_candidate(items: List[Any]) -> str:
+            async with _summarizer_limiter(max_concurrency):
+                injected_create = (
+                    getattr(summarizer_client.chat.completions, "create", None)
+                    if summarizer_client is not None
+                    else None
                 )
-            else:
-                # Injected clients predate the async transport and remain useful
-                # for CLI integrations and deterministic tests. Run the complete
-                # retry/validation operation in the bounded compatibility pool.
-                summary = await bounded_to_thread(
+                if summarizer_client is None or inspect.iscoroutinefunction(
+                    injected_create
+                ):
+                    return await _async_call_summarizer(
+                        items,
+                        user_query=user_query,
+                        tracer=tracer,
+                        client=summarizer_client,
+                    )
+                # Sync-only injected clients remain a compatibility seam. The
+                # existing bounded offload pool is used directly; no nested
+                # ThreadPoolExecutor is created.
+                return await bounded_to_thread(
                     _call_summarizer,
                     items,
                     user_query=user_query,
                     tracer=tracer,
                 )
 
-            messages[i] = dict(messages[i])
+        summaries = await asyncio.gather(
+            *(summarize_candidate(items) for _index, items, _parsed in candidates)
+        )
+        for (index, items, parsed), summary in zip(candidates, summaries):
+            messages[index] = dict(messages[index])
             if isinstance(parsed, dict):
-                parsed["content"] = summary
-                parsed["summarized"] = True
-                parsed["original_item_count"] = item_count
-                messages[i]["content"] = json.dumps(parsed, default=str)
+                updated_envelope = dict(parsed)
+                updated_envelope["content"] = summary
+                updated_envelope["summarized"] = True
+                updated_envelope["original_item_count"] = len(items)
+                messages[index]["content"] = json.dumps(
+                    updated_envelope,
+                    default=str,
+                )
             else:
-                messages[i]["content"] = summary
+                messages[index]["content"] = summary
 
-            summarized_any = True
+        summarized_any = bool(candidates)
 
         if summarized_any:
             tracer.event("graph.summarize.done", "Summarization complete.")
@@ -512,4 +567,5 @@ __all__ = [
     "create_summarize_node",
     "get_shared_async_summarizer_client",
     "get_shared_summarizer_client",
+    "reset_summarizer_limiters",
 ]

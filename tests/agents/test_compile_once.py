@@ -364,15 +364,17 @@ def test_async_runner_resumes_with_command_and_same_thread() -> None:
 def test_injected_agent_legacy_usage_is_preserved() -> None:
     agent = _FakeAgent("answer")
 
-    with patch.object(builder, "_log_usage") as log_usage:
+    with patch.object(builder, "submit_post_run_job", return_value=True) as submit:
         builder.run_jarvis(
             user_prompt="prompt",
             agent_client=agent,
             todoist_client=_FakeTodoist(),
             tracer=NULL_TRACE,
+            identity=telegram_identity(42),
         )
 
-    usage = log_usage.call_args.args[2]
+    assert submit.call_args.args[0] is builder._persist_post_run_metadata
+    usage = submit.call_args.args[6]
     assert usage.as_dict() == {
         "prompt_tokens": 1,
         "completion_tokens": 1,

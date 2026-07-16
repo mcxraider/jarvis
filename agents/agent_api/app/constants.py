@@ -24,6 +24,7 @@ SUMMARIZER_MAX_RETRY_ATTEMPTS = settings.summarizer_max_retry_attempts
 SUMMARIZER_RETRY_MAX_DELAY_SECONDS = settings.summarizer_retry_max_delay_seconds
 SUMMARIZER_MIN_ID_COVERAGE = settings.summarizer_min_id_coverage
 SUMMARIZER_MAX_TOKENS_CEILING = settings.summarizer_max_tokens_ceiling
+SUMMARIZER_MAX_CONCURRENCY = settings.summarizer_max_concurrency
 
 EXECUTOR_MAX_WORKERS = settings.executor_max_workers
 EXECUTOR_BATCH_TIMEOUT_SECONDS = settings.executor_batch_timeout_seconds
@@ -72,6 +73,7 @@ __all__ = [
     "SUMMARIZER_RETRY_MAX_DELAY_SECONDS",
     "SUMMARIZER_MIN_ID_COVERAGE",
     "SUMMARIZER_MAX_TOKENS_CEILING",
+    "SUMMARIZER_MAX_CONCURRENCY",
     "EXECUTOR_MAX_WORKERS",
     "EXECUTOR_BATCH_TIMEOUT_SECONDS",
     "EXECUTOR_CIRCUIT_BREAKER_THRESHOLD",

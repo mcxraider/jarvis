@@ -81,6 +81,7 @@ async def lifespan(_app: FastAPI):
         reset_compiled_graphs,
     )
     from agents.agent_api.app.run_logging import cleanup_old_logs, LOG_DIR
+    from agents.agent_api.app.post_run import shutdown_post_run_jobs
 
     cleanup_task: asyncio.Task[None] | None = None
     primary_error: BaseException | None = None
@@ -129,11 +130,13 @@ async def lifespan(_app: FastAPI):
         from agents.agent_api.app.graph.nodes.summarize import (
             close_shared_async_summarizer_client,
             close_shared_summarizer_client,
+            reset_summarizer_limiters,
         )
         from agents.agent_api.app.router.client import (
             close_shared_async_router_openai_client,
             close_shared_router_client,
         )
+        from agents.agent_api.app.router.cache import reset_router_cache
         from agents.agent_api.app.run_logging import shutdown_run_logs
         from agents.agent_api.app.tools.todoist.client import (
             close_todoist_async_http_client,
@@ -157,6 +160,25 @@ async def lifespan(_app: FastAPI):
         except BaseException as error:
             workers_drained = False
             cleanup_errors.append(error)
+        post_run_drained = True
+        if workers_drained:
+            try:
+                post_run_drained = await shutdown_post_run_jobs(
+                    STREAM_WORKER_DRAIN_TIMEOUT_SECONDS
+                )
+                if not post_run_drained:
+                    cleanup_errors.append(
+                        TimeoutError(
+                            "Post-run metadata did not drain before shutdown."
+                        )
+                    )
+            except BaseException as error:
+                post_run_drained = False
+                cleanup_errors.append(error)
+        else:
+            # A producer may still enqueue post-run work, so the worker cannot be
+            # stopped safely yet. The producer error below retains all resources.
+            post_run_drained = False
         offloads_drained = True
         try:
             offloads_drained = await drain_offloads(
@@ -171,7 +193,7 @@ async def lifespan(_app: FastAPI):
         except BaseException as error:
             offloads_drained = False
             cleanup_errors.append(error)
-        if not workers_drained or not offloads_drained:
+        if not workers_drained or not post_run_drained or not offloads_drained:
             # Neither native producers nor ``to_thread`` work can be force-closed
             # safely once a mutation may be in flight. Leave every dependent
             # transport/pool intact rather than closing underneath accepted work.
@@ -190,6 +212,10 @@ async def lifespan(_app: FastAPI):
                 await asyncio.to_thread(close_resource)
             except BaseException as error:
                 cleanup_errors.append(error)
+        try:
+            reset_summarizer_limiters()
+        except BaseException as error:
+            cleanup_errors.append(error)
         for close_resource in (
             close_shared_async_agent_client,
             close_shared_async_router_openai_client,
@@ -219,6 +245,10 @@ async def lifespan(_app: FastAPI):
         # before closing a lifespan-owned Postgres pool.
         try:
             reset_compiled_graphs()
+        except BaseException as error:
+            cleanup_errors.append(error)
+        try:
+            reset_router_cache()
         except BaseException as error:
             cleanup_errors.append(error)
         if async_checkpointer is not None:
