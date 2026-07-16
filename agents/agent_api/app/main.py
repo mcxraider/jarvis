@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
@@ -58,14 +58,65 @@ async def lifespan(_app: FastAPI):
     try:
         yield
     finally:
+        cleanup_errors: list[BaseException] = []
         cleanup_task.cancel()
-        with suppress(asyncio.CancelledError):
+        try:
             await cleanup_task
+        except asyncio.CancelledError:
+            pass
+        except BaseException as error:
+            cleanup_errors.append(error)
         from agents.agent_api.app.db import close_pool
+        from agents.agent_api.app.api.routes.invoke import (
+            STREAM_WORKER_DRAIN_TIMEOUT_SECONDS,
+            drain_stream_workers,
+        )
         from agents.agent_api.app.run_logging import shutdown_run_logs
+        from agents.agent_api.app.tools.todoist.client import (
+            close_todoist_async_http_client,
+            close_todoist_http_client,
+        )
 
-        close_pool()
-        await asyncio.to_thread(shutdown_run_logs, timeout=5.0)
+        # Workers can outlive disconnected streaming responses. Drain them before
+        # closing shared resources, then attempt every cleanup without allowing a
+        # later failure to hide an earlier one.
+        try:
+            workers_drained = await asyncio.to_thread(
+                drain_stream_workers,
+                timeout=STREAM_WORKER_DRAIN_TIMEOUT_SECONDS,
+            )
+            if not workers_drained:
+                cleanup_errors.append(
+                    TimeoutError(
+                        "Active streaming workers did not drain before shutdown."
+                    )
+                )
+        except BaseException as error:
+            cleanup_errors.append(error)
+        try:
+            await asyncio.to_thread(shutdown_run_logs, timeout=5.0)
+        except BaseException as error:
+            cleanup_errors.append(error)
+        try:
+            await asyncio.to_thread(close_todoist_http_client)
+        except BaseException as error:
+            cleanup_errors.append(error)
+        try:
+            await close_todoist_async_http_client()
+        except BaseException as error:
+            cleanup_errors.append(error)
+        try:
+            close_pool()
+        except BaseException as error:
+            cleanup_errors.append(error)
+
+        if len(cleanup_errors) == 1:
+            raise cleanup_errors[0]
+        if cleanup_errors:
+            raise BaseExceptionGroup(
+                "Jarvis shutdown encountered multiple cleanup failures.",
+                cleanup_errors,
+            )
 
 
 def create_app() -> FastAPI:

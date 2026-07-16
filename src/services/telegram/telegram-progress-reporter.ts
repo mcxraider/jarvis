@@ -30,17 +30,17 @@ export class TelegramProgressReporter {
     this.started = true;
     this.narrator.start();
     await this.paintDue();
-    this.startTimer();
+    if (!this.completed) this.startTimer();
   }
 
   async startTranscribing(): Promise<void> { await this.start(); }
   async endTranscribing(): Promise<void> { return; }
   async beginAgentPhase(): Promise<void> { await this.start(); }
 
-  async record(event: LangGraphProgressEvent): Promise<void> {
-    if (this.completed || !event.fact) return;
+  async record(event: LangGraphProgressEvent, signal?: AbortSignal): Promise<void> {
+    if (this.completed || signal?.aborted || !event.fact) return;
     this.narrator.record(event.fact);
-    await this.paintDue();
+    await this.paintDue(signal);
   }
 
   async complete(_status: 'Done' | 'Paused for confirmation' | 'Paused for clarification' | 'Something went wrong'): Promise<void> {
@@ -54,19 +54,20 @@ export class TelegramProgressReporter {
     if (!this.timer) this.timer = setInterval(() => void this.paintDue(), TICK_INTERVAL_MS);
   }
 
-  private async paintDue(): Promise<void> {
-    if (this.completed || this.paintInFlight) return;
+  private async paintDue(signal?: AbortSignal): Promise<void> {
+    if (this.completed || signal?.aborted || this.paintInFlight) return;
     const label = this.narrator.next();
     if (!label) return;
     this.paintInFlight = true;
     try {
-      await this.paint(label);
+      await this.paint(label, signal);
     } finally {
       this.paintInFlight = false;
     }
   }
 
-  private async paint(label: string): Promise<void> {
+  private async paint(label: string, signal?: AbortSignal): Promise<void> {
+    if (this.completed || signal?.aborted) return;
     if (this.richActive && this.ctx.chat) {
       try {
         this.draftId = this.draftId || newDraftId();
@@ -82,16 +83,27 @@ export class TelegramProgressReporter {
       await editMessageTextWithMarkdown(this.ctx.telegram.editMessageText.bind(this.ctx.telegram), this.ctx.chat.id, this.statusMessage.message_id, label, {}, this.logContext).catch((error) => logger.warn('telegram.progress.edit_failed', { ...this.logContext, error: String(error) }));
       return;
     }
-    this.statusMessage = await replyWithMarkdown(this.ctx.reply.bind(this.ctx), label, this.logContext).catch((error) => {
+    const message = await replyWithMarkdown(this.ctx.reply.bind(this.ctx), label, this.logContext).catch((error) => {
       logger.warn('telegram.progress.start_failed', { ...this.logContext, error: String(error) });
-      return undefined as unknown as Message.TextMessage;
+      return undefined;
     });
+    if (!message) return;
+    if (this.completed || signal?.aborted) {
+      await this.deletePlainStatus(message);
+      return;
+    }
+    this.statusMessage = message;
   }
 
   private async removePlainStatus(): Promise<void> {
     const message = this.statusMessage;
     this.statusMessage = undefined;
-    if (!message || !this.ctx.chat || !('deleteMessage' in this.ctx.telegram)) return;
+    if (!message) return;
+    await this.deletePlainStatus(message);
+  }
+
+  private async deletePlainStatus(message: Message.TextMessage): Promise<void> {
+    if (!this.ctx.chat || !('deleteMessage' in this.ctx.telegram)) return;
     await this.ctx.telegram.deleteMessage(this.ctx.chat.id, message.message_id).catch((error) => logger.warn('telegram.progress.delete_failed', { ...this.logContext, error: String(error) }));
   }
 }

@@ -32,32 +32,37 @@ def resume(
         x_jarvis_agent_key,
         charges_new_thread_quota=False,
         require_thread_ownership=True,
+        admit_run=True,
     )
-    if ctx.cached_response is not None:
-        return ctx.cached_response
     try:
-        result = run_jarvis(
-            user_prompt=request.message,
-            user_id=request.user_id,
-            request_source=ctx.request_source,
-            allow_mutations=allow_mutations(request.allow_mutations),
-            tracer=NULL_TRACE,
-            thread_id=request.thread_id,
-            identity=ctx.identity,
-            clarification_reply=request.message,
-            request_id=request.request_id,
-        )
-        response = to_response(result)
-        finish_idempotent_request(ctx.claim, response)
-        return response
-    except Exception as error:
-        idempotency.abandon_idempotent_request(ctx.claim)
-        return AgentResponse(
-            status="failed",
-            thread_id=request.thread_id,
-            response="Jarvis is temporarily unavailable. Please try again in a moment.",
-            error=str(error),
-        )
+        if ctx.cached_response is not None:
+            return ctx.cached_response
+        try:
+            result = run_jarvis(
+                user_prompt=request.message,
+                user_id=request.user_id,
+                request_source=ctx.request_source,
+                allow_mutations=allow_mutations(request.allow_mutations),
+                tracer=NULL_TRACE,
+                thread_id=request.thread_id,
+                identity=ctx.identity,
+                clarification_reply=request.message,
+                request_id=request.request_id,
+            )
+            response = to_response(result)
+            finish_idempotent_request(ctx.claim, response)
+            return response
+        except Exception as error:
+            idempotency.abandon_idempotent_request(ctx.claim)
+            return AgentResponse(
+                status="failed",
+                thread_id=request.thread_id,
+                response="Jarvis is temporarily unavailable. Please try again in a moment.",
+                error=str(error),
+            )
+    finally:
+        if ctx.run_slot is not None:
+            ctx.run_slot.release()
 
 
 @router.post("/resume/stream")
@@ -71,8 +76,11 @@ def resume_stream(
         x_jarvis_agent_key,
         charges_new_thread_quota=False,
         require_thread_ownership=True,
+        admit_run=True,
     )
     if ctx.cached_response is not None:
+        if ctx.run_slot is not None:
+            ctx.run_slot.release()
         return stream_final_response(ctx.cached_response)
 
     def run_with_tracer(tracer: UserProgressTracePrinter):
@@ -88,4 +96,8 @@ def resume_stream(
             request_id=request.request_id,
         )
 
-    return stream_agent_run(run_with_tracer, request_claim=ctx.claim)
+    return stream_agent_run(
+        run_with_tracer,
+        request_claim=ctx.claim,
+        run_slot=ctx.run_slot,
+    )
