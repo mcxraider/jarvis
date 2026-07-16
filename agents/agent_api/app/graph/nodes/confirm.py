@@ -7,8 +7,10 @@ to the executor (on approve) or END (on decline).
 
 from typing import List, Optional
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
+from agents.agent_api.app.graph.run_deps import RunDeps, deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.metadata import get_meta, get_service, get_verb, irreversible_tools
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
@@ -89,9 +91,18 @@ def render_batch_summary(held_calls: List[dict]) -> str:
 def create_confirm_node(tracer: Optional[TracePrinter] = None):
     """Create the graph node that pauses for user approval of risky actions."""
 
-    tracer = tracer or NULL_TRACE
+    _captured = RunDeps(tracer=tracer or NULL_TRACE)
 
-    def confirm_node(state: JarvisState) -> JarvisState:
+    def confirm_node(
+        state: JarvisState,
+        config: RunnableConfig | None = None,
+    ) -> JarvisState:
+        deps = deps_from_config(config)
+        tracer = (
+            deps.tracer
+            if deps is not None and deps.tracer is not None
+            else _captured.tracer
+        )
         held_calls = state.get("held_calls") or []
         # Migration shim: support old singular held_call field
         if not held_calls and state.get("held_call"):

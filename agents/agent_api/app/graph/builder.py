@@ -1,6 +1,7 @@
 """LangGraph builder: graph factory, initial state, and the run entrypoint."""
 
 import logging
+import threading
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -28,9 +29,9 @@ from agents.agent_api.app.graph.nodes.confirm import create_confirm_node
 from agents.agent_api.app.graph.nodes.executor import create_executor_node
 from agents.agent_api.app.graph.nodes.hitl import create_hitl_node
 from agents.agent_api.app.graph.nodes.orchestrator import (
-    DeepSeekAgentClient,
     UsageSummary,
     create_agent_node,
+    get_shared_agent_client,
 )
 from agents.agent_api.app.router.model_router import ModelRouter, create_default_model_router
 from agents.agent_api.app.graph.nodes.prepare_confirm import create_prepare_confirm_node
@@ -41,6 +42,7 @@ from agents.agent_api.app.graph.prompts import (
     USER_PROMPT,
     build_initial_messages,
 )
+from agents.agent_api.app.graph.run_deps import RunDeps
 from agents.agent_api.app.graph.state import JarvisState, enrich_interrupt_status
 from agents.agent_api.app.idempotency import DEFAULT_IDEMPOTENCY_STORE, IdempotencyStore
 from agents.agent_api.app.pricing import (
@@ -236,13 +238,14 @@ def _log_usage(
 
 
 def create_jarvis_graph(
-    agent_client: Any,
-    tool_dispatcher: ToolDispatcher,
+    agent_client: Any = None,
+    tool_dispatcher: Optional[ToolDispatcher] = None,
     max_agent_turns: int = MAX_AGENT_TURNS,
     tracer: Optional[TracePrinter] = None,
     checkpointer: Any = _USE_DEFAULT_CHECKPOINTER,
     tool_selector: Optional[ToolSelector] = None,
     model_router: Optional[ModelRouter] = None,
+    usage_accumulator: Optional[UsageSummary] = None,
 ):
     """Create the Jarvis LangGraph app from declarative node specs.
 
@@ -256,7 +259,10 @@ def create_jarvis_graph(
     tracer = tracer or NULL_TRACE
     if checkpointer is _USE_DEFAULT_CHECKPOINTER:
         checkpointer = DEFAULT_CHECKPOINTER
-    registry = tool_dispatcher.registry
+    # A production graph is compiled without request objects. Nodes resolve those
+    # objects from RunDeps in the invocation config; these values remain as direct-
+    # call/Studio fallbacks for compatibility with existing tests and tooling.
+    registry = tool_dispatcher.registry if tool_dispatcher is not None else None
 
     node_specs = [
         NodeSpec(
@@ -268,6 +274,7 @@ def create_jarvis_graph(
                 tracer,
                 tool_selector=tool_selector,
                 model_router=model_router,
+                usage_accumulator=usage_accumulator,
             ),
             router=route_after_agent,
             route_map={
@@ -313,6 +320,40 @@ def create_jarvis_graph(
     ]
 
     return build_graph(JarvisState, node_specs, entry="agent", checkpointer=checkpointer)
+
+
+_compiled_graphs: dict[int, tuple[Any, Any]] = {}
+_compiled_graphs_lock = threading.Lock()
+
+
+def get_or_compile_graph(checkpointer: Any = _USE_DEFAULT_CHECKPOINTER) -> Any:
+    """Return the shared compiled topology for a checkpointer.
+
+    Request-scoped clients, routing, tracing, and mutation policy are supplied in
+    ``RunDeps`` on each invocation, so reusing the compiled topology cannot bind one
+    user's runtime objects into another run. Retaining the checkpointer alongside
+    the graph prevents its object id from being recycled while the entry is cached.
+    """
+
+    if checkpointer is _USE_DEFAULT_CHECKPOINTER:
+        checkpointer = DEFAULT_CHECKPOINTER
+    key = id(checkpointer)
+    cached = _compiled_graphs.get(key)
+    if cached is not None:
+        return cached[1]
+    with _compiled_graphs_lock:
+        cached = _compiled_graphs.get(key)
+        if cached is None:
+            cached = (checkpointer, create_jarvis_graph(checkpointer=checkpointer))
+            _compiled_graphs[key] = cached
+        return cached[1]
+
+
+def reset_compiled_graphs() -> None:
+    """Clear the compiled-graph cache for deterministic test isolation."""
+
+    with _compiled_graphs_lock:
+        _compiled_graphs.clear()
 
 
 def build_initial_state(
@@ -413,9 +454,9 @@ def _resolve_tool_selector(
     )
     if use_router:
         try:
-            from agents.agent_api.app.router.client import RouterClient
+            from agents.agent_api.app.router.client import get_shared_router_client
 
-            router_client = RouterClient(tracer=tracer)
+            router_client = get_shared_router_client().with_tracer(tracer)
         except Exception as error:  # noqa: BLE001 — router must never fail the run
             tracer.event(
                 "router.disabled",
@@ -539,8 +580,11 @@ def run_jarvis(
     tracer.progress({"phase": "request", "action": "started"})
     tracer.payload("runtime.prompt", "user_prompt", user_prompt)
 
-    agent_client = agent_client or DeepSeekAgentClient(tracer=tracer)
-    agent_client = _retarget_tracer(agent_client, tracer)
+    if agent_client is None:
+        agent_client = get_shared_agent_client(tracer=tracer)
+    else:
+        agent_client = _retarget_tracer(agent_client, tracer)
+    run_usage = UsageSummary()
     offline_tool_names: Optional[list] = None
     if runtime_context is not None:
         registry, run_clients, tool_names_by_provider = build_runtime_registry(
@@ -585,17 +629,19 @@ def run_jarvis(
         complex_reasoning=settings.model_router_complex_reasoning,
         multi_domain_reasoning=settings.model_router_multi_domain_reasoning,
     )
-    app = create_jarvis_graph(
-        agent_client,
-        dispatcher,
-        max_agent_turns=max_agent_turns,
+    run_deps = RunDeps(
+        agent_client=agent_client,
+        registry=registry,
+        dispatcher=dispatcher,
         tracer=tracer,
-        checkpointer=checkpointer,
         tool_selector=tool_selector,
         model_router=model_router,
+        usage_accumulator=run_usage,
+        max_agent_turns=max_agent_turns,
     )
+    app = get_or_compile_graph(checkpointer)
     config = {
-        "configurable": {"thread_id": thread_id},
+        "configurable": {"thread_id": thread_id, "deps": run_deps},
         "run_name": run_name,
         "tags": [*LANGSMITH_TAGS, invocation_type],
         "metadata": {
@@ -656,7 +702,15 @@ def run_jarvis(
     thread_status = "interrupted" if result.get("interrupted") else "completed"
     _register_thread(thread_id, identity, user_prompt, thread_status, resuming)
 
-    usage: UsageSummary = getattr(agent_client, "usage", None) or UsageSummary()
+    # Production DeepSeek clients write into the explicitly run-scoped
+    # accumulator. Preserve compatibility with injected/duck-typed clients that
+    # expose only their legacy ``usage`` attribute.
+    client_usage = getattr(agent_client, "usage", None)
+    usage = (
+        run_usage
+        if any(run_usage.as_dict().values()) or client_usage is None
+        else client_usage
+    )
     finished_at = datetime.now()
     tracer.event(
         "runtime.done",
@@ -710,4 +764,10 @@ def run_jarvis(
     return result
 
 
-__all__ = ["build_initial_state", "create_jarvis_graph", "run_jarvis"]
+__all__ = [
+    "build_initial_state",
+    "create_jarvis_graph",
+    "get_or_compile_graph",
+    "reset_compiled_graphs",
+    "run_jarvis",
+]

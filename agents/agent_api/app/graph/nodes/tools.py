@@ -3,8 +3,9 @@
 import copy
 from typing import Optional
 
-from langgraph.prebuilt import ToolNode
+from langchain_core.runnables import RunnableConfig
 
+from agents.agent_api.app.graph.run_deps import RunDeps, deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.dispatcher import (
     build_tool_result,
@@ -38,18 +39,34 @@ def _progress_domain(tool_name: str) -> Optional[str]:
 
 
 def create_tools_node(
-    tool_dispatcher: ToolDispatcher,
+    tool_dispatcher: Optional[ToolDispatcher] = None,
     tracer: Optional[TracePrinter] = None,
 ):
     """Create the graph node that executes requested tools and records results."""
 
-    tracer = tracer or NULL_TRACE
-    tool_node = ToolNode(
-        tool_dispatcher.build_langchain_tools(),
-        handle_tool_errors=True,
-    )
+    _captured = RunDeps(dispatcher=tool_dispatcher, tracer=tracer or NULL_TRACE)
 
-    def tools_node(state: JarvisState) -> JarvisState:
+    def tools_node(
+        state: JarvisState,
+        config: RunnableConfig | None = None,
+    ) -> JarvisState:
+        deps = deps_from_config(config)
+        dispatcher_deps = (
+            deps
+            if deps is not None and deps.dispatcher is not None
+            else _captured
+        )
+        tool_dispatcher = dispatcher_deps.dispatcher
+        tracer = (
+            deps.tracer
+            if deps is not None and deps.tracer is not None
+            else _captured.tracer
+        )
+        if tool_dispatcher is None:
+            raise RuntimeError(
+                "Tools node requires a dispatcher from RunDeps or captured fallbacks."
+            )
+        tool_node = dispatcher_deps.get_tool_node()
         messages = copy.deepcopy(state.get("messages", []))
         latest_message = messages[-1] if messages else {}
         tool_calls = latest_message.get("tool_calls") or []

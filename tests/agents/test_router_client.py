@@ -6,8 +6,11 @@ extra surface is response parsing — a malformed or schema-invalid body must fa
 terminally (non-retryable) so the caller falls back to the static selector.
 """
 
+import asyncio
 import os
-from unittest.mock import MagicMock, patch
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -26,9 +29,18 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, RateLimi
 # Patch wrap_openai before importing the client so it does not decorate the
 # OpenAI client with actual LangSmith instrumentation during tests.
 with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
-    from agents.agent_api.app.router.client import RouterClient, RouterClientError
+    from agents.agent_api.app.router import client as router_client_module
+    from agents.agent_api.app.router.client import (
+        RouterClient,
+        RouterClientError,
+        close_shared_async_router_openai_client,
+        close_shared_router_client,
+        get_shared_async_router_openai_client,
+        get_shared_router_client,
+    )
     from agents.agent_api.app.router.prompt import RouterDecision
 
+from agents.agent_api.app.graph.nodes.orchestrator import UsageSummary
 from tests.agents.runtime_helpers import make_snapshot
 
 
@@ -41,6 +53,15 @@ NO_SLEEP = lambda _: None  # noqa: E731 — skip real delays in retry loops
 VALID_DECISION_JSON = '{"outcome": "routed", "domains": ["todoist"], "uncertain": false, "candidate_domains": [], "complexity": "low", "reasoning": "task"}'
 
 SNAPSHOT = make_snapshot()
+
+
+@pytest.fixture(autouse=True)
+def _reset_shared_router_clients():
+    close_shared_router_client()
+    asyncio.run(close_shared_async_router_openai_client())
+    yield
+    close_shared_router_client()
+    asyncio.run(close_shared_async_router_openai_client())
 
 
 def make_response(content=VALID_DECISION_JSON, prompt_tokens=12, completion_tokens=6, cached_tokens=0):
@@ -530,7 +551,31 @@ class TestSuccessfulDecision:
 
 
 class TestUsageAccumulation:
-    def test_usage_accumulates_across_calls(self):
+    def test_usage_accumulates_only_in_explicit_per_run_context(self):
+        client = build_client()
+        first_run = UsageSummary()
+        second_run = UsageSummary()
+        with patch.object(
+            client.client.chat.completions,
+            "create",
+            side_effect=[
+                make_response(prompt_tokens=12, completion_tokens=6),
+                make_response(prompt_tokens=20, completion_tokens=8),
+            ],
+        ):
+            client.classify(
+                "add buy milk", SNAPSHOT, usage_accumulator=first_run
+            )
+            client.classify(
+                "add buy milk", SNAPSHOT, usage_accumulator=second_run
+            )
+        assert first_run.prompt_tokens == 12
+        assert first_run.completion_tokens == 6
+        assert second_run.prompt_tokens == 20
+        assert second_run.completion_tokens == 8
+        assert client.usage.total_tokens == 0
+
+    def test_direct_calls_preserve_per_instance_usage_compatibility(self):
         client = build_client()
         with patch.object(
             client.client.chat.completions,
@@ -542,6 +587,152 @@ class TestUsageAccumulation:
         ):
             classify(client)
             classify(client)
+
         assert client.usage.prompt_tokens == 32
         assert client.usage.completion_tokens == 14
         assert client.usage.total_tokens == 46
+
+
+class TestSharedRouterTransports:
+    def test_default_wrappers_reuse_one_sync_sdk_client(self, monkeypatch):
+        monkeypatch.setattr(router_client_module, "ROUTER_API_KEY", "test-key")
+        sdk_client = MagicMock()
+        with patch.object(router_client_module, "OpenAI", return_value=sdk_client) as openai_cls, patch.object(
+            router_client_module, "wrap_openai", side_effect=lambda value: value
+        ):
+            first = get_shared_router_client()
+            second = get_shared_router_client()
+            direct = RouterClient()
+
+        assert first is second
+        assert first.client is sdk_client
+        assert direct.client is sdk_client
+        assert openai_cls.call_count == 1
+
+    def test_async_sdk_client_is_reused(self, monkeypatch):
+        monkeypatch.setattr(router_client_module, "ROUTER_API_KEY", "test-key")
+        sdk_client = MagicMock()
+        sdk_client.close = AsyncMock()
+        with patch.object(
+            router_client_module, "AsyncOpenAI", return_value=sdk_client
+        ) as openai_cls, patch.object(
+            router_client_module, "wrap_openai", side_effect=lambda value: value
+        ):
+            first = get_shared_async_router_openai_client()
+            second = get_shared_async_router_openai_client()
+
+        assert first is second
+        assert openai_cls.call_count == 1
+
+    def test_async_classify_preserves_sync_contract_and_usage(self):
+        client = build_client()
+        async_sdk = MagicMock()
+        async_sdk.chat.completions.create = AsyncMock(
+            return_value=make_response(prompt_tokens=7, completion_tokens=3)
+        )
+        tracer = RecordingTracer()
+        usage = UsageSummary()
+
+        decision = asyncio.run(
+            client.async_classify(
+                "add buy milk",
+                SNAPSHOT,
+                tracer=tracer,
+                usage_accumulator=usage,
+                async_client=async_sdk,
+            )
+        )
+
+        assert isinstance(decision, RouterDecision)
+        assert decision.outcome.value == "routed"
+        assert usage.prompt_tokens == 7
+        assert usage.completion_tokens == 3
+        assert any(
+            event["fields"].get("async_request") is True
+            for event in tracer.events
+            if event["stage"] == "router.response"
+        )
+
+
+class TestConcurrentRequestIsolation:
+    def test_tracer_model_reasoning_and_usage_do_not_leak_between_calls(self):
+        client = build_client()
+        barrier = threading.Barrier(2)
+        seen_kwargs = []
+        seen_lock = threading.Lock()
+
+        def create(**kwargs):
+            with seen_lock:
+                seen_kwargs.append(kwargs)
+            barrier.wait(timeout=5)
+            prompt_tokens = 11 if kwargs["model"] == "router-fast" else 29
+            return make_response(
+                content=VALID_DECISION_JSON,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=1,
+            )
+
+        first_tracer = RecordingTracer()
+        second_tracer = RecordingTracer()
+        first_usage = UsageSummary()
+        second_usage = UsageSummary()
+
+        def run(query, tracer, model, reasoning, usage):
+            return client.classify(
+                query,
+                SNAPSHOT,
+                tracer=tracer,
+                model=model,
+                reasoning_effort=reasoning,
+                usage_accumulator=usage,
+            )
+
+        with patch.object(client.client.chat.completions, "create", side_effect=create):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                first_future = pool.submit(
+                    run,
+                    "first request",
+                    first_tracer,
+                    "router-fast",
+                    "off",
+                    first_usage,
+                )
+                second_future = pool.submit(
+                    run,
+                    "second request",
+                    second_tracer,
+                    "router-careful",
+                    "high",
+                    second_usage,
+                )
+                assert first_future.result(timeout=5).outcome.value == "routed"
+                assert second_future.result(timeout=5).outcome.value == "routed"
+
+        first_request = next(
+            event for event in first_tracer.events if event["stage"] == "router.request"
+        )
+        second_request = next(
+            event for event in second_tracer.events if event["stage"] == "router.request"
+        )
+        assert first_request["fields"]["model"] == "router-fast"
+        assert first_request["fields"]["reasoning"] == "off"
+        assert second_request["fields"]["model"] == "router-careful"
+        assert second_request["fields"]["reasoning"] == "high"
+        assert first_usage.prompt_tokens == 11
+        assert second_usage.prompt_tokens == 29
+        assert {kwargs["model"] for kwargs in seen_kwargs} == {
+            "router-fast",
+            "router-careful",
+        }
+        assert client.model == router_client_module.ROUTER_MODEL
+        assert client.reasoning_effort == router_client_module.ROUTER_REASONING_EFFORT
+        assert any(
+            payload["value"] == "User request:\nfirst request"
+            for payload in first_tracer.payloads
+            if payload["label"] == "user_prompt"
+        )
+        assert any(
+            payload["value"] == "User request:\nsecond request"
+            for payload in second_tracer.payloads
+            if payload["label"] == "user_prompt"
+        )

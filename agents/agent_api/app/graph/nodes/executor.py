@@ -21,6 +21,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Dict, List, Optional, Tuple
 
+from langchain_core.runnables import RunnableConfig
+
 _logger = logging.getLogger(__name__)
 
 REAPER_JOIN_TIMEOUT_SECONDS = 5.0
@@ -38,6 +40,7 @@ from agents.agent_api.app.graph.resilience import (
     circuit_breaker_error_envelope,
     timeout_error_envelope,
 )
+from agents.agent_api.app.graph.run_deps import RunDeps, deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.dispatcher import ToolDispatcher, tool_result_to_message
 from agents.agent_api.app.tools.metadata import get_service
@@ -98,12 +101,12 @@ def _abort_message(held: dict, reason: str) -> dict:
 
 
 def create_executor_node(
-    tool_dispatcher: ToolDispatcher,
+    tool_dispatcher: Optional[ToolDispatcher] = None,
     tracer: Optional[TracePrinter] = None,
 ):
     """Create the graph node that executes confirmed held_calls."""
 
-    tracer = tracer or NULL_TRACE
+    _captured = RunDeps(dispatcher=tool_dispatcher, tracer=tracer or NULL_TRACE)
 
     def _execute_one(
         held: dict,
@@ -151,7 +154,25 @@ def create_executor_node(
 
         return result
 
-    def executor_node(state: JarvisState) -> JarvisState:
+    def executor_node(
+        state: JarvisState,
+        config: RunnableConfig | None = None,
+    ) -> JarvisState:
+        deps = deps_from_config(config)
+        tool_dispatcher = (
+            deps.dispatcher
+            if deps is not None and deps.dispatcher is not None
+            else _captured.dispatcher
+        )
+        tracer = (
+            deps.tracer
+            if deps is not None and deps.tracer is not None
+            else _captured.tracer
+        )
+        if tool_dispatcher is None:
+            raise RuntimeError(
+                "Executor node requires a dispatcher from RunDeps or captured fallbacks."
+            )
         held_calls = state.get("held_calls") or []
         # Migration shim: support old singular held_call field
         if not held_calls and state.get("held_call"):

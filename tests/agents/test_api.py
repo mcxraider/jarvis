@@ -95,6 +95,75 @@ class JarvisApiTests(unittest.TestCase):
             ["workers", "logs", "todoist_sync", "todoist_async", "database"],
         )
 
+    def test_fastapi_lifespan_closes_all_llm_resources_before_other_resources(
+        self,
+    ) -> None:
+        cleanup_order = []
+
+        with patch("agents.agent_api.app.db.verify_database_runtime"), patch(
+            "agents.agent_api.app.api.routes.invoke.drain_stream_workers",
+            side_effect=lambda **_kwargs: cleanup_order.append("workers") or True,
+        ), patch(
+            "agents.agent_api.app.graph.nodes.orchestrator.close_shared_agent_client",
+            side_effect=lambda: cleanup_order.append("agent_sync"),
+        ) as close_agent, patch(
+            "agents.agent_api.app.router.client.close_shared_router_client",
+            side_effect=lambda: cleanup_order.append("router_sync"),
+        ) as close_router, patch(
+            "agents.agent_api.app.graph.nodes.summarize.close_shared_summarizer_client",
+            side_effect=lambda: cleanup_order.append("summarizer_sync"),
+        ) as close_summarizer, patch(
+            "agents.agent_api.app.graph.nodes.orchestrator.close_shared_async_agent_client",
+            new_callable=AsyncMock,
+            side_effect=lambda: cleanup_order.append("agent_async"),
+        ) as close_agent_async, patch(
+            "agents.agent_api.app.router.client.close_shared_async_router_openai_client",
+            new_callable=AsyncMock,
+            side_effect=lambda: cleanup_order.append("router_async"),
+        ) as close_router_async, patch(
+            "agents.agent_api.app.graph.nodes.summarize.close_shared_async_summarizer_client",
+            new_callable=AsyncMock,
+            side_effect=lambda: cleanup_order.append("summarizer_async"),
+        ) as close_summarizer_async, patch(
+            "agents.agent_api.app.run_logging.shutdown_run_logs",
+            side_effect=lambda **_kwargs: cleanup_order.append("logs"),
+        ), patch(
+            "agents.agent_api.app.tools.todoist.client.close_todoist_http_client",
+            side_effect=lambda: cleanup_order.append("todoist_sync"),
+        ), patch(
+            "agents.agent_api.app.tools.todoist.client.close_todoist_async_http_client",
+            new_callable=AsyncMock,
+            side_effect=lambda: cleanup_order.append("todoist_async"),
+        ), patch(
+            "agents.agent_api.app.db.close_pool",
+            side_effect=lambda: cleanup_order.append("database"),
+        ):
+            with TestClient(create_app()) as client:
+                self.assertEqual(client.get("/health").status_code, 200)
+
+        self.assertEqual(
+            cleanup_order,
+            [
+                "workers",
+                "agent_sync",
+                "router_sync",
+                "summarizer_sync",
+                "agent_async",
+                "router_async",
+                "summarizer_async",
+                "logs",
+                "todoist_sync",
+                "todoist_async",
+                "database",
+            ],
+        )
+        close_agent.assert_called_once_with()
+        close_router.assert_called_once_with()
+        close_summarizer.assert_called_once_with()
+        close_agent_async.assert_awaited_once_with()
+        close_router_async.assert_awaited_once_with()
+        close_summarizer_async.assert_awaited_once_with()
+
     def test_fastapi_lifespan_preserves_multiple_cleanup_failures(self) -> None:
         with patch("agents.agent_api.app.db.verify_database_runtime"), patch(
             "agents.agent_api.app.api.routes.invoke.drain_stream_workers"
@@ -130,6 +199,47 @@ class JarvisApiTests(unittest.TestCase):
         close_todoist.assert_called_once_with()
         close_todoist_async.assert_awaited_once_with()
         close_pool.assert_called_once_with()
+
+    def test_fastapi_lifespan_aggregates_llm_cleanup_failures(self) -> None:
+        with patch("agents.agent_api.app.db.verify_database_runtime"), patch(
+            "agents.agent_api.app.graph.nodes.orchestrator.close_shared_agent_client",
+            side_effect=RuntimeError("sync agent failed"),
+        ) as close_agent, patch(
+            "agents.agent_api.app.router.client.close_shared_router_client"
+        ) as close_router, patch(
+            "agents.agent_api.app.graph.nodes.summarize.close_shared_summarizer_client"
+        ) as close_summarizer, patch(
+            "agents.agent_api.app.graph.nodes.orchestrator.close_shared_async_agent_client",
+            new_callable=AsyncMock,
+        ) as close_agent_async, patch(
+            "agents.agent_api.app.router.client.close_shared_async_router_openai_client",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("async router failed"),
+        ) as close_router_async, patch(
+            "agents.agent_api.app.graph.nodes.summarize.close_shared_async_summarizer_client",
+            new_callable=AsyncMock,
+        ) as close_summarizer_async, patch(
+            "agents.agent_api.app.run_logging.shutdown_run_logs"
+        ), patch(
+            "agents.agent_api.app.tools.todoist.client.close_todoist_http_client"
+        ), patch(
+            "agents.agent_api.app.tools.todoist.client.close_todoist_async_http_client",
+            new_callable=AsyncMock,
+        ), patch("agents.agent_api.app.db.close_pool"):
+            with self.assertRaises(ExceptionGroup) as raised:
+                with TestClient(create_app()) as client:
+                    self.assertEqual(client.get("/health").status_code, 200)
+
+        self.assertEqual(
+            {str(error) for error in raised.exception.exceptions},
+            {"sync agent failed", "async router failed"},
+        )
+        close_agent.assert_called_once_with()
+        close_router.assert_called_once_with()
+        close_summarizer.assert_called_once_with()
+        close_agent_async.assert_awaited_once_with()
+        close_router_async.assert_awaited_once_with()
+        close_summarizer_async.assert_awaited_once_with()
 
     def test_health_detail_ok(self) -> None:
         with patch(

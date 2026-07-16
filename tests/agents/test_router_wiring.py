@@ -20,7 +20,7 @@ from agents.agent_api.app.tracing import NULL_TRACE
 from agents.agent_api.app.user_context.runtime import ResolvedRuntimeContext
 from tests.agents.runtime_helpers import make_snapshot
 
-_ROUTER_CLIENT_PATH = "agents.agent_api.app.router.client.RouterClient"
+_ROUTER_CLIENT_PATH = "agents.agent_api.app.router.client.get_shared_router_client"
 
 
 def _context():
@@ -47,6 +47,10 @@ def _resolve(
 class FakeRouterClient:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
+
+    def with_tracer(self, tracer):
+        self.tracer = tracer
+        return self
 
 
 class TestRouterGateMet:
@@ -104,7 +108,7 @@ class TestRouterConstructionFailure:
     def test_client_construction_error_degrades_to_static(self):
         """A missing API key (or any construction error) must not fail the run."""
 
-        def _boom(**kwargs):
+        def _boom():
             raise RuntimeError("ROUTER_API_KEY missing")
 
         with patch(_ROUTER_CLIENT_PATH, _boom):

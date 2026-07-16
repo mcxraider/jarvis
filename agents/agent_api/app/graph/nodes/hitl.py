@@ -4,9 +4,11 @@ import copy
 import json
 from typing import Any, Dict, List, Optional
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
 from agents.agent_api.app.constants import USER_ID
+from agents.agent_api.app.graph.run_deps import RunDeps, deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.base import parse_tool_call_arguments, tool_call_name
 from agents.agent_api.app.tools.control import ASK_USER_TOOL_NAME, is_ask_user_tool_call
@@ -89,9 +91,18 @@ def deferred_tool_message(tool_call: Dict[str, Any], reason: str) -> Dict[str, A
 def create_hitl_node(tracer: Optional[TracePrinter] = None):
     """Create the graph node that pauses for user clarification."""
 
-    tracer = tracer or NULL_TRACE
+    _captured = RunDeps(tracer=tracer or NULL_TRACE)
 
-    def hitl_node(state: JarvisState) -> JarvisState:
+    def hitl_node(
+        state: JarvisState,
+        config: RunnableConfig | None = None,
+    ) -> JarvisState:
+        deps = deps_from_config(config)
+        tracer = (
+            deps.tracer
+            if deps is not None and deps.tracer is not None
+            else _captured.tracer
+        )
         messages = copy.deepcopy(state.get("messages", []))
         latest_message = messages[-1] if messages else {}
         tool_calls = latest_message.get("tool_calls") or []

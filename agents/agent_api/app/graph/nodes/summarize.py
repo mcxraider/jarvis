@@ -2,10 +2,19 @@
 
 import json
 import os
+import threading
 from collections import Counter
 from typing import Any, Dict, List, Optional, Set
 
-from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI, RateLimitError
+from langchain_core.runnables import RunnableConfig
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AsyncOpenAI,
+    OpenAI,
+    RateLimitError,
+)
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_random_exponential
 
 from agents.agent_api.app.constants import (
@@ -19,6 +28,7 @@ from agents.agent_api.app.constants import (
     SUMMARIZER_RETRY_MAX_DELAY_SECONDS,
 )
 from agents.agent_api.app.graph.extractors import extract_list_from_content
+from agents.agent_api.app.graph.run_deps import RunDeps, deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
@@ -124,21 +134,88 @@ def _truncate_fallback(items: List[Any], threshold: int) -> str:
     return f"{truncated}\n... ({len(items)} total items, showing first {threshold})"
 
 
+_shared_summarizer_client: Optional[OpenAI] = None
+_shared_summarizer_client_lock = threading.Lock()
+_shared_async_summarizer_client: Optional[AsyncOpenAI] = None
+_shared_async_summarizer_client_lock = threading.Lock()
+
+
+def get_shared_summarizer_client() -> OpenAI:
+    """Return the lazily-created sync summarizer SDK transport."""
+
+    global _shared_summarizer_client
+    client = _shared_summarizer_client
+    if client is not None:
+        return client
+    with _shared_summarizer_client_lock:
+        if _shared_summarizer_client is None:
+            _shared_summarizer_client = OpenAI(
+                api_key=os.getenv("DEEPSEEK_API_KEY"),
+                base_url=DEEPSEEK_BASE_URL,
+                timeout=SUMMARIZER_REQUEST_TIMEOUT_SECONDS,
+            )
+        return _shared_summarizer_client
+
+
+def get_shared_async_summarizer_client() -> AsyncOpenAI:
+    """Return the lazily-created async summarizer SDK transport."""
+
+    global _shared_async_summarizer_client
+    client = _shared_async_summarizer_client
+    if client is not None:
+        return client
+    with _shared_async_summarizer_client_lock:
+        if _shared_async_summarizer_client is None:
+            _shared_async_summarizer_client = AsyncOpenAI(
+                api_key=os.getenv("DEEPSEEK_API_KEY"),
+                base_url=DEEPSEEK_BASE_URL,
+                timeout=SUMMARIZER_REQUEST_TIMEOUT_SECONDS,
+            )
+        return _shared_async_summarizer_client
+
+
+def close_shared_summarizer_client() -> None:
+    """Close and clear the shared sync summarizer SDK transport."""
+
+    global _shared_summarizer_client
+    with _shared_summarizer_client_lock:
+        client = _shared_summarizer_client
+        _shared_summarizer_client = None
+    if client is not None:
+        client.close()
+
+
+async def close_shared_async_summarizer_client() -> None:
+    """Close and clear the shared async summarizer SDK transport."""
+
+    global _shared_async_summarizer_client
+    with _shared_async_summarizer_client_lock:
+        client = _shared_async_summarizer_client
+        _shared_async_summarizer_client = None
+    if client is not None:
+        await client.close()
+
+
 def create_summarize_node(
     tracer: Optional[TracePrinter] = None,
+    *,
+    client: Optional[OpenAI] = None,
+    model: str = SUMMARIZER_MODEL,
 ):
-    """Create the graph node that summarizes large tool results via LLM."""
+    """Create a sync-compatible node over a shared, request-stateless SDK client."""
 
-    tracer = tracer or NULL_TRACE
+    captured = RunDeps(tracer=tracer or NULL_TRACE)
+    # Do not require provider credentials merely to compile the shared graph.
+    # Resolve the process-wide transport only if a result actually needs LLM
+    # summarization; failures still take the deterministic fallback below.
+    summarizer_client = client
 
-    api_key = os.getenv("DEEPSEEK_API_KEY")
-    client = OpenAI(
-        api_key=api_key,
-        base_url=DEEPSEEK_BASE_URL,
-        timeout=SUMMARIZER_REQUEST_TIMEOUT_SECONDS,
-    )
-
-    def _call_summarizer(items: List[Any], user_query: str = "") -> str:
+    def _call_summarizer(
+        items: List[Any],
+        user_query: str = "",
+        *,
+        tracer: TracePrinter,
+    ) -> str:
         """Call the summarizer LLM with retry logic and output validation."""
         count = len(items)
         content = json.dumps(items, default=str)
@@ -151,8 +228,13 @@ def create_summarize_node(
         )
 
         def _create_completion(messages: List[Dict[str, str]]) -> Any:
-            return client.chat.completions.create(
-                model=SUMMARIZER_MODEL,
+            provider_client = (
+                summarizer_client
+                if summarizer_client is not None
+                else get_shared_summarizer_client()
+            )
+            return provider_client.chat.completions.create(
+                model=model,
                 messages=messages,
                 temperature=0,
                 max_tokens=max_tokens,
@@ -214,7 +296,16 @@ def create_summarize_node(
             )
             return _truncate_fallback(items, SUMMARIZE_THRESHOLD)
 
-    def summarize_node(state: JarvisState) -> JarvisState:
+    def summarize_node(
+        state: JarvisState,
+        config: RunnableConfig | None = None,
+    ) -> JarvisState:
+        deps = deps_from_config(config)
+        tracer = (
+            deps.tracer
+            if deps is not None and deps.tracer is not None
+            else captured.tracer
+        )
         messages = list(state.get("messages", []))
         user_query = state.get("user_prompt", "")
         tracer.event(
@@ -273,7 +364,11 @@ def create_summarize_node(
                 item_count=item_count,
             )
 
-            summary = _call_summarizer(items, user_query=user_query)
+            summary = _call_summarizer(
+                items,
+                user_query=user_query,
+                tracer=tracer,
+            )
 
             messages[i] = dict(messages[i])
             if isinstance(parsed, dict):
@@ -299,4 +394,10 @@ def create_summarize_node(
     return summarize_node
 
 
-__all__ = ["create_summarize_node"]
+__all__ = [
+    "close_shared_async_summarizer_client",
+    "close_shared_summarizer_client",
+    "create_summarize_node",
+    "get_shared_async_summarizer_client",
+    "get_shared_summarizer_client",
+]
