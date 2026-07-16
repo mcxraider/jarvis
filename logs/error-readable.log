@@ -14011,3 +14011,23 @@
     {
       "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
     }
+[2026-07-17 02:06:50] ERROR telegram.bot.error
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  details:
+    {
+      "error": "Promise timed out after 90000 milliseconds"
+    }
+  stack:
+    TimeoutError: Promise timed out after 90000 milliseconds
+        at Timeout._onTimeout (/Users/jerry/projects/jarvis-mcp/node_modules/p-timeout/index.js:39:64)
+        at listOnTimeout (node:internal/timers:585:17)
+        at processTimers (node:internal/timers:521:7)
+[2026-07-17 02:07:08] WARN telegram.cancel.clarification_collapse_failed
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  details:
+    {
+      "clarificationMessageId": 1536,
+      "error": "400: Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"
+    }
