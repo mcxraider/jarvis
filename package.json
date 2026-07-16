@@ -15,7 +15,6 @@
     "test:integration": "jest --config jest.integration.config.js",
     "test:telegram-rich": "ts-node tests/send-telegram-rich-messages.ts",
     "test:telegram-rich-emojis": "ts-node tests/send-telegram-rich-emojis.ts",
-    "telegram:simulate": "ts-node scripts/simulate_telegram_update.ts",
     "agent": "./scripts/run_agent_cli.sh",
     "db:start": "supabase start",
     "db:stop": "supabase stop",

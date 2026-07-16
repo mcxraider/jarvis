@@ -3,9 +3,21 @@ jest.unmock('../../../src/utils/logger');
 process.env.LOG_LEVEL = 'debug';
 
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
-const LOG_DIR = path.join(process.cwd(), 'logs');
+const originalLogDir = process.env.JARVIS_LOG_DIR;
+const LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), `jarvis-logger-${process.pid}-`));
+process.env.JARVIS_LOG_DIR = LOG_DIR;
+
+afterAll(() => {
+  if (originalLogDir === undefined) {
+    delete process.env.JARVIS_LOG_DIR;
+  } else {
+    process.env.JARVIS_LOG_DIR = originalLogDir;
+  }
+  fs.rmSync(LOG_DIR, { recursive: true, force: true });
+});
 
 function linesContaining(filename: string, marker: string): string[] {
   const filepath = path.join(LOG_DIR, filename);

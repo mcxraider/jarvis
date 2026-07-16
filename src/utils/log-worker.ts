@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { parentPort } from 'worker_threads';
+import { parentPort, workerData } from 'worker_threads';
 import winston from 'winston';
-import { SENSITIVE_KEY_PATTERN, PRIVATE_ID_KEY_PATTERN, redactValue } from './log-redact';
+import { redactValue } from './log-redact';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -40,7 +40,12 @@ interface WorkerStats {
   avg_flush_duration_ms: number;
 }
 
-const LOG_DIR = path.join(process.cwd(), 'logs');
+const configuredLogDir =
+  (workerData as { logDir?: string } | undefined)?.logDir?.trim() ??
+  process.env.JARVIS_LOG_DIR?.trim();
+const LOG_DIR = configuredLogDir
+  ? path.resolve(configuredLogDir)
+  : path.join(process.cwd(), 'logs');
 const LOG_LEVEL =
   process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug');
 const LOG_FORMAT =

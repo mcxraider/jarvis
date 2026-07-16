@@ -218,8 +218,12 @@ function startWorker(): Worker | undefined {
 
   try {
     const location = workerLocation();
+    const configuredLogDir = process.env.JARVIS_LOG_DIR?.trim();
     workerFailureHandled = false;
-    worker = new Worker(location.filename, { execArgv: location.execArgv });
+    worker = new Worker(location.filename, {
+      execArgv: location.execArgv,
+      workerData: configuredLogDir ? { logDir: configuredLogDir } : undefined,
+    });
     worker.on('message', (message: WorkerAck) => {
       if (message.stats) latestWorkerStats = message.stats;
       if (message.type === 'written') {
@@ -244,7 +248,7 @@ function startWorker(): Worker | undefined {
     });
     worker.on('exit', (code) => {
       worker = undefined;
-      if (intentionalShutdown && code === 0) return;
+      if (intentionalShutdown) return;
       handleWorkerFailure(code);
     });
   } catch (error) {
@@ -462,24 +466,51 @@ export async function flushLogger(timeout = 3000): Promise<void> {
 }
 
 export async function shutdownLogger(timeout = 3000): Promise<void> {
-  if (!accepting && intentionalShutdown) return;
+  if (!accepting && intentionalShutdown && !worker) return;
   accepting = false;
-  await flushLogger(timeout);
+  let shutdownError: unknown;
+  try {
+    await flushLogger(timeout);
+  } catch (error) {
+    shutdownError = error;
+  }
+
   intentionalShutdown = true;
   const activeWorker = worker;
-  const exitPromise = activeWorker
-    ? new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(
-          () => reject(new Error(`Logger worker exit timed out after ${timeout}ms`)),
-          timeout,
-        );
-        activeWorker.once('exit', () => {
-          clearTimeout(timer);
-          resolve();
-        });
-      })
-    : Promise.resolve();
-  await Promise.all([requestControl('shutdown', 'shutdown_complete', timeout), exitPromise]);
+  if (activeWorker && shutdownError === undefined) {
+    const exitPromise = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`Logger worker exit timed out after ${timeout}ms`)),
+        timeout,
+      );
+      activeWorker.once('exit', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    try {
+      await Promise.all([requestControl('shutdown', 'shutdown_complete', timeout), exitPromise]);
+    } catch (error) {
+      shutdownError = error;
+    }
+  }
+
+  if (activeWorker && worker === activeWorker) {
+    try {
+      await activeWorker.terminate();
+    } catch (error) {
+      shutdownError ??= error;
+    }
+  }
+
+  worker = undefined;
+  rejectControlWaiters(new Error('Logger worker shut down'));
+  pending = [];
+  inFlight = undefined;
+  pendingBytes = 0;
+  notifyDrainWaiters();
+
+  if (shutdownError !== undefined) throw shutdownError;
 }
 
 const queueStatsTimer = setInterval(() => {
