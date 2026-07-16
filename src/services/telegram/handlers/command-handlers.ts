@@ -175,7 +175,6 @@ export class CommandHandlers {
           || cancelOutcome === 'not_found'
           || cancelOutcome === 'already_finished'
         ));
-    let gateReleased = false;
     let ownershipChanged = (status === 'idle' || status === 'waiting_for_clarification')
       && !cancelClaimed;
     let safeToClearPending = cancelClaimed && !pendingReadFailed;
@@ -215,7 +214,6 @@ export class CommandHandlers {
           });
           return { released: false };
         });
-      gateReleased = release.released;
       if (!release.released) {
         const currentSnapshot = await this.conversationGate
           .getSnapshot(gateKey)
@@ -256,7 +254,6 @@ export class CommandHandlers {
       const release = await this.conversationGate
         .releaseIfActiveRequestId(gateKey, cancelClaimRequestId)
         .catch(() => ({ released: false }));
-      gateReleased = release.released;
       if (!release.released) {
         ownershipChanged = true;
         retainRunningGate = true;

@@ -1,13 +1,76 @@
 import dotenv from 'dotenv';
-import { TodoistAPIService, TodoistTask } from '../../src/services/external/todoist-api.service';
 import { MessageProcessorService } from '../../src/services/telegram/message-processor.service';
 import { LangGraphAgentClient } from '../../src/services/ai/langgraph-agent-client.service';
+import { TextProcessorService } from '../../src/services/telegram/processors/text-processor.service';
+import { AudioProcessorService } from '../../src/services/telegram/processors/audio-processor.service';
+import { MemoryPendingClarificationStore } from '../../src/services/telegram/pending-clarification.store';
+import { MemoryConversationGateStore } from '../../src/services/telegram/conversation-gate.store';
 import { createTestRunLogger } from '../helpers/test-run-logger';
 
 dotenv.config();
 
 const logger = createTestRunLogger('integration-live-services');
 const TEST_LABEL = 'jarvis-test';
+const TODOIST_API_BASE_URL = 'https://api.todoist.com/api/v1';
+
+interface TodoistTask {
+  id: string;
+  content: string;
+  priority: number;
+}
+
+interface TodoistTaskPage {
+  results: TodoistTask[];
+}
+
+class TodoistLiveTestClient {
+  constructor(private readonly apiKey: string) {}
+
+  addTask(payload: { content: string; labels?: string[]; priority?: number }): Promise<TodoistTask> {
+    return this.request('/tasks', { method: 'POST', body: JSON.stringify(payload) });
+  }
+
+  getTask(taskId: string): Promise<TodoistTask> {
+    return this.request(`/tasks/${taskId}`);
+  }
+
+  getTasks(options: { label: string }): Promise<TodoistTaskPage> {
+    const query = new URLSearchParams({ label: options.label });
+    return this.request(`/tasks?${query.toString()}`);
+  }
+
+  updateTask(
+    taskId: string,
+    payload: { content?: string; priority?: number },
+  ): Promise<TodoistTask> {
+    return this.request(`/tasks/${taskId}`, { method: 'POST', body: JSON.stringify(payload) });
+  }
+
+  async completeTask(taskId: string): Promise<void> {
+    await this.request(`/tasks/${taskId}/close`, { method: 'POST' });
+  }
+
+  async deleteTask(taskId: string): Promise<void> {
+    await this.request(`/tasks/${taskId}`, { method: 'DELETE' });
+  }
+
+  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const response = await fetch(`${TODOIST_API_BASE_URL}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+        ...init.headers,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Todoist API error (${response.status}): ${await response.text()}`);
+    }
+    if (response.status === 204) return undefined as T;
+    const body = await response.text();
+    return (body ? JSON.parse(body) : undefined) as T;
+  }
+}
 
 function uniqueName(prefix: string): string {
   return `${prefix}-${Date.now()}`;
@@ -18,14 +81,14 @@ function describeIf(condition: boolean): jest.Describe {
 }
 
 async function findTaskByContent(
-  todoist: TodoistAPIService,
+  todoist: TodoistLiveTestClient,
   content: string,
 ): Promise<TodoistTask | undefined> {
   const page = await todoist.getTasks({ label: TEST_LABEL });
   return page.results.find((task) => task.content.includes(content));
 }
 
-async function cleanupTask(todoist: TodoistAPIService, taskId: string | undefined): Promise<void> {
+async function cleanupTask(todoist: TodoistLiveTestClient, taskId: string | undefined): Promise<void> {
   if (!taskId) return;
 
   try {
@@ -56,10 +119,10 @@ afterAll(() => {
 describeIf(process.env.RUN_LIVE_TODOIST_TESTS === 'true' && !!process.env.TODOIST_API_KEY)(
   'Live Todoist CRUD',
   () => {
-    let todoist: TodoistAPIService;
+    let todoist: TodoistLiveTestClient;
 
     beforeAll(() => {
-      todoist = new TodoistAPIService(process.env.TODOIST_API_KEY!);
+      todoist = new TodoistLiveTestClient(process.env.TODOIST_API_KEY!);
     });
 
     it(
@@ -124,10 +187,10 @@ describeIf(
     !!process.env.LANGGRAPH_AGENT_URL &&
     !!process.env.TODOIST_API_KEY,
 )('Live LangGraph + Todoist pipeline', () => {
-  let todoist: TodoistAPIService;
+  let todoist: TodoistLiveTestClient;
 
   beforeAll(() => {
-    todoist = new TodoistAPIService(process.env.TODOIST_API_KEY!);
+    todoist = new TodoistLiveTestClient(process.env.TODOIST_API_KEY!);
   });
 
   it(
@@ -137,12 +200,24 @@ describeIf(
       let createdTaskId: string | undefined;
 
       try {
-        const messageProcessor = new MessageProcessorService(new LangGraphAgentClient());
+        const gateStore = new MemoryConversationGateStore();
+        const pendingStore = new MemoryPendingClarificationStore();
+        const textProcessor = new TextProcessorService(
+          new LangGraphAgentClient(),
+          pendingStore,
+          gateStore,
+        );
+        const messageProcessor = new MessageProcessorService(
+          textProcessor,
+          new AudioProcessorService({} as any, textProcessor),
+          gateStore,
+          pendingStore,
+        );
         const prompt = `Add a Todoist task named ${taskName} with label ${TEST_LABEL} and normal priority.`;
         const response = await messageProcessor.processTextMessage(prompt, 123456);
         logger.logResponse('langgraph_todoist_pipeline', { prompt, response });
 
-        expect(response.length).toBeGreaterThan(0);
+        expect(response.response.length).toBeGreaterThan(0);
 
         const created = await findTaskByContent(todoist, taskName);
         logger.logAssertion('langgraph_task_lookup', { created });
@@ -164,10 +239,10 @@ describeIf(
     !!process.env.TEST_CHAT_ID &&
     !!process.env.TEST_USER_ID,
 )('Live webhook pipeline', () => {
-  let todoist: TodoistAPIService;
+  let todoist: TodoistLiveTestClient;
 
   beforeAll(() => {
-    todoist = new TodoistAPIService(process.env.TODOIST_API_KEY!);
+    todoist = new TodoistLiveTestClient(process.env.TODOIST_API_KEY!);
   });
 
   it(

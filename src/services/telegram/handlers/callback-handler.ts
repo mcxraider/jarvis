@@ -355,7 +355,6 @@ export class CallbackHandler {
             .clearIfMatches(gateKey, newPendingSnapshot, 'failed')
             .catch(() => false);
         }
-      } else {
       }
       if (!restoredWaiting && !releasedOwnedGate) {
         await progress.complete('Done');
