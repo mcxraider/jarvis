@@ -126,7 +126,7 @@ export class CallbackHandler {
           threadId,
         },
         logContext,
-        (event) => progress.record(event),
+        (event, signal) => progress.record(event, signal),
       );
 
       await this.pendingStore.clear(gateKey, 'completed').catch(() => {});

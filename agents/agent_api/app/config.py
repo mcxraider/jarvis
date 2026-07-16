@@ -1,5 +1,6 @@
 """Environment-backed settings for the Jarvis agent API."""
 
+import math
 import os
 from dataclasses import dataclass
 from typing import Optional
@@ -50,8 +51,8 @@ def _non_negative_int_env(name: str, default: int) -> int:
 
 def _positive_float_env(name: str, default: float) -> float:
     value = _float_env(name, default)
-    if value <= 0:
-        raise ValueError(f"{name} must be greater than zero.")
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be finite and greater than zero.")
     return value
 
 
@@ -84,10 +85,14 @@ class Settings:
     todoist_rest_base_url: str
     allow_mutations: bool
     max_agent_turns: int
+    max_concurrent_runs: int
     todoist_max_retry_attempts: int
     todoist_retry_total_timeout_seconds: float
     todoist_retry_base_delay_seconds: float
     todoist_retry_max_delay_seconds: float
+    todoist_http_timeout_seconds: float
+    todoist_http_max_keepalive_connections: int
+    todoist_http_max_connections: int
     confirm_bulk_threshold: int
     summarizer_model: str
     summarize_threshold: int
@@ -151,6 +156,23 @@ def load_settings() -> Settings:
         raise ValueError(
             "JARVIS_IDEMPOTENCY_LEASE_SECONDS must not exceed either idempotency TTL."
         )
+    todoist_http_timeout_seconds = _positive_float_env(
+        "TODOIST_HTTP_TIMEOUT_SECONDS",
+        30.0,
+    )
+    todoist_http_max_keepalive_connections = _positive_int_env(
+        "TODOIST_HTTP_MAX_KEEPALIVE_CONNECTIONS",
+        10,
+    )
+    todoist_http_max_connections = _positive_int_env(
+        "TODOIST_HTTP_MAX_CONNECTIONS",
+        20,
+    )
+    if todoist_http_max_keepalive_connections > todoist_http_max_connections:
+        raise ValueError(
+            "TODOIST_HTTP_MAX_KEEPALIVE_CONNECTIONS must not exceed "
+            "TODOIST_HTTP_MAX_CONNECTIONS."
+        )
 
     return Settings(
         api_title=os.getenv("JARVIS_AGENT_API_TITLE", "Jarvis LangGraph Agent API"),
@@ -187,13 +209,17 @@ def load_settings() -> Settings:
         ),
         allow_mutations=_bool_env("JARVIS_ALLOW_MUTATIONS", True),
         max_agent_turns=_int_env("JARVIS_MAX_AGENT_TURNS", 20),
+        max_concurrent_runs=_positive_int_env("JARVIS_MAX_CONCURRENT_RUNS", 8),
         todoist_max_retry_attempts=_int_env("TODOIST_MAX_RETRY_ATTEMPTS", 3),
-        todoist_retry_total_timeout_seconds=_float_env(
+        todoist_retry_total_timeout_seconds=_positive_float_env(
             "TODOIST_RETRY_TOTAL_TIMEOUT_SECONDS",
             8.0,
         ),
         todoist_retry_base_delay_seconds=_float_env("TODOIST_RETRY_BASE_DELAY_SECONDS", 0.5),
         todoist_retry_max_delay_seconds=_float_env("TODOIST_RETRY_MAX_DELAY_SECONDS", 4.0),
+        todoist_http_timeout_seconds=todoist_http_timeout_seconds,
+        todoist_http_max_keepalive_connections=todoist_http_max_keepalive_connections,
+        todoist_http_max_connections=todoist_http_max_connections,
         confirm_bulk_threshold=_int_env("JARVIS_CONFIRM_BULK_THRESHOLD", 5),
         summarizer_model=os.getenv(
             "JARVIS_SUMMARIZER_MODEL",

@@ -1,16 +1,16 @@
 import copy
-import email.message
 import io
 import json
 import sys
 import tempfile
 import threading
-import urllib.error
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+import httpx
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -162,38 +162,15 @@ class FailingTodoistClient(FakeTodoistClient):
         )
 
 
-class FakeUrlopenResponse:
-    """Minimal context-manager response for urllib.request.urlopen tests."""
-
-    def __init__(self, status: int, body: bytes):
-        self.status = status
-        self.body = body
-
-    def __enter__(self) -> "FakeUrlopenResponse":
-        return self
-
-    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
-        return None
-
-    def read(self) -> bytes:
-        return self.body
-
-
-def http_error(
+def http_response(
     status: int,
     body: str = "raw provider body",
     retry_after: str = "",
-) -> urllib.error.HTTPError:
-    headers = email.message.Message()
+) -> httpx.Response:
+    headers = {}
     if retry_after:
         headers["Retry-After"] = retry_after
-    return urllib.error.HTTPError(
-        url="https://api.todoist.com/api/v1/tasks",
-        code=status,
-        msg="error",
-        hdrs=headers,
-        fp=io.BytesIO(body.encode("utf-8")),
-    )
+    return httpx.Response(status, headers=headers, text=body)
 
 
 def fake_tool_call(call_id: str, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -214,52 +191,46 @@ class TodoistApiClientRetryTests(unittest.TestCase):
         )
 
     def request_client(self) -> jarvis.TodoistApiClient:
-        return jarvis.TodoistApiClient(api_key="todoist-test-key", tracer=jarvis.NULL_TRACE)
+        return jarvis.TodoistApiClient(
+            api_key="todoist-test-key",
+            tracer=jarvis.NULL_TRACE,
+            http_client=Mock(spec=httpx.Client),
+        )
 
     def test_rate_limit_retries_with_retry_after_then_succeeds(self) -> None:
         client = self.request_client()
-        effects = [
-            http_error(429, body="quota exceeded", retry_after="2"),
-            FakeUrlopenResponse(200, b'{"id": "task-1"}'),
+        client._http_client.request.side_effect = [
+            http_response(429, body="quota exceeded", retry_after="2"),
+            http_response(200, '{"id": "task-1"}'),
         ]
 
         with (
             patch.object(todoist_client_module, "settings", self.settings),
             patch.object(todoist_client_module.random, "uniform", return_value=0),
             patch.object(todoist_client_module.time, "sleep") as sleep,
-            patch.object(
-                todoist_client_module.urllib.request,
-                "urlopen",
-                side_effect=effects,
-            ) as urlopen,
         ):
             result = client._request("https://api.todoist.com/api/v1/tasks")
 
         self.assertEqual(result, {"id": "task-1"})
-        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(client._http_client.request.call_count, 2)
         sleep.assert_called_once_with(2.0)
 
     def test_transient_server_error_retries_then_succeeds(self) -> None:
         client = self.request_client()
-        effects = [
-            http_error(503, body="service unavailable"),
-            FakeUrlopenResponse(200, b'{"items": []}'),
+        client._http_client.request.side_effect = [
+            http_response(503, body="service unavailable"),
+            http_response(200, '{"items": []}'),
         ]
 
         with (
             patch.object(todoist_client_module, "settings", self.settings),
             patch.object(todoist_client_module.random, "uniform", return_value=0),
             patch.object(todoist_client_module.time, "sleep") as sleep,
-            patch.object(
-                todoist_client_module.urllib.request,
-                "urlopen",
-                side_effect=effects,
-            ) as urlopen,
         ):
             result = client._request("https://api.todoist.com/api/v1/tasks")
 
         self.assertEqual(result, {"items": []})
-        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(client._http_client.request.call_count, 2)
         sleep.assert_called_once_with(0.1)
 
     def test_retry_after_past_budget_does_not_retry(self) -> None:
@@ -270,21 +241,17 @@ class TodoistApiClientRetryTests(unittest.TestCase):
                 "todoist_retry_total_timeout_seconds": 1.0,
             }
         )
+        client._http_client.request.return_value = http_response(
+            429, retry_after="5"
+        )
 
-        with (
-            patch.object(todoist_client_module, "settings", bounded_settings),
-            patch.object(
-                todoist_client_module.urllib.request,
-                "urlopen",
-                side_effect=http_error(429, retry_after="5"),
-            ) as urlopen,
-        ):
+        with patch.object(todoist_client_module, "settings", bounded_settings):
             with self.assertRaises(jarvis.TodoistApiError) as raised:
                 client._request("https://api.todoist.com/api/v1/tasks")
 
         self.assertEqual(raised.exception.kind, "rate-limit")
         self.assertEqual(raised.exception.retry_after_seconds, 5.0)
-        self.assertEqual(urlopen.call_count, 1)
+        self.assertEqual(client._http_client.request.call_count, 1)
 
     def test_non_retryable_http_statuses_are_classified_without_retry(self) -> None:
         cases = {
@@ -299,21 +266,17 @@ class TodoistApiClientRetryTests(unittest.TestCase):
         for status, kind in cases.items():
             with self.subTest(status=status):
                 client = self.request_client()
-                with (
-                    patch.object(todoist_client_module, "settings", self.settings),
-                    patch.object(
-                        todoist_client_module.urllib.request,
-                        "urlopen",
-                        side_effect=http_error(status, "private details"),
-                    ) as urlopen,
-                ):
+                client._http_client.request.return_value = http_response(
+                    status, "private details"
+                )
+                with patch.object(todoist_client_module, "settings", self.settings):
                     with self.assertRaises(jarvis.TodoistApiError) as raised:
                         client._request("https://api.todoist.com/api/v1/tasks")
 
                 self.assertEqual(raised.exception.kind, kind)
                 self.assertFalse(raised.exception.retryable)
                 self.assertEqual(raised.exception.status_code, status)
-                self.assertEqual(urlopen.call_count, 1)
+                self.assertEqual(client._http_client.request.call_count, 1)
                 self.assertNotIn("private details", str(raised.exception))
 
     def test_provider_validation_details_are_safely_exposed(self) -> None:
@@ -326,14 +289,8 @@ class TodoistApiClientRetryTests(unittest.TestCase):
             }
         )
         client = self.request_client()
-        with (
-            patch.object(todoist_client_module, "settings", self.settings),
-            patch.object(
-                todoist_client_module.urllib.request,
-                "urlopen",
-                side_effect=http_error(400, body),
-            ),
-        ):
+        client._http_client.request.return_value = http_response(400, body)
+        with patch.object(todoist_client_module, "settings", self.settings):
             with self.assertRaises(jarvis.TodoistApiError) as raised:
                 client._request("https://api.todoist.com/api/v1/tasks/task-1", "POST", {})
 
@@ -345,34 +302,34 @@ class TodoistApiClientRetryTests(unittest.TestCase):
         self.assertNotIn("private-event-id", str(error.to_classifier_payload()))
 
     def test_missing_api_key_is_auth_without_network_call(self) -> None:
-        client = jarvis.TodoistApiClient(api_key="", tracer=jarvis.NULL_TRACE)
+        http_client = Mock(spec=httpx.Client)
+        client = jarvis.TodoistApiClient(
+            api_key="",
+            tracer=jarvis.NULL_TRACE,
+            http_client=http_client,
+        )
         client.api_key = ""
 
-        with patch.object(todoist_client_module.urllib.request, "urlopen") as urlopen:
-            with self.assertRaises(jarvis.TodoistApiError) as raised:
-                client._request("https://api.todoist.com/api/v1/tasks")
+        with self.assertRaises(jarvis.TodoistApiError) as raised:
+            client._request("https://api.todoist.com/api/v1/tasks")
 
         self.assertEqual(raised.exception.kind, "auth")
         self.assertFalse(raised.exception.retryable)
-        urlopen.assert_not_called()
+        http_client.request.assert_not_called()
 
     def test_url_error_retries_then_raises_transient(self) -> None:
         client = self.request_client()
-        effects = [
-            urllib.error.URLError("temporary failure"),
-            urllib.error.URLError("temporary failure"),
-            urllib.error.URLError("temporary failure"),
+        request = httpx.Request("GET", "https://api.todoist.com/api/v1/tasks")
+        client._http_client.request.side_effect = [
+            httpx.ConnectError("temporary failure", request=request),
+            httpx.ConnectError("temporary failure", request=request),
+            httpx.ConnectError("temporary failure", request=request),
         ]
 
         with (
             patch.object(todoist_client_module, "settings", self.settings),
             patch.object(todoist_client_module.random, "uniform", return_value=0),
             patch.object(todoist_client_module.time, "sleep"),
-            patch.object(
-                todoist_client_module.urllib.request,
-                "urlopen",
-                side_effect=effects,
-            ) as urlopen,
         ):
             with self.assertRaises(jarvis.TodoistApiError) as raised:
                 client._request("https://api.todoist.com/api/v1/tasks")
@@ -380,7 +337,7 @@ class TodoistApiClientRetryTests(unittest.TestCase):
         self.assertEqual(raised.exception.kind, "transient")
         self.assertTrue(raised.exception.retryable)
         self.assertEqual(raised.exception.attempts, 3)
-        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual(client._http_client.request.call_count, 3)
 
     def test_v1_task_list_and_filter_endpoints(self) -> None:
         client = self.request_client()

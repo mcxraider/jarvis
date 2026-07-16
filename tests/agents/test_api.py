@@ -3,7 +3,7 @@ import json
 import os
 import sys
 from types import ModuleType, SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -26,12 +26,110 @@ class JarvisApiTests(unittest.TestCase):
     def test_fastapi_lifespan_drains_run_logs_on_shutdown(self) -> None:
         with patch("agents.agent_api.app.db.verify_database_runtime"), \
             patch("agents.agent_api.app.db.close_pool"), \
-            patch("agents.agent_api.app.run_logging.shutdown_run_logs") as shutdown:
+            patch(
+                "agents.agent_api.app.api.routes.invoke.drain_stream_workers"
+            ) as drain_workers, \
+            patch("agents.agent_api.app.run_logging.shutdown_run_logs") as shutdown, \
+            patch(
+                "agents.agent_api.app.tools.todoist.client.close_todoist_http_client"
+            ) as close_todoist, \
+            patch(
+                "agents.agent_api.app.tools.todoist.client.close_todoist_async_http_client",
+                new_callable=AsyncMock,
+            ) as close_todoist_async:
             with TestClient(create_app()) as client:
                 response = client.get("/health")
 
         self.assertEqual(response.status_code, 200)
+        close_todoist.assert_called_once_with()
+        close_todoist_async.assert_awaited_once_with()
+        drain_workers.assert_called_once_with(timeout=5.0)
         shutdown.assert_called_once_with(timeout=5.0)
+
+    def test_fastapi_lifespan_attempts_all_cleanup_after_close_failure(self) -> None:
+        with patch("agents.agent_api.app.db.verify_database_runtime"), \
+            patch("agents.agent_api.app.db.close_pool") as close_pool, \
+            patch("agents.agent_api.app.run_logging.shutdown_run_logs") as shutdown, \
+            patch(
+                "agents.agent_api.app.tools.todoist.client.close_todoist_http_client",
+                side_effect=RuntimeError("sync close failed"),
+            ) as close_todoist, \
+            patch(
+                "agents.agent_api.app.tools.todoist.client.close_todoist_async_http_client",
+                new_callable=AsyncMock,
+            ) as close_todoist_async:
+            with self.assertRaisesRegex(RuntimeError, "sync close failed"):
+                with TestClient(create_app()) as client:
+                    self.assertEqual(client.get("/health").status_code, 200)
+
+        shutdown.assert_called_once_with(timeout=5.0)
+        close_todoist.assert_called_once_with()
+        close_todoist_async.assert_awaited_once_with()
+        close_pool.assert_called_once_with()
+
+    def test_fastapi_lifespan_cleanup_order_drains_workers_first(self) -> None:
+        cleanup_order = []
+
+        with patch("agents.agent_api.app.db.verify_database_runtime"), patch(
+            "agents.agent_api.app.api.routes.invoke.drain_stream_workers",
+            side_effect=lambda **_kwargs: cleanup_order.append("workers") or True,
+        ), patch(
+            "agents.agent_api.app.run_logging.shutdown_run_logs",
+            side_effect=lambda **_kwargs: cleanup_order.append("logs"),
+        ), patch(
+            "agents.agent_api.app.tools.todoist.client.close_todoist_http_client",
+            side_effect=lambda: cleanup_order.append("todoist_sync"),
+        ), patch(
+            "agents.agent_api.app.tools.todoist.client.close_todoist_async_http_client",
+            new_callable=AsyncMock,
+            side_effect=lambda: cleanup_order.append("todoist_async"),
+        ), patch(
+            "agents.agent_api.app.db.close_pool",
+            side_effect=lambda: cleanup_order.append("database"),
+        ):
+            with TestClient(create_app()) as client:
+                self.assertEqual(client.get("/health").status_code, 200)
+
+        self.assertEqual(
+            cleanup_order,
+            ["workers", "logs", "todoist_sync", "todoist_async", "database"],
+        )
+
+    def test_fastapi_lifespan_preserves_multiple_cleanup_failures(self) -> None:
+        with patch("agents.agent_api.app.db.verify_database_runtime"), patch(
+            "agents.agent_api.app.api.routes.invoke.drain_stream_workers"
+        ) as drain_workers, patch(
+            "agents.agent_api.app.run_logging.shutdown_run_logs",
+            side_effect=RuntimeError("logs failed"),
+        ) as shutdown, patch(
+            "agents.agent_api.app.tools.todoist.client.close_todoist_http_client",
+            side_effect=RuntimeError("sync Todoist failed"),
+        ) as close_todoist, patch(
+            "agents.agent_api.app.tools.todoist.client.close_todoist_async_http_client",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("async Todoist failed"),
+        ) as close_todoist_async, patch(
+            "agents.agent_api.app.db.close_pool",
+            side_effect=RuntimeError("database failed"),
+        ) as close_pool:
+            with self.assertRaises(ExceptionGroup) as raised:
+                with TestClient(create_app()) as client:
+                    self.assertEqual(client.get("/health").status_code, 200)
+
+        self.assertEqual(
+            {str(error) for error in raised.exception.exceptions},
+            {
+                "logs failed",
+                "sync Todoist failed",
+                "async Todoist failed",
+                "database failed",
+            },
+        )
+        drain_workers.assert_called_once_with(timeout=5.0)
+        shutdown.assert_called_once_with(timeout=5.0)
+        close_todoist.assert_called_once_with()
+        close_todoist_async.assert_awaited_once_with()
+        close_pool.assert_called_once_with()
 
     def test_health_detail_ok(self) -> None:
         with patch(
@@ -322,6 +420,28 @@ class JarvisApiTests(unittest.TestCase):
                 clear=False,
             ):
                 self.assertFalse(load_settings().run_checkpoint_setup)
+
+    def test_todoist_pool_keepalive_cannot_exceed_total_connections(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "TODOIST_HTTP_MAX_KEEPALIVE_CONNECTIONS": "21",
+                "TODOIST_HTTP_MAX_CONNECTIONS": "20",
+            },
+            clear=False,
+        ):
+            with self.assertRaisesRegex(ValueError, "must not exceed"):
+                load_settings()
+
+    def test_positive_float_settings_reject_non_finite_values(self) -> None:
+        for value in ("nan", "inf", "-inf"):
+            with self.subTest(value=value), patch.dict(
+                "os.environ",
+                {"TODOIST_RETRY_TOTAL_TIMEOUT_SECONDS": value},
+                clear=False,
+            ):
+                with self.assertRaisesRegex(ValueError, "finite and greater than zero"):
+                    load_settings()
 
     def test_postgres_checkpointer_skips_setup_by_default(self) -> None:
         checkpointer = self._create_mock_postgres_checkpointer()

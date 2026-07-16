@@ -40,7 +40,10 @@ export interface LangGraphProgressEvent {
   metadata?: Record<string, unknown>;
 }
 
-export type LangGraphProgressCallback = (event: LangGraphProgressEvent) => void | Promise<void>;
+export type LangGraphProgressCallback = (
+  event: LangGraphProgressEvent,
+  signal?: AbortSignal,
+) => void | Promise<void>;
 
 // Structured result of the Python /health/detail deep-probe: one entry per
 // downstream dependency (deepseek, todoist) plus the live model name. Surfaced
@@ -73,20 +76,41 @@ export interface LangGraphAgentRequest {
 export interface LangGraphAgentClientConfig {
   baseUrl?: string;
   timeoutMs?: number;
+  streamIdleTimeoutMs?: number;
   apiKey?: string;
 }
 
 // Foreground progress remains useful for longer tool/LLM retries; callers can
 // still lower this explicitly for tests or constrained deployments.
 const DEFAULT_TIMEOUT_MS = 150000;
+// Reset whenever the backend produces a stream chunk. The overall timeout remains
+// authoritative even when progress continues to arrive.
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90000;
+const PROGRESS_CALLBACK_TIMEOUT_MS = 5000;
 const RETRY_DELAYS_MS = [1000, 3000];
 // Health probes are user-facing (/status) and must fail fast — don't inherit the
 // generous invoke/resume timeout.
 const HEALTH_TIMEOUT_MS = 8000;
 
+function finitePositiveTimeout(value: number, name: string): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${name} must be finite and greater than zero`);
+  }
+  return value;
+}
+
+type StreamFailureKind =
+  | 'overall_timeout'
+  | 'idle_timeout'
+  | 'premature_eof'
+  | 'stream_error'
+  | 'http_error'
+  | 'connection';
+
 export class LangGraphAgentClient {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
+  private readonly streamIdleTimeoutMs: number;
   private readonly apiKey?: string;
 
   constructor(config: LangGraphAgentClientConfig = {}) {
@@ -97,9 +121,16 @@ export class LangGraphAgentClient {
 
     // Strip trailing slashes so we can append paths without double-slash issues.
     this.baseUrl = baseUrl.replace(/\/+$/, '');
-    this.timeoutMs =
-      config.timeoutMs ||
-      Number(process.env.LANGGRAPH_AGENT_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
+    this.timeoutMs = finitePositiveTimeout(
+      config.timeoutMs ??
+        Number(process.env.LANGGRAPH_AGENT_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS),
+      'timeoutMs',
+    );
+    this.streamIdleTimeoutMs = finitePositiveTimeout(
+      config.streamIdleTimeoutMs ??
+        Number(process.env.LANGGRAPH_STREAM_IDLE_TIMEOUT_MS ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS),
+      'streamIdleTimeoutMs',
+    );
     this.apiKey = config.apiKey || process.env.LANGGRAPH_AGENT_API_KEY;
   }
 
@@ -164,6 +195,8 @@ export class LangGraphAgentClient {
     logContext: LogContext,
   ): Promise<LangGraphAgentResponse> {
     const startedAt = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
       logger.info('langgraph.request.started', {
@@ -183,9 +216,11 @@ export class LangGraphAgentClient {
           body: JSON.stringify(this.toPayload(request)),
         },
         logContext,
+        controller.signal,
+        !!request.requestId,
       );
 
-      const bodyText = await response.text();
+      const bodyText = await this.awaitWithAbort(response.text(), controller.signal);
 
       if (!response.ok) {
         throw new Error(`LangGraph API returned ${response.status}`);
@@ -205,6 +240,7 @@ export class LangGraphAgentClient {
       });
       return normalized;
     } catch (error) {
+      if (!controller.signal.aborted) controller.abort();
       logger.error('langgraph.request.failed', {
         ...logContext,
         path,
@@ -214,12 +250,15 @@ export class LangGraphAgentClient {
       });
 
       return this.fallbackResponse(request.threadId, (error as Error).message);
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
-  // Streaming POST: connects to the NDJSON stream endpoint. If the stream fails
-  // before any data arrives, transparently falls back to the standard POST endpoint.
-  // Once the stream has started, a mid-stream failure returns a fallback error response.
+  // Streaming POST: connects to the NDJSON stream endpoint. A pre-header failure can
+  // fall back to the standard endpoint only when the request carries an idempotency
+  // key. Once headers arrive, or after either deadline fires, never re-POST: the
+  // backend may already be executing a mutation.
   private async postStream(
     streamPath: '/invoke/stream' | '/resume/stream',
     fallbackPath: '/invoke' | '/resume',
@@ -228,9 +267,25 @@ export class LangGraphAgentClient {
     onProgress: LangGraphProgressCallback,
   ): Promise<LangGraphAgentResponse> {
     const startedAt = Date.now();
+    // This controller is passed directly to fetch and remains attached while the
+    // response body is read, so either deadline tears down the live socket.
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    let deadlineKind: 'overall' | 'idle' | null = null;
+    let responseReceived = false;
     let streamStarted = false;
+
+    const abortWith = (kind: 'overall' | 'idle') => {
+      if (deadlineKind || controller.signal.aborted) return;
+      deadlineKind = kind;
+      controller.abort();
+    };
+
+    const overallTimer = setTimeout(() => abortWith('overall'), this.timeoutMs);
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    const armIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => abortWith('idle'), this.streamIdleTimeoutMs);
+    };
 
     try {
       logger.info('langgraph.stream.started', {
@@ -250,6 +305,11 @@ export class LangGraphAgentClient {
           body: JSON.stringify(this.toPayload(request)),
         },
         logContext,
+        controller.signal,
+        false,
+        () => {
+          responseReceived = true;
+        },
       );
 
       if (!response.ok || !response.body) {
@@ -257,7 +317,14 @@ export class LangGraphAgentClient {
       }
 
       streamStarted = true;
-      const finalResponse = await this.readStream(response.body, onProgress, logContext);
+      armIdleTimer();
+      const finalResponse = await this.readStream(
+        response.body,
+        onProgress,
+        logContext,
+        armIdleTimer,
+        controller.signal,
+      );
       logger.info('langgraph.stream.completed', {
         ...logContext,
         path: streamPath,
@@ -271,38 +338,85 @@ export class LangGraphAgentClient {
       });
       return finalResponse;
     } catch (error) {
+      const failureKind = this.classifyStreamFailure(
+        deadlineKind,
+        responseReceived,
+        streamStarted,
+        error as Error,
+      );
+      // Tear down any still-readable response body on parse/callback/connection
+      // failures as well as on explicit deadlines.
+      if (!controller.signal.aborted) controller.abort();
       logger.warn('langgraph.stream.failed', {
         ...logContext,
         path: streamPath,
         userId: request.userId,
+        responseReceived,
         streamStarted,
+        failureKind,
         error: (error as Error).message,
         durationMs: Date.now() - startedAt,
       });
 
-      if (!streamStarted) {
+      // Retrying or switching endpoints is safe only when the backend can collapse
+      // an ambiguous duplicate using the same request id.
+      if (!responseReceived && !streamStarted && !deadlineKind && !!request.requestId) {
         return this.post(fallbackPath, request, logContext);
       }
 
-      return this.fallbackResponse(request.threadId, (error as Error).message);
+      return this.fallbackResponse(
+        request.threadId,
+        this.streamFailureMessage(failureKind, error as Error),
+      );
     } finally {
-      clearTimeout(timeout);
+      clearTimeout(overallTimer);
+      if (idleTimer) clearTimeout(idleTimer);
     }
+  }
+
+  private classifyStreamFailure(
+    deadlineKind: 'overall' | 'idle' | null,
+    responseReceived: boolean,
+    streamStarted: boolean,
+    error: Error,
+  ): StreamFailureKind {
+    if (deadlineKind === 'overall') return 'overall_timeout';
+    if (deadlineKind === 'idle') return 'idle_timeout';
+    if (error.message === 'LangGraph stream ended without a final response') {
+      return 'premature_eof';
+    }
+    if (streamStarted) return 'stream_error';
+    return responseReceived ? 'http_error' : 'connection';
+  }
+
+  private streamFailureMessage(kind: StreamFailureKind, error: Error): string {
+    if (kind === 'overall_timeout') {
+      return 'LangGraph stream timed out (overall deadline exceeded)';
+    }
+    if (kind === 'idle_timeout') {
+      return 'LangGraph stream timed out (idle: no data received)';
+    }
+    return error.message;
   }
 
   private async fetchWithRetry(
     url: string,
     init: RequestInit,
     logContext: LogContext,
+    signal: AbortSignal,
+    allowRetries = true,
+    onResponse?: () => void,
   ): Promise<Response> {
     let lastError: Error | undefined;
+    const retryDelays = allowRetries ? RETRY_DELAYS_MS : [];
 
-    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-
+    for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
       try {
-        const response = await fetch(url, { ...init, signal: controller.signal });
+        const response = await fetch(url, {
+          ...init,
+          signal,
+        });
+        onResponse?.();
 
         if (response.ok || response.status < 500) {
           return response;
@@ -310,24 +424,74 @@ export class LangGraphAgentClient {
 
         lastError = new Error(`LangGraph API returned ${response.status}`);
 
-        if (attempt < RETRY_DELAYS_MS.length) {
+        if (attempt < retryDelays.length) {
+          if (response.body) {
+            await this.awaitWithAbort(response.body.cancel(), signal);
+          }
           logger.warn('langgraph.request.retrying', {
             ...logContext,
             attempt: attempt + 1,
             status: response.status,
-            delayMs: RETRY_DELAYS_MS[attempt],
+            delayMs: retryDelays[attempt],
           });
-          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+          await this.waitForRetry(retryDelays[attempt], signal);
         }
       } catch (error) {
         // Don't retry aborts (timeout) or network errors
         throw error;
-      } finally {
-        clearTimeout(timeout);
       }
     }
 
     throw lastError!;
+  }
+
+  private async waitForRetry(delayMs: number, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) {
+      throw signal.reason || new DOMException('The operation was aborted', 'AbortError');
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        signal.removeEventListener('abort', onAbort);
+        clearTimeout(timeout);
+        reject(signal.reason || new DOMException('The operation was aborted', 'AbortError'));
+      };
+      const timeout = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, delayMs);
+      signal.addEventListener('abort', onAbort, { once: true });
+      if (signal.aborted) onAbort();
+    });
+  }
+
+  private async awaitWithAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      let settled = false;
+      const cleanup = () => signal.removeEventListener('abort', onAbort);
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(signal.reason || new DOMException('The operation was aborted', 'AbortError'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      operation.then(
+        (value) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve(value);
+        },
+        (error) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(error);
+        },
+      );
+      if (signal.aborted) onAbort();
+    });
   }
 
   // Reads the streaming response body chunk-by-chunk, splitting on newlines to get
@@ -337,32 +501,134 @@ export class LangGraphAgentClient {
     body: ReadableStream<Uint8Array>,
     onProgress: LangGraphProgressCallback,
     logContext: LogContext,
+    onChunk: () => void,
+    signal: AbortSignal,
   ): Promise<LangGraphAgentResponse> {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let finalResponse: LangGraphAgentResponse | undefined;
+    let progressCallbackEnabled = true;
+    const reportProgress: LangGraphProgressCallback = async (event) => {
+      if (!progressCallbackEnabled) return;
+      const callbackStillEnabled = await this.deliverProgress(
+        event,
+        onProgress,
+        logContext,
+        signal,
+      );
+      this.throwIfAborted(signal);
+      progressCallbackEnabled = callbackStillEnabled;
+    };
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (value) {
-        buffer += decoder.decode(value, { stream: true });
-        finalResponse = await this.consumeStreamBuffer(buffer, onProgress, finalResponse, logContext);
-        buffer = this.remainingPartialLine(buffer);
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (value) {
+          this.throwIfAborted(signal);
+          onChunk();
+          buffer += decoder.decode(value, { stream: true });
+          finalResponse = await this.consumeStreamBuffer(
+            buffer,
+            reportProgress,
+            finalResponse,
+            logContext,
+          );
+          buffer = this.remainingPartialLine(buffer);
+          if (finalResponse) return finalResponse;
+        }
+        if (done) break;
       }
-      if (done) break;
-    }
 
-    buffer += decoder.decode();
-    if (buffer.trim()) {
-      finalResponse = await this.consumeStreamLine(buffer.trim(), onProgress, finalResponse, logContext);
-    }
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        this.throwIfAborted(signal);
+        finalResponse = await this.consumeStreamLine(
+          buffer.trim(),
+          reportProgress,
+          finalResponse,
+          logContext,
+        );
+      }
 
-    if (!finalResponse) {
-      throw new Error('LangGraph stream ended without a final response');
-    }
+      if (!finalResponse) {
+        throw new Error('LangGraph stream ended without a final response');
+      }
 
-    return finalResponse;
+      return finalResponse;
+    } finally {
+      if (finalResponse) {
+        try {
+          void reader.cancel().catch(() => {});
+        } catch {
+          // Best effort: the terminal event is authoritative even if cancellation fails.
+        }
+      }
+      try {
+        reader.releaseLock();
+      } catch {
+        // Best effort: an aborted or errored stream may already have released it.
+      }
+    }
+  }
+
+  private async deliverProgress(
+    event: LangGraphProgressEvent,
+    onProgress: LangGraphProgressCallback,
+    logContext: LogContext,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    if (signal.aborted) return false;
+
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
+    const callbackController = new AbortController();
+    const callback = Promise.resolve()
+      .then(() => onProgress(event, callbackController.signal))
+      .then(() => 'completed' as const);
+    const timedOut = new Promise<'timed_out'>((resolve) => {
+      timeout = setTimeout(() => {
+        callbackController.abort();
+        resolve('timed_out');
+      }, PROGRESS_CALLBACK_TIMEOUT_MS);
+    });
+    const aborted = new Promise<'aborted'>((resolve) => {
+      onAbort = () => {
+        callbackController.abort();
+        resolve('aborted');
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      if (signal.aborted) onAbort();
+    });
+
+    try {
+      const outcome = await Promise.race([callback, timedOut, aborted]);
+      if (outcome === 'completed') return true;
+      if (outcome === 'timed_out') {
+        logger.warn('langgraph.stream.progress_callback_timed_out', {
+          ...logContext,
+          stage: event.stage,
+          timeoutMs: PROGRESS_CALLBACK_TIMEOUT_MS,
+        });
+      }
+      return false;
+    } catch (error) {
+      logger.warn('langgraph.stream.progress_callback_failed', {
+        ...logContext,
+        stage: event.stage,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      if (onAbort) signal.removeEventListener('abort', onAbort);
+    }
+  }
+
+  private throwIfAborted(signal: AbortSignal): void {
+    if (signal.aborted) {
+      throw signal.reason || new DOMException('The operation was aborted', 'AbortError');
+    }
   }
 
   // Processes all complete lines in the buffer (everything except the last partial line).
@@ -380,6 +646,7 @@ export class LangGraphAgentClient {
       const trimmed = line.trim();
       if (!trimmed) continue;
       latestFinal = await this.consumeStreamLine(trimmed, onProgress, latestFinal, logContext);
+      if (latestFinal) break;
     }
 
     return latestFinal;
@@ -403,6 +670,7 @@ export class LangGraphAgentClient {
     try {
       parsed = JSON.parse(line);
     } catch {
+      logger.warn('langgraph.stream.malformed_line', { ...logContext });
       return finalResponse;
     }
 

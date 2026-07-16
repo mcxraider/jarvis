@@ -4,11 +4,17 @@ import json
 import logging
 import queue
 import threading
+import time
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 
+from agents.agent_api.app.api.admission import (
+    RunSlot,
+    capacity_exceeded,
+    try_acquire_run_slot,
+)
 from agents.agent_api.app.api.request_idempotency import RequestClaim
 from agents.agent_api.app.api.schemas import AgentResponse, BulkAgentResponse, BulkInvokeRequest, InvokeRequest
 from agents.agent_api.app.errors import require_api_key
@@ -22,6 +28,53 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 STREAM_LIVENESS_TIMEOUT_SECONDS = 120.0
+STREAM_WORKER_DRAIN_TIMEOUT_SECONDS = 5.0
+
+_active_stream_workers: set[threading.Thread] = set()
+_active_stream_workers_lock = threading.Lock()
+
+
+def _start_registered_stream_worker(worker_thread: threading.Thread) -> None:
+    """Publish and start a worker atomically with respect to shutdown drain."""
+
+    with _active_stream_workers_lock:
+        _active_stream_workers.add(worker_thread)
+        try:
+            worker_thread.start()
+        except BaseException:
+            _active_stream_workers.discard(worker_thread)
+            raise
+
+
+def _unregister_stream_worker(worker_thread: threading.Thread) -> None:
+    with _active_stream_workers_lock:
+        _active_stream_workers.discard(worker_thread)
+
+
+def drain_stream_workers(
+    timeout: float = STREAM_WORKER_DRAIN_TIMEOUT_SECONDS,
+) -> bool:
+    """Wait up to ``timeout`` seconds for active stream workers to finish."""
+
+    deadline = time.monotonic() + max(0.0, timeout)
+    current_thread = threading.current_thread()
+    while True:
+        with _active_stream_workers_lock:
+            workers = tuple(
+                worker
+                for worker in _active_stream_workers
+                if worker is not current_thread
+            )
+        if not workers:
+            return True
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        for worker in workers:
+            worker.join(timeout=max(0.0, deadline - time.monotonic()))
+            if time.monotonic() >= deadline:
+                break
 
 
 def allow_mutations(request_value: Optional[bool]) -> bool:
@@ -109,8 +162,27 @@ def stream_final_response(response: AgentResponse) -> StreamingResponse:
 def stream_agent_run(
     run_callable: Any,
     request_claim: Optional[RequestClaim] = None,
+    run_slot: Optional[RunSlot] = None,
 ):
-    events: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue()
+    def cleanup_failed_start() -> None:
+        """Release route-owned resources when worker ownership never begins."""
+
+        try:
+            if request_claim is not None:
+                idempotency.abandon_idempotent_request(request_claim)
+        except Exception:
+            # Claim cleanup is best-effort; capacity must still be returned and
+            # the original stream-start failure should reach the caller.
+            pass
+        finally:
+            if run_slot is not None:
+                run_slot.release()
+
+    try:
+        events: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue()
+    except BaseException:
+        cleanup_failed_start()
+        raise
     sequence = 0
 
     def emit_progress(progress: Dict[str, Any]) -> None:
@@ -155,10 +227,22 @@ def stream_agent_run(
                 }
             )
         finally:
-            events.put(None)
+            try:
+                if run_slot is not None:
+                    run_slot.release()
+            finally:
+                try:
+                    events.put(None)
+                finally:
+                    _unregister_stream_worker(threading.current_thread())
 
-    worker_thread = threading.Thread(target=worker, daemon=True)
-    worker_thread.start()
+    worker_thread: Optional[threading.Thread] = None
+    try:
+        worker_thread = threading.Thread(target=worker, daemon=True)
+        _start_registered_stream_worker(worker_thread)
+    except BaseException:
+        cleanup_failed_start()
+        raise
 
     def iterator():
         while True:
@@ -196,31 +280,36 @@ def invoke(
         x_jarvis_agent_key,
         charges_new_thread_quota=True,
         require_thread_ownership=True,
+        admit_run=True,
     )
-    if ctx.cached_response is not None:
-        return ctx.cached_response
     try:
-        result = run_jarvis(
-            user_prompt=request.message,
-            user_id=request.user_id,
-            request_source=ctx.request_source,
-            allow_mutations=allow_mutations(request.allow_mutations),
-            tracer=NULL_TRACE,
-            thread_id=request.thread_id,
-            identity=ctx.identity,
-            request_id=request.request_id,
-        )
-        response = to_response(result)
-        finish_idempotent_request(ctx.claim, response)
-        return response
-    except Exception as error:
-        idempotency.abandon_idempotent_request(ctx.claim)
-        return AgentResponse(
-            status="failed",
-            thread_id=request.thread_id or "",
-            response="Jarvis is temporarily unavailable. Please try again in a moment.",
-            error=str(error),
-        )
+        if ctx.cached_response is not None:
+            return ctx.cached_response
+        try:
+            result = run_jarvis(
+                user_prompt=request.message,
+                user_id=request.user_id,
+                request_source=ctx.request_source,
+                allow_mutations=allow_mutations(request.allow_mutations),
+                tracer=NULL_TRACE,
+                thread_id=request.thread_id,
+                identity=ctx.identity,
+                request_id=request.request_id,
+            )
+            response = to_response(result)
+            finish_idempotent_request(ctx.claim, response)
+            return response
+        except Exception as error:
+            idempotency.abandon_idempotent_request(ctx.claim)
+            return AgentResponse(
+                status="failed",
+                thread_id=request.thread_id or "",
+                response="Jarvis is temporarily unavailable. Please try again in a moment.",
+                error=str(error),
+            )
+    finally:
+        if ctx.run_slot is not None:
+            ctx.run_slot.release()
 
 
 @router.post("/invoke/stream")
@@ -234,8 +323,11 @@ def invoke_stream(
         x_jarvis_agent_key,
         charges_new_thread_quota=True,
         require_thread_ownership=True,
+        admit_run=True,
     )
     if ctx.cached_response is not None:
+        if ctx.run_slot is not None:
+            ctx.run_slot.release()
         return stream_final_response(ctx.cached_response)
 
     def run_with_tracer(tracer: UserProgressTracePrinter) -> JarvisState:
@@ -250,7 +342,11 @@ def invoke_stream(
             request_id=request.request_id,
         )
 
-    return stream_agent_run(run_with_tracer, request_claim=ctx.claim)
+    return stream_agent_run(
+        run_with_tracer,
+        request_claim=ctx.claim,
+        run_slot=ctx.run_slot,
+    )
 
 
 @router.post("/invoke-bulk", response_model=BulkAgentResponse)
@@ -264,51 +360,58 @@ def invoke_bulk(
     if not messages:
         raise HTTPException(status_code=422, detail="At least one non-empty message is required.")
 
-    results = []
-    for index, message in enumerate(messages):
-        try:
-            rate_limit.consume_new_thread_quota(identity)
-            result = run_jarvis(
-                user_prompt=message,
-                user_id=request.user_id,
-                request_source=request_source(request.source, identity),
-                allow_mutations=allow_bulk_mutations(request.allow_mutations),
-                max_agent_turns=request.max_agent_turns or MAX_AGENT_TURNS,
-                tracer=NULL_TRACE,
-                identity=identity,
-                request_id=request.request_id,
-            )
-            results.append(to_response(result))
-        except HTTPException as error:
-            if error.status_code != 429:
-                raise
-            detail = str(error.detail)
-            failed_response = AgentResponse(
-                status="failed",
-                thread_id="",
-                response=detail,
-                error=f"HTTP 429: {detail}",
-            )
-            results.append(failed_response)
-            remaining = len(messages) - index - 1
-            results.extend(
-                AgentResponse(
+    run_slot = try_acquire_run_slot()
+    if run_slot is None:
+        raise capacity_exceeded()
+
+    try:
+        results = []
+        for index, message in enumerate(messages):
+            try:
+                rate_limit.consume_new_thread_quota(identity)
+                result = run_jarvis(
+                    user_prompt=message,
+                    user_id=request.user_id,
+                    request_source=request_source(request.source, identity),
+                    allow_mutations=allow_bulk_mutations(request.allow_mutations),
+                    max_agent_turns=request.max_agent_turns or MAX_AGENT_TURNS,
+                    tracer=NULL_TRACE,
+                    identity=identity,
+                    request_id=request.request_id,
+                )
+                results.append(to_response(result))
+            except HTTPException as error:
+                if error.status_code != 429:
+                    raise
+                detail = str(error.detail)
+                failed_response = AgentResponse(
                     status="failed",
                     thread_id="",
                     response=detail,
                     error=f"HTTP 429: {detail}",
                 )
-                for _ in range(remaining)
-            )
-            break
-        except Exception as error:
-            results.append(
-                AgentResponse(
-                    status="failed",
-                    thread_id="",
-                    response="Jarvis is temporarily unavailable. Please try again in a moment.",
-                    error=str(error),
+                results.append(failed_response)
+                remaining = len(messages) - index - 1
+                results.extend(
+                    AgentResponse(
+                        status="failed",
+                        thread_id="",
+                        response=detail,
+                        error=f"HTTP 429: {detail}",
+                    )
+                    for _ in range(remaining)
                 )
-            )
+                break
+            except Exception as error:
+                results.append(
+                    AgentResponse(
+                        status="failed",
+                        thread_id="",
+                        response="Jarvis is temporarily unavailable. Please try again in a moment.",
+                        error=str(error),
+                    )
+                )
 
-    return BulkAgentResponse(results=results)
+        return BulkAgentResponse(results=results)
+    finally:
+        run_slot.release()

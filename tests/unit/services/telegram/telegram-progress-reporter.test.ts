@@ -79,4 +79,41 @@ describe('TelegramProgressReporter', () => {
     );
     await reporter.complete('Done');
   });
+
+  it('removes a status reply that resolves after completion', async () => {
+    let resolveReply!: (message: { message_id: number }) => void;
+    const reply = new Promise<{ message_id: number }>((resolve) => {
+      resolveReply = resolve;
+    });
+    const ctx = context('group');
+    ctx.reply.mockReturnValue(reply);
+    const reporter = new TelegramProgressReporter(ctx);
+
+    const start = reporter.start();
+    await Promise.resolve();
+    await reporter.complete('Done');
+    resolveReply({ message_id: 88 });
+    await start;
+
+    expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(123, 88);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('ignores an already-aborted progress delivery', async () => {
+    const ctx = context('group');
+    const reporter = new TelegramProgressReporter(ctx);
+    await reporter.start();
+    const controller = new AbortController();
+    controller.abort();
+
+    await reporter.record({
+      stage: 'progress', message: 'ignored', fact: {
+        phase: 'lookup', action: 'started', domains: ['calendar'], intent: 'read',
+      },
+    }, controller.signal);
+    await jest.advanceTimersByTimeAsync(4_000);
+
+    expect(ctx.telegram.editMessageText).not.toHaveBeenCalled();
+    await reporter.complete('Done');
+  });
 });

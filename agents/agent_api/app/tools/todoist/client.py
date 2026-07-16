@@ -1,18 +1,23 @@
-"""Todoist REST API client using only the Python standard library."""
+"""Todoist REST API client over shared, keep-alive ``httpx`` transports.
 
+Bearer tokens are attached per request rather than to the process-wide clients so
+multiple users can safely reuse the same connection pools.
+"""
+
+import asyncio
+import copy
 import json
 import random
 import re
+import threading
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
-import copy
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Dict, Optional
 
+import httpx
 from langsmith import traceable
 
 from agents.agent_api.app.config import settings
@@ -74,6 +79,116 @@ TODOIST_ERROR_MESSAGES = {
 }
 
 
+_shared_http_client: Optional[httpx.Client] = None
+_shared_http_client_lock = threading.Lock()
+_shared_async_http_client: Optional[httpx.AsyncClient] = None
+_shared_async_http_client_loop: Optional[asyncio.AbstractEventLoop] = None
+_shared_async_http_client_closing = False
+_shared_async_http_client_lock = threading.Lock()
+
+
+def _http_setting(name: str, default: Any) -> Any:
+    """Read pool settings with defaults during rolling configuration upgrades."""
+
+    return getattr(settings, name, default)
+
+
+def get_todoist_http_client() -> httpx.Client:
+    """Return the lazily-created process-wide synchronous connection pool."""
+
+    global _shared_http_client
+    client = _shared_http_client
+    if client is not None:
+        return client
+    with _shared_http_client_lock:
+        if _shared_http_client is None:
+            _shared_http_client = httpx.Client(
+                timeout=httpx.Timeout(_http_setting("todoist_http_timeout_seconds", 30.0)),
+                limits=httpx.Limits(
+                    max_keepalive_connections=_http_setting(
+                        "todoist_http_max_keepalive_connections", 10
+                    ),
+                    max_connections=_http_setting("todoist_http_max_connections", 20),
+                ),
+                follow_redirects=True,
+            )
+        return _shared_http_client
+
+
+def close_todoist_http_client() -> None:
+    """Close and clear the shared synchronous pool, if one exists."""
+
+    global _shared_http_client
+    with _shared_http_client_lock:
+        client = _shared_http_client
+        _shared_http_client = None
+    if client is not None:
+        client.close()
+
+
+def get_todoist_async_http_client() -> httpx.AsyncClient:
+    """Return the pool owned by the active loop, refusing cross-loop reuse."""
+
+    global _shared_async_http_client, _shared_async_http_client_loop
+    loop = asyncio.get_running_loop()
+    with _shared_async_http_client_lock:
+        if _shared_async_http_client is not None:
+            if _shared_async_http_client_loop is not loop:
+                raise RuntimeError(
+                    "Todoist async HTTP client belongs to another event loop; "
+                    "close it on its owner loop before creating a new one."
+                )
+            if _shared_async_http_client_closing:
+                raise RuntimeError("Todoist async HTTP client is closing.")
+            return _shared_async_http_client
+
+        _shared_async_http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(_http_setting("todoist_http_timeout_seconds", 30.0)),
+            limits=httpx.Limits(
+                max_keepalive_connections=_http_setting(
+                    "todoist_http_max_keepalive_connections", 10
+                ),
+                max_connections=_http_setting("todoist_http_max_connections", 20),
+            ),
+            follow_redirects=True,
+        )
+        _shared_async_http_client_loop = loop
+        return _shared_async_http_client
+
+
+async def close_todoist_async_http_client() -> None:
+    """Close the pool on its owner loop before allowing a new loop to claim it."""
+
+    global _shared_async_http_client, _shared_async_http_client_loop
+    global _shared_async_http_client_closing
+    loop = asyncio.get_running_loop()
+    with _shared_async_http_client_lock:
+        client = _shared_async_http_client
+        if client is None:
+            return
+        if _shared_async_http_client_loop is not loop:
+            raise RuntimeError(
+                "Todoist async HTTP client must be closed on its owner event loop."
+            )
+        if _shared_async_http_client_closing:
+            raise RuntimeError("Todoist async HTTP client is already closing.")
+        _shared_async_http_client_closing = True
+
+    try:
+        await client.aclose()
+    except BaseException:
+        with _shared_async_http_client_lock:
+            if _shared_async_http_client is client:
+                _shared_async_http_client_closing = False
+        raise
+    else:
+        with _shared_async_http_client_lock:
+            if _shared_async_http_client is client:
+                _shared_async_http_client = None
+                _shared_async_http_client_loop = None
+                _shared_async_http_client_closing = False
+
+
 @dataclass
 class TodoistApiError(ClassifiedApiError):
     """Structured Todoist failure safe to route through tool results.
@@ -121,15 +236,19 @@ class TodoistApiError(ClassifiedApiError):
 
 
 class TodoistApiClient:
-    """Direct Todoist API client using only the Python stdlib."""
+    """Direct Todoist API client using shared sync and async HTTP pools."""
 
     def __init__(
         self,
         api_key: Optional[str] = None,
         tracer: Optional[TracePrinter] = None,
+        http_client: Optional[httpx.Client] = None,
+        async_http_client: Optional[httpx.AsyncClient] = None,
     ):
         self.api_key = api_key
         self._tracer = tracer or NULL_TRACE
+        self._http_client = http_client
+        self._async_http_client = async_http_client
 
     @property
     def tracer(self) -> TracePrinter:
@@ -160,7 +279,7 @@ class TodoistApiClient:
                 method=method,
             )
 
-        data = None
+        data: Optional[bytes] = None
         headers = {"Authorization": f"Bearer {self.api_key}"}
 
         if payload is not None:
@@ -168,10 +287,17 @@ class TodoistApiClient:
             if content_type:
                 headers["Content-Type"] = "application/json"
 
+        http_client = self._http_client or get_todoist_http_client()
         max_attempts = max(1, settings.todoist_max_retry_attempts)
         retry_deadline = time.monotonic() + max(0.0, settings.todoist_retry_total_timeout_seconds)
+        last_error: Optional[TodoistApiError] = None
 
         for attempt in range(1, max_attempts + 1):
+            attempt_timeout = _attempt_timeout_seconds(retry_deadline)
+            if attempt_timeout <= 0:
+                if last_error is not None:
+                    raise last_error
+                raise _todoist_deadline_error(url, method, attempt - 1)
             self.tracer.event(
                 "todoist.request",
                 "Sending Todoist API request.",
@@ -183,30 +309,51 @@ class TodoistApiClient:
             )
             self.tracer.payload("todoist.payload", "request", payload)
 
-            request = urllib.request.Request(url, data=data, headers=headers, method=method)
-
             try:
-                with urllib.request.urlopen(request, timeout=30) as response:
-                    body = response.read().decode("utf-8")
-                    self.tracer.event(
-                        "todoist.response",
-                        "Received Todoist API response.",
-                        status=response.status,
-                        has_body=bool(body),
-                        attempt=attempt,
-                    )
-                    if response.status == 204 or not body:
-                        return None
-                    parsed = json.loads(body)
-                    self.tracer.payload("todoist.payload", "response", parsed)
-                    return parsed
-            except urllib.error.HTTPError as error:
-                body = error.read().decode("utf-8", errors="replace")
-                api_error = _todoist_http_error(error, url, method, attempt, body)
+                response = http_client.request(
+                    method,
+                    url,
+                    headers=headers,
+                    content=data,
+                    timeout=attempt_timeout,
+                )
+                if _remaining_retry_seconds(retry_deadline) <= 0:
+                    raise _todoist_deadline_error(url, method, attempt)
+            except (httpx.RequestError, httpx.InvalidURL) as error:
+                api_error = _todoist_request_error(error, url, method, attempt)
+                last_error = api_error
+                self.tracer.event(
+                    "todoist.error",
+                    "Todoist API connection failed.",
+                    kind=api_error.kind,
+                    retryable=api_error.retryable,
+                    attempt=attempt,
+                    error=str(error),
+                )
+                if _should_retry(api_error, attempt, max_attempts, retry_deadline):
+                    _emit_retry_progress(self.tracer, "temporary_connection")
+                    _sleep_before_retry(api_error, attempt, retry_deadline)
+                    if _remaining_retry_seconds(retry_deadline) <= 0:
+                        raise api_error from error
+                    continue
+                raise api_error from error
+
+            status = response.status_code
+            body = response.text
+            if status >= 400:
+                api_error = _todoist_http_error(
+                    status,
+                    response.headers,
+                    url,
+                    method,
+                    attempt,
+                    body,
+                )
+                last_error = api_error
                 self.tracer.event(
                     "todoist.error",
                     "Todoist API returned an HTTP error.",
-                    status=error.code,
+                    status=status,
                     kind=api_error.kind,
                     retryable=api_error.retryable,
                     attempt=attempt,
@@ -214,52 +361,182 @@ class TodoistApiClient:
                 self.tracer.payload(
                     "todoist.payload",
                     "error",
-                    {"status": error.code, "body": body},
+                    {"status": status, "body": body},
                 )
                 if _should_retry(api_error, attempt, max_attempts, retry_deadline):
-                    progress = getattr(self.tracer, "progress", None)
-                    if callable(progress): progress({
-                        "phase": "retrying",
-                        "action": "retrying",
-                        "domains": ["todoist"],
-                        "retry": {"target": "domain", "domain": "todoist", "reason": "rate_limited" if api_error.kind == "rate-limit" else "service_unavailable"},
-                    })
+                    reason = (
+                        "rate_limited"
+                        if api_error.kind == "rate-limit"
+                        else "service_unavailable"
+                    )
+                    _emit_retry_progress(self.tracer, reason)
                     _sleep_before_retry(api_error, attempt, retry_deadline)
+                    if _remaining_retry_seconds(retry_deadline) <= 0:
+                        raise api_error
                     continue
-                raise api_error from error
-            except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
-                api_error = TodoistApiError(
-                    kind="transient",
-                    message=TODOIST_ERROR_MESSAGES["transient"],
-                    retryable=True,
-                    url=url,
-                    method=method,
-                    attempts=attempt,
-                )
+                raise api_error
+
+            self.tracer.event(
+                "todoist.response",
+                "Received Todoist API response.",
+                status=status,
+                has_body=bool(body),
+                attempt=attempt,
+            )
+            if status == 204 or not body:
+                return None
+            parsed = json.loads(body)
+            self.tracer.payload("todoist.payload", "response", parsed)
+            return parsed
+
+        raise TodoistApiError(
+            kind="transient",
+            message=TODOIST_ERROR_MESSAGES["transient"],
+            retryable=_is_retry_safe_method(method),
+            url=url,
+            method=method,
+            attempts=max_attempts,
+        )
+
+    @traceable(name="todoist_api_async_request", run_type="tool")
+    async def async_request(
+        self,
+        url: str,
+        method: str = "GET",
+        payload: Optional[Dict[str, Any]] = None,
+        content_type: bool = True,
+        *,
+        async_http_client: Optional[httpx.AsyncClient] = None,
+    ) -> Any:
+        """Send a Todoist request without blocking the event loop."""
+
+        if not self.api_key:
+            raise TodoistApiError(
+                kind="auth",
+                message=TODOIST_ERROR_MESSAGES["auth"],
+                retryable=False,
+                url=url,
+                method=method,
+            )
+
+        data: Optional[bytes] = None
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        if payload is not None:
+            data = json.dumps(payload).encode("utf-8")
+            if content_type:
+                headers["Content-Type"] = "application/json"
+
+        http_client = (
+            async_http_client
+            or self._async_http_client
+            or get_todoist_async_http_client()
+        )
+        max_attempts = max(1, settings.todoist_max_retry_attempts)
+        retry_deadline = time.monotonic() + max(
+            0.0, settings.todoist_retry_total_timeout_seconds
+        )
+        last_error: Optional[TodoistApiError] = None
+
+        for attempt in range(1, max_attempts + 1):
+            attempt_timeout = _attempt_timeout_seconds(retry_deadline)
+            if attempt_timeout <= 0:
+                if last_error is not None:
+                    raise last_error
+                raise _todoist_deadline_error(url, method, attempt - 1)
+            self.tracer.event(
+                "todoist.request",
+                "Sending Todoist API request.",
+                method=method,
+                endpoint=todoist_endpoint_template(url),
+                has_payload=payload is not None,
+                attempt=attempt,
+                max_attempts=max_attempts,
+            )
+            self.tracer.payload("todoist.payload", "request", payload)
+
+            try:
+                async with asyncio.timeout(attempt_timeout):
+                    response = await http_client.request(
+                        method,
+                        url,
+                        headers=headers,
+                        content=data,
+                        timeout=attempt_timeout,
+                    )
+            except (httpx.RequestError, httpx.InvalidURL, TimeoutError) as error:
+                api_error = _todoist_request_error(error, url, method, attempt)
+                last_error = api_error
                 self.tracer.event(
                     "todoist.error",
                     "Todoist API connection failed.",
                     kind=api_error.kind,
                     retryable=api_error.retryable,
                     attempt=attempt,
-                    error=str(getattr(error, "reason", error)),
+                    error=str(error),
                 )
                 if _should_retry(api_error, attempt, max_attempts, retry_deadline):
-                    progress = getattr(self.tracer, "progress", None)
-                    if callable(progress): progress({
-                        "phase": "retrying",
-                        "action": "retrying",
-                        "domains": ["todoist"],
-                        "retry": {"target": "domain", "domain": "todoist", "reason": "temporary_connection"},
-                    })
-                    _sleep_before_retry(api_error, attempt, retry_deadline)
+                    _emit_retry_progress(self.tracer, "temporary_connection")
+                    await _async_sleep_before_retry(api_error, attempt, retry_deadline)
+                    if _remaining_retry_seconds(retry_deadline) <= 0:
+                        raise api_error from error
                     continue
                 raise api_error from error
+
+            status = response.status_code
+            body = response.text
+            if status >= 400:
+                api_error = _todoist_http_error(
+                    status,
+                    response.headers,
+                    url,
+                    method,
+                    attempt,
+                    body,
+                )
+                last_error = api_error
+                self.tracer.event(
+                    "todoist.error",
+                    "Todoist API returned an HTTP error.",
+                    status=status,
+                    kind=api_error.kind,
+                    retryable=api_error.retryable,
+                    attempt=attempt,
+                )
+                self.tracer.payload(
+                    "todoist.payload",
+                    "error",
+                    {"status": status, "body": body},
+                )
+                if _should_retry(api_error, attempt, max_attempts, retry_deadline):
+                    reason = (
+                        "rate_limited"
+                        if api_error.kind == "rate-limit"
+                        else "service_unavailable"
+                    )
+                    _emit_retry_progress(self.tracer, reason)
+                    await _async_sleep_before_retry(api_error, attempt, retry_deadline)
+                    if _remaining_retry_seconds(retry_deadline) <= 0:
+                        raise api_error
+                    continue
+                raise api_error
+
+            self.tracer.event(
+                "todoist.response",
+                "Received Todoist API response.",
+                status=status,
+                has_body=bool(body),
+                attempt=attempt,
+            )
+            if status == 204 or not body:
+                return None
+            parsed = json.loads(body)
+            self.tracer.payload("todoist.payload", "response", parsed)
+            return parsed
 
         raise TodoistApiError(
             kind="transient",
             message=TODOIST_ERROR_MESSAGES["transient"],
-            retryable=True,
+            retryable=_is_retry_safe_method(method),
             url=url,
             method=method,
             attempts=max_attempts,
@@ -504,19 +781,20 @@ def _query_params(
 
 
 def _todoist_http_error(
-    error: urllib.error.HTTPError,
+    status_code: int,
+    headers: Any,
     url: str,
     method: str,
     attempts: int,
     body: str = "",
 ) -> TodoistApiError:
-    kind = TODOIST_HTTP_ERROR_KIND_BY_STATUS.get(error.code)
-    if kind is None and 500 <= error.code <= 599:
+    kind = TODOIST_HTTP_ERROR_KIND_BY_STATUS.get(status_code)
+    if kind is None and 500 <= status_code <= 599:
         kind = "transient"
     if kind is None:
-        kind = "validation" if 400 <= error.code <= 499 else "transient"
+        kind = "validation" if 400 <= status_code <= 499 else "transient"
 
-    retry_after_header = error.headers.get("Retry-After") if error.headers else None
+    retry_after_header = headers.get("Retry-After") if headers else None
     retry_after = _parse_retry_after(retry_after_header)
     provider_message, provider_code, provider_tag = _parse_provider_error(body)
     message = TODOIST_ERROR_MESSAGES[kind]
@@ -525,8 +803,11 @@ def _todoist_http_error(
     return TodoistApiError(
         kind=kind,
         message=message,
-        status_code=error.code,
-        retryable=kind in {"rate-limit", "transient"},
+        status_code=status_code,
+        retryable=(
+            kind in {"rate-limit", "transient"}
+            and _is_retry_safe_method(method)
+        ),
         url=url,
         method=method,
         attempts=attempts,
@@ -534,6 +815,42 @@ def _todoist_http_error(
         provider_message=provider_message,
         provider_code=provider_code,
         provider_tag=provider_tag,
+    )
+
+
+def _todoist_request_error(
+    error: Exception,
+    url: str,
+    method: str,
+    attempts: int,
+) -> TodoistApiError:
+    invalid_request = isinstance(
+        error,
+        (httpx.InvalidURL, httpx.UnsupportedProtocol, httpx.LocalProtocolError),
+    )
+    kind = "validation" if invalid_request else "transient"
+    return TodoistApiError(
+        kind=kind,
+        message=TODOIST_ERROR_MESSAGES[kind],
+        retryable=not invalid_request and _is_retry_safe_method(method),
+        url=url,
+        method=method,
+        attempts=attempts,
+    )
+
+
+def _todoist_deadline_error(
+    url: str,
+    method: str,
+    attempts: int,
+) -> TodoistApiError:
+    return TodoistApiError(
+        kind="transient",
+        message=TODOIST_ERROR_MESSAGES["transient"],
+        retryable=_is_retry_safe_method(method),
+        url=url,
+        method=method,
+        attempts=max(1, attempts),
     )
 
 
@@ -584,7 +901,7 @@ def _should_retry(
 ) -> bool:
     if not error.retryable or attempt >= max_attempts:
         return False
-    remaining = retry_deadline - time.monotonic()
+    remaining = _remaining_retry_seconds(retry_deadline)
     if remaining <= 0:
         return False
     if error.retry_after_seconds is not None and error.retry_after_seconds > remaining:
@@ -594,10 +911,54 @@ def _should_retry(
 
 def _sleep_before_retry(error: TodoistApiError, attempt: int, retry_deadline: float) -> None:
     delay = _retry_delay_seconds(error, attempt)
-    remaining = retry_deadline - time.monotonic()
+    remaining = _remaining_retry_seconds(retry_deadline)
     if remaining <= 0:
         return
     time.sleep(min(delay, remaining))
+
+
+async def _async_sleep_before_retry(
+    error: TodoistApiError,
+    attempt: int,
+    retry_deadline: float,
+) -> None:
+    delay = _retry_delay_seconds(error, attempt)
+    remaining = _remaining_retry_seconds(retry_deadline)
+    if remaining <= 0:
+        return
+    await asyncio.sleep(min(delay, remaining))
+
+
+def _remaining_retry_seconds(retry_deadline: float) -> float:
+    return max(0.0, retry_deadline - time.monotonic())
+
+
+def _attempt_timeout_seconds(retry_deadline: float) -> float:
+    return min(
+        _http_setting("todoist_http_timeout_seconds", 30.0),
+        _remaining_retry_seconds(retry_deadline),
+    )
+
+
+def _is_retry_safe_method(method: str) -> bool:
+    return method.upper() in {"GET", "HEAD", "OPTIONS"}
+
+
+def _emit_retry_progress(tracer: TracePrinter, reason: str) -> None:
+    progress = getattr(tracer, "progress", None)
+    if callable(progress):
+        progress(
+            {
+                "phase": "retrying",
+                "action": "retrying",
+                "domains": ["todoist"],
+                "retry": {
+                    "target": "domain",
+                    "domain": "todoist",
+                    "reason": reason,
+                },
+            }
+        )
 
 
 def _retry_delay_seconds(error: TodoistApiError, attempt: int) -> float:
@@ -614,4 +975,8 @@ __all__ = [
     "TodoistApiError",
     "TodoistApiClient",
     "todoist_endpoint_template",
+    "close_todoist_async_http_client",
+    "close_todoist_http_client",
+    "get_todoist_async_http_client",
+    "get_todoist_http_client",
 ]

@@ -129,9 +129,9 @@ export class MessageHandlers {
         text,
         userId,
         logContext,
-        async (event: LangGraphProgressEvent) => {
+        async (event: LangGraphProgressEvent, signal?: AbortSignal) => {
           lastProgressStage = event.stage;
-          await progressReporter.record(event);
+          await progressReporter.record(event, signal);
         },
         {
           ...options,
@@ -362,7 +362,7 @@ export class MessageHandlers {
     processFn: (
       reporter: TelegramProgressReporter,
       onTranscribed: () => void,
-      onProgress: (event: LangGraphProgressEvent) => Promise<void>,
+      onProgress: (event: LangGraphProgressEvent, signal?: AbortSignal) => Promise<void>,
     ) => Promise<TextProcessorResult>,
     errorMessage: string,
   ): Promise<void> {
@@ -374,9 +374,9 @@ export class MessageHandlers {
       const result = await processFn(
         progressReporter,
         () => progressReporter.beginAgentPhase(),
-        async (event: LangGraphProgressEvent) => {
+        async (event: LangGraphProgressEvent, signal?: AbortSignal) => {
           lastProgressStage = event.stage;
-          await progressReporter.record(event);
+          await progressReporter.record(event, signal);
         },
       );
       await progressReporter.complete(this.completionStatus(lastProgressStage));

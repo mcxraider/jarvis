@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from agents.agent_api.app.api.admission import (
+    RunSlot,
+    capacity_exceeded,
+    try_acquire_run_slot,
+)
 from agents.agent_api.app.api.request_idempotency import RequestClaim
 from agents.agent_api.app.api.schemas import AgentResponse
 from agents.agent_api.app.errors import require_api_key
@@ -22,6 +27,16 @@ class RequestContext:
     claim: RequestClaim
     cached_response: Optional[AgentResponse]
     quota: Optional[QuotaResult]
+    run_slot: Optional[RunSlot]
+
+
+def _abandon_claim(claim: RequestClaim) -> None:
+    """Best-effort claim cleanup that preserves the gate's original failure."""
+
+    try:
+        idempotency.abandon_idempotent_request(claim)
+    except Exception:
+        pass
 
 
 def apply_request_gate(
@@ -31,6 +46,7 @@ def apply_request_gate(
     *,
     charges_new_thread_quota: bool = False,
     require_thread_ownership: bool = False,
+    admit_run: bool = False,
 ) -> RequestContext:
     require_api_key(api_key)
     identity = request.resolved_telegram_identity()
@@ -48,14 +64,28 @@ def apply_request_gate(
             claim=claim,
             cached_response=cached_response,
             quota=None,
+            run_slot=None,
         )
+
+    try:
+        run_slot = try_acquire_run_slot() if admit_run else None
+    except BaseException:
+        _abandon_claim(claim)
+        raise
+    if admit_run and run_slot is None:
+        _abandon_claim(claim)
+        raise capacity_exceeded()
 
     quota = None
     if charges_new_thread_quota and thread_id is None:
         try:
             quota = rate_limit.consume_new_thread_quota(identity)
-        except Exception:
-            idempotency.abandon_idempotent_request(claim)
+        except BaseException:
+            try:
+                _abandon_claim(claim)
+            finally:
+                if run_slot is not None:
+                    run_slot.release()
             raise
 
     return RequestContext(
@@ -64,4 +94,5 @@ def apply_request_gate(
         claim=claim,
         cached_response=None,
         quota=quota,
+        run_slot=run_slot,
     )
