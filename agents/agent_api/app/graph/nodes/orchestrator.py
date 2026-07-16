@@ -4,16 +4,31 @@ import copy
 import json
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+from langchain_core.runnables import RunnableConfig
 from langsmith import traceable
 from langsmith.wrappers import wrap_openai
-from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI, RateLimitError
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AsyncOpenAI,
+    OpenAI,
+    RateLimitError,
+)
 from pydantic import ValidationError
-from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_random_exponential
+from tenacity import (
+    AsyncRetrying,
+    Retrying,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_random_exponential,
+)
 from tenacity.nap import sleep as tenacity_sleep
 
 from agents.agent_api.app.constants import (
@@ -28,6 +43,7 @@ from agents.agent_api.app.constants import (
     DEEPSEEK_THINKING_ENABLED,
 )
 from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
+from agents.agent_api.app.graph.run_deps import deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.router.model_router import ModelRouter
 from agents.agent_api.app.router.prompt import effective_router_domains
@@ -182,7 +198,13 @@ class DeepSeekAgentClientError(RuntimeError):
 
 
 class DeepSeekAgentClient:
-    """Small wrapper around DeepSeek's OpenAI-compatible chat API."""
+    """Request-bound wrapper over DeepSeek's OpenAI-compatible SDK clients.
+
+    Production wrappers are cheap, immutable bindings over process-wide SDK
+    transports.  The tracer and usage accumulator belong to one wrapper/run;
+    model and reasoning overrides are supplied per call.  Explicitly
+    configured clients keep their own transport for tests and CLI callers.
+    """
 
     def __init__(
         self,
@@ -195,6 +217,7 @@ class DeepSeekAgentClient:
         max_retry_attempts: int = DEEPSEEK_MAX_RETRY_ATTEMPTS,
         retry_max_delay_seconds: float = DEEPSEEK_RETRY_MAX_DELAY_SECONDS,
         retry_sleep: Optional[Any] = None,
+        client: Optional[Any] = None,
     ):
         self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
         self.model = model
@@ -212,12 +235,17 @@ class DeepSeekAgentClient:
         if not self.api_key:
             raise RuntimeError("DEEPSEEK_API_KEY is required to run Jarvis.")
         # SDK retries disabled (default 0); tenacity wraps calls with backoff + per-attempt tracing.
-        self.client = wrap_openai(
-            OpenAI(
-                api_key=self.api_key,
-                base_url=base_url,
-                timeout=request_timeout_seconds,
-                max_retries=DEEPSEEK_SDK_MAX_RETRIES,
+        self._owns_client = client is None
+        self.client = (
+            client
+            if client is not None
+            else wrap_openai(
+                OpenAI(
+                    api_key=self.api_key,
+                    base_url=base_url,
+                    timeout=request_timeout_seconds,
+                    max_retries=DEEPSEEK_SDK_MAX_RETRIES,
+                )
             )
         )
 
@@ -226,8 +254,14 @@ class DeepSeekAgentClient:
         return self._tracer
 
     def with_tracer(self, tracer: "TracePrinter") -> "DeepSeekAgentClient":
+        """Return a per-run binding without mutating or rebuilding transport."""
+
         clone = copy.copy(self)
         clone._tracer = tracer
+        # ``copy.copy`` intentionally reuses the SDK connection pool, but usage
+        # is mutable request context and must never cross run boundaries.
+        clone.usage = UsageSummary()
+        clone._owns_client = False
         return clone
 
     @traceable(
@@ -241,10 +275,21 @@ class DeepSeekAgentClient:
         *,
         model: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
+        tracer: Optional[TracePrinter] = None,
+        usage_accumulator: Optional[UsageSummary] = None,
     ) -> Dict[str, Any]:
+        """Create one message while preserving the legacy synchronous result.
+
+        Request context can be passed explicitly for compile-once graph runs.
+        Older callers may keep using a tracer-bound wrapper and reading
+        ``client.usage``; both paths update only a run-local accumulator.
+        """
+
+        call_tracer = tracer or self.tracer
+        call_usage = usage_accumulator if usage_accumulator is not None else self.usage
         use_model = model or self.model
         use_effort = reasoning_effort or self.reasoning_effort
-        self.tracer.event(
+        call_tracer.event(
             "agent.request",
             "Calling DeepSeek chat completions.",
             model=use_model,
@@ -281,7 +326,7 @@ class DeepSeekAgentClient:
                     },
                 )
             except Exception as error:
-                self.tracer.event(
+                call_tracer.event(
                     "agent.attempt.error",
                     "DeepSeek chat completion attempt failed.",
                     attempt=attempts,
@@ -293,16 +338,16 @@ class DeepSeekAgentClient:
                 raise
 
         try:
-            response = self._retrying()(create_completion)
+            response = self._retrying(call_tracer)(create_completion)
             # Read usage before the completion object is discarded.
             turn_usage = usage_from_response(response)
-            self.usage.add(turn_usage)
+            call_usage.add(turn_usage)
             message = raw_message_from_openai(response.choices[0].message)
         except Exception as error:
             total_elapsed_ms = round((time.monotonic() - request_started) * 1000, 1)
             payload = self._failure_payload(error, attempts)
             payload["total_elapsed_ms"] = total_elapsed_ms
-            self.tracer.event(
+            call_tracer.event(
                 "agent.error",
                 "DeepSeek chat completion failed.",
                 error_type=payload["type"],
@@ -327,7 +372,7 @@ class DeepSeekAgentClient:
             if turn_usage.prompt_tokens > 0 and turn_usage.cached_tokens > 0
             else None
         )
-        self.tracer.event(
+        call_tracer.event(
             "agent.response",
             "Received assistant message.",
             has_tool_calls=bool(message.get("tool_calls")),
@@ -342,7 +387,133 @@ class DeepSeekAgentClient:
         )
         return message
 
-    def _retrying(self) -> Retrying:
+    @traceable(
+        name="deepseek_create_message_async",
+        run_type="llm",
+    )
+    async def async_create_message(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        *,
+        model: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
+        tracer: Optional[TracePrinter] = None,
+        usage_accumulator: Optional[UsageSummary] = None,
+        async_client: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Async counterpart using the shared transport by default.
+
+        This mirrors :meth:`create_message`'s request-context and return-value
+        contract so the later async graph conversion does not need another
+        client-interface migration.
+        """
+
+        call_tracer = tracer or self.tracer
+        call_usage = usage_accumulator if usage_accumulator is not None else self.usage
+        provider_client = async_client or get_shared_async_agent_client()
+        use_model = model or self.model
+        use_effort = reasoning_effort or self.reasoning_effort
+        call_tracer.event(
+            "agent.request",
+            "Calling DeepSeek chat completions (async).",
+            model=use_model,
+            reasoning_effort=use_effort,
+            messages=len(messages),
+            tools=len(tools),
+            request_timeout_seconds=self.request_timeout_seconds,
+            sdk_max_retries=DEEPSEEK_SDK_MAX_RETRIES,
+            max_retry_attempts=self.max_retry_attempts,
+            retry_max_delay_seconds=self.retry_max_delay_seconds,
+            max_tokens=DEEPSEEK_MAX_TOKENS,
+            thinking_enabled=DEEPSEEK_THINKING_ENABLED,
+            base_url=self.base_url,
+        )
+        attempts = 0
+        request_started = time.monotonic()
+
+        async def create_completion() -> Any:
+            nonlocal attempts
+            attempts += 1
+            attempt_started = time.monotonic()
+            try:
+                return await provider_client.chat.completions.create(
+                    model=use_model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto",
+                    max_tokens=DEEPSEEK_MAX_TOKENS,
+                    reasoning_effort=use_effort,
+                    extra_body={
+                        "thinking": {
+                            "type": "enabled" if DEEPSEEK_THINKING_ENABLED else "disabled"
+                        }
+                    },
+                )
+            except Exception as error:
+                call_tracer.event(
+                    "agent.attempt.error",
+                    "DeepSeek async chat completion attempt failed.",
+                    attempt=attempts,
+                    error_type=self._error_type(error),
+                    status_code=self._status_code(error),
+                    elapsed_ms=round((time.monotonic() - attempt_started) * 1000, 1),
+                    **self._error_details(error),
+                )
+                raise
+
+        try:
+            async for attempt in self._async_retrying(call_tracer):
+                with attempt:
+                    response = await create_completion()
+            turn_usage = usage_from_response(response)
+            call_usage.add(turn_usage)
+            message = raw_message_from_openai(response.choices[0].message)
+        except Exception as error:
+            total_elapsed_ms = round((time.monotonic() - request_started) * 1000, 1)
+            payload = self._failure_payload(error, attempts)
+            payload["total_elapsed_ms"] = total_elapsed_ms
+            call_tracer.event(
+                "agent.error",
+                "DeepSeek async chat completion failed.",
+                error_type=payload["type"],
+                retryable=payload["retryable"],
+                attempts=payload["attempts"],
+                status_code=payload.get("status_code"),
+                provider_request_id=payload.get("provider_request_id"),
+                exception_type=payload.get("exception_type"),
+                exception_module=payload.get("exception_module"),
+                timeout_kind=payload.get("timeout_kind"),
+                base_url=payload.get("base_url"),
+                request_timeout_seconds=payload.get("request_timeout_seconds"),
+                sdk_max_retries=payload.get("sdk_max_retries"),
+                max_retry_attempts=payload.get("max_retry_attempts"),
+                retry_max_delay_seconds=payload.get("retry_max_delay_seconds"),
+                total_elapsed_ms=payload.get("total_elapsed_ms"),
+            )
+            raise DeepSeekAgentClientError(payload) from error
+
+        cache_hit_rate = (
+            round(turn_usage.cached_tokens / turn_usage.prompt_tokens * 100, 1)
+            if turn_usage.prompt_tokens > 0 and turn_usage.cached_tokens > 0
+            else None
+        )
+        call_tracer.event(
+            "agent.response",
+            "Received assistant message (async).",
+            has_tool_calls=bool(message.get("tool_calls")),
+            tool_calls=len(message.get("tool_calls") or []),
+            has_content=bool(message.get("content")),
+            has_reasoning=bool(message.get("reasoning_content")),
+            prompt_tokens=turn_usage.prompt_tokens or None,
+            completion_tokens=turn_usage.completion_tokens or None,
+            total_tokens=turn_usage.total_tokens or None,
+            cached_tokens=turn_usage.cached_tokens or None,
+            cache_hit_rate=cache_hit_rate,
+        )
+        return message
+
+    def _retrying(self, tracer: TracePrinter) -> Retrying:
         sleep = self.retry_sleep if self.retry_sleep is not None else tenacity_sleep
         return Retrying(
             retry=retry_if_exception(self._is_retryable_error),
@@ -350,12 +521,21 @@ class DeepSeekAgentClient:
             stop=stop_after_attempt(self.max_retry_attempts),
             reraise=True,
             sleep=sleep,
-            before_sleep=self._trace_retry,
+            before_sleep=lambda retry_state: self._trace_retry(retry_state, tracer),
         )
 
-    def _trace_retry(self, retry_state: Any) -> None:
+    def _async_retrying(self, tracer: TracePrinter) -> AsyncRetrying:
+        return AsyncRetrying(
+            retry=retry_if_exception(self._is_retryable_error),
+            wait=wait_random_exponential(multiplier=1, max=self.retry_max_delay_seconds),
+            stop=stop_after_attempt(self.max_retry_attempts),
+            reraise=True,
+            before_sleep=lambda retry_state: self._trace_retry(retry_state, tracer),
+        )
+
+    def _trace_retry(self, retry_state: Any, tracer: TracePrinter) -> None:
         error = retry_state.outcome.exception() if retry_state.outcome else None
-        self.tracer.event(
+        tracer.event(
             "agent.retry",
             "Retrying DeepSeek chat completion.",
             attempt=retry_state.attempt_number,
@@ -371,7 +551,7 @@ class DeepSeekAgentClient:
                 else None
             ),
         )
-        progress = getattr(self.tracer, "progress", None)
+        progress = getattr(tracer, "progress", None)
         if callable(progress):
             progress({
                 "phase": "retrying",
@@ -493,6 +673,106 @@ class DeepSeekAgentClient:
         status_code = getattr(error, "status_code", None)
         return status_code if isinstance(status_code, int) else None
 
+    def close(self) -> None:
+        """Close a privately-owned SDK transport.
+
+        Request-bound wrappers returned by :func:`get_shared_agent_client` do
+        not own the process transport; it is closed exactly once by the shared
+        lifecycle helper.
+        """
+
+        if not self._owns_client:
+            return
+        close = getattr(self.client, "close", None)
+        if callable(close):
+            close()
+
+
+# Shared SDK transports, deliberately separate from request-bound wrappers.
+# OpenAI/httpx clients retain connection pools and are expensive to rebuild;
+# tracer, usage, model, and reasoning state never lives in these singletons.
+_shared_openai_client: Optional[OpenAI] = None
+_shared_openai_client_lock = threading.Lock()
+_shared_async_agent_client: Optional[AsyncOpenAI] = None
+_shared_async_agent_client_lock = threading.Lock()
+
+
+def _get_shared_openai_client() -> OpenAI:
+    """Return the lazily-created process-wide synchronous SDK client."""
+
+    global _shared_openai_client
+    client = _shared_openai_client
+    if client is not None:
+        return client
+    with _shared_openai_client_lock:
+        if _shared_openai_client is None:
+            _shared_openai_client = wrap_openai(
+                OpenAI(
+                    api_key=os.getenv("DEEPSEEK_API_KEY"),
+                    base_url=DEEPSEEK_BASE_URL,
+                    timeout=DEEPSEEK_REQUEST_TIMEOUT_SECONDS,
+                    max_retries=DEEPSEEK_SDK_MAX_RETRIES,
+                )
+            )
+        return _shared_openai_client
+
+
+def get_shared_agent_client(
+    tracer: Optional[TracePrinter] = None,
+) -> DeepSeekAgentClient:
+    """Return a fresh run binding over the process-wide sync SDK transport."""
+
+    api_key = os.getenv("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise RuntimeError("DEEPSEEK_API_KEY is required to run Jarvis.")
+    return DeepSeekAgentClient(
+        api_key=api_key,
+        tracer=tracer,
+        client=_get_shared_openai_client(),
+    )
+
+
+def get_shared_async_agent_client() -> AsyncOpenAI:
+    """Return the lazily-created process-wide asynchronous SDK client."""
+
+    global _shared_async_agent_client
+    client = _shared_async_agent_client
+    if client is not None:
+        return client
+    with _shared_async_agent_client_lock:
+        if _shared_async_agent_client is None:
+            _shared_async_agent_client = wrap_openai(
+                AsyncOpenAI(
+                    api_key=os.getenv("DEEPSEEK_API_KEY"),
+                    base_url=DEEPSEEK_BASE_URL,
+                    timeout=DEEPSEEK_REQUEST_TIMEOUT_SECONDS,
+                    max_retries=DEEPSEEK_SDK_MAX_RETRIES,
+                )
+            )
+        return _shared_async_agent_client
+
+
+def close_shared_agent_client() -> None:
+    """Close and reset the process-wide synchronous SDK transport."""
+
+    global _shared_openai_client
+    with _shared_openai_client_lock:
+        client = _shared_openai_client
+        _shared_openai_client = None
+    if client is not None:
+        client.close()
+
+
+async def close_shared_async_agent_client() -> None:
+    """Close and reset the process-wide asynchronous SDK transport."""
+
+    global _shared_async_agent_client
+    with _shared_async_agent_client_lock:
+        client = _shared_async_agent_client
+        _shared_async_agent_client = None
+    if client is not None:
+        await client.close()
+
 
 def _apply_router_prompt_slimming(
     messages: List[Dict[str, Any]],
@@ -554,37 +834,81 @@ def _apply_router_prompt_slimming(
 
 
 def create_agent_node(
-    agent_client: Any,
-    registry: ToolRegistry,
-    max_agent_turns: int,
+    agent_client: Any = None,
+    registry: Optional[ToolRegistry] = None,
+    max_agent_turns: Optional[int] = None,
     tracer: Optional[TracePrinter] = None,
     tool_selector: Optional[ToolSelector] = None,
     model_router: Optional[ModelRouter] = None,
+    usage_accumulator: Optional[UsageSummary] = None,
 ):
     """Create the graph node that asks the model what to do next.
 
-    The available tool catalogue comes from ``registry`` so the agent node is
-    domain-agnostic — adding a tool domain never edits this node. ``tool_selector``
-    decides which of those tools the model actually sees this turn; the default
-    pass-through selector exposes the whole catalogue (see ``tools/selection.py``).
+    Production calls resolve request-local objects from ``RunDeps`` in the
+    LangGraph config, allowing one compiled node/topology to serve concurrent
+    users.  Captured arguments remain fallbacks for direct tests and Studio.
+    The selector narrows the run's registry without changing execution scope.
     """
 
-    tracer = tracer or NULL_TRACE
-    tool_selector = tool_selector or DEFAULT_TOOL_SELECTOR
+    captured_tracer = tracer or NULL_TRACE
+    captured_tool_selector = tool_selector or DEFAULT_TOOL_SELECTOR
 
-    def agent_node(state: JarvisState) -> JarvisState:
+    def agent_node(
+        state: JarvisState,
+        config: RunnableConfig | None = None,
+    ) -> JarvisState:
+        deps = deps_from_config(config)
+        run_agent_client = (
+            deps.agent_client
+            if deps is not None and deps.agent_client is not None
+            else agent_client
+        )
+        run_registry = (
+            deps.registry if deps is not None and deps.registry is not None else registry
+        )
+        run_max_agent_turns = (
+            deps.max_agent_turns
+            if deps is not None and deps.max_agent_turns is not None
+            else max_agent_turns
+        )
+        run_tracer = (
+            deps.tracer if deps is not None and deps.tracer is not None else captured_tracer
+        )
+        run_tool_selector = (
+            deps.tool_selector
+            if deps is not None and deps.tool_selector is not None
+            else captured_tool_selector
+        )
+        run_model_router = (
+            deps.model_router
+            if deps is not None and deps.model_router is not None
+            else model_router
+        )
+        run_usage_accumulator = (
+            deps.usage_accumulator
+            if deps is not None and deps.usage_accumulator is not None
+            else usage_accumulator
+        )
+        if run_agent_client is None or run_registry is None or run_max_agent_turns is None:
+            raise RuntimeError(
+                "Agent node requires agent_client, registry, and max_agent_turns "
+                "from RunDeps or captured fallbacks."
+            )
+
         turn_count = state.get("turn_count", 0)
-        tracer.event(
+        run_tracer.event(
             "graph.agent",
             "Entering agent node.",
             turn=turn_count + 1,
-            max_turns=max_agent_turns,
+            max_turns=run_max_agent_turns,
             messages=len(state.get("messages", [])),
         )
-        if turn_count >= max_agent_turns:
-            error = f"Max agent turns exceeded ({max_agent_turns})."
+        if turn_count >= run_max_agent_turns:
+            error = f"Max agent turns exceeded ({run_max_agent_turns})."
             user_message = "Max number of turns reached for this agent. Simplify your query."
-            tracer.event("graph.guard", "Stopping graph because max turns was reached.", error=error)
+            run_tracer.event(
+                "graph.guard", "Stopping graph because max turns was reached.", error=error
+            )
             return {
                 "error": error,
                 "final_response": user_message,
@@ -614,15 +938,15 @@ def create_agent_node(
             routing_query = user_prompt
         # Pass active_domains so the selector can merge pinned domains on resumes.
         active_domains = state.get("active_domains") or []
-        tool_schemas = tool_selector.select_schemas(
-            routing_query, registry, active_domains=active_domains or None
+        tool_schemas = run_tool_selector.select_schemas(
+            routing_query, run_registry, active_domains=active_domains or None
         )
         selected_tool_names = _tool_schema_names(tool_schemas)
 
         # Persist the initial routing domains for context preservation across
         # HITL resumes. Only set on the first turn (no clarification history yet,
         # no prior active_domains); subsequent turns within the same run reuse it.
-        selector_decision = getattr(tool_selector, "decision", None)
+        selector_decision = getattr(run_tool_selector, "decision", None)
         if not clarification_history and not active_domains and selector_decision:
             active_domains = list(effective_router_domains(selector_decision))
 
@@ -631,20 +955,20 @@ def create_agent_node(
             for domain in (active_domains or [])
             if domain in {"todoist", "google_calendar", "calendar", "gmail", "notion"}
         ]
-        selected_specs = [registry.get(name) for name in selected_tool_names]
+        selected_specs = [run_registry.get(name) for name in selected_tool_names]
         intent = "mutation" if any(spec and spec.mutating for spec in selected_specs) else "read"
         if routed_domains:
-            tracer.progress({
+            run_tracer.progress({
                 "phase": "routing",
                 "action": "completed",
                 "domains": sorted(set(routed_domains)),
                 "intent": intent,
             })
 
-        tracer.event(
+        run_tracer.event(
             "graph.tools.selected",
             "Selected tools for this turn.",
-            available=len(registry.specs),
+            available=len(run_registry.specs),
             selected=len(tool_schemas),
             tool_names=selected_tool_names,
         )
@@ -653,30 +977,44 @@ def create_agent_node(
         # offer. Rebuilds messages[0] only (history-safe); no-op without a decision.
         _apply_router_prompt_slimming(
             messages,
-            tool_selector,
+            run_tool_selector,
             state,
-            tracer,
+            run_tracer,
             selected_tool_names,
         )
         model_override = None
         effort_override = None
-        if model_router is not None and selector_decision is not None:
-            selection = model_router.select(selector_decision)
+        if run_model_router is not None and selector_decision is not None:
+            selection = run_model_router.select(selector_decision)
             model_override = selection.model
             effort_override = selection.reasoning_effort
-            tracer.event(
+            run_tracer.event(
                 "model_router.selected",
                 "Model router selected model for this turn.",
                 model=selection.model,
                 reasoning_effort=selection.reasoning_effort,
             )
         try:
-            assistant_message = agent_client.create_message(
-                messages, tool_schemas,
-                model=model_override, reasoning_effort=effort_override,
-            )
+            if isinstance(run_agent_client, DeepSeekAgentClient):
+                assistant_message = run_agent_client.create_message(
+                    messages,
+                    tool_schemas,
+                    model=model_override,
+                    reasoning_effort=effort_override,
+                    tracer=run_tracer,
+                    usage_accumulator=run_usage_accumulator,
+                )
+            else:
+                # Preserve the long-standing duck-typed sync API for injected
+                # CLI clients and test fakes until the graph's async stage.
+                assistant_message = run_agent_client.create_message(
+                    messages,
+                    tool_schemas,
+                    model=model_override,
+                    reasoning_effort=effort_override,
+                )
         except DeepSeekAgentClientError as error:
-            tracer.event(
+            run_tracer.event(
                 "graph.agent",
                 "Stopping graph because DeepSeek failed.",
                 error_type=error.payload.get("type"),
@@ -705,23 +1043,23 @@ def create_agent_node(
                         },
                     }
                 ]
-                tracer.event(
+                run_tracer.event(
                     "agent.question_detected",
                     "Model asked in plain text; routing to HITL.",
                     synthetic_tool_call_id=synthetic_id,
                 )
             else:
                 final_response = content
-                tracer.progress({"phase": "finalizing", "action": "started"})
-                tracer.payload("agent.final", "content", final_response)
-                run_log = getattr(tracer, "run_log", None)
+                run_tracer.progress({"phase": "finalizing", "action": "started"})
+                run_tracer.payload("agent.final", "content", final_response)
+                run_log = getattr(run_tracer, "run_log", None)
                 if run_log is not None:
                     run_log.write_messages_dump(
                         "final_turn_input (context sent to LLM on ANSWER turn)",
                         messages[:-1],
                     )
 
-        tracer.event(
+        run_tracer.event(
             "graph.route",
             "Agent node completed.",
             turn=turn_count + 1,
@@ -747,7 +1085,11 @@ __all__ = [
     "LLM_FAILURE_MESSAGE",
     "UsageSummary",
     "_looks_like_question",
+    "close_shared_agent_client",
+    "close_shared_async_agent_client",
     "create_agent_node",
+    "get_shared_agent_client",
+    "get_shared_async_agent_client",
     "raw_message_from_openai",
     "_tool_schema_names",
     "usage_from_response",

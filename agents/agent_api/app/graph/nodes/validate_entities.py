@@ -20,11 +20,13 @@ are correctly treated as unseen.
 import json
 from typing import Any, Dict, List, Optional
 
+from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
 from agents.agent_api.app.graph.entity_index import SeenEntityIndex
 from agents.agent_api.app.graph.nodes.hitl import deferred_tool_message
 from agents.agent_api.app.graph.risk import partition_tool_calls
+from agents.agent_api.app.graph.run_deps import RunDeps, deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.base import tool_call_name
 from agents.agent_api.app.tools.dispatcher import build_tool_result, tool_result_to_message
@@ -90,9 +92,18 @@ def _out_of_route_message(tool_call: Dict[str, Any], allowed: List[str]) -> Dict
 def create_validate_entities_node(tracer: Optional[TracePrinter] = None):
     """Create the node that blocks mutations on unverified prior-read entity IDs."""
 
-    tracer = tracer or NULL_TRACE
+    _captured = RunDeps(tracer=tracer or NULL_TRACE)
 
-    def validate_entities_node(state: JarvisState) -> JarvisState:
+    def validate_entities_node(
+        state: JarvisState,
+        config: RunnableConfig | None = None,
+    ) -> JarvisState:
+        deps = deps_from_config(config)
+        tracer = (
+            deps.tracer
+            if deps is not None and deps.tracer is not None
+            else _captured.tracer
+        )
         state_messages = state.get("messages", [])
         latest_message = state_messages[-1] if state_messages else {}
         tool_calls = latest_message.get("tool_calls") or []

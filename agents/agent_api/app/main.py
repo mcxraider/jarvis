@@ -71,6 +71,18 @@ async def lifespan(_app: FastAPI):
             STREAM_WORKER_DRAIN_TIMEOUT_SECONDS,
             drain_stream_workers,
         )
+        from agents.agent_api.app.graph.nodes.orchestrator import (
+            close_shared_agent_client,
+            close_shared_async_agent_client,
+        )
+        from agents.agent_api.app.graph.nodes.summarize import (
+            close_shared_async_summarizer_client,
+            close_shared_summarizer_client,
+        )
+        from agents.agent_api.app.router.client import (
+            close_shared_async_router_openai_client,
+            close_shared_router_client,
+        )
         from agents.agent_api.app.run_logging import shutdown_run_logs
         from agents.agent_api.app.tools.todoist.client import (
             close_todoist_async_http_client,
@@ -93,6 +105,24 @@ async def lifespan(_app: FastAPI):
                 )
         except BaseException as error:
             cleanup_errors.append(error)
+        for close_resource in (
+            close_shared_agent_client,
+            close_shared_router_client,
+            close_shared_summarizer_client,
+        ):
+            try:
+                await asyncio.to_thread(close_resource)
+            except BaseException as error:
+                cleanup_errors.append(error)
+        for close_resource in (
+            close_shared_async_agent_client,
+            close_shared_async_router_openai_client,
+            close_shared_async_summarizer_client,
+        ):
+            try:
+                await close_resource()
+            except BaseException as error:
+                cleanup_errors.append(error)
         try:
             await asyncio.to_thread(shutdown_run_logs, timeout=5.0)
         except BaseException as error:

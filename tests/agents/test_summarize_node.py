@@ -1,11 +1,15 @@
 """Tests for the summarize node — extraction, validation, dynamic tokens, user query, fallback."""
 
+import asyncio
 import json
-from unittest.mock import MagicMock, patch
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from agents.agent_api.app.graph.extractors import extract_list_from_content
+from agents.agent_api.app.graph.nodes import summarize as summarize_module
 from agents.agent_api.app.graph.nodes.summarize import (
     _compute_max_tokens,
     _compute_min_coverage,
@@ -14,8 +18,22 @@ from agents.agent_api.app.graph.nodes.summarize import (
     _is_homogeneous,
     _truncate_fallback,
     _validate_summary,
+    close_shared_async_summarizer_client,
+    close_shared_summarizer_client,
     create_summarize_node,
+    get_shared_async_summarizer_client,
+    get_shared_summarizer_client,
 )
+from agents.agent_api.app.graph.run_deps import CONFIGURABLE_DEPS_KEY, RunDeps
+
+
+@pytest.fixture(autouse=True)
+def _reset_shared_summarizer_clients():
+    close_shared_summarizer_client()
+    asyncio.run(close_shared_async_summarizer_client())
+    yield
+    close_shared_summarizer_client()
+    asyncio.run(close_shared_async_summarizer_client())
 
 
 # --- Extraction tests ---
@@ -443,3 +461,123 @@ class TestSummarizeNodeBypass:
         tool_msg = result["messages"][-1]
         parsed = json.loads(tool_msg["content"])
         assert parsed["summarized"] is True
+
+
+class _RecordingTracer:
+    def __init__(self):
+        self.events = []
+
+    def event(self, stage, message, **fields):
+        self.events.append({"stage": stage, "message": message, "fields": fields})
+
+
+class TestSharedSummarizerClients:
+    def test_node_build_does_not_initialize_provider_transport(self):
+        with patch.object(summarize_module, "OpenAI") as openai_cls:
+            node = create_summarize_node()
+            result = node(_make_state(_make_items(10)))
+
+        assert result["next"] == "agent"
+        openai_cls.assert_not_called()
+
+    def test_sync_client_reused_across_node_builds(self):
+        sdk_client = MagicMock()
+        with patch.object(
+            summarize_module, "OpenAI", return_value=sdk_client
+        ) as openai_cls:
+            first = get_shared_summarizer_client()
+            second = get_shared_summarizer_client()
+            first_node = create_summarize_node()
+            second_node = create_summarize_node()
+
+        assert first is second
+        assert callable(first_node)
+        assert callable(second_node)
+        assert openai_cls.call_count == 1
+
+    def test_async_client_reused(self):
+        sdk_client = MagicMock()
+        sdk_client.close = AsyncMock()
+        with patch.object(
+            summarize_module, "AsyncOpenAI", return_value=sdk_client
+        ) as openai_cls:
+            first = get_shared_async_summarizer_client()
+            second = get_shared_async_summarizer_client()
+
+        assert first is second
+        assert openai_cls.call_count == 1
+
+    def test_missing_run_tracer_uses_direct_call_fallback(self):
+        tracer = _RecordingTracer()
+        sdk_client = MagicMock()
+        node = create_summarize_node(tracer, client=sdk_client)
+        config = {
+            "configurable": {
+                CONFIGURABLE_DEPS_KEY: RunDeps(tracer=None),
+            }
+        }
+
+        result = node(_make_state(_make_items(10)), config)
+
+        assert result["next"] == "agent"
+        assert any(
+            event["stage"] == "graph.summarize" for event in tracer.events
+        )
+
+    def test_compile_once_node_keeps_concurrent_run_tracers_isolated(self):
+        sdk_client = MagicMock()
+        barrier = threading.Barrier(2)
+        calls = []
+        calls_lock = threading.Lock()
+
+        def create(**kwargs):
+            with calls_lock:
+                calls.append(kwargs)
+            barrier.wait(timeout=5)
+            all_ids = " ".join(str(index) for index in range(1, 61))
+            return _make_mock_response(f"IDs: {all_ids}")
+
+        sdk_client.chat.completions.create.side_effect = create
+        first_tracer = _RecordingTracer()
+        second_tracer = _RecordingTracer()
+        node = create_summarize_node(client=sdk_client, model="summary-fast")
+        first_config = {
+            "configurable": {
+                CONFIGURABLE_DEPS_KEY: RunDeps(tracer=first_tracer),
+            }
+        }
+        second_config = {
+            "configurable": {
+                CONFIGURABLE_DEPS_KEY: RunDeps(tracer=second_tracer),
+            }
+        }
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first_future = pool.submit(
+                node,
+                _make_state(_make_items(55), "first"),
+                first_config,
+            )
+            second_future = pool.submit(
+                node,
+                _make_state(_make_items(60), "second"),
+                second_config,
+            )
+            first_result = first_future.result(timeout=5)
+            second_result = second_future.result(timeout=5)
+
+        assert json.loads(first_result["messages"][-1]["content"])["summarized"] is True
+        assert json.loads(second_result["messages"][-1]["content"])["summarized"] is True
+        assert {call["model"] for call in calls} == {"summary-fast"}
+        first_done = next(
+            event
+            for event in first_tracer.events
+            if event["stage"] == "graph.summarize.llm_done"
+        )
+        second_done = next(
+            event
+            for event in second_tracer.events
+            if event["stage"] == "graph.summarize.llm_done"
+        )
+        assert first_done["fields"]["item_count"] == 55
+        assert second_done["fields"]["item_count"] == 60

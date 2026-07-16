@@ -1,8 +1,10 @@
 """Unit tests for DeepSeekAgentClient retry/backoff logic."""
 
+import asyncio
 import inspect
 import os
-from unittest.mock import MagicMock, patch
+import threading
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -23,9 +25,15 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, RateLimi
 with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
     from agents.agent_api.app.graph.nodes.orchestrator import (
         DEEPSEEK_MAX_TOKENS,
+        DEEPSEEK_REASONING_EFFORT,
         DeepSeekAgentClient,
         DeepSeekAgentClientError,
         LLM_FAILURE_MESSAGE,
+        UsageSummary,
+        close_shared_agent_client,
+        close_shared_async_agent_client,
+        get_shared_agent_client,
+        get_shared_async_agent_client,
     )
 
 
@@ -429,6 +437,223 @@ class TestUsageAccumulation:
         assert client.usage.completion_tokens == 13
         assert client.usage.total_tokens == 43
         assert client.usage.cached_tokens == 11
+
+
+class TestSharedSdkClients:
+    def teardown_method(self):
+        close_shared_agent_client()
+        asyncio.run(close_shared_async_agent_client())
+
+    def test_shared_sync_transport_has_fresh_request_bindings(self, monkeypatch):
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "shared-test-key")
+        close_shared_agent_client()
+        sdk_client = MagicMock()
+        first_tracer = RecordingTracer()
+        second_tracer = RecordingTracer()
+
+        with (
+            patch(
+                "agents.agent_api.app.graph.nodes.orchestrator.OpenAI",
+                return_value=sdk_client,
+            ) as openai_cls,
+            patch(
+                "agents.agent_api.app.graph.nodes.orchestrator.wrap_openai",
+                side_effect=lambda client: client,
+            ),
+        ):
+            first = get_shared_agent_client(tracer=first_tracer)
+            second = get_shared_agent_client(tracer=second_tracer)
+
+        assert first is not second
+        assert first.client is sdk_client
+        assert second.client is sdk_client
+        assert first.usage is not second.usage
+        assert first.tracer is first_tracer
+        assert second.tracer is second_tracer
+        assert first._owns_client is False
+        assert second._owns_client is False
+        openai_cls.assert_called_once()
+
+        close_shared_agent_client()
+        sdk_client.close.assert_called_once_with()
+
+    def test_shared_async_transport_reuses_and_resets(self, monkeypatch):
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "shared-test-key")
+        asyncio.run(close_shared_async_agent_client())
+        first_sdk = MagicMock()
+        first_sdk.close = AsyncMock()
+        second_sdk = MagicMock()
+        second_sdk.close = AsyncMock()
+
+        with (
+            patch(
+                "agents.agent_api.app.graph.nodes.orchestrator.AsyncOpenAI",
+                side_effect=[first_sdk, second_sdk],
+            ) as async_openai_cls,
+            patch(
+                "agents.agent_api.app.graph.nodes.orchestrator.wrap_openai",
+                side_effect=lambda client: client,
+            ),
+        ):
+            assert get_shared_async_agent_client() is first_sdk
+            assert get_shared_async_agent_client() is first_sdk
+            assert async_openai_cls.call_count == 1
+
+            asyncio.run(close_shared_async_agent_client())
+            first_sdk.close.assert_awaited_once_with()
+
+            assert get_shared_async_agent_client() is second_sdk
+            assert async_openai_cls.call_count == 2
+
+    def test_concurrent_first_callers_construct_one_sync_transport(self, monkeypatch):
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "shared-test-key")
+        close_shared_agent_client()
+        sdk_client = MagicMock()
+        start = threading.Barrier(5)
+        bindings = []
+        failures = []
+
+        def get_binding():
+            try:
+                start.wait(timeout=5)
+                bindings.append(get_shared_agent_client())
+            except BaseException as error:
+                failures.append(error)
+
+        with (
+            patch(
+                "agents.agent_api.app.graph.nodes.orchestrator.OpenAI",
+                return_value=sdk_client,
+            ) as openai_cls,
+            patch(
+                "agents.agent_api.app.graph.nodes.orchestrator.wrap_openai",
+                side_effect=lambda client: client,
+            ),
+        ):
+            threads = [threading.Thread(target=get_binding) for _ in range(4)]
+            for thread in threads:
+                thread.start()
+            start.wait(timeout=5)
+            for thread in threads:
+                thread.join(timeout=5)
+
+        assert not failures
+        assert all(not thread.is_alive() for thread in threads)
+        assert len(bindings) == 4
+        assert len({id(binding) for binding in bindings}) == 4
+        assert all(binding.client is sdk_client for binding in bindings)
+        assert openai_cls.call_count == 1
+
+
+class TestConcurrentRequestIsolation:
+    def test_one_wrapper_keeps_per_call_tracer_model_and_usage_isolated(self):
+        client = build_client()
+        barrier = threading.Barrier(2)
+        tracers = {"user-a": RecordingTracer(), "user-b": RecordingTracer()}
+        usage = {"user-a": UsageSummary(), "user-b": UsageSummary()}
+        results = {}
+        failures = []
+
+        def fake_create(**kwargs):
+            user = kwargs["messages"][0]["content"]
+            barrier.wait(timeout=5)
+            tokens = 100 if user == "user-a" else 200
+            return make_response(
+                content=user,
+                prompt_tokens=tokens,
+                completion_tokens=tokens // 10,
+            )
+
+        def run(user, model, effort):
+            try:
+                results[user] = client.create_message(
+                    messages=[{"role": "user", "content": user}],
+                    tools=[],
+                    model=model,
+                    reasoning_effort=effort,
+                    tracer=tracers[user],
+                    usage_accumulator=usage[user],
+                )
+            except BaseException as error:  # surfaced below with thread context
+                failures.append(error)
+
+        with patch.object(client.client.chat.completions, "create", side_effect=fake_create):
+            threads = [
+                threading.Thread(target=run, args=("user-a", "model-a", "max")),
+                threading.Thread(target=run, args=("user-b", "model-b", "high")),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=5)
+
+        assert not failures
+        assert all(not thread.is_alive() for thread in threads)
+        assert results["user-a"]["content"] == "user-a"
+        assert results["user-b"]["content"] == "user-b"
+        assert usage["user-a"].prompt_tokens == 100
+        assert usage["user-b"].prompt_tokens == 200
+        assert client.usage.as_dict() == UsageSummary().as_dict()
+
+        first_requests = [
+            event for event in tracers["user-a"].events if event["stage"] == "agent.request"
+        ]
+        second_requests = [
+            event for event in tracers["user-b"].events if event["stage"] == "agent.request"
+        ]
+        assert [event["fields"]["model"] for event in first_requests] == ["model-a"]
+        assert [event["fields"]["reasoning_effort"] for event in first_requests] == ["max"]
+        assert [event["fields"]["model"] for event in second_requests] == ["model-b"]
+        assert [event["fields"]["reasoning_effort"] for event in second_requests] == ["high"]
+
+    def test_with_tracer_reuses_transport_but_resets_usage(self):
+        original = build_client()
+        original.usage.prompt_tokens = 99
+
+        bound = original.with_tracer(RecordingTracer())
+
+        assert bound.client is original.client
+        assert bound.usage is not original.usage
+        assert bound.usage.prompt_tokens == 0
+
+
+class TestAsyncCompatibility:
+    def test_async_create_message_returns_dict_and_updates_explicit_usage(self):
+        client = build_client()
+        async_sdk = MagicMock()
+        async_sdk.chat.completions.create = AsyncMock(
+            return_value=make_response(content="async result", prompt_tokens=17)
+        )
+        usage = UsageSummary()
+        tracer = RecordingTracer()
+
+        result = asyncio.run(
+            client.async_create_message(
+                messages=[{"role": "user", "content": "hi"}],
+                tools=[],
+                tracer=tracer,
+                usage_accumulator=usage,
+                async_client=async_sdk,
+            )
+        )
+
+        assert result["content"] == "async result"
+        assert usage.prompt_tokens == 17
+        assert client.usage.prompt_tokens == 0
+        async_sdk.chat.completions.create.assert_awaited_once()
+
+
+class TestDefaultReasoning:
+    def test_default_deepseek_reasoning_remains_max(self):
+        assert DEEPSEEK_REASONING_EFFORT == "max"
+        client = DeepSeekAgentClient(api_key="test-key")
+        with patch.object(
+            client.client.chat.completions,
+            "create",
+            return_value=make_response(),
+        ) as mock_create:
+            client.create_message(messages=[{"role": "user", "content": "hi"}], tools=[])
+        assert mock_create.call_args.kwargs["reasoning_effort"] == "max"
 
 
 class TestSuccessfulResponse:
