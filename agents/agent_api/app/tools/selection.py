@@ -29,6 +29,16 @@ class ToolSelector(Protocol):
     ) -> List[Dict[str, Any]]:
         ...
 
+    async def async_select_schemas(
+        self,
+        query: str,
+        registry: ToolRegistry,
+        active_domains: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Async selection path used by the production graph runtime."""
+
+        ...
+
 
 def get_selector(name: str = "keyword", **kwargs: Any) -> ToolSelector:
     """Instantiate a tool selector by name.

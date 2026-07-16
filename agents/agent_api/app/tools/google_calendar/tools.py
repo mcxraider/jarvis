@@ -61,12 +61,17 @@ def get_calendar_tool_specs(calendar_client: Any) -> List[ToolSpec]:
         "delete_calendar_event": calendar_client.delete_calendar_event,
         "get_freebusy": calendar_client.get_freebusy,
     }
+    async_handlers = {
+        name: getattr(calendar_client, f"async_{name}", None)
+        for name in handlers
+    }
     return [
         ToolSpec(
             name=name,
             openai_schema=schemas[name],
             handler=handler,
             mutating=name in MUTATING_CALENDAR_TOOLS,
+            async_handler=async_handlers[name],
         )
         for name, handler in handlers.items()
     ]

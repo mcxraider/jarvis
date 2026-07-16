@@ -627,6 +627,136 @@ class TodoistApiClient:
         payload = _without_none(arguments)
         return self._request(f"{TODOIST_REST_BASE_URL}/projects", "POST", payload)
 
+    # Native async tool handlers -------------------------------------------------
+    # These intentionally mirror the synchronous methods above, including their
+    # validation and response shaping. They call ``async_request`` directly so a
+    # native-async dispatcher never falls back to a worker thread or the sync
+    # httpx transport.
+
+    async def async_add_todoist_task(self, arguments: Dict[str, Any]) -> Any:
+        payload = _without_none(arguments)
+        _validate_duration_pair(payload)
+        return await self.async_request(
+            f"{TODOIST_REST_BASE_URL}/tasks",
+            "POST",
+            payload,
+        )
+
+    async def async_get_todoist_task(self, arguments: Dict[str, Any]) -> Any:
+        return await self.async_request(
+            f"{TODOIST_REST_BASE_URL}/tasks/{arguments['task_id']}"
+        )
+
+    async def async_get_tasks(self, arguments: Dict[str, Any]) -> Any:
+        params = _query_params(_without_none(arguments), comma_join_keys={"ids"})
+        suffix = f"?{params}" if params else ""
+        return await self.async_request(f"{TODOIST_REST_BASE_URL}/tasks{suffix}")
+
+    async def async_get_tasks_by_filter(self, arguments: Dict[str, Any]) -> Any:
+        params = _query_params(_without_none(arguments))
+        return await self.async_request(
+            f"{TODOIST_REST_BASE_URL}/tasks/filter?{params}"
+        )
+
+    async def async_update_todoist_task(self, arguments: Dict[str, Any]) -> Any:
+        arguments = dict(arguments)
+        task_id = arguments.pop("task_id")
+        payload = _sanitize_update_payload(arguments)
+        _validate_duration_pair(payload)
+        return await self.async_request(
+            f"{TODOIST_REST_BASE_URL}/tasks/{task_id}",
+            "POST",
+            payload,
+        )
+
+    async def async_complete_task(self, arguments: Dict[str, Any]) -> Any:
+        task_id = arguments["task_id"]
+        await self.async_request(
+            f"{TODOIST_REST_BASE_URL}/tasks/{task_id}/close",
+            "POST",
+        )
+        return {"success": True, "message": f"Task {task_id} marked as completed"}
+
+    async def async_delete_todoist_task(self, arguments: Dict[str, Any]) -> Any:
+        task_id = arguments["task_id"]
+        await self.async_request(
+            f"{TODOIST_REST_BASE_URL}/tasks/{task_id}",
+            "DELETE",
+        )
+        return {"success": True, "message": f"Task {task_id} deleted permanently"}
+
+    async def async_get_completed_todoist_tasks_by_completion_date(
+        self,
+        arguments: Dict[str, Any],
+    ) -> Any:
+        arguments = _with_default_completion_date_range(_without_none(arguments))
+        params = _query_params(arguments)
+        suffix = f"?{params}" if params else ""
+        data = await self.async_request(
+            f"{TODOIST_COMPLETED_BY_COMPLETION_DATE_URL}{suffix}"
+        )
+        if not isinstance(data, dict):
+            return {"items": [], "next_cursor": None}
+        return {"items": data.get("items", []), "next_cursor": data.get("next_cursor")}
+
+    async def async_uncomplete_task(self, arguments: Dict[str, Any]) -> Any:
+        task_id = arguments["task_id"]
+        await self.async_request(
+            f"{TODOIST_REST_BASE_URL}/tasks/{task_id}/reopen",
+            "POST",
+        )
+        return {"success": True, "message": f"Task {task_id} reopened"}
+
+    async def async_get_comments(self, arguments: Dict[str, Any]) -> Any:
+        arguments = _without_none(arguments)
+        comment_id = arguments.pop("comment_id", None)
+        if comment_id is not None:
+            return await self.async_request(
+                f"{TODOIST_REST_BASE_URL}/comments/{comment_id}"
+            )
+        if not arguments.get("task_id") and not arguments.get("project_id"):
+            raise ValueError("get_comments requires task_id, project_id, or comment_id")
+        params = _query_params(arguments)
+        suffix = f"?{params}" if params else ""
+        return await self.async_request(f"{TODOIST_REST_BASE_URL}/comments{suffix}")
+
+    async def async_add_comment(self, arguments: Dict[str, Any]) -> Any:
+        payload = _without_none(arguments)
+        _validate_comment_target(payload)
+        return await self.async_request(
+            f"{TODOIST_REST_BASE_URL}/comments",
+            "POST",
+            payload,
+        )
+
+    async def async_get_labels(self, arguments: Dict[str, Any]) -> Any:
+        arguments = dict(arguments)
+        search = arguments.pop("search", None)
+        params = _query_params(_without_none(arguments))
+        suffix = f"?{params}" if params else ""
+        data = await self.async_request(f"{TODOIST_REST_BASE_URL}/labels{suffix}")
+        if search is None:
+            return data
+        return _filter_by_name(data, search)
+
+    async def async_get_projects(self, arguments: Dict[str, Any]) -> Any:
+        arguments = dict(arguments)
+        search = arguments.pop("search", None)
+        params = _query_params(_without_none(arguments))
+        suffix = f"?{params}" if params else ""
+        data = await self.async_request(f"{TODOIST_REST_BASE_URL}/projects{suffix}")
+        if search is None:
+            return data
+        return _filter_by_name(data, search)
+
+    async def async_create_project(self, arguments: Dict[str, Any]) -> Any:
+        payload = _without_none(arguments)
+        return await self.async_request(
+            f"{TODOIST_REST_BASE_URL}/projects",
+            "POST",
+            payload,
+        )
+
 
 def _without_none(data: Dict[str, Any]) -> Dict[str, Any]:
     """Drop None values before sending arguments to Todoist."""

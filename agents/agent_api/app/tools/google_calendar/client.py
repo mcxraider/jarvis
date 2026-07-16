@@ -12,15 +12,17 @@ these objects anyway).
 """
 
 import copy
+from contextlib import suppress
 import logging
 import random
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
+from agents.agent_api.app.async_offload import bounded_to_thread
 from agents.agent_api.app.tools.google_calendar.auth import (
     GoogleCalendarApiError,
-    build_calendar_service,
+    load_credentials,
 )
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
@@ -127,6 +129,55 @@ def _build_event_body(arguments: Dict[str, Any]) -> Dict[str, Any]:
     return body
 
 
+class _CredentialCoordinator:
+    """Serialize refresh state while allowing provider requests to overlap."""
+
+    def __init__(self, credentials: Any) -> None:
+        self.credentials = credentials
+        self.lock = threading.Lock()
+        self.generation = 0
+
+    def proxy(self) -> "_CoordinatedCredentials":
+        return _CoordinatedCredentials(self, self.generation)
+
+
+class _CoordinatedCredentials:
+    """AuthorizedHttp credential facade with generation-aware refresh locking."""
+
+    def __init__(self, coordinator: _CredentialCoordinator, generation: int) -> None:
+        self._coordinator = coordinator
+        self._generation = generation
+
+    def before_request(self, request, method, url, headers) -> None:
+        coordinator = self._coordinator
+        with coordinator.lock:
+            before = (
+                getattr(coordinator.credentials, "token", None),
+                getattr(coordinator.credentials, "expiry", None),
+            )
+            coordinator.credentials.before_request(request, method, url, headers)
+            after = (
+                getattr(coordinator.credentials, "token", None),
+                getattr(coordinator.credentials, "expiry", None),
+            )
+            if after != before:
+                coordinator.generation += 1
+            self._generation = coordinator.generation
+
+    def refresh(self, request) -> None:
+        coordinator = self._coordinator
+        with coordinator.lock:
+            if self._generation != coordinator.generation:
+                self._generation = coordinator.generation
+                return
+            coordinator.credentials.refresh(request)
+            coordinator.generation += 1
+            self._generation = coordinator.generation
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._coordinator.credentials, name)
+
+
 class GoogleCalendarClient:
     """Direct Google Calendar v3 client built on the discovery service."""
 
@@ -137,20 +188,21 @@ class GoogleCalendarClient:
         token_path: Optional[str] = None,
         credential_json: Optional[str] = None,
         persist_callback: Optional[Callable[..., None]] = None,
+        credentials: Any = None,
     ):
         self._tracer = tracer or NULL_TRACE
         # Injected in tests; lazily built from local credentials in production.
         self._service = service
+        self._credentials = credentials
+        self._credential_coordinator = (
+            _CredentialCoordinator(credentials) if credentials is not None else None
+        )
         self._token_path = token_path
         self._credential_json = credential_json
         self._persist_callback = persist_callback
-        # ToolNode runs a batch of tool calls on a ThreadPoolExecutor, so several
-        # threads share this one client. The underlying httplib2.Http/OpenSSL
-        # socket is NOT thread-safe: concurrent request.execute() calls corrupt
-        # the connection and crash the process (SIGTRAP). This lock serializes
-        # both the lazy service build and every API call so only one thread ever
-        # touches the shared socket. A single-user assistant makes rare calendar
-        # calls, so serializing them costs nothing meaningful.
+        # Only lazy discovery construction is serialized. Each request gets its
+        # own AuthorizedHttp/httplib2 transport in _execute(), so concurrent
+        # Calendar calls never share the discovery service's socket state.
         self._lock = threading.Lock()
 
     @property
@@ -169,16 +221,28 @@ class GoogleCalendarClient:
         if self._service is None:
             with self._lock:
                 if self._service is None:
-                    self._service = build_calendar_service(
+                    from googleapiclient.discovery import build
+
+                    credentials = load_credentials(
                         self._token_path,
                         credential_json=self._credential_json,
                         persist_callback=self._persist_callback,
+                    )
+                    self._credentials = credentials
+                    self._credential_coordinator = _CredentialCoordinator(credentials)
+                    self._service = build(
+                        "calendar",
+                        "v3",
+                        credentials=credentials,
+                        cache_discovery=False,
                     )
         return self._service
 
     # -- shared execution wrapper -------------------------------------------------
 
     def _execute(self, request: Any, operation: str) -> Any:
+        import httplib2
+        from google_auth_httplib2 import AuthorizedHttp
         from googleapiclient.errors import HttpError
 
         last_error: Optional[GoogleCalendarApiError] = None
@@ -191,10 +255,24 @@ class GoogleCalendarClient:
                 max_attempts=_MAX_ATTEMPTS,
             )
             try:
-                # Serialize the non-thread-safe httplib2/OpenSSL socket. Held
-                # only across the network call itself — never across the retry
-                # sleep below, so a backoff on one thread can't stall others.
-                with self._lock:
+                # Discovery requests otherwise share one non-thread-safe
+                # httplib2/OpenSSL socket. A fresh authorized transport per
+                # attempt permits safe overlap without serializing network I/O.
+                # Tests may inject a service without credentials; retain their
+                # established bare execute() seam.
+                if self._credentials is not None:
+                    credentials = self._credential_coordinator.proxy()
+                    raw_http = httplib2.Http()
+                    http = None
+                    try:
+                        http = AuthorizedHttp(credentials, http=raw_http)
+                        result = request.execute(http=http)
+                    finally:
+                        close = getattr(http or raw_http, "close", None)
+                        if callable(close):
+                            with suppress(Exception):
+                                close()
+                else:
                     result = request.execute()
                 self.tracer.event(
                     "calendar.response",
@@ -422,6 +500,44 @@ class GoogleCalendarClient:
                 for calendar_id, info in calendars.items()
             }
         }
+
+    # -- async leaf adapters ------------------------------------------------------
+
+    async def async_list_calendars(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        return await bounded_to_thread(self.list_calendars, arguments)
+
+    async def async_list_calendar_events(
+        self,
+        arguments: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return await bounded_to_thread(self.list_calendar_events, arguments)
+
+    async def async_get_calendar_event(
+        self,
+        arguments: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return await bounded_to_thread(self.get_calendar_event, arguments)
+
+    async def async_create_calendar_event(
+        self,
+        arguments: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return await bounded_to_thread(self.create_calendar_event, arguments)
+
+    async def async_update_calendar_event(
+        self,
+        arguments: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return await bounded_to_thread(self.update_calendar_event, arguments)
+
+    async def async_delete_calendar_event(
+        self,
+        arguments: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return await bounded_to_thread(self.delete_calendar_event, arguments)
+
+    async def async_get_freebusy(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        return await bounded_to_thread(self.get_freebusy, arguments)
 
 
 __all__ = ["GoogleCalendarClient"]

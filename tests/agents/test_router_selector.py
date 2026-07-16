@@ -5,6 +5,7 @@ domain→tool filtering and its fallback contract are tested without any LLM. Th
 registry + snapshot mirror the real Jarvis tool set via runtime_helpers.
 """
 
+import asyncio
 import os
 
 import pytest
@@ -46,9 +47,17 @@ class FakeRouterClient:
         self._decision = decision
         self._error = error
         self.calls = 0
+        self.async_calls = 0
 
     def classify(self, query, snapshot):
         self.calls += 1
+        if self._error is not None:
+            raise self._error
+        return self._decision
+
+    async def async_classify(self, query, snapshot, **kwargs):
+        del query, snapshot, kwargs
+        self.async_calls += 1
         if self._error is not None:
             raise self._error
         return self._decision
@@ -430,3 +439,210 @@ class TestFactory:
 
         with pytest.raises(ValueError, match="Unknown tool selector"):
             get_selector("nonexistent")
+
+
+class TestAsyncSelection:
+    def test_awaits_async_router_without_calling_sync_path(self):
+        client = FakeRouterClient(
+            decision=RouterDecision(
+                outcome="routed",
+                domains=["todoist"],
+                uncertain=False,
+                candidate_domains=[],
+                complexity="low",
+                reasoning="test",
+            )
+        )
+        selector = RouterToolSelector(router_client=client, snapshot=make_snapshot())
+
+        result = asyncio.run(
+            selector.async_select_schemas("add buy milk", _build_registry())
+        )
+
+        assert _names(result) == {"ask_user", *_TODOIST_TOOLS}
+        assert client.async_calls == 1
+        assert client.calls == 0
+        assert selector.decision.outcome == "routed"
+
+    def test_guardrails_and_pinned_domains_match_sync_path(self):
+        client = FakeRouterClient(
+            decision=RouterDecision(
+                outcome="conversation",
+                domains=[],
+                uncertain=False,
+                candidate_domains=[],
+                complexity="high",
+                reasoning="test",
+            )
+        )
+        selector = RouterToolSelector(router_client=client, snapshot=make_snapshot())
+
+        result = asyncio.run(
+            selector.async_select_schemas(
+                "show my tasks",
+                _build_registry(),
+                active_domains=["google_calendar"],
+            )
+        )
+
+        assert _names(result) == set(_ALL_TOOLS)
+        assert selector.decision.outcome == "routed"
+        assert selector.decision.domains == ["todoist"]
+        assert selector.decision.complexity == "high"
+
+    def test_repeat_query_uses_same_decision_cache(self):
+        client = FakeRouterClient(
+            decision=RouterDecision(
+                outcome="routed",
+                domains=["todoist"],
+                uncertain=False,
+                candidate_domains=[],
+                complexity="low",
+                reasoning="test",
+            )
+        )
+        selector = RouterToolSelector(router_client=client, snapshot=make_snapshot())
+        registry = _build_registry()
+
+        async def run():
+            first = await selector.async_select_schemas("add milk", registry)
+            second = await selector.async_select_schemas("add milk", registry)
+            return first, second
+
+        first, second = asyncio.run(run())
+        assert _names(first) == _names(second) == {"ask_user", *_TODOIST_TOOLS}
+        assert client.async_calls == 1
+        assert client.calls == 0
+
+    def test_non_retryable_failure_and_fallback_are_cached(self):
+        error = RouterClientError(
+            {
+                "source": "router",
+                "type": "client_error",
+                "retryable": False,
+                "attempts": 1,
+                "message": "x",
+            }
+        )
+        client = FakeRouterClient(error=error)
+        selector = RouterToolSelector(router_client=client, snapshot=make_snapshot())
+        registry = _build_registry()
+
+        async def run():
+            first = await selector.async_select_schemas("add milk", registry)
+            second = await selector.async_select_schemas("add milk", registry)
+            return first, second
+
+        first, second = asyncio.run(run())
+        assert _names(first) == _names(second) == set(_ALL_TOOLS)
+        assert client.async_calls == 1
+        assert selector.decision is None
+
+    def test_retryable_failure_is_retried(self):
+        error = RouterClientError(
+            {
+                "source": "router",
+                "type": "timeout",
+                "retryable": True,
+                "attempts": 2,
+                "message": "x",
+            }
+        )
+        client = FakeRouterClient(error=error)
+        selector = RouterToolSelector(router_client=client, snapshot=make_snapshot())
+        registry = _build_registry()
+
+        async def run():
+            await selector.async_select_schemas("add milk", registry)
+            await selector.async_select_schemas("add milk", registry)
+
+        asyncio.run(run())
+
+        assert client.async_calls == 2
+        assert selector.decision is None
+
+    def test_exit_query_does_not_merge_pinned_domains(self):
+        client = FakeRouterClient(
+            decision=RouterDecision(
+                outcome="conversation",
+                domains=[],
+                uncertain=False,
+                candidate_domains=[],
+                complexity="low",
+                reasoning="test",
+            )
+        )
+        selector = RouterToolSelector(router_client=client, snapshot=make_snapshot())
+
+        result = asyncio.run(
+            selector.async_select_schemas(
+                "cancel",
+                _build_registry(),
+                active_domains=["todoist"],
+            )
+        )
+
+        assert _names(result) == {"ask_user"}
+        assert selector.decision.outcome == "conversation"
+        assert selector.decision.domains == []
+
+    def test_async_custom_fallback_is_awaited(self):
+        sentinel = [{"type": "function", "function": {"name": "sentinel"}}]
+
+        class AsyncFallback:
+            def __init__(self):
+                self.calls = 0
+
+            def select_schemas(self, query, registry, active_domains=None):
+                raise AssertionError("sync fallback must not run on async path")
+
+            async def async_select_schemas(
+                self, query, registry, active_domains=None
+            ):
+                del query, registry, active_domains
+                self.calls += 1
+                return sentinel
+
+        fallback = AsyncFallback()
+        error = RouterClientError(
+            {
+                "source": "router",
+                "type": "timeout",
+                "retryable": True,
+                "attempts": 2,
+                "message": "x",
+            }
+        )
+        selector = _selector(error=error, fallback_selector=fallback)
+
+        result = asyncio.run(selector.async_select_schemas("hi", _build_registry()))
+
+        assert result is sentinel
+        assert fallback.calls == 1
+
+    def test_sync_only_client_runs_through_compatibility_adapter(self):
+        class SyncOnlyClient:
+            def __init__(self):
+                self.calls = 0
+
+            def classify(self, query, snapshot):
+                del query, snapshot
+                self.calls += 1
+                return RouterDecision(
+                    outcome="routed",
+                    domains=["todoist"],
+                    uncertain=False,
+                    candidate_domains=[],
+                    complexity="low",
+                    reasoning="test",
+                )
+
+        client = SyncOnlyClient()
+        selector = RouterToolSelector(router_client=client, snapshot=make_snapshot())
+
+        result = asyncio.run(
+            selector.async_select_schemas("show tasks", _build_registry())
+        )
+
+        assert _names(result) == {"ask_user", *_TODOIST_TOOLS}
+        assert client.calls == 1

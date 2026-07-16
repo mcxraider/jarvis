@@ -27,6 +27,7 @@ from agents.agent_api.app.router.prompt import (
     RouterOutcome,
     effective_router_domains,
 )
+from agents.agent_api.app.async_offload import bounded_to_thread
 from agents.agent_api.app.tools.base import ToolRegistry
 from agents.agent_api.app.tools.control import ASK_USER_TOOL_NAME
 from agents.agent_api.app.tools.selectors.static import StaticToolSelector
@@ -96,45 +97,142 @@ class RouterToolSelector:
         registry: ToolRegistry,
         active_domains: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
-        # Reset per turn: a fallback must leave .decision None so the agent node
-        # cannot read a stale decision from a previous turn.
         self._decision = None
-
-        if self._cached_decision is not None and query == self._cached_query:
-            self._tracer.event(
-                "router.cache_hit",
-                "Reusing cached router decision for same query.",
-                domains=len(self._cached_decision.domains),
-                effective_domains=len(effective_router_domains(self._cached_decision)),
-            )
-            decision = self._cached_decision
-        elif query in self._failed_queries:
-            self._tracer.event(
-                "router.fallback_cache_hit",
-                "Reusing static fallback after non-retryable router failure.",
-                fallback_selector=type(self._fallback).__name__,
-            )
+        decision = self._cached_decision_for_query(query)
+        if decision is None and query in self._failed_queries:
+            self._trace_fallback_cache_hit()
             return self._fallback.select_schemas(query, registry)
-        else:
+
+        if decision is None:
             self._tracer.event("router.start", "Classifying query domains.")
             try:
                 decision = self._client.classify(query, self._snapshot)
             except RouterClientError as error:
-                if not error.payload.get("retryable", False):
-                    self._failed_queries.add(query)
-                self._tracer.event(
-                    "router.fallback",
-                    "Router failed; using fallback selector.",
-                    error_type=error.payload.get("type"),
-                    attempts=error.payload.get("attempts"),
-                    fallback_selector=type(self._fallback).__name__,
-                    error_payload=error.payload,
-                )
+                self._record_failure(query, error)
                 return self._fallback.select_schemas(query, registry)
             decision = self._apply_routing_guardrails(query, decision)
-            self._cached_query = query
-            self._cached_decision = decision
+            self._cache_decision(query, decision)
 
+        return self._schemas_for_decision(
+            query,
+            registry,
+            active_domains,
+            decision,
+        )
+
+    async def async_select_schemas(
+        self,
+        query: str,
+        registry: ToolRegistry,
+        active_domains: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Select schemas without blocking on the router's network request.
+
+        ``RouterClient.async_classify`` is the production path. A sync-only
+        injected client is retained as a compatibility seam and is moved to a
+        worker thread so it cannot block the event loop.
+        """
+
+        self._decision = None
+        decision = self._cached_decision_for_query(query)
+        if decision is None and query in self._failed_queries:
+            self._trace_fallback_cache_hit()
+            return await self._async_fallback_schemas(
+                query,
+                registry,
+                active_domains,
+            )
+
+        if decision is None:
+            self._tracer.event("router.start", "Classifying query domains.")
+            try:
+                async_classify = getattr(self._client, "async_classify", None)
+                if callable(async_classify):
+                    decision = await async_classify(
+                        query,
+                        self._snapshot,
+                        tracer=self._tracer,
+                    )
+                else:
+                    decision = await bounded_to_thread(
+                        self._client.classify,
+                        query,
+                        self._snapshot,
+                    )
+            except RouterClientError as error:
+                self._record_failure(query, error)
+                return await self._async_fallback_schemas(
+                    query,
+                    registry,
+                    active_domains,
+                )
+            decision = self._apply_routing_guardrails(query, decision)
+            self._cache_decision(query, decision)
+
+        return self._schemas_for_decision(
+            query,
+            registry,
+            active_domains,
+            decision,
+        )
+
+    def _cached_decision_for_query(self, query: str) -> Optional[RouterDecision]:
+        if self._cached_decision is None or query != self._cached_query:
+            return None
+        self._tracer.event(
+            "router.cache_hit",
+            "Reusing cached router decision for same query.",
+            domains=len(self._cached_decision.domains),
+            effective_domains=len(effective_router_domains(self._cached_decision)),
+        )
+        return self._cached_decision
+
+    def _trace_fallback_cache_hit(self) -> None:
+        self._tracer.event(
+            "router.fallback_cache_hit",
+            "Reusing static fallback after non-retryable router failure.",
+            fallback_selector=type(self._fallback).__name__,
+        )
+
+    def _record_failure(self, query: str, error: RouterClientError) -> None:
+        if not error.payload.get("retryable", False):
+            self._failed_queries.add(query)
+        self._tracer.event(
+            "router.fallback",
+            "Router failed; using fallback selector.",
+            error_type=error.payload.get("type"),
+            attempts=error.payload.get("attempts"),
+            fallback_selector=type(self._fallback).__name__,
+            error_payload=error.payload,
+        )
+
+    def _cache_decision(self, query: str, decision: RouterDecision) -> None:
+        self._cached_query = query
+        self._cached_decision = decision
+
+    async def _async_fallback_schemas(
+        self,
+        query: str,
+        registry: ToolRegistry,
+        active_domains: Optional[List[str]],
+    ) -> List[Dict[str, Any]]:
+        async_select = getattr(self._fallback, "async_select_schemas", None)
+        if callable(async_select):
+            return await async_select(query, registry, active_domains)
+        return await bounded_to_thread(
+            self._fallback.select_schemas,
+            query,
+            registry,
+            active_domains,
+        )
+
+    def _schemas_for_decision(
+        self,
+        query: str,
+        registry: ToolRegistry,
+        active_domains: Optional[List[str]],
+        decision: RouterDecision,
+    ) -> List[Dict[str, Any]]:
         self._decision = decision
         self._tracer.event(
             "router.response",

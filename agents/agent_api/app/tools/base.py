@@ -1,8 +1,8 @@
 """Domain-neutral tool definitions, the tool registry, and tool-call helpers.
 
 A :class:`ToolSpec` is the single source of truth for one tool: the schema the
-LLM sees, the handler that executes it, whether it mutates external state, and an
-optional per-domain LangChain builder for ``ToolNode`` execution. A
+LLM sees, its synchronous and optional native-async handlers, whether it mutates
+external state, and an optional per-domain LangChain builder for ``ToolNode``. A
 :class:`ToolRegistry` aggregates specs across domains so the graph core depends on
 this interface — never on a concrete domain package such as Todoist.
 
@@ -12,13 +12,14 @@ optional LangChain builder) and register it" — no edits to the graph nodes.
 
 import json
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 
 # A dispatch function executes one parsed tool call through the shared guard +
 # result-envelope pipeline. Domains build their LangChain tools against this
 # signature so every tool goes through the same mutation guard and tracing.
 DispatchFn = Callable[[str, str, Dict[str, Any]], Dict[str, Any]]
+AsyncToolHandler = Callable[[Dict[str, Any]], Awaitable[Any]]
 
 # A LangChain builder turns a dispatch function into that domain's ToolNode tools.
 LangChainToolBuilder = Callable[[DispatchFn], List[Any]]
@@ -32,6 +33,9 @@ class ToolSpec:
     openai_schema: Dict[str, Any]
     handler: Optional[Callable[[Dict[str, Any]], Any]] = None
     mutating: bool = False
+    # Additive async execution seam. Existing synchronous handlers remain
+    # available to the CLI/current graph until native-async dispatch lands.
+    async_handler: Optional[AsyncToolHandler] = None
 
 
 class ToolRegistry:
@@ -83,6 +87,15 @@ class ToolRegistry:
 
         return {spec.name: spec.handler for spec in self._specs if spec.handler is not None}
 
+    def async_handler_map(self) -> Dict[str, AsyncToolHandler]:
+        """Name -> native async handler where a domain provides one."""
+
+        return {
+            spec.name: spec.async_handler
+            for spec in self._specs
+            if spec.async_handler is not None
+        }
+
     def build_langchain_tools(self, dispatch: DispatchFn) -> List[Any]:
         """Build the ToolNode tools for every registered domain."""
 
@@ -132,6 +145,7 @@ def openai_schema_from_tool(langchain_tool: Any) -> Dict[str, Any]:
 
 
 __all__ = [
+    "AsyncToolHandler",
     "DispatchFn",
     "LangChainToolBuilder",
     "ToolSpec",
