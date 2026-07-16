@@ -19,8 +19,8 @@ from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 USER_PROMPTS: List[str] = [
     # --- Date-range regression prompts (verify year-inclusive filter dates) ---
     "Show me what's on my plate for this week and next week.",
-    "What tasks do I have due next week?",
-    "Give me a summary of everything due between now and end of next week.",
+    # "What tasks do I have due next week?",
+    # "Give me a summary of everything due between now and end of next week.",
 
     # "pull my events from my govtech google calendar and then update lunch with grandparents on todoist to p3 task."
     

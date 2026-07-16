@@ -2520,3 +2520,7 @@
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-15 14:51:04"}
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-15 16:49:23"}
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-15 16:49:23"}
+{"error":"store down","gateKey":"telegram-chat:57fe127d914c5340094559798ef10222","level":"error","message":"conversation_gate.store_error","strategy":"fail_open","timestamp":"2026-07-16 16:53:45"}
+{"chatId":"[REDACTED_ID]","gateKey":"telegram-chat:57fe127d914c5340094559798ef10222","level":"warn","message":"conversation_gate.inconsistent_state","messageId":1,"requestId":"test","timestamp":"2026-07-16 16:53:45"}
+{"error":"store down","gateKey":"telegram-chat:57fe127d914c5340094559798ef10222","level":"error","message":"conversation_gate.store_error","strategy":"fail_open","timestamp":"2026-07-17 01:25:53"}
+{"chatId":"[REDACTED_ID]","gateKey":"telegram-chat:57fe127d914c5340094559798ef10222","level":"warn","message":"conversation_gate.inconsistent_state","messageId":1,"requestId":"test","timestamp":"2026-07-17 01:25:53"}

@@ -241,9 +241,15 @@ class DeepSeekAgentClient:
         *,
         model: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
+        request_timeout_seconds: Optional[float] = None,
     ) -> Dict[str, Any]:
         use_model = model or self.model
         use_effort = reasoning_effort or self.reasoning_effort
+        use_timeout = (
+            request_timeout_seconds
+            if request_timeout_seconds is not None
+            else self.request_timeout_seconds
+        )
         self.tracer.event(
             "agent.request",
             "Calling DeepSeek chat completions.",
@@ -251,7 +257,7 @@ class DeepSeekAgentClient:
             reasoning_effort=use_effort,
             messages=len(messages),
             tools=len(tools),
-            request_timeout_seconds=self.request_timeout_seconds,
+            request_timeout_seconds=use_timeout,
             sdk_max_retries=DEEPSEEK_SDK_MAX_RETRIES,
             max_retry_attempts=self.max_retry_attempts,
             retry_max_delay_seconds=self.retry_max_delay_seconds,
@@ -279,6 +285,7 @@ class DeepSeekAgentClient:
                             "type": "enabled" if DEEPSEEK_THINKING_ENABLED else "disabled"
                         }
                     },
+                    timeout=use_timeout,
                 )
             except Exception as error:
                 self.tracer.event(
@@ -288,19 +295,26 @@ class DeepSeekAgentClient:
                     error_type=self._error_type(error),
                     status_code=self._status_code(error),
                     elapsed_ms=round((time.monotonic() - attempt_started) * 1000, 1),
+                    request_timeout_seconds=use_timeout,
                     **self._error_details(error),
                 )
                 raise
 
         try:
-            response = self._retrying()(create_completion)
+            response = self._retrying(request_timeout_seconds=use_timeout)(
+                create_completion
+            )
             # Read usage before the completion object is discarded.
             turn_usage = usage_from_response(response)
             self.usage.add(turn_usage)
             message = raw_message_from_openai(response.choices[0].message)
         except Exception as error:
             total_elapsed_ms = round((time.monotonic() - request_started) * 1000, 1)
-            payload = self._failure_payload(error, attempts)
+            payload = self._failure_payload(
+                error,
+                attempts,
+                request_timeout_seconds=use_timeout,
+            )
             payload["total_elapsed_ms"] = total_elapsed_ms
             self.tracer.event(
                 "agent.error",
@@ -342,18 +356,31 @@ class DeepSeekAgentClient:
         )
         return message
 
-    def _retrying(self) -> Retrying:
+    def _retrying(self, *, request_timeout_seconds: Optional[float] = None) -> Retrying:
         sleep = self.retry_sleep if self.retry_sleep is not None else tenacity_sleep
+        use_timeout = (
+            request_timeout_seconds
+            if request_timeout_seconds is not None
+            else self.request_timeout_seconds
+        )
         return Retrying(
             retry=retry_if_exception(self._is_retryable_error),
             wait=wait_random_exponential(multiplier=1, max=self.retry_max_delay_seconds),
             stop=stop_after_attempt(self.max_retry_attempts),
             reraise=True,
             sleep=sleep,
-            before_sleep=self._trace_retry,
+            before_sleep=lambda retry_state: self._trace_retry(
+                retry_state,
+                request_timeout_seconds=use_timeout,
+            ),
         )
 
-    def _trace_retry(self, retry_state: Any) -> None:
+    def _trace_retry(
+        self,
+        retry_state: Any,
+        *,
+        request_timeout_seconds: Optional[float] = None,
+    ) -> None:
         error = retry_state.outcome.exception() if retry_state.outcome else None
         self.tracer.event(
             "agent.retry",
@@ -365,6 +392,11 @@ class DeepSeekAgentClient:
             exception_type=type(error).__name__ if error is not None else None,
             exception_module=type(error).__module__ if error is not None else None,
             timeout_kind=self._timeout_kind(error),
+            request_timeout_seconds=(
+                request_timeout_seconds
+                if request_timeout_seconds is not None
+                else self.request_timeout_seconds
+            ),
             retry_sleep_seconds=(
                 round(retry_state.next_action.sleep, 3)
                 if getattr(retry_state, "next_action", None) is not None
@@ -401,7 +433,13 @@ class DeepSeekAgentClient:
 
         return isinstance(error, RateLimitError)
 
-    def _failure_payload(self, error: BaseException, attempts: int) -> Dict[str, Any]:
+    def _failure_payload(
+        self,
+        error: BaseException,
+        attempts: int,
+        *,
+        request_timeout_seconds: Optional[float] = None,
+    ) -> Dict[str, Any]:
         status_code = self._status_code(error)
         payload: Dict[str, Any] = {
             "source": "deepseek",
@@ -411,7 +449,11 @@ class DeepSeekAgentClient:
             "message": str(error),
             "error_message": str(error),
             "base_url": self.base_url,
-            "request_timeout_seconds": self.request_timeout_seconds,
+            "request_timeout_seconds": (
+                request_timeout_seconds
+                if request_timeout_seconds is not None
+                else self.request_timeout_seconds
+            ),
             "sdk_max_retries": DEEPSEEK_SDK_MAX_RETRIES,
             "retry_max_delay_seconds": self.retry_max_delay_seconds,
             "max_retry_attempts": self.max_retry_attempts,
@@ -660,20 +702,25 @@ def create_agent_node(
         )
         model_override = None
         effort_override = None
+        timeout_override = None
         if model_router is not None and selector_decision is not None:
             selection = model_router.select(selector_decision)
             model_override = selection.model
             effort_override = selection.reasoning_effort
+            timeout_override = selection.request_timeout_seconds
             tracer.event(
                 "model_router.selected",
                 "Model router selected model for this turn.",
                 model=selection.model,
                 reasoning_effort=selection.reasoning_effort,
+                request_timeout_seconds=selection.request_timeout_seconds,
             )
         try:
             assistant_message = agent_client.create_message(
                 messages, tool_schemas,
-                model=model_override, reasoning_effort=effort_override,
+                model=model_override,
+                reasoning_effort=effort_override,
+                request_timeout_seconds=timeout_override,
             )
         except DeepSeekAgentClientError as error:
             tracer.event(

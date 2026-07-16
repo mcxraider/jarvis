@@ -329,3 +329,4 @@ class TestComplexityModelRouting:
 
         assert client.seen_kwargs["model"] == "pro"
         assert client.seen_kwargs["reasoning_effort"] == "max"
+        assert client.seen_kwargs["request_timeout_seconds"] == 90.0

@@ -237999,3 +237999,865 @@
       "baseUrl": "https://07e9-116-87-102-52.ngrok-free.app",
       "path": "/webhook/[REDACTED]"
     }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 5
+    }
+[2026-07-16 16:53:45] INFO conversation_gate.released
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "hadBufferedMessage": false
+    }
+[2026-07-16 16:53:45] INFO text_processor.completed
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  threadId: t1
+  details:
+    {
+      "messageLength": 5,
+      "responseLength": 5,
+      "agentStatus": "completed",
+      "durationMs": 2
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 5
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "messageLength": 6
+    }
+[2026-07-16 16:53:45] INFO conversation_gate.blocked
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 5
+    }
+[2026-07-16 16:53:45] INFO conversation_gate.released
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "hadBufferedMessage": false
+    }
+[2026-07-16 16:53:45] INFO text_processor.completed
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  threadId: t1
+  details:
+    {
+      "messageLength": 5,
+      "responseLength": 5,
+      "agentStatus": "completed",
+      "durationMs": 0
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "messageLength": 6
+    }
+[2026-07-16 16:53:45] INFO conversation_gate.released
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "hadBufferedMessage": false
+    }
+[2026-07-16 16:53:45] INFO text_processor.completed
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 2
+  threadId: t1
+  details:
+    {
+      "messageLength": 6,
+      "responseLength": 5,
+      "agentStatus": "completed",
+      "durationMs": 0
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 11
+    }
+[2026-07-16 16:53:45] INFO conversation_gate.transition_to_waiting
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "interruptType": "clarify"
+    }
+[2026-07-16 16:53:45] INFO text_processor.completed
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  threadId: t1
+  details:
+    {
+      "messageLength": 11,
+      "responseLength": 10,
+      "agentStatus": "interrupted",
+      "interruptType": "clarify",
+      "durationMs": 0
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "messageLength": 15
+    }
+[2026-07-16 16:53:45] INFO conversation_gate.released
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "hadBufferedMessage": false
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 10
+    }
+[2026-07-16 16:53:45] INFO conversation_gate.transition_to_waiting
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "interruptType": "confirm"
+    }
+[2026-07-16 16:53:45] INFO text_processor.completed
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  threadId: t1
+  details:
+    {
+      "messageLength": 10,
+      "responseLength": 8,
+      "agentStatus": "interrupted",
+      "interruptType": "confirm",
+      "durationMs": 0
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "messageLength": 3
+    }
+[2026-07-16 16:53:45] INFO conversation_gate.released
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "hadBufferedMessage": false
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 4
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "messageLength": 4
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 3
+  details:
+    {
+      "messageLength": 4
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 4
+  details:
+    {
+      "messageLength": 4
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 5
+  details:
+    {
+      "messageLength": 4
+    }
+[2026-07-16 16:53:45] INFO conversation_gate.blocked
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-16 16:53:45] INFO conversation_gate.blocked
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 3
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-16 16:53:45] INFO conversation_gate.blocked
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 4
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-16 16:53:45] INFO conversation_gate.blocked
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 5
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 5
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "messageLength": 3
+    }
+[2026-07-16 16:53:45] INFO conversation_gate.released
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "hadBufferedMessage": false
+    }
+[2026-07-16 16:53:45] INFO text_processor.completed
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 2
+  threadId: t2
+  details:
+    {
+      "messageLength": 3,
+      "responseLength": 6,
+      "agentStatus": "completed",
+      "durationMs": 0
+    }
+[2026-07-16 16:53:45] INFO conversation_gate.ttl_expired
+  chatId: [REDACTED_ID]
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 5
+    }
+[2026-07-16 16:53:45] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "error": "store down",
+      "strategy": "fail_open"
+    }
+[2026-07-16 16:53:45] INFO conversation_gate.released
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "hadBufferedMessage": false
+    }
+[2026-07-16 16:53:45] INFO text_processor.completed
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  threadId: t1
+  details:
+    {
+      "messageLength": 5,
+      "responseLength": 3,
+      "agentStatus": "completed",
+      "durationMs": 0
+    }
+[2026-07-16 16:53:45] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 5
+    }
+[2026-07-16 16:53:45] WARN conversation_gate.inconsistent_state
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-16 16:53:45] INFO conversation_gate.released
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "hadBufferedMessage": false
+    }
+[2026-07-16 16:53:45] INFO text_processor.completed
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  threadId: t1
+  details:
+    {
+      "messageLength": 5,
+      "responseLength": 6,
+      "agentStatus": "completed",
+      "durationMs": 0
+    }
+[2026-07-16 16:58:45] INFO conversation_gate.ttl_expired
+  chatId: [REDACTED_ID]
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-16 16:58:45] INFO conversation_gate.ttl_expired
+  chatId: [REDACTED_ID]
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 5
+    }
+[2026-07-17 01:25:53] INFO conversation_gate.released
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "hadBufferedMessage": false
+    }
+[2026-07-17 01:25:53] INFO text_processor.completed
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  threadId: t1
+  details:
+    {
+      "messageLength": 5,
+      "responseLength": 5,
+      "agentStatus": "completed",
+      "durationMs": 1
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 5
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "messageLength": 6
+    }
+[2026-07-17 01:25:53] INFO conversation_gate.blocked
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 5
+    }
+[2026-07-17 01:25:53] INFO conversation_gate.released
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "hadBufferedMessage": false
+    }
+[2026-07-17 01:25:53] INFO text_processor.completed
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  threadId: t1
+  details:
+    {
+      "messageLength": 5,
+      "responseLength": 5,
+      "agentStatus": "completed",
+      "durationMs": 0
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "messageLength": 6
+    }
+[2026-07-17 01:25:53] INFO conversation_gate.released
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "hadBufferedMessage": false
+    }
+[2026-07-17 01:25:53] INFO text_processor.completed
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 2
+  threadId: t1
+  details:
+    {
+      "messageLength": 6,
+      "responseLength": 5,
+      "agentStatus": "completed",
+      "durationMs": 0
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 11
+    }
+[2026-07-17 01:25:53] INFO conversation_gate.transition_to_waiting
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "interruptType": "clarify"
+    }
+[2026-07-17 01:25:53] INFO text_processor.completed
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  threadId: t1
+  details:
+    {
+      "messageLength": 11,
+      "responseLength": 10,
+      "agentStatus": "interrupted",
+      "interruptType": "clarify",
+      "durationMs": 0
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "messageLength": 15
+    }
+[2026-07-17 01:25:53] INFO conversation_gate.released
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "hadBufferedMessage": false
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 10
+    }
+[2026-07-17 01:25:53] INFO conversation_gate.transition_to_waiting
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "interruptType": "confirm"
+    }
+[2026-07-17 01:25:53] INFO text_processor.completed
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  threadId: t1
+  details:
+    {
+      "messageLength": 10,
+      "responseLength": 8,
+      "agentStatus": "interrupted",
+      "interruptType": "confirm",
+      "durationMs": 0
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "messageLength": 3
+    }
+[2026-07-17 01:25:53] INFO conversation_gate.released
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "hadBufferedMessage": false
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 4
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "messageLength": 4
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 3
+  details:
+    {
+      "messageLength": 4
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 4
+  details:
+    {
+      "messageLength": 4
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 5
+  details:
+    {
+      "messageLength": 4
+    }
+[2026-07-17 01:25:53] INFO conversation_gate.blocked
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-17 01:25:53] INFO conversation_gate.blocked
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 3
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-17 01:25:53] INFO conversation_gate.blocked
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 4
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-17 01:25:53] INFO conversation_gate.blocked
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 5
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 5
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "messageLength": 3
+    }
+[2026-07-17 01:25:53] INFO conversation_gate.released
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 2
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "hadBufferedMessage": false
+    }
+[2026-07-17 01:25:53] INFO text_processor.completed
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 2
+  threadId: t2
+  details:
+    {
+      "messageLength": 3,
+      "responseLength": 6,
+      "agentStatus": "completed",
+      "durationMs": 0
+    }
+[2026-07-17 01:25:53] INFO conversation_gate.ttl_expired
+  chatId: [REDACTED_ID]
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 5
+    }
+[2026-07-17 01:25:53] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "error": "store down",
+      "strategy": "fail_open"
+    }
+[2026-07-17 01:25:53] INFO conversation_gate.released
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "hadBufferedMessage": false
+    }
+[2026-07-17 01:25:53] INFO text_processor.completed
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  threadId: t1
+  details:
+    {
+      "messageLength": 5,
+      "responseLength": 3,
+      "agentStatus": "completed",
+      "durationMs": 0
+    }
+[2026-07-17 01:25:53] INFO text_processor.started
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "messageLength": 5
+    }
+[2026-07-17 01:25:53] WARN conversation_gate.inconsistent_state
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-17 01:25:53] INFO conversation_gate.released
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "hadBufferedMessage": false
+    }
+[2026-07-17 01:25:53] INFO text_processor.completed
+  requestId: test
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1
+  threadId: t1
+  details:
+    {
+      "messageLength": 5,
+      "responseLength": 6,
+      "agentStatus": "completed",
+      "durationMs": 0
+    }
+[2026-07-17 01:30:53] INFO conversation_gate.ttl_expired
+  chatId: [REDACTED_ID]
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-17 01:30:53] INFO conversation_gate.ttl_expired
+  chatId: [REDACTED_ID]
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }

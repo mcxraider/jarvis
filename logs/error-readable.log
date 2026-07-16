@@ -13981,3 +13981,33 @@
     {
       "error": "Bot is not running!"
     }
+[2026-07-16 16:53:45] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "error": "store down",
+      "strategy": "fail_open"
+    }
+[2026-07-16 16:53:45] WARN conversation_gate.inconsistent_state
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
+[2026-07-17 01:25:53] ERROR conversation_gate.store_error
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222",
+      "error": "store down",
+      "strategy": "fail_open"
+    }
+[2026-07-17 01:25:53] WARN conversation_gate.inconsistent_state
+  requestId: test
+  chatId: [REDACTED_ID]
+  messageId: 1
+  details:
+    {
+      "gateKey": "telegram-chat:57fe127d914c5340094559798ef10222"
+    }
