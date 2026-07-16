@@ -102,6 +102,7 @@ class Settings:
     summarizer_retry_max_delay_seconds: float
     summarizer_min_id_coverage: float
     summarizer_max_tokens_ceiling: int
+    summarizer_max_concurrency: int
     executor_max_workers: int
     executor_batch_timeout_seconds: float
     executor_circuit_breaker_threshold: int
@@ -236,6 +237,10 @@ def load_settings() -> Settings:
         summarizer_retry_max_delay_seconds=_float_env("JARVIS_SUMMARIZER_RETRY_MAX_DELAY_SECONDS", 8.0),
         summarizer_min_id_coverage=_float_env("JARVIS_SUMMARIZER_MIN_ID_COVERAGE", 0.7),
         summarizer_max_tokens_ceiling=_int_env("JARVIS_SUMMARIZER_MAX_TOKENS_CEILING", 15000),
+        summarizer_max_concurrency=_positive_int_env(
+            "JARVIS_SUMMARIZER_MAX_CONCURRENCY",
+            4,
+        ),
         executor_max_workers=_int_env("JARVIS_EXECUTOR_MAX_WORKERS", 5),
         executor_batch_timeout_seconds=_float_env("JARVIS_EXECUTOR_BATCH_TIMEOUT_SECONDS", 45.0),
         executor_circuit_breaker_threshold=_int_env("JARVIS_EXECUTOR_CIRCUIT_BREAKER_THRESHOLD", 2),

@@ -15,7 +15,9 @@ os.environ["LANGSMITH_TRACING"] = "false"
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 from agents.agent_api.app.router.client import RouterClientError
+from agents.agent_api.app.router.cache import reset_router_cache
 from agents.agent_api.app.router.prompt import RouterDecision
+from agents.agent_api.app.tools.selectors import router as router_selector_module
 from agents.agent_api.app.tools.base import ToolRegistry, ToolSpec
 from agents.agent_api.app.tools.selectors.router import RouterToolSelector
 from agents.agent_api.app.tracing import TracePrinter
@@ -26,6 +28,20 @@ from tests.agents.runtime_helpers import make_snapshot
 _TODOIST_TOOLS = ["add_todoist_task", "get_tasks"]
 _CALENDAR_TOOLS = ["list_calendar_events", "delete_calendar_event"]
 _ALL_TOOLS = ["ask_user", *_TODOIST_TOOLS, *_CALENDAR_TOOLS]
+
+
+@pytest.fixture(autouse=True)
+def _isolate_legacy_selector_tests(monkeypatch):
+    """Keep pre-Stage-7 tests focused on the injected router-client contract."""
+
+    reset_router_cache()
+    monkeypatch.setattr(
+        router_selector_module,
+        "fast_path_classify",
+        lambda _query, _snapshot: None,
+    )
+    yield
+    reset_router_cache()
 
 
 def _build_registry() -> ToolRegistry:

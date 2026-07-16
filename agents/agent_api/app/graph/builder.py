@@ -57,6 +57,7 @@ from agents.agent_api.app.pricing import (
     calculate_cost_usd,
     derive_uncached_input_tokens,
 )
+from agents.agent_api.app.post_run import submit_post_run_job
 from agents.agent_api.app.run_logging import (
     FileLoggingTracer,
     RunLogIdentity,
@@ -245,6 +246,22 @@ def _log_usage(
                 "error_message": str(exc),
             },
         )
+
+
+def _persist_post_run_metadata(
+    thread_id: str,
+    identity: Optional[TelegramIdentity],
+    user_prompt: str,
+    status: str,
+    resuming: bool,
+    usage: "UsageSummary",
+    latency_ms: int,
+    model: str,
+) -> None:
+    """Persist FIFO thread metadata and usage after the response is ready."""
+
+    _register_thread(thread_id, identity, user_prompt, status, resuming)
+    _log_usage(identity, thread_id, usage, latency_ms, model)
 
 
 def create_jarvis_graph(
@@ -723,16 +740,6 @@ async def run_jarvis_async(
         raise
     result = enrich_interrupt_status(result, thread_id)
 
-    thread_status = "interrupted" if result.get("interrupted") else "completed"
-    await bounded_to_thread(
-        _register_thread,
-        thread_id,
-        identity,
-        user_prompt,
-        thread_status,
-        resuming,
-    )
-
     # Production DeepSeek clients write into the explicitly run-scoped
     # accumulator. Preserve compatibility with injected/duck-typed clients that
     # expose only their legacy ``usage`` attribute.
@@ -743,6 +750,21 @@ async def run_jarvis_async(
         else client_usage
     )
     finished_at = datetime.now()
+    duration_ms = int((finished_at - started_at).total_seconds() * 1000)
+    thread_status = "interrupted" if result.get("interrupted") else "completed"
+    post_run_accepted = True
+    if identity is not None:
+        post_run_accepted = submit_post_run_job(
+            _persist_post_run_metadata,
+            thread_id,
+            identity,
+            user_prompt,
+            thread_status,
+            resuming,
+            usage,
+            duration_ms,
+            DEEPSEEK_MODEL,
+        )
     tracer.event(
         "runtime.done",
         "Graph invocation completed.",
@@ -754,6 +776,13 @@ async def run_jarvis_async(
         interrupt_type=result.get("pending_interrupt"),
         total_tokens=usage.total_tokens or None,
     )
+    if not post_run_accepted:
+        tracer.event(
+            "runtime.post_run_dropped",
+            "Post-run metadata queue was saturated; non-critical writes were dropped.",
+            request_id=request_id,
+            thread_id=thread_id,
+        )
     if run_log is not None:
         cache_hit_rate = (
             round(usage.cached_tokens / usage.prompt_tokens * 100, 1)
@@ -788,16 +817,6 @@ async def run_jarvis_async(
 
     if run_log is not None:
         result["run_log_path"] = str(run_log.path.resolve())
-
-    duration_ms = int((finished_at - started_at).total_seconds() * 1000)
-    await bounded_to_thread(
-        _log_usage,
-        identity,
-        thread_id,
-        usage,
-        duration_ms,
-        DEEPSEEK_MODEL,
-    )
 
     return result
 
@@ -885,11 +904,13 @@ def shutdown_sync_runner() -> None:
             return
 
         async def close_resources() -> None:
+            from agents.agent_api.app.async_offload import drain_offloads
             from agents.agent_api.app.graph.nodes.orchestrator import (
                 close_shared_async_agent_client,
             )
             from agents.agent_api.app.graph.nodes.summarize import (
                 close_shared_async_summarizer_client,
+                reset_summarizer_limiters,
             )
             from agents.agent_api.app.router.client import (
                 close_shared_async_router_openai_client,
@@ -897,10 +918,16 @@ def shutdown_sync_runner() -> None:
             from agents.agent_api.app.tools.todoist.client import (
                 close_todoist_async_http_client,
             )
+            from agents.agent_api.app.post_run import shutdown_post_run_jobs
 
+            if not await shutdown_post_run_jobs(5.0):
+                raise TimeoutError("Post-run metadata did not drain before CLI shutdown.")
+            if not await drain_offloads(5.0):
+                raise TimeoutError("Blocking compatibility work did not drain before CLI shutdown.")
             await close_shared_async_agent_client()
             await close_shared_async_router_openai_client()
             await close_shared_async_summarizer_client()
+            reset_summarizer_limiters()
             await close_todoist_async_http_client()
 
         try:

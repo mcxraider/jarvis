@@ -15,6 +15,8 @@ provider secrets or the full orchestrator policy — the router only needs enoug
 to classify.
 """
 
+import hashlib
+import json
 from enum import Enum
 from typing import Any, Dict, List
 
@@ -275,6 +277,18 @@ def build_router_messages(
     ]
 
 
+def router_prompt_schema_fingerprint(snapshot: RuntimeContextSnapshot) -> str:
+    """Fingerprint the rendered prompt and strict response schema for cache safety."""
+
+    schema = json.dumps(
+        RouterDecision.model_json_schema(),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    contract = f"{build_router_system_prompt(snapshot)}\n{schema}"
+    return hashlib.sha256(contract.encode("utf-8")).hexdigest()
+
+
 __all__ = [
     "RouterDecision",
     "RouterDomain",
@@ -283,4 +297,5 @@ __all__ = [
     "build_router_messages",
     "build_router_system_prompt",
     "effective_router_domains",
+    "router_prompt_schema_fingerprint",
 ]

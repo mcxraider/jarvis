@@ -18,14 +18,18 @@ later stages; when the router falls back, ``.decision`` is ``None`` and the node
 leaves the prompt/messages untouched (today's behavior).
 """
 
+import json
 import re
 from typing import Any, Dict, List, Optional, Set
 
+from agents.agent_api.app.router.cache import RouterCache, get_router_cache
 from agents.agent_api.app.router.client import RouterClient, RouterClientError
+from agents.agent_api.app.router.fast_path import fast_path_classify
 from agents.agent_api.app.router.prompt import (
     RouterDecision,
     RouterOutcome,
     effective_router_domains,
+    router_prompt_schema_fingerprint,
 )
 from agents.agent_api.app.async_offload import bounded_to_thread
 from agents.agent_api.app.tools.base import ToolRegistry
@@ -65,6 +69,9 @@ class RouterToolSelector:
         snapshot: RuntimeContextSnapshot,
         tracer: Optional[TracePrinter] = None,
         fallback_selector: Optional[Any] = None,
+        use_fast_path: bool = True,
+        use_lru_cache: bool = True,
+        router_cache: Optional[RouterCache] = None,
         **kwargs: Any,
     ) -> None:
         # allow_mutations (and any other selector kwarg) is intentionally swallowed:
@@ -74,6 +81,16 @@ class RouterToolSelector:
         self._snapshot = snapshot
         self._tracer = tracer or NULL_TRACE
         self._fallback = fallback_selector or StaticToolSelector()
+        self._use_fast_path = use_fast_path
+        self._use_lru_cache = use_lru_cache
+        self._router_cache = router_cache or get_router_cache()
+        self._active_providers = frozenset(snapshot.active_providers())
+        self._routing_preferences = json.dumps(
+            snapshot.preferences.routing.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        self._prompt_schema_fingerprint = router_prompt_schema_fingerprint(snapshot)
         self._decision: Optional[RouterDecision] = None
         # Per-run cache: keyed by routing query string. Selector instances are
         # created per run, so the cache scope matches the run scope naturally.
@@ -98,7 +115,7 @@ class RouterToolSelector:
         active_domains: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         self._decision = None
-        decision = self._cached_decision_for_query(query)
+        decision = self._cached_or_deterministic_decision(query)
         if decision is None and query in self._failed_queries:
             self._trace_fallback_cache_hit()
             return self._fallback.select_schemas(query, registry)
@@ -110,6 +127,7 @@ class RouterToolSelector:
             except RouterClientError as error:
                 self._record_failure(query, error)
                 return self._fallback.select_schemas(query, registry)
+            self._cache_router_result(query, decision)
             decision = self._apply_routing_guardrails(query, decision)
             self._cache_decision(query, decision)
 
@@ -134,7 +152,7 @@ class RouterToolSelector:
         """
 
         self._decision = None
-        decision = self._cached_decision_for_query(query)
+        decision = self._cached_or_deterministic_decision(query)
         if decision is None and query in self._failed_queries:
             self._trace_fallback_cache_hit()
             return await self._async_fallback_schemas(
@@ -166,6 +184,7 @@ class RouterToolSelector:
                     registry,
                     active_domains,
                 )
+            self._cache_router_result(query, decision)
             decision = self._apply_routing_guardrails(query, decision)
             self._cache_decision(query, decision)
 
@@ -186,6 +205,58 @@ class RouterToolSelector:
             effective_domains=len(effective_router_domains(self._cached_decision)),
         )
         return self._cached_decision
+
+    def _cached_or_deterministic_decision(
+        self,
+        query: str,
+    ) -> Optional[RouterDecision]:
+        decision = self._cached_decision_for_query(query)
+        if decision is not None:
+            return decision
+
+        if self._use_fast_path:
+            decision = fast_path_classify(query, self._snapshot)
+            if decision is not None:
+                self._tracer.event(
+                    "router.fast_path",
+                    "Used a deterministic low-complexity router decision.",
+                    outcome=decision.outcome.value,
+                    domains=[domain.value for domain in decision.domains],
+                )
+                decision = self._apply_routing_guardrails(query, decision)
+                self._cache_decision(query, decision)
+                return decision
+
+        if not self._use_lru_cache:
+            return None
+        decision = self._router_cache.get(
+            query,
+            active_providers=self._active_providers,
+            routing_preferences=self._routing_preferences,
+            prompt_schema_fingerprint=self._prompt_schema_fingerprint,
+        )
+        if decision is None:
+            return None
+        self._tracer.event(
+            "router.lru_cache_hit",
+            "Reused a successful process-local router decision.",
+            outcome=decision.outcome.value,
+            domains=[domain.value for domain in decision.domains],
+        )
+        decision = self._apply_routing_guardrails(query, decision)
+        self._cache_decision(query, decision)
+        return decision
+
+    def _cache_router_result(self, query: str, decision: RouterDecision) -> None:
+        if not self._use_lru_cache:
+            return
+        self._router_cache.put(
+            query,
+            decision,
+            active_providers=self._active_providers,
+            routing_preferences=self._routing_preferences,
+            prompt_schema_fingerprint=self._prompt_schema_fingerprint,
+        )
 
     def _trace_fallback_cache_hit(self) -> None:
         self._tracer.event(
