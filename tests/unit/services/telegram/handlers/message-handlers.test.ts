@@ -181,8 +181,10 @@ describe('MessageHandlers', () => {
     expect(TELEGRAM_ONBOARDING_MESSAGE).toContain('Welcome to Jarvis');
     expect(TELEGRAM_ONBOARDING_MESSAGE).toContain('Simple Examples');
     expect(TELEGRAM_ONBOARDING_MESSAGE).toContain('Advanced Examples');
-    expect(TELEGRAM_ONBOARDING_MESSAGE).toContain('Set a dinner with <friend>');
-    expect(TELEGRAM_ONBOARDING_MESSAGE).toContain("I'll ask before making risky or bulk changes.");
+    expect(TELEGRAM_ONBOARDING_MESSAGE).toContain('Put lunch with Sarah on my calendar');
+    expect(TELEGRAM_ONBOARDING_MESSAGE).toContain(
+      "I'll ask before making risky, bulk, or calendar-changing updates.",
+    );
   });
 
   it('routes audio documents through processAudioDocument', async () => {
@@ -233,7 +235,7 @@ describe('MessageHandlers', () => {
     );
     expect(messageProcessor.processAudioMessage).not.toHaveBeenCalled();
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_document');
-    expect(ctx.reply).toHaveBeenCalledWith('Reading your request…', {
+    expect(ctx.reply).toHaveBeenCalledWith('Thinking…', {
       parse_mode: 'MarkdownV2',
     });
     // The transcription is delivered as its own message after the transient status.
@@ -285,7 +287,7 @@ describe('MessageHandlers', () => {
     expect(ctx.reply).toHaveBeenCalledWith('🗣️: transcribed text', {
       parse_mode: 'MarkdownV2',
     });
-    expect(ctx.reply).toHaveBeenCalledWith('Reading your request…', { parse_mode: 'MarkdownV2' });
+    expect(ctx.reply).toHaveBeenCalledWith('Thinking…', { parse_mode: 'MarkdownV2' });
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
   });
 
@@ -316,7 +318,7 @@ describe('MessageHandlers', () => {
     expect(messageProcessor.processPhotoMessage).not.toHaveBeenCalled();
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_unknown');
     expect(ctx.reply).toHaveBeenCalledWith(
-      "I don't process images — please send a text message, a voice note, or an audio file.",
+      'Images are currently not supported - please send a text message, a voice note, or an audio file.',
     );
   });
 
@@ -341,7 +343,7 @@ describe('MessageHandlers', () => {
 
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_unknown');
     expect(ctx.reply).toHaveBeenCalledWith(
-      'Stickers are not supported. Please send text, audio, or voice.',
+      'Stickers are currently not supported. Please send text, audio, or voice.',
     );
   });
 

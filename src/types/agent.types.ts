@@ -55,16 +55,13 @@ export const ProgressFactSchema = z.object({
   action: z.enum(['started', 'completed', 'waiting', 'retrying', 'failed']),
   domains: z.array(ProgressDomainSchema).nullish(),
   intent: z.enum(['read', 'mutation', 'clarify', 'confirm']).optional(),
-  retry: z.object({
-    target: z.enum(['domain', 'model', 'router']).optional(),
-    domain: ProgressDomainSchema.optional(),
-    reason: z.enum([
-      'temporary_connection',
-      'rate_limited',
-      'service_unavailable',
-      'timeout',
-    ]),
-  }).optional(),
+  retry: z
+    .object({
+      target: z.enum(['domain', 'model', 'router']).optional(),
+      domain: ProgressDomainSchema.optional(),
+      reason: z.enum(['temporary_connection', 'rate_limited', 'service_unavailable', 'timeout']),
+    })
+    .optional(),
 });
 
 // Streaming protocol: each line of the NDJSON stream is either a progress event
