@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from agents.agent_api.app.graph.nodes.tools import create_tools_node
 from agents.agent_api.app.idempotency.store import (
@@ -370,6 +371,7 @@ class TestOperationContext:
     def test_toolnode_path_uses_thread_and_turn_context(self):
         todoist = MagicMock()
         todoist.add_todoist_task.return_value = {"id": "task-1"}
+        todoist.async_add_todoist_task = AsyncMock(return_value={"id": "task-1"})
         dispatcher = TodoistToolDispatcher(
             todoist,
             allow_mutations=True,
@@ -402,10 +404,11 @@ class TestOperationContext:
                 "tool_results": [],
             }
 
-        first = node(state("call-1"))
-        second = node(state("call-2"))
+        first = asyncio.run(node(state("call-1")))
+        second = asyncio.run(node(state("call-2")))
 
-        todoist.add_todoist_task.assert_called_once()
+        todoist.async_add_todoist_task.assert_awaited_once()
+        todoist.add_todoist_task.assert_not_called()
         assert first["tool_results"][0]["success"] is True
         assert second["tool_results"][0]["tool_call_id"] == "call-2"
         # Verify a cached result exists in the store. Derive the key from

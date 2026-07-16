@@ -6,6 +6,7 @@ It is driven entirely by a :class:`ToolRegistry`, so it works for any domain
 (Todoist today, Gmail/Calendar/Notion later) without changes here.
 """
 
+import asyncio
 import contextvars
 import copy
 import json
@@ -23,6 +24,7 @@ from langsmith import traceable
 
 from agents.agent_api.app.config import settings
 from agents.agent_api.app.constants import ALLOW_MUTATIONS
+from agents.agent_api.app.async_offload import bounded_to_thread
 from agents.agent_api.app.graph.canonicalize import build_operation_idempotency_key
 from agents.agent_api.app.idempotency.store import ClaimResult, ClaimState, IdempotencyStore
 from agents.agent_api.app.tools.base import (
@@ -96,6 +98,21 @@ def build_tool_result(
     }
 
 
+async def _await_mutation_settlement(
+    task: asyncio.Task[Any],
+) -> tuple[Any, bool]:
+    """Wait for dispatched mutation work despite caller cancellation."""
+
+    cancellation_requested = False
+    while True:
+        try:
+            return await asyncio.shield(task), cancellation_requested
+        except asyncio.CancelledError:
+            if task.cancelled():
+                raise
+            cancellation_requested = True
+
+
 class ToolDispatcher:
     """Execute model tool calls against a registry of tool handlers."""
 
@@ -121,6 +138,7 @@ class ToolDispatcher:
         # Snapshot the registry's executable handlers and mutation policy so the
         # hot path is a dict lookup, not a registry walk per tool call.
         self.supported_tools: Dict[str, Callable[[Dict[str, Any]], Any]] = registry.handler_map()
+        self.async_supported_tools = registry.async_handler_map()
         self._mutating_names = registry.mutating_names()
 
     def build_langchain_tools(self) -> List[Any]:
@@ -144,6 +162,368 @@ class ToolDispatcher:
             return build_tool_result(tool_call_id, tool_name, success=False, error=str(error))
 
         return self.execute_tool(tool_call_id, tool_name, arguments)
+
+    async def async_execute_tool_call(
+        self,
+        tool_call: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Parse and execute one tool call without blocking the event loop."""
+
+        tool_call_id = tool_call.get("id", "missing_tool_call_id")
+        function_data = tool_call.get("function", {})
+        tool_name = function_data.get("name", "unknown")
+        try:
+            arguments = parse_arguments(function_data.get("arguments", "{}"))
+        except Exception as error:
+            self.tracer.event(
+                "tool.error",
+                "Tool call failed.",
+                name=tool_name,
+                error=str(error),
+            )
+            return build_tool_result(
+                tool_call_id,
+                tool_name,
+                success=False,
+                error=str(error),
+            )
+        return await self.async_execute_tool(tool_call_id, tool_name, arguments)
+
+    @traceable(name="tool_execute_async", run_type="tool")
+    async def async_execute_tool(
+        self,
+        tool_call_id: str,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        idempotency_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Async equivalent of :meth:`execute_tool` with identical safety policy."""
+
+        owner_token: Optional[str] = None
+        resolved_key: Optional[str] = None
+        ctx_thread_id: Optional[str] = None
+        ctx_turn_count: Optional[int] = None
+        mutation_started = False
+        try:
+            self.tracer.event(
+                "tool.start",
+                "Preparing tool call.",
+                id=tool_call_id,
+                name=tool_name,
+                mutating=tool_name in self._mutating_names,
+            )
+            self.tracer.payload("tool.args", tool_name, arguments)
+
+            if (
+                tool_name not in self.supported_tools
+                and tool_name not in self.async_supported_tools
+            ):
+                self.tracer.event("tool.error", "Tool is not supported.", name=tool_name)
+                return build_tool_result(
+                    tool_call_id,
+                    tool_name,
+                    success=False,
+                    error=f"Unsupported tool: {tool_name}",
+                )
+            if tool_name in self._mutating_names and not self.allow_mutations:
+                self.tracer.event(
+                    "tool.blocked",
+                    "Mutation blocked by ALLOW_MUTATIONS = False.",
+                    name=tool_name,
+                )
+                return build_tool_result(
+                    tool_call_id,
+                    tool_name,
+                    success=False,
+                    error=(
+                        f"Mutation blocked for {tool_name}. Set ALLOW_MUTATIONS = True "
+                        "in agents/jarvis.py to allow real Todoist changes."
+                    ),
+                    mutation_blocked=True,
+                )
+
+            if tool_name in self._mutating_names:
+                context = _IDEMPOTENCY_CONTEXT.get()
+                if context is not None:
+                    ctx_thread_id, ctx_turn_count = context.thread_id, context.turn_count
+                resolved_key = idempotency_key or self._context_idempotency_key(
+                    tool_call_id,
+                    tool_name,
+                    arguments,
+                )
+                if resolved_key and self.idempotency_store is not None:
+                    async def await_claim(
+                        operation: Callable[..., ClaimResult],
+                        *operation_args: Any,
+                    ) -> ClaimResult:
+                        claim_task = asyncio.create_task(
+                            bounded_to_thread(operation, *operation_args)
+                        )
+                        claim_result, cancelled = await _await_mutation_settlement(
+                            claim_task
+                        )
+                        if cancelled:
+                            if claim_result.state is ClaimState.ACQUIRED:
+                                await bounded_to_thread(
+                                    self._abandon_operation,
+                                    resolved_key,
+                                    claim_result.owner_token,
+                                    tool_name,
+                                    ctx_thread_id,
+                                    ctx_turn_count,
+                                )
+                            raise asyncio.CancelledError
+                        return claim_result
+
+                    claim = await await_claim(
+                        self._claim_operation,
+                        resolved_key,
+                        tool_name,
+                    )
+                    if claim.state is ClaimState.COMPLETED:
+                        self._trace_idempotency(
+                            "cache_hit",
+                            tool_name,
+                            resolved_key,
+                            ctx_thread_id,
+                            ctx_turn_count,
+                        )
+                        return self._rebind_cached_result(
+                            claim.result,
+                            tool_call_id,
+                            tool_name,
+                        )
+                    if claim.state is ClaimState.IN_PROGRESS:
+                        claim = await await_claim(
+                            self._wait_for_operation,
+                            resolved_key,
+                            tool_name,
+                            ctx_thread_id,
+                            ctx_turn_count,
+                        )
+                        if claim.state is ClaimState.COMPLETED:
+                            return self._rebind_cached_result(
+                                claim.result,
+                                tool_call_id,
+                                tool_name,
+                            )
+                        if claim.state is ClaimState.IN_PROGRESS:
+                            self._trace_idempotency(
+                                "timeout",
+                                tool_name,
+                                resolved_key,
+                                ctx_thread_id,
+                                ctx_turn_count,
+                            )
+                            return build_tool_result(
+                                tool_call_id,
+                                tool_name,
+                                success=False,
+                                error=(
+                                    "An identical mutation is still in progress. "
+                                    "Retry after the current operation finishes."
+                                ),
+                            )
+                    if claim.state is ClaimState.ACQUIRED:
+                        owner_token = claim.owner_token
+                        self._trace_idempotency(
+                            "claim_acquired",
+                            tool_name,
+                            resolved_key,
+                            ctx_thread_id,
+                            ctx_turn_count,
+                        )
+                    elif claim.state is ClaimState.UNAVAILABLE:
+                        self._trace_idempotency(
+                            "fail_closed",
+                            tool_name,
+                            resolved_key,
+                            ctx_thread_id,
+                            ctx_turn_count,
+                        )
+                        return build_tool_result(
+                            tool_call_id,
+                            tool_name,
+                            success=False,
+                            error=(
+                                "This change was not made because mutation safety "
+                                "is temporarily unavailable. Please try again shortly."
+                            ),
+                            mutation_blocked=True,
+                        )
+
+            async_handler = self.async_supported_tools.get(tool_name)
+
+            async def invoke_handler() -> Any:
+                if async_handler is not None:
+                    return await async_handler(arguments)
+                return await bounded_to_thread(
+                    self.supported_tools[tool_name],
+                    arguments,
+                )
+
+            async def execute_and_finalize() -> Dict[str, Any]:
+                """Settle the provider call and its idempotency claim together."""
+
+                try:
+                    content = await invoke_handler()
+                    self.tracer.event(
+                        "tool.done",
+                        "Tool call completed.",
+                        name=tool_name,
+                    )
+                    self.tracer.payload("tool.result", tool_name, content)
+                    result = build_tool_result(
+                        tool_call_id,
+                        tool_name,
+                        success=True,
+                        content=content,
+                    )
+                    if owner_token and resolved_key and self.idempotency_store:
+                        completed = await bounded_to_thread(
+                            self._complete_operation,
+                            resolved_key,
+                            owner_token,
+                            result,
+                        )
+                        self._trace_idempotency(
+                            "completed" if completed else "completion_failed",
+                            tool_name,
+                            resolved_key,
+                            ctx_thread_id,
+                            ctx_turn_count,
+                        )
+                        if not completed:
+                            await bounded_to_thread(
+                                self._abandon_operation,
+                                resolved_key,
+                                owner_token,
+                                tool_name,
+                                ctx_thread_id,
+                                ctx_turn_count,
+                            )
+                    return result
+                except ClassifiedApiError as error:
+                    await bounded_to_thread(
+                        self._abandon_operation,
+                        resolved_key,
+                        owner_token,
+                        tool_name,
+                        ctx_thread_id,
+                        ctx_turn_count,
+                    )
+                    classified_error = error.to_classifier_payload()
+                    self.tracer.event(
+                        "tool.error",
+                        "Tool call failed with a classified API error.",
+                        name=tool_name,
+                        kind=error.kind,
+                        retryable=error.retryable,
+                        status_code=error.status_code,
+                        attempts=error.attempts,
+                    )
+                    return build_tool_result(
+                        tool_call_id,
+                        tool_name,
+                        success=False,
+                        error=error.message,
+                        classified_error=classified_error,
+                    )
+                except Exception as error:
+                    await bounded_to_thread(
+                        self._abandon_operation,
+                        resolved_key,
+                        owner_token,
+                        tool_name,
+                        ctx_thread_id,
+                        ctx_turn_count,
+                    )
+                    self.tracer.event(
+                        "tool.error",
+                        "Tool call failed.",
+                        name=tool_name,
+                        error=str(error),
+                    )
+                    return build_tool_result(
+                        tool_call_id,
+                        tool_name,
+                        success=False,
+                        error=str(error),
+                    )
+
+            cancellation_requested = False
+            if tool_name in self._mutating_names:
+                mutation_started = True
+                handler_task = asyncio.create_task(execute_and_finalize())
+                content, cancellation_requested = await _await_mutation_settlement(
+                    handler_task
+                )
+            else:
+                content = await execute_and_finalize()
+            if cancellation_requested:
+                raise asyncio.CancelledError
+            return content
+        except ClassifiedApiError as error:
+            await bounded_to_thread(
+                self._abandon_operation,
+                resolved_key,
+                owner_token,
+                tool_name,
+                ctx_thread_id,
+                ctx_turn_count,
+            )
+            classified_error = error.to_classifier_payload()
+            self.tracer.event(
+                "tool.error",
+                "Tool call failed with a classified API error.",
+                name=tool_name,
+                kind=error.kind,
+                retryable=error.retryable,
+                status_code=error.status_code,
+                attempts=error.attempts,
+            )
+            return build_tool_result(
+                tool_call_id,
+                tool_name,
+                success=False,
+                error=error.message,
+                classified_error=classified_error,
+            )
+        except asyncio.CancelledError:
+            # Never release a mutation claim merely because its caller stopped
+            # waiting after dispatch. The shielded handler settles and the normal
+            # path persists its result before cancellation is re-propagated.
+            if not mutation_started:
+                await bounded_to_thread(
+                    self._abandon_operation,
+                    resolved_key,
+                    owner_token,
+                    tool_name,
+                    ctx_thread_id,
+                    ctx_turn_count,
+                )
+            raise
+        except Exception as error:
+            await bounded_to_thread(
+                self._abandon_operation,
+                resolved_key,
+                owner_token,
+                tool_name,
+                ctx_thread_id,
+                ctx_turn_count,
+            )
+            self.tracer.event(
+                "tool.error",
+                "Tool call failed.",
+                name=tool_name,
+                error=str(error),
+            )
+            return build_tool_result(
+                tool_call_id,
+                tool_name,
+                success=False,
+                error=str(error),
+            )
 
     @traceable(
         name="tool_execute",
@@ -604,8 +984,26 @@ def execute_tool_calls_with_toolnode(
     return ordered_results
 
 
+async def async_execute_tool_calls(
+    tool_calls: List[Dict[str, Any]],
+    tool_dispatcher: ToolDispatcher,
+) -> List[Dict[str, Any]]:
+    """Execute a batch through async handlers while preserving input order.
+
+    Stage 5 deliberately keeps batch execution sequential. The following
+    concurrency stage can parallelize reads once it can also serialize mutations
+    and propagate cancellation without creating duplicate side effects.
+    """
+
+    results: List[Dict[str, Any]] = []
+    for tool_call in tool_calls:
+        results.append(await tool_dispatcher.async_execute_tool_call(tool_call))
+    return results
+
+
 __all__ = [
     "ToolDispatcher",
+    "async_execute_tool_calls",
     "build_tool_result",
     "execute_tool_calls_with_toolnode",
     "openai_tool_call_to_toolnode_call",

@@ -447,7 +447,10 @@ class TestSharedSdkClients:
     def test_shared_sync_transport_has_fresh_request_bindings(self, monkeypatch):
         monkeypatch.setenv("DEEPSEEK_API_KEY", "shared-test-key")
         close_shared_agent_client()
+        asyncio.run(close_shared_async_agent_client())
         sdk_client = MagicMock()
+        async_sdk_client = MagicMock()
+        async_sdk_client.close = AsyncMock()
         first_tracer = RecordingTracer()
         second_tracer = RecordingTracer()
 
@@ -456,6 +459,10 @@ class TestSharedSdkClients:
                 "agents.agent_api.app.graph.nodes.orchestrator.OpenAI",
                 return_value=sdk_client,
             ) as openai_cls,
+            patch(
+                "agents.agent_api.app.graph.nodes.orchestrator.AsyncOpenAI",
+                return_value=async_sdk_client,
+            ) as async_openai_cls,
             patch(
                 "agents.agent_api.app.graph.nodes.orchestrator.wrap_openai",
                 side_effect=lambda client: client,
@@ -467,15 +474,20 @@ class TestSharedSdkClients:
         assert first is not second
         assert first.client is sdk_client
         assert second.client is sdk_client
+        assert first.async_client is async_sdk_client
+        assert second.async_client is async_sdk_client
         assert first.usage is not second.usage
         assert first.tracer is first_tracer
         assert second.tracer is second_tracer
         assert first._owns_client is False
         assert second._owns_client is False
         openai_cls.assert_called_once()
+        async_openai_cls.assert_called_once()
 
         close_shared_agent_client()
         sdk_client.close.assert_called_once_with()
+        asyncio.run(close_shared_async_agent_client())
+        async_sdk_client.close.assert_awaited_once_with()
 
     def test_shared_async_transport_reuses_and_resets(self, monkeypatch):
         monkeypatch.setenv("DEEPSEEK_API_KEY", "shared-test-key")

@@ -7,6 +7,7 @@ for the registry; ``build_calendar_langchain_tools(dispatch)`` builds the
 guard, result envelope, tracing).
 """
 
+import inspect
 from typing import Annotated, Any, Dict, List, Optional
 
 from langchain_core.tools import InjectedToolCallId, tool
@@ -62,8 +63,11 @@ def get_calendar_tool_specs(calendar_client: Any) -> List[ToolSpec]:
         "get_freebusy": calendar_client.get_freebusy,
     }
     async_handlers = {
-        name: getattr(calendar_client, f"async_{name}", None)
+        name: candidate
         for name in handlers
+        if inspect.iscoroutinefunction(
+            candidate := getattr(calendar_client, f"async_{name}", None)
+        )
     }
     return [
         ToolSpec(
@@ -71,7 +75,7 @@ def get_calendar_tool_specs(calendar_client: Any) -> List[ToolSpec]:
             openai_schema=schemas[name],
             handler=handler,
             mutating=name in MUTATING_CALENDAR_TOOLS,
-            async_handler=async_handlers[name],
+            async_handler=async_handlers.get(name),
         )
         for name, handler in handlers.items()
     ]

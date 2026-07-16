@@ -9,6 +9,7 @@ Validates the 6-stage fix for domain loss:
   Stage 6: End-to-end (this file)
 """
 
+import asyncio
 import os
 from typing import Any, Dict, List, Optional
 from unittest.mock import patch
@@ -196,7 +197,7 @@ class TestOrchestratorActiveDomains:
             snapshot,
             user_prompt="add event to google calendar",
         )
-        result = node(state)
+        result = asyncio.run(node(state))
 
         assert "google_calendar" in result.get("active_domains", [])
 
@@ -215,7 +216,7 @@ class TestOrchestratorActiveDomains:
             clarification_history=[{"question": "Which day?", "reply": "next friday"}],
             active_domains=["google_calendar"],
         )
-        result = node(state)
+        result = asyncio.run(node(state))
 
         # active_domains should NOT be overwritten (already set)
         assert result.get("active_domains") is None or result.get("active_domains") == ["google_calendar"]
@@ -238,7 +239,7 @@ class TestOrchestratorActiveDomains:
             ],
             active_domains=["google_calendar"],
         )
-        node(state)
+        asyncio.run(node(state))
 
         # The router should have seen "google calendar" (from user_prompt) in the
         # composed query, so it should return google_calendar decision.
@@ -270,7 +271,7 @@ class TestPromptSlimmingPinnedDomains:
             clarification_history=[{"question": "What time?", "reply": "3pm"}],
             active_domains=["google_calendar"],
         )
-        node(state)
+        asyncio.run(node(state))
 
         system = client.seen_messages[0]["content"]
         # Active domains should produce Calendar instructions in the prompt
@@ -324,7 +325,7 @@ class TestRouteExpansion:
             active_domains=["google_calendar"],
         )
         node = create_validate_entities_node(tracer=NULL_TRACE)
-        result = node(state)
+        result = asyncio.run(node(state))
 
         # Should NOT redirect to agent (rejection). Should proceed to tools or confirm.
         assert result.get("next") in ("tools", "confirm")
@@ -360,7 +361,7 @@ class TestRouteExpansion:
             "tool_results": [],
         }
         node = create_validate_entities_node(tracer=NULL_TRACE)
-        result = node(state)
+        result = asyncio.run(node(state))
 
         assert result.get("next") == "agent"
 
@@ -372,7 +373,7 @@ class TestRouteExpansion:
             active_domains=[],
         )
         node = create_validate_entities_node(tracer=NULL_TRACE)
-        result = node(state)
+        result = asyncio.run(node(state))
 
         assert result.get("next") == "agent"
 
@@ -403,7 +404,7 @@ class TestEndToEndContextPreservation:
         node = create_agent_node(client, registry, max_agent_turns=20, tool_selector=selector)
 
         state_turn1 = _fresh_state(snapshot, user_prompt="add event to google calendar next friday")
-        result_turn1 = node(state_turn1)
+        result_turn1 = asyncio.run(node(state_turn1))
 
         # Verify active_domains was set
         active_domains = result_turn1.get("active_domains", [])
@@ -434,7 +435,7 @@ class TestEndToEndContextPreservation:
             ],
             active_domains=active_domains,
         )
-        node_resume(state_resume)
+        asyncio.run(node_resume(state_resume))
 
         # The tools offered to the LLM should include calendar tools
         tool_names_offered = {t["function"]["name"] for t in client_resume.seen_tools}
@@ -449,7 +450,7 @@ class TestEndToEndContextPreservation:
         node = create_agent_node(client, _registry(), max_agent_turns=20, tool_selector=selector)
 
         state = _fresh_state(snapshot, user_prompt="show me my tasks for today")
-        result = node(state)
+        result = asyncio.run(node(state))
 
         tool_names = {t["function"]["name"] for t in client.seen_tools}
         assert "list_calendar_events" not in tool_names

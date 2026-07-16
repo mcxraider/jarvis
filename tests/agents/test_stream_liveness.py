@@ -1,111 +1,82 @@
-"""Tests for the stream liveness timeout in invoke.py's stream_agent_run."""
+"""Focused liveness coverage for native async streaming producers."""
 
 import asyncio
 import json
-import queue
-import threading
-import time
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from agents.agent_api.app.api.routes.invoke import stream_agent_run
 
 
-async def _collect_stream(response) -> list:
-    """Collect all events from a StreamingResponse's async body iterator."""
-    events = []
-    async for chunk in response.body_iterator:
-        events.append(chunk)
-    return events
+async def _run_and_collect(run_callable) -> list[dict]:
+    response = await stream_agent_run(run_callable)
+    return [json.loads(chunk) async for chunk in response.body_iterator]
 
 
-def collect_stream(response) -> list:
-    """Synchronous wrapper to collect async stream events."""
-    return asyncio.run(_collect_stream(response))
+def test_normal_stream_delivers_final_event() -> None:
+    def run_callable(_tracer):
+        return {
+            "final_response": "Done!",
+            "thread_id": "t1",
+            "error": None,
+        }
+
+    events = asyncio.run(_run_and_collect(run_callable))
+
+    assert events[-1]["type"] == "final"
+    assert events[-1]["response"]["status"] == "completed"
 
 
-class TestNormalStreamDelivery:
-    def test_delivers_events_and_sentinel(self):
-        """Happy path: worker produces progress + final + sentinel."""
-        def run_callable(tracer):
-            return {
-                "final_response": "Done!",
-                "thread_id": "t1",
-                "error": None,
-            }
+def test_producer_failure_delivers_failed_final_event() -> None:
+    async def run_callable(_tracer):
+        await asyncio.sleep(0)
+        raise RuntimeError("producer failed")
 
-        response = stream_agent_run(run_callable)
-        events = collect_stream(response)
-        parsed = [json.loads(e) for e in events]
+    events = asyncio.run(_run_and_collect(run_callable))
 
-        assert any(ev["type"] == "final" for ev in parsed)
-        final = next(ev for ev in parsed if ev["type"] == "final")
-        assert final["response"]["status"] == "completed"
-
-
-class TestDeadThreadDetection:
-    @patch(
-        "agents.agent_api.app.api.routes.invoke.STREAM_LIVENESS_TIMEOUT_SECONDS",
-        0.1,
-    )
-    def test_dead_thread_emits_error_and_stops(self):
-        """If worker dies without sentinel, iterator emits error instead of hanging.
-
-        We simulate this by patching the queue so put(None) is swallowed — emulating
-        a scenario where the finally block can't deliver the sentinel (e.g. the queue
-        itself is broken, or the thread was killed at the OS level).
-        """
-        original_queue_cls = queue.Queue
-
-        class SentinelSwallowingQueue(original_queue_cls):
-            def put(self, item, *a, **kw):
-                if item is None:
-                    return  # swallow sentinel
-                super().put(item, *a, **kw)
-
-        def run_callable(tracer):
-            return {
-                "final_response": "Done",
-                "thread_id": "t1",
-                "error": None,
-            }
-
-        with patch("agents.agent_api.app.api.routes.invoke.queue.Queue", SentinelSwallowingQueue):
-            response = stream_agent_run(run_callable)
-            start = time.monotonic()
-            events = collect_stream(response)
-            elapsed = time.monotonic() - start
-
-        # Should detect dead thread within a few timeout cycles, not hang
-        assert elapsed < 2.0
-
-        parsed = [json.loads(e) for e in events]
-        assert len(parsed) >= 1
-        final = parsed[-1]
-        assert final["type"] == "final"
-        assert final["response"]["status"] == "failed"
+    assert events == [
+        {
+            "type": "final",
+            "response": {
+                "status": "failed",
+                "thread_id": "",
+                "response": (
+                    "Jarvis is temporarily unavailable. Please try again in a moment."
+                ),
+                "tool_results": [],
+                "error": "producer failed",
+            },
+        }
+    ]
 
 
-class TestSlowWorkerNoFalseAlarm:
-    @patch(
-        "agents.agent_api.app.api.routes.invoke.STREAM_LIVENESS_TIMEOUT_SECONDS",
-        0.2,
-    )
-    def test_slow_worker_completes_normally(self):
-        """Worker that takes longer than one timeout cycle still succeeds."""
-        def run_callable(tracer):
-            time.sleep(0.3)
-            return {
-                "final_response": "Slow but done",
-                "thread_id": "t2",
-                "error": None,
-            }
+def test_slow_async_producer_completes_without_liveness_polling() -> None:
+    async def run_callable(_tracer):
+        await asyncio.sleep(0.05)
+        return {
+            "final_response": "Slow but done",
+            "thread_id": "t2",
+            "error": None,
+        }
 
-        response = stream_agent_run(run_callable)
-        events = collect_stream(response)
-        parsed = [json.loads(e) for e in events]
+    events = asyncio.run(_run_and_collect(run_callable))
 
-        final = next(ev for ev in parsed if ev["type"] == "final")
-        assert final["response"]["status"] == "completed"
-        assert "Slow but done" in final["response"]["response"]
+    assert events[-1]["response"]["status"] == "completed"
+    assert events[-1]["response"]["response"] == "Slow but done"
+
+
+def test_final_event_has_priority_when_progress_queue_is_saturated() -> None:
+    def run_callable(tracer):
+        for index in range(10):
+            tracer.progress({"phase": "tool", "index": index})
+        return {
+            "final_response": "Done",
+            "thread_id": "t3",
+            "error": None,
+        }
+
+    with patch("agents.agent_api.app.api.routes.invoke.STREAM_QUEUE_MAX", 2):
+        events = asyncio.run(_run_and_collect(run_callable))
+
+    assert events[-1]["type"] == "final"
+    assert events[-1]["response"]["status"] == "completed"
+    assert len([event for event in events if event["type"] == "progress"]) < 10

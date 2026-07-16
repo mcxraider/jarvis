@@ -74,17 +74,24 @@ async def bounded_to_thread(
             completed.exception()
 
     task.add_done_callback(release_permit)
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        # Threads cannot be cancelled safely. Delay propagation until the accepted
-        # operation settles so callers never report cancellation while a Calendar
-        # mutation or durable context write is still changing external state.
+    cancellation_requested = False
+    while True:
         try:
-            await asyncio.shield(task)
+            result = await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if task.cancelled():
+                raise
+            # Threads cannot be cancelled safely. Remember every cancellation and
+            # keep shielding until the accepted operation actually settles.
+            cancellation_requested = True
+            continue
         except BaseException:
-            pass
-        raise
+            if cancellation_requested:
+                raise asyncio.CancelledError
+            raise
+        if cancellation_requested:
+            raise asyncio.CancelledError
+        return result
 
 
 async def drain_offloads(timeout: float) -> bool:

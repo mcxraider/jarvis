@@ -586,7 +586,7 @@ class RunJarvisFileLoggingTests(TestCase):
         import tempfile
 
         class _CrashingGraph:
-            def invoke(self, *_args: Any, **_kwargs: Any) -> Dict[str, Any]:
+            async def ainvoke(self, *_args: Any, **_kwargs: Any) -> Dict[str, Any]:
                 raise ValueError("graph boom")
 
         agent = _FakeAgentClientWithTracer({"role": "assistant", "content": "Done."})

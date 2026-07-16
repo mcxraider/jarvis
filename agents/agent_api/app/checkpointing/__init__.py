@@ -8,8 +8,10 @@ import time so a single instance is shared across the API and CLI entrypoints.
 import threading
 from typing import Any, Optional
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 
+from agents.agent_api.app.async_offload import bounded_to_thread
 from agents.agent_api.app.checkpointing.postgres import (
     create_async_postgres_checkpointer,
     create_postgres_checkpointer,
@@ -48,6 +50,106 @@ _ASYNC_RUNTIME_LOOP: Any = None
 _ASYNC_RUNTIME_POOL: Any = None
 _ASYNC_RUNTIME_INITIALIZING = False
 _ASYNC_RUNTIME_STATE_LOCK = threading.Lock()
+_ASYNC_COMPAT_ADAPTERS: dict[int, tuple[Any, Any]] = {}
+_ASYNC_COMPAT_ADAPTERS_LOCK = threading.Lock()
+
+
+class AsyncCheckpointCompatibilityAdapter(BaseCheckpointSaver):
+    """Expose a synchronous saver safely to the canonical async graph runtime.
+
+    The CLI keeps its configured synchronous saver (including PostgresSaver),
+    while every blocking saver operation runs through the shared bounded offload
+    seam. FastAPI never uses this adapter; lifespan supplies a native async saver.
+    """
+
+    def __init__(self, saver: Any) -> None:
+        super().__init__(serde=saver.serde)
+        self.saver = saver
+
+    @property
+    def config_specs(self):
+        return self.saver.config_specs
+
+    def get_tuple(self, config):
+        return self.saver.get_tuple(config)
+
+    def list(self, config, *, filter=None, before=None, limit=None):
+        return self.saver.list(
+            config,
+            filter=filter,
+            before=before,
+            limit=limit,
+        )
+
+    def put(self, config, checkpoint, metadata, new_versions):
+        return self.saver.put(config, checkpoint, metadata, new_versions)
+
+    def put_writes(self, config, writes, task_id, task_path=""):
+        return self.saver.put_writes(config, writes, task_id, task_path)
+
+    def delete_thread(self, thread_id):
+        return self.saver.delete_thread(thread_id)
+
+    def get_next_version(self, current, channel):
+        return self.saver.get_next_version(current, channel)
+
+    async def aget_tuple(self, config):
+        return await bounded_to_thread(self.saver.get_tuple, config)
+
+    async def alist(self, config, *, filter=None, before=None, limit=None):
+        checkpoints = await bounded_to_thread(
+            lambda: list(
+                self.saver.list(
+                    config,
+                    filter=filter,
+                    before=before,
+                    limit=limit,
+                )
+            )
+        )
+        for checkpoint in checkpoints:
+            yield checkpoint
+
+    async def aput(self, config, checkpoint, metadata, new_versions):
+        return await bounded_to_thread(
+            self.saver.put,
+            config,
+            checkpoint,
+            metadata,
+            new_versions,
+        )
+
+    async def aput_writes(self, config, writes, task_id, task_path=""):
+        await bounded_to_thread(
+            self.saver.put_writes,
+            config,
+            writes,
+            task_id,
+            task_path,
+        )
+
+    async def adelete_thread(self, thread_id):
+        await bounded_to_thread(self.saver.delete_thread, thread_id)
+
+
+def as_async_checkpointer(checkpointer: Any) -> Any:
+    """Return a stable native-async saver or bounded sync compatibility adapter."""
+
+    if type(checkpointer).aget_tuple is not BaseCheckpointSaver.aget_tuple:
+        return checkpointer
+    key = id(checkpointer)
+    cached = _ASYNC_COMPAT_ADAPTERS.get(key)
+    if cached is not None and cached[0] is checkpointer:
+        return cached[1]
+    with _ASYNC_COMPAT_ADAPTERS_LOCK:
+        cached = _ASYNC_COMPAT_ADAPTERS.get(key)
+        if cached is None or cached[0] is not checkpointer:
+            cached = (
+                checkpointer,
+                AsyncCheckpointCompatibilityAdapter(checkpointer),
+            )
+            _ASYNC_COMPAT_ADAPTERS[key] = cached
+        return cached[1]
 
 
 async def initialize_async_checkpointer(async_pool: Any = None) -> Any:
@@ -155,12 +257,14 @@ def reset_async_checkpointer(expected: Any = None) -> None:
 
 
 __all__ = [
+    "AsyncCheckpointCompatibilityAdapter",
     "InMemorySaver",
     "create_async_postgres_checkpointer",
     "create_default_checkpointer",
     "create_postgres_checkpointer",
     "create_redis_checkpointer",
     "DEFAULT_CHECKPOINTER",
+    "as_async_checkpointer",
     "ensure_default_checkpointer_setup",
     "get_async_checkpointer",
     "initialize_async_checkpointer",

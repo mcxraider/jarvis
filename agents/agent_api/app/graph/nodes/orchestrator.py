@@ -1,6 +1,7 @@
 """Orchestrator (agent) graph node and the DeepSeek LLM client."""
 
 import copy
+import inspect
 import json
 import os
 import re
@@ -31,6 +32,7 @@ from tenacity import (
 )
 from tenacity.nap import sleep as tenacity_sleep
 
+from agents.agent_api.app.async_offload import bounded_to_thread
 from agents.agent_api.app.constants import (
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MAX_TOKENS,
@@ -218,6 +220,7 @@ class DeepSeekAgentClient:
         retry_max_delay_seconds: float = DEEPSEEK_RETRY_MAX_DELAY_SECONDS,
         retry_sleep: Optional[Any] = None,
         client: Optional[Any] = None,
+        async_client: Optional[Any] = None,
     ):
         self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
         self.model = model
@@ -236,6 +239,10 @@ class DeepSeekAgentClient:
             raise RuntimeError("DEEPSEEK_API_KEY is required to run Jarvis.")
         # SDK retries disabled (default 0); tenacity wraps calls with backoff + per-attempt tracing.
         self._owns_client = client is None
+        # An explicitly configured wrapper must never silently switch to the
+        # process-global/env-backed async transport. Production binds the shared
+        # async client in ``get_shared_agent_client`` below.
+        self.async_client = async_client
         self.client = (
             client
             if client is not None
@@ -411,7 +418,11 @@ class DeepSeekAgentClient:
 
         call_tracer = tracer or self.tracer
         call_usage = usage_accumulator if usage_accumulator is not None else self.usage
-        provider_client = async_client or get_shared_async_agent_client()
+        provider_client = (
+            async_client
+            or self.async_client
+            or get_shared_async_agent_client()
+        )
         use_model = model or self.model
         use_effort = reasoning_effort or self.reasoning_effort
         call_tracer.event(
@@ -729,6 +740,7 @@ def get_shared_agent_client(
         api_key=api_key,
         tracer=tracer,
         client=_get_shared_openai_client(),
+        async_client=get_shared_async_agent_client(),
     )
 
 
@@ -853,7 +865,7 @@ def create_agent_node(
     captured_tracer = tracer or NULL_TRACE
     captured_tool_selector = tool_selector or DEFAULT_TOOL_SELECTOR
 
-    def agent_node(
+    async def agent_node(
         state: JarvisState,
         config: RunnableConfig | None = None,
     ) -> JarvisState:
@@ -938,9 +950,20 @@ def create_agent_node(
             routing_query = user_prompt
         # Pass active_domains so the selector can merge pinned domains on resumes.
         active_domains = state.get("active_domains") or []
-        tool_schemas = run_tool_selector.select_schemas(
-            routing_query, run_registry, active_domains=active_domains or None
-        )
+        async_select_schemas = getattr(run_tool_selector, "async_select_schemas", None)
+        if inspect.iscoroutinefunction(async_select_schemas):
+            tool_schemas = await async_select_schemas(
+                routing_query,
+                run_registry,
+                active_domains=active_domains or None,
+            )
+        else:
+            tool_schemas = await bounded_to_thread(
+                run_tool_selector.select_schemas,
+                routing_query,
+                run_registry,
+                active_domains=active_domains or None,
+            )
         selected_tool_names = _tool_schema_names(tool_schemas)
 
         # Persist the initial routing domains for context preservation across
@@ -996,23 +1019,49 @@ def create_agent_node(
             )
         try:
             if isinstance(run_agent_client, DeepSeekAgentClient):
-                assistant_message = run_agent_client.create_message(
-                    messages,
-                    tool_schemas,
-                    model=model_override,
-                    reasoning_effort=effort_override,
-                    tracer=run_tracer,
-                    usage_accumulator=run_usage_accumulator,
-                )
+                if run_agent_client.async_client is not None:
+                    assistant_message = await run_agent_client.async_create_message(
+                        messages,
+                        tool_schemas,
+                        model=model_override,
+                        reasoning_effort=effort_override,
+                        tracer=run_tracer,
+                        usage_accumulator=run_usage_accumulator,
+                        async_client=run_agent_client.async_client,
+                    )
+                else:
+                    assistant_message = await bounded_to_thread(
+                        run_agent_client.create_message,
+                        messages,
+                        tool_schemas,
+                        model=model_override,
+                        reasoning_effort=effort_override,
+                        tracer=run_tracer,
+                        usage_accumulator=run_usage_accumulator,
+                    )
             else:
-                # Preserve the long-standing duck-typed sync API for injected
-                # CLI clients and test fakes until the graph's async stage.
-                assistant_message = run_agent_client.create_message(
-                    messages,
-                    tool_schemas,
-                    model=model_override,
-                    reasoning_effort=effort_override,
+                # Preserve duck-typed test/CLI clients while keeping their
+                # legacy synchronous transports off the event loop.
+                async_create_message = getattr(
+                    run_agent_client,
+                    "async_create_message",
+                    None,
                 )
+                if inspect.iscoroutinefunction(async_create_message):
+                    assistant_message = await async_create_message(
+                        messages,
+                        tool_schemas,
+                        model=model_override,
+                        reasoning_effort=effort_override,
+                    )
+                else:
+                    assistant_message = await bounded_to_thread(
+                        run_agent_client.create_message,
+                        messages,
+                        tool_schemas,
+                        model=model_override,
+                        reasoning_effort=effort_override,
+                    )
         except DeepSeekAgentClientError as error:
             run_tracer.event(
                 "graph.agent",

@@ -94,7 +94,7 @@ def create_validate_entities_node(tracer: Optional[TracePrinter] = None):
 
     _captured = RunDeps(tracer=tracer or NULL_TRACE)
 
-    def validate_entities_node(
+    async def validate_entities_node(
         state: JarvisState,
         config: RunnableConfig | None = None,
     ) -> JarvisState:

@@ -6,6 +6,7 @@ and ``tools/control.py`` respectively; the names historically importable from th
 module are re-exported below so existing imports keep working.
 """
 
+import inspect
 from typing import Annotated, Any, Dict, List, Optional
 
 from langchain_core.tools import InjectedToolCallId, StructuredTool, tool
@@ -165,8 +166,11 @@ def get_todoist_tool_specs(todoist_client: Any) -> List[ToolSpec]:
     # handler, while legacy/injected sync-only clients remain valid and can be
     # offloaded by the later async dispatcher compatibility path.
     async_handlers = {
-        name: getattr(todoist_client, f"async_{name}", None)
+        name: candidate
         for name in handlers
+        if inspect.iscoroutinefunction(
+            candidate := getattr(todoist_client, f"async_{name}", None)
+        )
     }
     return [
         ToolSpec(
@@ -174,7 +178,7 @@ def get_todoist_tool_specs(todoist_client: Any) -> List[ToolSpec]:
             openai_schema=schemas[name],
             handler=handler,
             mutating=name in MUTATING_TOOL_NAMES,
-            async_handler=async_handlers[name],
+            async_handler=async_handlers.get(name),
         )
         for name, handler in handlers.items()
     ]

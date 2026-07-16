@@ -184,7 +184,7 @@ class TestSummarizeNode:
         node = create_summarize_node()
         items = _make_items(15)
         state = _make_state(items)
-        result = node(state)
+        result = asyncio.run(node(state))
         mock_openai_cls.return_value.chat.completions.create.assert_not_called()
         # Messages should still be returned (deep copied)
         assert result["next"] == "agent"
@@ -199,9 +199,9 @@ class TestSummarizeNode:
         mock_client.chat.completions.create.return_value = _make_mock_response(summary)
         mock_openai_cls.return_value = mock_client
 
-        node = create_summarize_node()
+        node = create_summarize_node(client=mock_client)
         state = _make_state(items)
-        result = node(state)
+        result = asyncio.run(node(state))
 
         mock_client.chat.completions.create.assert_called()
         tool_msg = result["messages"][-1]
@@ -220,9 +220,9 @@ class TestSummarizeNode:
         mock_client.chat.completions.create.return_value = _make_mock_response(summary)
         mock_openai_cls.return_value = mock_client
 
-        node = create_summarize_node()
+        node = create_summarize_node(client=mock_client)
         state = _make_state(items, user_prompt="what's due today?")
-        node(state)
+        asyncio.run(node(state))
 
         call_args = mock_client.chat.completions.create.call_args
         messages_sent = call_args.kwargs.get("messages") or call_args[1].get("messages")
@@ -243,9 +243,9 @@ class TestSummarizeNode:
         ]
         mock_openai_cls.return_value = mock_client
 
-        node = create_summarize_node()
+        node = create_summarize_node(client=mock_client)
         state = _make_state(items)
-        result = node(state)
+        result = asyncio.run(node(state))
 
         assert mock_client.chat.completions.create.call_count == 2
         tool_msg = result["messages"][-1]
@@ -261,9 +261,9 @@ class TestSummarizeNode:
         mock_client.chat.completions.create.return_value = _make_mock_response(bad_summary)
         mock_openai_cls.return_value = mock_client
 
-        node = create_summarize_node()
+        node = create_summarize_node(client=mock_client)
         state = _make_state(items)
-        result = node(state)
+        result = asyncio.run(node(state))
 
         tool_msg = result["messages"][-1]
         parsed = json.loads(tool_msg["content"])
@@ -280,9 +280,9 @@ class TestSummarizeNode:
         mock_client.chat.completions.create.side_effect = APITimeoutError(request=MagicMock())
         mock_openai_cls.return_value = mock_client
 
-        node = create_summarize_node()
+        node = create_summarize_node(client=mock_client)
         state = _make_state(items)
-        result = node(state)
+        result = asyncio.run(node(state))
 
         tool_msg = result["messages"][-1]
         parsed = json.loads(tool_msg["content"])
@@ -396,9 +396,9 @@ class TestSummarizeNodeBypass:
         mock_client = MagicMock()
         mock_openai_cls.return_value = mock_client
 
-        node = create_summarize_node()
+        node = create_summarize_node(client=mock_client)
         state = _make_state(items, user_prompt="how many tasks do I have today?")
-        result = node(state)
+        result = asyncio.run(node(state))
 
         mock_client.chat.completions.create.assert_not_called()
         assert result["next"] == "agent"
@@ -415,9 +415,9 @@ class TestSummarizeNodeBypass:
         mock_client = MagicMock()
         mock_openai_cls.return_value = mock_client
 
-        node = create_summarize_node()
+        node = create_summarize_node(client=mock_client)
         state = _make_state(items, user_prompt="show my tasks")
-        result = node(state)
+        result = asyncio.run(node(state))
 
         mock_client.chat.completions.create.assert_not_called()
         assert result["next"] == "agent"
@@ -433,9 +433,9 @@ class TestSummarizeNodeBypass:
         mock_client.chat.completions.create.return_value = _make_mock_response(summary)
         mock_openai_cls.return_value = mock_client
 
-        node = create_summarize_node()
+        node = create_summarize_node(client=mock_client)
         state = _make_state(items, user_prompt="how many tasks total?")
-        result = node(state)
+        result = asyncio.run(node(state))
 
         mock_client.chat.completions.create.assert_called()
         tool_msg = result["messages"][-1]
@@ -453,9 +453,9 @@ class TestSummarizeNodeBypass:
         mock_client.chat.completions.create.return_value = _make_mock_response(summary)
         mock_openai_cls.return_value = mock_client
 
-        node = create_summarize_node()
+        node = create_summarize_node(client=mock_client)
         state = _make_state(items, user_prompt="show me all my tasks")
-        result = node(state)
+        result = asyncio.run(node(state))
 
         mock_client.chat.completions.create.assert_called()
         tool_msg = result["messages"][-1]
@@ -473,12 +473,16 @@ class _RecordingTracer:
 
 class TestSharedSummarizerClients:
     def test_node_build_does_not_initialize_provider_transport(self):
-        with patch.object(summarize_module, "OpenAI") as openai_cls:
+        with (
+            patch.object(summarize_module, "OpenAI") as openai_cls,
+            patch.object(summarize_module, "AsyncOpenAI") as async_openai_cls,
+        ):
             node = create_summarize_node()
-            result = node(_make_state(_make_items(10)))
+            result = asyncio.run(node(_make_state(_make_items(10))))
 
         assert result["next"] == "agent"
         openai_cls.assert_not_called()
+        async_openai_cls.assert_not_called()
 
     def test_sync_client_reused_across_node_builds(self):
         sdk_client = MagicMock()
@@ -507,6 +511,32 @@ class TestSharedSummarizerClients:
         assert first is second
         assert openai_cls.call_count == 1
 
+    def test_injected_async_client_uses_native_completion(self):
+        sdk_client = MagicMock()
+        all_ids = " ".join(str(index) for index in range(1, 56))
+        sdk_client.chat.completions.create = AsyncMock(
+            return_value=_make_mock_response(f"IDs: {all_ids}")
+        )
+        node = create_summarize_node(client=sdk_client)
+
+        result = asyncio.run(node(_make_state(_make_items(55))))
+
+        assert json.loads(result["messages"][-1]["content"])["summarized"] is True
+        sdk_client.chat.completions.create.assert_awaited_once()
+
+    def test_async_transport_initialization_failure_uses_fallback(self):
+        with patch.object(
+            summarize_module,
+            "get_shared_async_summarizer_client",
+            side_effect=RuntimeError("missing credentials"),
+        ):
+            result = asyncio.run(
+                create_summarize_node()(_make_state(_make_items(55)))
+            )
+
+        content = json.loads(result["messages"][-1]["content"])["content"]
+        assert "55 total items" in content
+
     def test_missing_run_tracer_uses_direct_call_fallback(self):
         tracer = _RecordingTracer()
         sdk_client = MagicMock()
@@ -517,7 +547,7 @@ class TestSharedSummarizerClients:
             }
         }
 
-        result = node(_make_state(_make_items(10)), config)
+        result = asyncio.run(node(_make_state(_make_items(10)), config))
 
         assert result["next"] == "agent"
         assert any(
@@ -554,14 +584,18 @@ class TestSharedSummarizerClients:
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             first_future = pool.submit(
-                node,
-                _make_state(_make_items(55), "first"),
-                first_config,
+                asyncio.run,
+                node(
+                    _make_state(_make_items(55), "first"),
+                    first_config,
+                ),
             )
             second_future = pool.submit(
-                node,
-                _make_state(_make_items(60), "second"),
-                second_config,
+                asyncio.run,
+                node(
+                    _make_state(_make_items(60), "second"),
+                    second_config,
+                ),
             )
             first_result = first_future.result(timeout=5)
             second_result = second_future.result(timeout=5)

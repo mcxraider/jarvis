@@ -1,5 +1,6 @@
 """Tests for the validate_entities node (logic only; not yet wired into the graph)."""
 
+import asyncio
 import json
 from unittest.mock import patch
 
@@ -37,9 +38,13 @@ def _node():
     return create_validate_entities_node()
 
 
+def _run(state):
+    return asyncio.run(_node()(state))
+
+
 class TestPassthrough:
     def test_read_only_routes_to_tools_without_touching_messages(self):
-        result = _node()(_state([_tool_call("get_tasks")]))
+        result = _run(_state([_tool_call("get_tasks")]))
         assert result == {"next": "tools"}
 
     def test_low_mutation_with_seen_id_routes_to_tools(self):
@@ -47,25 +52,25 @@ class TestPassthrough:
             [_tool_call("complete_task", args={"task_id": "t1"})],
             tool_results=[_result([{"id": "t1"}])],
         )
-        assert _node()(state) == {"next": "tools"}
+        assert _run(state) == {"next": "tools"}
 
     def test_risky_mutation_with_seen_id_routes_to_confirm(self):
         state = _state(
             [_tool_call("delete_todoist_task", args={"task_id": "t1"})],
             tool_results=[_result([{"id": "t1"}])],
         )
-        assert _node()(state) == {"next": "prepare_confirm"}
+        assert _run(state) == {"next": "prepare_confirm"}
 
     def test_fail_open_for_tools_without_requirements(self):
         # add_todoist_task has no entity requirements -> passes even with no reads.
-        assert _node()(_state([_tool_call("add_todoist_task", args={"content": "x"})])) == {
+        assert _run(_state([_tool_call("add_todoist_task", args={"content": "x"})])) == {
             "next": "tools"
         }
 
 
 class TestBlocking:
     def test_out_of_route_tool_blocks_before_execution_routing(self):
-        result = _node()(
+        result = _run(
             _state(
                 [_tool_call("get_tasks", "c1")],
                 selected_tool_names=["ask_user", "list_calendar_events"],
@@ -85,7 +90,7 @@ class TestBlocking:
             _tool_call("get_tasks", "c_rejected"),
         ]
 
-        result = _node()(
+        result = _run(
             _state(
                 calls,
                 selected_tool_names=["ask_user", "list_calendar_events"],
@@ -99,7 +104,7 @@ class TestBlocking:
         assert by_id["c_allowed"]["deferred_for_clarification"] is True
 
     def test_unseen_id_blocks_and_loops_to_agent(self):
-        result = _node()(_state([_tool_call("complete_task", "c1", {"task_id": "ghost"})]))
+        result = _run(_state([_tool_call("complete_task", "c1", {"task_id": "ghost"})]))
         assert result["next"] == "agent"
         assert "tool_results" not in result  # blocked calls never enter the seen-index
         blocked = result["messages"][-1]
@@ -115,7 +120,7 @@ class TestBlocking:
             _tool_call("get_tasks", "c_read"),
             _tool_call("complete_task", "c_mut", {"task_id": "ghost"}),
         ]
-        result = _node()(_state(calls))
+        result = _run(_state(calls))
         assert result["next"] == "agent"
         tool_messages = [m for m in result["messages"] if m.get("role") == "tool"]
         assert len(tool_messages) == 2  # one synthetic result per call in the batch
@@ -130,7 +135,7 @@ class TestBlocking:
             _tool_call("get_tasks", "c_read"),
             _tool_call("complete_task", "c_mut", {"task_id": "t1"}),
         ]
-        result = _node()(_state(calls, tool_results=[]))
+        result = _run(_state(calls, tool_results=[]))
         assert result["next"] == "agent"
         mut_msg = next(
             json.loads(m["content"])
@@ -140,7 +145,7 @@ class TestBlocking:
         assert mut_msg["unverified_entity"] is True
 
     def test_empty_tool_calls_routes_to_agent(self):
-        assert _node()(_state([])) == {"next": "agent"}
+        assert _run(_state([])) == {"next": "agent"}
 
     def test_multi_ref_violation_produces_single_message_with_both_args(self):
         # When a tool call has two entity refs that both violate, _unverified_message
@@ -155,7 +160,7 @@ class TestBlocking:
             "agents.agent_api.app.graph.entity_index.entity_requirements",
             return_value=two_refs,
         ):
-            result = _node()(_state([call]))
+            result = _run(_state([call]))
 
         assert result["next"] == "agent"
         tool_messages = [m for m in result["messages"] if m.get("role") == "tool"]
