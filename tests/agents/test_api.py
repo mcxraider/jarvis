@@ -46,6 +46,86 @@ class JarvisApiTests(unittest.TestCase):
         drain_workers.assert_called_once_with(timeout=5.0)
         shutdown.assert_called_once_with(timeout=5.0)
 
+    def test_fastapi_lifespan_owns_async_checkpointer_and_pool(self) -> None:
+        lifecycle_order = []
+        pool = object()
+        saver = object()
+
+        with patch(
+            "agents.agent_api.app.db.open_async_pool",
+            new_callable=AsyncMock,
+            side_effect=lambda: lifecycle_order.append("async_pool_open") or pool,
+        ) as open_pool, patch(
+            "agents.agent_api.app.checkpointing.initialize_async_checkpointer",
+            new_callable=AsyncMock,
+            side_effect=lambda received: lifecycle_order.append("checkpointer") or saver,
+        ) as initialize, patch(
+            "agents.agent_api.app.graph.builder.get_or_compile_graph",
+            side_effect=lambda received: lifecycle_order.append("graph") or MagicMock(),
+        ) as compile_graph, patch(
+            "agents.agent_api.app.db.verify_database_runtime",
+            side_effect=lambda: lifecycle_order.append("sync_readiness"),
+        ), patch(
+            "agents.agent_api.app.api.routes.invoke.drain_stream_workers",
+            return_value=True,
+        ), patch(
+            "agents.agent_api.app.db.close_pool",
+            side_effect=lambda: lifecycle_order.append("sync_pool_close"),
+        ), patch(
+            "agents.agent_api.app.db.close_async_pool",
+            new_callable=AsyncMock,
+            side_effect=lambda: lifecycle_order.append("async_pool_close"),
+        ) as close_pool:
+            created_app = create_app()
+            with TestClient(created_app) as client:
+                self.assertEqual(client.get("/health").status_code, 200)
+                self.assertIs(created_app.state.async_checkpointer, saver)
+
+        self.assertEqual(
+            lifecycle_order[:4],
+            ["async_pool_open", "sync_readiness", "checkpointer", "graph"],
+        )
+        self.assertEqual(lifecycle_order[-2:], ["sync_pool_close", "async_pool_close"])
+        self.assertIsNone(created_app.state.async_checkpointer)
+        open_pool.assert_awaited_once_with()
+        initialize.assert_awaited_once_with(pool)
+        compile_graph.assert_called_once_with(saver)
+        close_pool.assert_awaited_once_with()
+
+    def test_fastapi_lifespan_rolls_back_async_resources_on_startup_failure(
+        self,
+    ) -> None:
+        saver = object()
+        with patch(
+            "agents.agent_api.app.db.open_async_pool",
+            new_callable=AsyncMock,
+            return_value=object(),
+        ), patch(
+            "agents.agent_api.app.checkpointing.initialize_async_checkpointer",
+            new_callable=AsyncMock,
+            return_value=saver,
+        ), patch(
+            "agents.agent_api.app.graph.builder.get_or_compile_graph"
+        ), patch(
+            "agents.agent_api.app.db.verify_database_runtime",
+            side_effect=RuntimeError("readiness failed"),
+        ), patch(
+            "agents.agent_api.app.api.routes.invoke.drain_stream_workers",
+            return_value=True,
+        ), patch(
+            "agents.agent_api.app.db.close_pool"
+        ), patch(
+            "agents.agent_api.app.db.close_async_pool",
+            new_callable=AsyncMock,
+        ) as close_pool:
+            created_app = create_app()
+            with self.assertRaisesRegex(RuntimeError, "readiness failed"):
+                with TestClient(created_app):
+                    pass
+
+        close_pool.assert_awaited_once_with()
+        self.assertIsNone(getattr(created_app.state, "async_checkpointer", None))
+
     def test_fastapi_lifespan_attempts_all_cleanup_after_close_failure(self) -> None:
         with patch("agents.agent_api.app.db.verify_database_runtime"), \
             patch("agents.agent_api.app.db.close_pool") as close_pool, \
@@ -66,6 +146,31 @@ class JarvisApiTests(unittest.TestCase):
         close_todoist.assert_called_once_with()
         close_todoist_async.assert_awaited_once_with()
         close_pool.assert_called_once_with()
+
+    def test_fastapi_lifespan_reports_undrained_blocking_offloads(self) -> None:
+        with patch("agents.agent_api.app.db.verify_database_runtime"), patch(
+            "agents.agent_api.app.api.routes.invoke.drain_stream_workers",
+            return_value=True,
+        ), patch(
+            "agents.agent_api.app.async_offload.drain_offloads",
+            new_callable=AsyncMock,
+            return_value=False,
+        ) as drain_offloads, patch(
+            "agents.agent_api.app.db.close_pool"
+        ) as close_pool, patch(
+            "agents.agent_api.app.db.close_async_pool",
+            new_callable=AsyncMock,
+        ) as close_async_pool:
+            with self.assertRaisesRegex(
+                TimeoutError,
+                "Blocking async compatibility work did not drain",
+            ):
+                with TestClient(create_app()) as client:
+                    self.assertEqual(client.get("/health").status_code, 200)
+
+        drain_offloads.assert_awaited_once_with(5.0)
+        close_pool.assert_not_called()
+        close_async_pool.assert_not_awaited()
 
     def test_fastapi_lifespan_cleanup_order_drains_workers_first(self) -> None:
         cleanup_order = []
@@ -180,7 +285,11 @@ class JarvisApiTests(unittest.TestCase):
         ) as close_todoist_async, patch(
             "agents.agent_api.app.db.close_pool",
             side_effect=RuntimeError("database failed"),
-        ) as close_pool:
+        ) as close_pool, patch(
+            "agents.agent_api.app.db.close_async_pool",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("async database failed"),
+        ) as close_async_pool:
             with self.assertRaises(ExceptionGroup) as raised:
                 with TestClient(create_app()) as client:
                     self.assertEqual(client.get("/health").status_code, 200)
@@ -192,6 +301,7 @@ class JarvisApiTests(unittest.TestCase):
                 "sync Todoist failed",
                 "async Todoist failed",
                 "database failed",
+                "async database failed",
             },
         )
         drain_workers.assert_called_once_with(timeout=5.0)
@@ -199,6 +309,7 @@ class JarvisApiTests(unittest.TestCase):
         close_todoist.assert_called_once_with()
         close_todoist_async.assert_awaited_once_with()
         close_pool.assert_called_once_with()
+        close_async_pool.assert_awaited_once_with()
 
     def test_fastapi_lifespan_aggregates_llm_cleanup_failures(self) -> None:
         with patch("agents.agent_api.app.db.verify_database_runtime"), patch(

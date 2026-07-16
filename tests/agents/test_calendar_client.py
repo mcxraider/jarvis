@@ -231,7 +231,7 @@ class _OverlapProbe:
     def __init__(self, state: dict) -> None:
         self._state = state
 
-    def execute(self) -> dict:
+    def execute(self, http=None) -> dict:
         state = self._state
         with state["mutex"]:
             state["active"] += 1
@@ -256,11 +256,10 @@ class _OverlapService:
 
 
 class TestThreadSafety:
-    def test_concurrent_calls_never_overlap_on_shared_socket(self):
-        # Reproduces the SIGTRAP crash condition: ToolNode fans a batch of calls
-        # across a ThreadPoolExecutor onto ONE client sharing ONE non-thread-safe
-        # httplib2/OpenSSL socket. The client lock must serialize execute(), so
-        # peak overlap stays at 1. Without the lock this asserts max > 1.
+    def test_concurrent_injected_service_calls_are_not_serialized(self):
+        # Injected services have no OAuth credential/transport. They retain the
+        # bare execute() seam, but network execution is no longer guarded by the
+        # discovery-construction lock.
         state = {"mutex": threading.Lock(), "active": 0, "max_concurrent": 0}
         client = GoogleCalendarClient(service=_OverlapService(state))
         args = {
@@ -273,5 +272,5 @@ class TestThreadSafety:
                 executor.map(lambda _: client.list_calendar_events(args), range(10))
             )
 
-        assert state["max_concurrent"] == 1
+        assert state["max_concurrent"] > 1
         assert all(result["events"] == [] for result in results)

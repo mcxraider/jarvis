@@ -28,3 +28,13 @@ class StaticToolSelector:
     ) -> List[Dict[str, Any]]:
         del query, active_domains
         return registry.openai_schemas()
+
+    async def async_select_schemas(
+        self,
+        query: str,
+        registry: ToolRegistry,
+        active_domains: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Async-compatible pass-through with no I/O to await."""
+
+        return self.select_schemas(query, registry, active_domains)

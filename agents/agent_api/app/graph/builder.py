@@ -9,7 +9,10 @@ from typing import Any, Optional
 
 from langgraph.types import Command
 
-from agents.agent_api.app.checkpointing import DEFAULT_CHECKPOINTER
+from agents.agent_api.app.checkpointing import (
+    DEFAULT_CHECKPOINTER,
+    ensure_default_checkpointer_setup,
+)
 from agents.agent_api.app.config import settings
 from agents.agent_api.app.constants import (
     ALLOW_MUTATIONS,
@@ -515,6 +518,8 @@ def run_jarvis(
     thread_id = thread_id or str(uuid.uuid4())
     request_id = request_id or str(uuid.uuid4())
     checkpointer = checkpointer or DEFAULT_CHECKPOINTER
+    if checkpointer is DEFAULT_CHECKPOINTER:
+        ensure_default_checkpointer_setup()
     # A caller-supplied selector (DI/tests) is honored as-is; otherwise the default
     # is resolved later — after the runtime context and tracer are known — so the
     # opt-in router selector can be built against the resolved snapshot (see below).

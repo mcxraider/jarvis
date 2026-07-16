@@ -161,12 +161,20 @@ def get_todoist_tool_specs(todoist_client: Any) -> List[ToolSpec]:
         "get_projects": todoist_client.get_projects,
         "create_project": todoist_client.create_project,
     }
+    # Async support is additive: production Todoist clients expose every native
+    # handler, while legacy/injected sync-only clients remain valid and can be
+    # offloaded by the later async dispatcher compatibility path.
+    async_handlers = {
+        name: getattr(todoist_client, f"async_{name}", None)
+        for name in handlers
+    }
     return [
         ToolSpec(
             name=name,
             openai_schema=schemas[name],
             handler=handler,
             mutating=name in MUTATING_TOOL_NAMES,
+            async_handler=async_handlers[name],
         )
         for name, handler in handlers.items()
     ]
