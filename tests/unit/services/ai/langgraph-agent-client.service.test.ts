@@ -78,6 +78,7 @@ describe('LangGraphAgentClient', () => {
       }),
     ).resolves.toEqual({
       status: 'completed',
+      delivery: 'terminal',
       threadId: 'thread-1',
       response: 'Done.',
       interrupt: undefined,
@@ -154,6 +155,69 @@ describe('LangGraphAgentClient', () => {
     );
   });
 
+  it.each(['cancelled', 'mutation_in_flight', 'already_finished', 'not_found'] as const)(
+    'posts a cancellation request and accepts the %s outcome',
+    async (outcome) => {
+      const fetchMock = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: jest.fn().mockResolvedValue({ outcome, request_id: 'request-1' }),
+      });
+      global.fetch = fetchMock as any;
+      const client = new LangGraphAgentClient({
+        baseUrl: 'http://localhost:8000/',
+        apiKey: 'secret',
+      });
+
+      await expect(client.cancelRun('telegram:123', 'request-1')).resolves.toBe(outcome);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://localhost:8000/runs/cancel',
+        expect.objectContaining({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Jarvis-Agent-Key': 'secret',
+          },
+          body: JSON.stringify({ user_id: 'telegram:123', request_id: 'request-1' }),
+          signal: expect.any(AbortSignal),
+        }),
+      );
+    },
+  );
+
+  it('rejects an unknown cancellation outcome', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: jest.fn().mockResolvedValue({ outcome: 'unsafe_to_cancel' }),
+    }) as any;
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    await expect(client.cancelRun('telegram:123', 'request-1')).rejects.toThrow(
+      'LangGraph cancel returned an invalid outcome',
+    );
+  });
+
+  it('aborts a cancellation request after five seconds', async () => {
+    jest.useFakeTimers();
+    try {
+      global.fetch = jest.fn().mockImplementation((_url, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted', 'AbortError'));
+          }, { once: true });
+        })) as any;
+      const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+      const cancellation = client.cancelRun('telegram:123', 'request-1');
+      const rejection = expect(cancellation).rejects.toMatchObject({ name: 'AbortError' });
+      await jest.advanceTimersByTimeAsync(5_000);
+      await rejection;
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('normalizes network failures into a friendly failed response', async () => {
     global.fetch = jest.fn().mockRejectedValue(new Error('connection refused')) as any;
     const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
@@ -163,9 +227,70 @@ describe('LangGraphAgentClient', () => {
     ).resolves.toEqual(
       expect.objectContaining({
         status: 'failed',
+        delivery: 'ambiguous',
         threadId: 'thread-1',
-        response: 'Jarvis is temporarily unavailable. Please try again in a moment.',
+        response: expect.stringContaining('keeping it active to prevent a duplicate'),
         error: 'connection refused',
+      }),
+    );
+  });
+
+  it('classifies a completed standard 429 response as a terminal rejection', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: jest.fn().mockResolvedValue('rate limited'),
+    });
+    global.fetch = fetchMock as any;
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    const result = await client.invoke({ message: 'hello', userId: 'local-user' });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: 'failed',
+        delivery: 'terminal',
+        error: 'LangGraph API returned 429',
+      }),
+    );
+    expect(result.response).not.toContain('keeping it active');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a standard 409 response delivery-ambiguous', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      text: jest.fn().mockResolvedValue('request is already in progress'),
+    }) as any;
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    await expect(
+      client.invoke({ message: 'hello', userId: 'local-user' }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        status: 'failed',
+        delivery: 'ambiguous',
+        error: 'LangGraph API returned 409',
+      }),
+    );
+  });
+
+  it('keeps a standard 429 response ambiguous when its body cannot be read', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: jest.fn().mockRejectedValue(new Error('socket reset while reading rejection')),
+    }) as any;
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    await expect(
+      client.invoke({ message: 'hello', userId: 'local-user' }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        status: 'failed',
+        delivery: 'ambiguous',
+        error: 'socket reset while reading rejection',
       }),
     );
   });
@@ -248,7 +373,9 @@ describe('LangGraphAgentClient', () => {
     }) as any;
     const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
 
-    await client.invoke({ message: 'hello', userId: 'local-user' }, {}, jest.fn());
+    const response = await client.invoke({ message: 'hello', userId: 'local-user' }, {}, jest.fn());
+
+    expect(response.delivery).toBe('terminal');
 
     expect(infoSpy).toHaveBeenCalledWith(
       'langgraph.stream.completed',
@@ -316,6 +443,7 @@ describe('LangGraphAgentClient', () => {
     ).resolves.toEqual(
       expect.objectContaining({
         status: 'failed',
+        delivery: 'ambiguous',
         error: 'stream unavailable',
       }),
     );
@@ -337,10 +465,85 @@ describe('LangGraphAgentClient', () => {
     expect(result).toEqual(
       expect.objectContaining({
         status: 'failed',
+        delivery: 'ambiguous',
         error: 'LangGraph API returned 503',
       }),
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('classifies a completed stream 429 response as a terminal rejection', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: jest.fn().mockResolvedValue('rate limited'),
+    });
+    global.fetch = fetchMock as any;
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    const result = await client.invoke(
+      { message: 'hello', userId: 'local-user', requestId: 'rate-limited' },
+      {},
+      jest.fn(),
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: 'failed',
+        delivery: 'terminal',
+        error: 'LangGraph stream returned 429',
+      }),
+    );
+    expect(result.response).not.toContain('keeping it active');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a stream 409 response delivery-ambiguous', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      text: jest.fn().mockResolvedValue('request is already in progress'),
+    });
+    global.fetch = fetchMock as any;
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    const result = await client.invoke(
+      { message: 'hello', userId: 'local-user', requestId: 'conflict' },
+      {},
+      jest.fn(),
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: 'failed',
+        delivery: 'ambiguous',
+        error: 'LangGraph stream returned 409',
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a stream 429 response ambiguous when its body cannot be read', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: jest.fn().mockRejectedValue(new Error('socket reset while reading rejection')),
+    }) as any;
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    await expect(
+      client.invoke(
+        { message: 'hello', userId: 'local-user', requestId: 'rate-limited-read-error' },
+        {},
+        jest.fn(),
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        status: 'failed',
+        delivery: 'ambiguous',
+        error: 'socket reset while reading rejection',
+      }),
+    );
   });
 
   it('does not retry or fall back after stream response headers arrive with a 5xx', async () => {
@@ -358,6 +561,7 @@ describe('LangGraphAgentClient', () => {
     expect(result).toEqual(
       expect.objectContaining({
         status: 'failed',
+        delivery: 'ambiguous',
         error: 'LangGraph API returned 503',
       }),
     );
@@ -607,8 +811,9 @@ describe('LangGraphAgentClient', () => {
       expect(result).toEqual(
         expect.objectContaining({
           status: 'failed',
+          delivery: 'ambiguous',
           threadId: 'thread-x',
-          response: 'Jarvis is temporarily unavailable. Please try again in a moment.',
+          response: expect.stringContaining('keeping it active to prevent a duplicate'),
           error: 'LangGraph stream ended without a final response',
         }),
       );
@@ -962,6 +1167,7 @@ describe('LangGraphAgentClient', () => {
 
       const result = await promise;
       expect(result.status).toBe('failed');
+      expect(result.delivery).toBe('ambiguous');
       expect(result.response).toContain('finish this in time');
       expect(harness.fetchMock).toHaveBeenCalledTimes(1);
       expect(harness.signal?.aborted).toBe(true);
@@ -984,7 +1190,11 @@ describe('LangGraphAgentClient', () => {
       const result = await promise;
 
       expect(result).toEqual(
-        expect.objectContaining({ status: 'failed', error: 'socket reset while reading' }),
+        expect.objectContaining({
+          status: 'failed',
+          delivery: 'ambiguous',
+          error: 'socket reset while reading',
+        }),
       );
       expect(harness.fetchMock).toHaveBeenCalledTimes(1);
       expect(warnSpy).toHaveBeenCalledWith(

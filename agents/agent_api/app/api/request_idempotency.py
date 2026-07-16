@@ -87,6 +87,15 @@ class RequestIdempotencyCoordinator:
         return request_claim
 
     def complete(self, claim: RequestClaim, result: Dict[str, Any]) -> bool:
+        """Persist a terminal result without reopening an accepted request.
+
+        Once the graph has returned a terminal outcome it may already have
+        performed external mutations. A failed result write is therefore
+        ambiguous: deleting the owned claim would let the same request id run
+        again. Retain the claim and extend its lease for the request TTL when
+        possible so retries fail closed.
+        """
+
         self._stop_claim_heartbeat(claim)
         if (
             claim.state is not ClaimState.ACQUIRED
@@ -105,7 +114,20 @@ class RequestIdempotencyCoordinator:
             completed = False
         self._log("completed" if completed else "completion_failed", claim)
         if not completed:
-            self._abandon_owned(claim)
+            try:
+                retained = self.store.renew(
+                    claim.key,
+                    claim.owner_token,
+                    self.ttl_seconds,
+                )
+            except Exception:
+                retained = False
+            self._log(
+                "completion_claim_retained"
+                if retained
+                else "completion_claim_retain_failed",
+                claim,
+            )
         return completed
 
     def abandon(self, claim: RequestClaim) -> bool:

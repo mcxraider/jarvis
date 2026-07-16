@@ -261,7 +261,7 @@ describe('TextProcessorService', () => {
           telegramId: 42,
           username: 'tester',
         },
-        requestId: undefined,
+        requestId: 'tg_test',
         threadId: 'thread-hitl',
       },
       {
@@ -269,6 +269,7 @@ describe('TextProcessorService', () => {
         messageId: 11,
         telegramUsername: 'tester',
         telegramFirstName: 'Test',
+        requestId: 'tg_test',
         threadId: 'thread-hitl',
       },
     );
@@ -568,7 +569,7 @@ describe('TextProcessorService', () => {
     expect(agentClient.resume).toHaveBeenCalledTimes(1);
   });
 
-  it('starts a new invoke when a pending clarification has expired', async () => {
+  it('retains a waiting gate while its expired pending row is transiently missing', async () => {
     process.env.TELEGRAM_PENDING_TTL_MS = '1';
     const agentClient = {
       invoke: jest
@@ -594,10 +595,10 @@ describe('TextProcessorService', () => {
     await new Promise((resolve) => setTimeout(resolve, 5));
     await expect(
       service.processTextMessage('the dentist task', 42, { chatId: 100, messageId: 11 }),
-    ).resolves.toHaveProperty('response', 'Started a new request.');
+    ).resolves.toMatchObject({ response: '', suppressed: true });
 
     expect(agentClient.resume).not.toHaveBeenCalled();
-    expect(agentClient.invoke).toHaveBeenCalledTimes(2);
+    expect(agentClient.invoke).toHaveBeenCalledTimes(1);
   });
 
   it('appends buffered message to response when gate has a buffered message', async () => {
@@ -671,6 +672,7 @@ describe('TextProcessorService', () => {
     const pending = await store.get(gateKey);
     expect(pending).not.toBeNull();
     expect(pending!.threadId).toBe('thread-clarify');
+    expect(pending!.requestId).toBeDefined();
 
     const resultPromise = service.processTextMessage('the dentist task', 42, { chatId: 100, messageId: 11 });
     const result = await resultPromise;
@@ -679,7 +681,10 @@ describe('TextProcessorService', () => {
     const pendingAfter = await store.get(gateKey);
     expect(pendingAfter).not.toBeNull();
     expect(pendingAfter!.threadId).toBe('thread-clarify');
-    expect(await gateStore.getStatus(gateKey)).toBe('waiting_for_clarification');
+    expect(await gateStore.getSnapshot(gateKey)).toEqual({
+      status: 'waiting_for_clarification',
+      requestId: pending!.requestId,
+    });
   });
 
   it('resumes a pre-reserved pending clarification without invoking a fresh thread', async () => {
@@ -704,7 +709,12 @@ describe('TextProcessorService', () => {
 
     await service.processTextMessage('update task', 42, { chatId: 100, messageId: 10 });
     const gateKey = buildConversationKey(42, 'telegram:42', 100);
-    await gateStore.transitionToRunning(gateKey, 60000);
+    await gateStore.transitionToRunning(
+      gateKey,
+      60000,
+      'tg_test',
+      await gateStore.getRequestId(gateKey),
+    );
 
     const result = await service.processTextMessage(
       'the dentist task',
@@ -747,7 +757,12 @@ describe('TextProcessorService', () => {
 
     await service.processTextMessage('update task', 42, { chatId: 100, messageId: 10 });
     const gateKey = buildConversationKey(42, 'telegram:42', 100);
-    await gateStore.transitionToRunning(gateKey, 60000);
+    await gateStore.transitionToRunning(
+      gateKey,
+      60000,
+      'tg_test',
+      await gateStore.getRequestId(gateKey),
+    );
 
     const result = await service.processTextMessage(
       'the dentist task',
@@ -759,6 +774,7 @@ describe('TextProcessorService', () => {
 
     expect(result.response).toBe('What time?');
     expect(result.interruptType).toBe('clarify');
+    expect(result.settlementRequestId).toBe('tg_test');
     const pending = await store.get(gateKey);
     expect(pending?.threadId).toBe('thread-second');
     expect(pending?.question).toBe('What time?');
@@ -782,7 +798,12 @@ describe('TextProcessorService', () => {
 
     await service.processTextMessage('update task', 42, { chatId: 100, messageId: 10 });
     const gateKey = buildConversationKey(42, 'telegram:42', 100);
-    await gateStore.transitionToRunning(gateKey, 60000);
+    await gateStore.transitionToRunning(
+      gateKey,
+      60000,
+      'tg_test',
+      await gateStore.getRequestId(gateKey),
+    );
 
     const result = await service.processTextMessage(
       'the dentist task',
@@ -807,8 +828,8 @@ describe('TextProcessorService', () => {
       clarificationMessageId = 321,
     ) {
       const gateKey = buildConversationKey(42, 'telegram:42', 100);
-      await gateStore.tryAcquire(gateKey, 60000);
-      await gateStore.transitionToWaiting(gateKey, 60000);
+      await gateStore.tryAcquire(gateKey, 60000, undefined, 'pending-owner');
+      await gateStore.transitionToWaitingIfActiveRequestId(gateKey, 'pending-owner', 60000);
       const now = Date.now();
       await store.save({
         pendingKey: gateKey,
@@ -817,7 +838,9 @@ describe('TextProcessorService', () => {
         telegramUserId: 42,
         chatId: 100,
         userId: 'telegram:42',
+        requestId: 'pending-owner',
         interruptType,
+        promptMessageId: clarificationMessageId,
         clarificationMessageId: interruptType === 'clarify' ? clarificationMessageId : undefined,
         status: 'pending',
         createdAt: now,
@@ -876,6 +899,7 @@ describe('TextProcessorService', () => {
         agentClient.resume.mock.invocationCallOrder[0],
       );
       expect(result.consumedClarificationMessageId).toBeUndefined();
+      expect(result.consumedPromptMessageId).toBeUndefined();
       expect(result.resolvedPendingPause).toBe(true);
     });
 
@@ -912,6 +936,8 @@ describe('TextProcessorService', () => {
       const result = await service.processTextMessage('yes', 42, { chatId: 100, messageId: 11 });
 
       expect(result.consumedClarificationMessageId).toBeUndefined();
+      expect(result.consumedInterruptType).toBe('confirm');
+      expect(result.consumedPromptMessageId).toBe(321);
       expect(result.resolvedPendingPause).toBe(true);
     });
 
@@ -942,6 +968,8 @@ describe('TextProcessorService', () => {
       const result = await service.processTextMessage('start over', 42, { chatId: 100, messageId: 12 }, undefined, { forceFresh: true });
 
       expect(result.consumedClarificationMessageId).toBe(654);
+      expect(result.consumedInterruptType).toBe('clarify');
+      expect(result.consumedPromptMessageId).toBe(654);
       expect(result.resolvedPendingPause).toBe(true);
       expect(agentClient.invoke).toHaveBeenCalledTimes(1);
     });

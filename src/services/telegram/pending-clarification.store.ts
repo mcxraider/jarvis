@@ -27,6 +27,8 @@ export interface PendingClarificationRecord {
   interruptType?: PendingInterruptType;
   // Telegram message_id of the rich clarification details block. Undefined for plain fallback.
   clarificationMessageId?: number;
+  // Telegram message_id of any delivered HITL prompt, including confirmations and plain fallbacks.
+  promptMessageId?: number;
   status: PendingClarificationStatus;
   createdAt: number;
   updatedAt: number;
@@ -37,7 +39,33 @@ export interface PendingClarificationStore {
   get(pendingKey: string): Promise<PendingClarificationRecord | undefined>;
   save(record: PendingClarificationRecord): Promise<void>;
   attachClarificationMessageId(pendingKey: string, messageId: number): Promise<void>;
+  attachClarificationMessageIdIfMatches(
+    pendingKey: string,
+    expected: Pick<PendingClarificationRecord, 'threadId' | 'requestId'>,
+    messageId: number,
+  ): Promise<boolean>;
+  attachPromptMessageIdIfMatches(
+    pendingKey: string,
+    expected: Pick<PendingClarificationRecord, 'threadId' | 'requestId'>,
+    messageId: number,
+  ): Promise<boolean>;
   clear(pendingKey: string, status: Exclude<PendingClarificationStatus, 'pending'>): Promise<void>;
+  /** Clear only when the pending row is still the exact request/thread snapshot observed by the caller. */
+  clearIfMatches(
+    pendingKey: string,
+    expected: Pick<PendingClarificationRecord, 'threadId' | 'requestId'>,
+    status: Exclude<PendingClarificationStatus, 'pending'>,
+  ): Promise<boolean>;
+  /**
+   * Atomically mark a pending row expired and return the claimed snapshot, even when
+   * its normal read TTL has elapsed. Passing an expected snapshot performs a
+   * null-safe request-generation comparison; omitting it is reserved for callers
+   * that already hold an exclusive conversation-gate claim.
+   */
+  expireIfMatches(
+    pendingKey: string,
+    expected?: Pick<PendingClarificationRecord, 'requestId'>,
+  ): Promise<PendingClarificationRecord | undefined>;
   // Marks ALL still-'pending' records for a given Telegram user with the supplied terminal
   // status. Used by /cancel as a per-user reset out of a stuck HITL pause — unlike clear(),
   // which targets a single pendingKey. No-op if the user has no pending records.
@@ -61,7 +89,6 @@ export class MemoryPendingClarificationStore implements PendingClarificationStor
     if (!record) return undefined;
 
     if (record.expiresAt <= Date.now()) {
-      this.records.delete(pendingKey);
       return undefined;
     }
 
@@ -84,8 +111,77 @@ export class MemoryPendingClarificationStore implements PendingClarificationStor
     }
   }
 
+  async attachClarificationMessageIdIfMatches(
+    pendingKey: string,
+    expected: Pick<PendingClarificationRecord, 'threadId' | 'requestId'>,
+    messageId: number,
+  ): Promise<boolean> {
+    const record = this.records.get(pendingKey);
+    if (
+      record?.status !== 'pending'
+      || record.threadId !== expected.threadId
+      || record.requestId !== expected.requestId
+    ) {
+      return false;
+    }
+    record.clarificationMessageId = messageId;
+    record.updatedAt = Date.now();
+    return true;
+  }
+
+  async attachPromptMessageIdIfMatches(
+    pendingKey: string,
+    expected: Pick<PendingClarificationRecord, 'threadId' | 'requestId'>,
+    messageId: number,
+  ): Promise<boolean> {
+    const record = this.records.get(pendingKey);
+    if (
+      record?.status !== 'pending'
+      || record.threadId !== expected.threadId
+      || record.requestId !== expected.requestId
+    ) {
+      return false;
+    }
+    record.promptMessageId = messageId;
+    record.updatedAt = Date.now();
+    return true;
+  }
+
   async clear(pendingKey: string, _status: Exclude<PendingClarificationStatus, 'pending'>): Promise<void> {
     this.records.delete(pendingKey);
+  }
+
+  async clearIfMatches(
+    pendingKey: string,
+    expected: Pick<PendingClarificationRecord, 'threadId' | 'requestId'>,
+    _status: Exclude<PendingClarificationStatus, 'pending'>,
+  ): Promise<boolean> {
+    const record = this.records.get(pendingKey);
+    if (record?.threadId !== expected.threadId || record.requestId !== expected.requestId) {
+      return false;
+    }
+    this.records.delete(pendingKey);
+    return true;
+  }
+
+  async expireIfMatches(
+    pendingKey: string,
+    expected?: Pick<PendingClarificationRecord, 'requestId'>,
+  ): Promise<PendingClarificationRecord | undefined> {
+    const record = this.records.get(pendingKey);
+    if (
+      record?.status !== 'pending'
+      || (expected !== undefined && record.requestId !== expected.requestId)
+    ) {
+      return undefined;
+    }
+
+    this.records.delete(pendingKey);
+    return {
+      ...record,
+      status: 'expired',
+      updatedAt: Date.now(),
+    };
   }
 
   // Like clear(), the memory store has no durable status to flip, so it simply drops every
@@ -129,7 +225,7 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
     const result = await this.pool.query(
       `
         SELECT pending_key, thread_id, question, telegram_user_id, chat_id, user_id,
-               request_id, interrupt_type, clarification_message_id,
+               request_id, interrupt_type, clarification_message_id, prompt_message_id,
                status, created_at, updated_at, expires_at
         FROM public.telegram_pending_clarifications
         WHERE pending_key = $1
@@ -155,6 +251,7 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
       clarificationMessageId: row.clarification_message_id === null
         ? undefined
         : Number(row.clarification_message_id),
+      promptMessageId: row.prompt_message_id === null ? undefined : Number(row.prompt_message_id),
       status: row.status,
       createdAt: new Date(row.created_at).getTime(),
       updatedAt: new Date(row.updated_at).getTime(),
@@ -167,10 +264,10 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
       `
         INSERT INTO public.telegram_pending_clarifications (
           pending_key, thread_id, question, telegram_user_id, chat_id, user_id,
-          request_id, interrupt_type, clarification_message_id,
+          request_id, interrupt_type, clarification_message_id, prompt_message_id,
           status, created_at, updated_at, expires_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', $10, NOW(), $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', $11, NOW(), $12)
         ON CONFLICT (pending_key)
         DO UPDATE SET
           thread_id = EXCLUDED.thread_id,
@@ -181,6 +278,7 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
           request_id = EXCLUDED.request_id,
           interrupt_type = EXCLUDED.interrupt_type,
           clarification_message_id = EXCLUDED.clarification_message_id,
+          prompt_message_id = EXCLUDED.prompt_message_id,
           status = 'pending',
           updated_at = NOW(),
           expires_at = EXCLUDED.expires_at
@@ -195,6 +293,7 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
         record.requestId ?? null,
         record.interruptType ?? null,
         record.clarificationMessageId ?? null,
+        record.promptMessageId ?? null,
         new Date(record.createdAt),
         new Date(record.expiresAt),
       ],
@@ -214,6 +313,48 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
     );
   }
 
+  async attachClarificationMessageIdIfMatches(
+    pendingKey: string,
+    expected: Pick<PendingClarificationRecord, 'threadId' | 'requestId'>,
+    messageId: number,
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `
+        UPDATE public.telegram_pending_clarifications
+        SET clarification_message_id = $4,
+            updated_at = NOW()
+        WHERE pending_key = $1
+          AND thread_id = $2
+          AND request_id IS NOT DISTINCT FROM $3
+          AND status = 'pending'
+        RETURNING pending_key
+      `,
+      [pendingKey, expected.threadId, expected.requestId ?? null, messageId],
+    );
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async attachPromptMessageIdIfMatches(
+    pendingKey: string,
+    expected: Pick<PendingClarificationRecord, 'threadId' | 'requestId'>,
+    messageId: number,
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `
+        UPDATE public.telegram_pending_clarifications
+        SET prompt_message_id = $4,
+            updated_at = NOW()
+        WHERE pending_key = $1
+          AND thread_id = $2
+          AND request_id IS NOT DISTINCT FROM $3
+          AND status = 'pending'
+        RETURNING pending_key
+      `,
+      [pendingKey, expected.threadId, expected.requestId ?? null, messageId],
+    );
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
   async clear(pendingKey: string, status: Exclude<PendingClarificationStatus, 'pending'>): Promise<void> {
     await this.pool.query(
       `
@@ -225,6 +366,69 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
       `,
       [pendingKey, status],
     );
+  }
+
+  async clearIfMatches(
+    pendingKey: string,
+    expected: Pick<PendingClarificationRecord, 'threadId' | 'requestId'>,
+    status: Exclude<PendingClarificationStatus, 'pending'>,
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `
+        UPDATE public.telegram_pending_clarifications
+        SET status = $4,
+            updated_at = NOW()
+        WHERE pending_key = $1
+          AND thread_id = $2
+          AND request_id IS NOT DISTINCT FROM $3
+          AND status = 'pending'
+        RETURNING pending_key
+      `,
+      [pendingKey, expected.threadId, expected.requestId ?? null, status],
+    );
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async expireIfMatches(
+    pendingKey: string,
+    expected?: Pick<PendingClarificationRecord, 'requestId'>,
+  ): Promise<PendingClarificationRecord | undefined> {
+    const result = await this.pool.query(
+      `
+        UPDATE public.telegram_pending_clarifications
+        SET status = 'expired',
+            updated_at = NOW()
+        WHERE pending_key = $1
+          AND status = 'pending'
+          AND ($2::boolean OR request_id IS NOT DISTINCT FROM $3)
+        RETURNING pending_key, thread_id, question, telegram_user_id, chat_id, user_id,
+                  request_id, interrupt_type, clarification_message_id, prompt_message_id,
+                  status, created_at, updated_at, expires_at
+      `,
+      [pendingKey, expected === undefined, expected?.requestId ?? null],
+    );
+
+    const row = result.rows[0];
+    if (!row) return undefined;
+
+    return {
+      pendingKey: row.pending_key,
+      threadId: row.thread_id,
+      question: row.question,
+      telegramUserId: row.telegram_user_id === null ? undefined : Number(row.telegram_user_id),
+      chatId: row.chat_id === null ? undefined : row.chat_id,
+      userId: row.user_id,
+      requestId: row.request_id ?? undefined,
+      interruptType: row.interrupt_type ?? undefined,
+      clarificationMessageId: row.clarification_message_id === null
+        ? undefined
+        : Number(row.clarification_message_id),
+      promptMessageId: row.prompt_message_id === null ? undefined : Number(row.prompt_message_id),
+      status: row.status,
+      createdAt: new Date(row.created_at).getTime(),
+      updatedAt: new Date(row.updated_at).getTime(),
+      expiresAt: new Date(row.expires_at).getTime(),
+    };
   }
 
   async clearAllForUser(

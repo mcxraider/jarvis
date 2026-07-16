@@ -145,6 +145,7 @@ export function interruptResponse(opts: {
 }): LangGraphAgentResponse {
   return {
     status: 'interrupted',
+    delivery: 'terminal',
     threadId: opts.threadId,
     response: opts.message,
     interrupt: {
@@ -162,6 +163,7 @@ export function completedResponse(opts: {
 }): LangGraphAgentResponse {
   return {
     status: 'completed',
+    delivery: 'terminal',
     threadId: opts.threadId,
     response: opts.message,
     toolResults: [],
@@ -175,6 +177,7 @@ export function failedResponse(opts: {
 }): LangGraphAgentResponse {
   return {
     status: 'failed',
+    delivery: 'terminal',
     threadId: opts.threadId || '',
     response: opts.message || 'Jarvis is temporarily unavailable. Please try again in a moment.',
     toolResults: [],

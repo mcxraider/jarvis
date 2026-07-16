@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import json
 import threading
+import time
 import weakref
 from typing import Any, Callable, Dict, Optional
 
@@ -13,6 +14,7 @@ from fastapi import APIRouter, Header, HTTPException, Request as FastAPIRequest
 from fastapi.responses import StreamingResponse
 
 from agents.agent_api.app.async_offload import bounded_to_thread
+from agents.agent_api.app.api.active_runs import get_active_run_registry
 from agents.agent_api.app.api.admission import (
     RunSlot,
     capacity_exceeded,
@@ -34,6 +36,7 @@ from agents.agent_api.app.middleware.request_gate import (
     abandon_claim_async,
     apply_request_gate_async,
 )
+from agents.agent_api.app.graph.run_control import RunControl, RunPhase
 from agents.agent_api.app.service import (
     ALLOW_MUTATIONS,
     MAX_AGENT_TURNS,
@@ -186,6 +189,7 @@ def response_payload(response: AgentResponse) -> Dict[str, Any]:
 
 begin_idempotent_request = idempotency.begin_idempotent_request
 finish_idempotent_request = idempotency.finish_idempotent_request
+finish_terminal_idempotent_request = idempotency.finish_terminal_idempotent_request
 
 
 def runtime_checkpointer(http_request: Optional[FastAPIRequest] = None) -> Any:
@@ -236,17 +240,57 @@ def _failed_response(error: BaseException, thread_id: str = "") -> AgentResponse
     )
 
 
+def _cancelled_response(
+    run_control: RunControl,
+    thread_id: str = "",
+) -> AgentResponse:
+    deadline = run_control.cancel_reason == "deadline"
+    message = (
+        "Jarvis reached its execution deadline before it could finish."
+        if deadline
+        else "This Jarvis run was cancelled."
+    )
+    return AgentResponse(
+        status="failed",
+        thread_id=thread_id,
+        response=message,
+        error="Run deadline exceeded." if deadline else "Run cancelled.",
+        error_details={"kind": "deadline" if deadline else "cancelled"},
+    )
+
+
 async def _settle_agent_run(
     run_callable: Callable[[UserProgressTracePrinter], Any],
     tracer: UserProgressTracePrinter,
     request_claim: Optional[RequestClaim],
     run_slot: Optional[RunSlot],
     failure_thread_id: str = "",
+    run_control: Optional[RunControl] = None,
 ) -> AgentResponse:
     """Run and finalize one accepted request before returning its capacity."""
 
+    async def settle_cancelled() -> AgentResponse:
+        assert run_control is not None
+        response = _cancelled_response(run_control, failure_thread_id)
+        # Fix the terminal outcome before awaiting claim persistence. A cancel
+        # callback already queued on this loop must not interrupt settlement.
+        run_control.mark_cancelled_finished()
+        if request_claim is not None:
+            await bounded_to_thread(
+                finish_terminal_idempotent_request,
+                request_claim,
+                response,
+            )
+        return response
+
     try:
+        if run_control is not None and run_control.cancel_reason is not None:
+            return await settle_cancelled()
         result = await _call_maybe_async(run_callable, tracer)
+        if run_control is not None and not run_control.try_mark_finished():
+            if run_control.cancel_reason is not None:
+                return await settle_cancelled()
+            raise RuntimeError("Agent run returned while a mutation was still in flight.")
         response = to_response(result)
         if request_claim is not None:
             await bounded_to_thread(
@@ -256,14 +300,32 @@ async def _settle_agent_run(
             )
         return response
     except asyncio.CancelledError:
+        if run_control is not None and run_control.cancel_reason is not None:
+            return await settle_cancelled()
         if request_claim is not None:
             await abandon_claim_async(request_claim)
         raise
     except Exception as error:
+        if run_control is not None and not run_control.try_mark_finished():
+            if run_control.cancel_reason is not None:
+                return await settle_cancelled()
+        response = _failed_response(error, failure_thread_id)
+        # The accepted graph may have committed a mutation before a later node
+        # or response-finalization step failed. Cache the terminal envelope (or
+        # retain its claim fail closed) instead of reopening the same request id.
         if request_claim is not None:
-            await abandon_claim_async(request_claim)
-        return _failed_response(error, failure_thread_id)
+            await bounded_to_thread(
+                finish_terminal_idempotent_request,
+                request_claim,
+                response,
+            )
+        return response
     finally:
+        if run_control is not None:
+            if run_control.phase is RunPhase.CANCELLED:
+                run_control.mark_cancelled_finished()
+            elif run_control.phase is RunPhase.CANCELLABLE:
+                run_control.try_mark_finished()
         if run_slot is not None:
             run_slot.release()
 
@@ -274,6 +336,10 @@ async def _start_agent_run(
     request_claim: Optional[RequestClaim],
     run_slot: Optional[RunSlot],
     failure_thread_id: str = "",
+    run_control: Optional[RunControl] = None,
+    user_id: str = "",
+    request_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
 ) -> asyncio.Task[AgentResponse]:
     """Create a tracked producer, cleaning route-owned resources on failure."""
 
@@ -283,6 +349,7 @@ async def _start_agent_run(
         request_claim,
         run_slot,
         failure_thread_id,
+        run_control,
     )
     try:
         task = asyncio.create_task(producer)
@@ -296,7 +363,17 @@ async def _start_agent_run(
                 run_slot.release()
         raise
     try:
-        return _track_producer(task)
+        task = _track_producer(task)
+        if run_control is not None:
+            get_active_run_registry().register(
+                user_id=user_id,
+                request_id=request_id,
+                thread_id=thread_id,
+                deadline=time.monotonic() + settings.run_deadline_seconds,
+                task=task,
+                control=run_control,
+            )
+        return task
     except BaseException:
         task.cancel()
         try:
@@ -334,6 +411,10 @@ async def run_agent_request(
     request_claim: Optional[RequestClaim],
     run_slot: Optional[RunSlot],
     failure_thread_id: str = "",
+    run_control: Optional[RunControl] = None,
+    user_id: str = "",
+    request_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
 ) -> AgentResponse:
     """Run a non-streaming request through the tracked producer lifecycle."""
 
@@ -343,6 +424,10 @@ async def run_agent_request(
         request_claim,
         run_slot,
         failure_thread_id,
+        run_control,
+        user_id,
+        request_id,
+        thread_id,
     )
     return await _await_accepted_task(task)
 
@@ -360,6 +445,10 @@ async def stream_agent_run(
     request_claim: Optional[RequestClaim] = None,
     run_slot: Optional[RunSlot] = None,
     failure_thread_id: str = "",
+    run_control: Optional[RunControl] = None,
+    user_id: str = "",
+    request_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
 ) -> StreamingResponse:
     """Start one native async producer and stream bounded NDJSON progress."""
 
@@ -420,6 +509,10 @@ async def stream_agent_run(
         request_claim,
         run_slot,
         failure_thread_id,
+        run_control,
+        user_id,
+        request_id,
+        thread_id,
     )
 
     def publish_final(completed: asyncio.Task[AgentResponse]) -> None:
@@ -472,6 +565,8 @@ async def invoke(
     if ctx.cached_response is not None:
         return ctx.cached_response
 
+    run_control = RunControl()
+
     async def run_with_tracer(tracer: UserProgressTracePrinter) -> Any:
         return await _call_runner(
             run_jarvis,
@@ -483,6 +578,7 @@ async def invoke(
             thread_id=request.thread_id,
             identity=ctx.identity,
             request_id=request.request_id,
+            run_control=run_control,
             checkpointer=runtime_checkpointer(http_request),
         )
 
@@ -491,6 +587,10 @@ async def invoke(
         ctx.claim,
         ctx.run_slot,
         failure_thread_id=request.thread_id or "",
+        run_control=run_control,
+        user_id=request.user_id,
+        request_id=request.request_id,
+        thread_id=request.thread_id,
     )
 
 
@@ -511,6 +611,8 @@ async def invoke_stream(
     if ctx.cached_response is not None:
         return stream_final_response(ctx.cached_response)
 
+    run_control = RunControl()
+
     async def run_with_tracer(tracer: UserProgressTracePrinter) -> Any:
         return await _call_runner(
             run_jarvis,
@@ -522,6 +624,7 @@ async def invoke_stream(
             thread_id=request.thread_id,
             identity=ctx.identity,
             request_id=request.request_id,
+            run_control=run_control,
             checkpointer=runtime_checkpointer(http_request),
         )
 
@@ -530,6 +633,10 @@ async def invoke_stream(
         request_claim=ctx.claim,
         run_slot=ctx.run_slot,
         failure_thread_id=request.thread_id or "",
+        run_control=run_control,
+        user_id=request.user_id,
+        request_id=request.request_id,
+        thread_id=request.thread_id,
     )
 
 
@@ -551,9 +658,23 @@ async def invoke_bulk(
     run_slot = await try_acquire_run_slot_async()
     if run_slot is None:
         raise capacity_exceeded()
+    run_control = RunControl()
 
     async def run_batch() -> BulkAgentResponse:
         results = []
+
+        def cancelled_batch() -> BulkAgentResponse:
+            cancellation = _cancelled_response(run_control)
+            if len(results) >= len(messages):
+                results[-1] = cancellation
+            else:
+                results.extend(
+                    cancellation.model_copy(deep=True)
+                    for _ in range(len(messages) - len(results))
+                )
+            run_control.mark_cancelled_finished()
+            return BulkAgentResponse(results=results)
+
         try:
             for index, message in enumerate(messages):
                 try:
@@ -571,9 +692,13 @@ async def invoke_bulk(
                         tracer=NULL_TRACE,
                         identity=identity,
                         request_id=request.request_id,
+                        run_control=run_control,
                         checkpointer=runtime_checkpointer(http_request),
                     )
-                    results.append(to_response(result))
+                    response = to_response(result)
+                    if run_control.cancel_requested:
+                        return cancelled_batch()
+                    results.append(response)
                 except HTTPException as error:
                     if error.status_code != 429:
                         raise
@@ -599,8 +724,22 @@ async def invoke_bulk(
                 except Exception as error:
                     results.append(_failed_response(error))
 
+            if not run_control.try_mark_finished():
+                if run_control.cancel_reason is not None:
+                    return cancelled_batch()
+                raise RuntimeError(
+                    "Bulk agent run returned while a mutation was still in flight."
+                )
             return BulkAgentResponse(results=results)
+        except asyncio.CancelledError:
+            if run_control.cancel_reason is None:
+                raise
+            return cancelled_batch()
         finally:
+            if run_control.phase is RunPhase.CANCELLED:
+                run_control.mark_cancelled_finished()
+            elif run_control.phase is RunPhase.CANCELLABLE:
+                run_control.try_mark_finished()
             run_slot.release()
 
     producer = run_batch()
@@ -612,6 +751,14 @@ async def invoke_bulk(
         raise
     try:
         _track_producer(task)
+        get_active_run_registry().register(
+            user_id=request.user_id,
+            request_id=request.request_id,
+            thread_id=None,
+            deadline=time.monotonic() + settings.run_deadline_seconds,
+            task=task,
+            control=run_control,
+        )
     except BaseException:
         task.cancel()
         try:

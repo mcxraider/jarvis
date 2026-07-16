@@ -17,6 +17,8 @@ from agents.agent_api.app.api import request_idempotency
 from agents.agent_api.app.api.request_idempotency import (
     RequestIdempotencyCoordinator,
 )
+from agents.agent_api.app.api.schemas import AgentResponse
+from agents.agent_api.app.middleware import idempotency as idempotency_middleware
 from agents.agent_api.app.graph.canonicalize import build_request_idempotency_key
 from agents.agent_api.app.idempotency.store import (
     ClaimResult,
@@ -47,6 +49,29 @@ def interrupted_state(thread_id="thread-hitl"):
         "tool_results": [],
         "error": "",
     }
+
+
+def test_intentional_cancellation_is_cached_as_terminal() -> None:
+    coordinator = RequestIdempotencyCoordinator(MemoryIdempotencyStore())
+    claim = coordinator.begin("invoke", "telegram", "user", "cancelled-request")
+    response = AgentResponse(
+        status="failed",
+        thread_id="thread",
+        response="This Jarvis run was cancelled.",
+        error="Run cancelled.",
+        error_details={"kind": "cancelled"},
+    )
+
+    with patch.object(
+        request_idempotency,
+        "DEFAULT_REQUEST_IDEMPOTENCY_COORDINATOR",
+        coordinator,
+    ):
+        idempotency_middleware.finish_terminal_idempotent_request(claim, response)
+
+    replay = coordinator.begin("invoke", "telegram", "user", "cancelled-request")
+    assert replay.state is ClaimState.COMPLETED
+    assert replay.result["error_details"] == {"kind": "cancelled"}
 
 
 class ExplodingStore:
@@ -175,7 +200,7 @@ class TestRequestCache:
         assert second.json()["interrupt"] == first.json()["interrupt"]
         run.assert_called_once()
 
-    def test_failed_response_is_not_cached(self, client, coordinator):
+    def test_failed_response_is_cached_as_terminal(self, client, coordinator):
         failed = {
             **completed_state(),
             "final_response": "Could not finish.",
@@ -194,9 +219,10 @@ class TestRequestCache:
             second = client.post("/invoke", json=payload)
 
         assert first.json()["status"] == second.json()["status"] == "failed"
-        assert run.call_count == 2
+        assert first.json() == second.json()
+        run.assert_called_once()
 
-    def test_exception_is_not_cached(self, client, coordinator):
+    def test_post_admission_exception_is_cached_as_terminal(self, client, coordinator):
         with patch(
             "agents.agent_api.app.api.routes.invoke.run_jarvis",
             side_effect=RuntimeError("boom"),
@@ -206,10 +232,12 @@ class TestRequestCache:
                 "user_id": "jerry",
                 "request_id": "exception-1",
             }
-            client.post("/invoke", json=payload)
-            client.post("/invoke", json=payload)
+            first = client.post("/invoke", json=payload)
+            second = client.post("/invoke", json=payload)
 
-        assert run.call_count == 2
+        assert first.json()["status"] == second.json()["status"] == "failed"
+        assert first.json() == second.json()
+        run.assert_called_once()
 
     def test_missing_request_id_executes_every_time(self, client, coordinator):
         with patch(
@@ -371,7 +399,7 @@ class TestStreamingInteroperability:
         assert events[0]["response"]["status"] == "completed"
         run.assert_called_once()
 
-    def test_stream_failure_is_abandoned(self, client, coordinator):
+    def test_post_admission_stream_failure_is_cached_as_terminal(self, client, coordinator):
         with patch(
             "agents.agent_api.app.api.routes.invoke.run_jarvis",
             side_effect=[RuntimeError("stream failed"), completed_state()],
@@ -386,8 +414,12 @@ class TestStreamingInteroperability:
 
         final = json.loads(streamed.text.strip().splitlines()[-1])
         assert final["response"]["status"] == "failed"
-        assert normal.json()["status"] == "completed"
-        assert run.call_count == 2
+        assert {
+            key: value
+            for key, value in normal.json().items()
+            if value is not None
+        } == final["response"]
+        run.assert_called_once()
 
     def test_stream_completes_cache_before_emitting_final(self, client, coordinator):
         with patch(
@@ -579,6 +611,35 @@ class TestHeartbeat:
 
         assert store.renew.call_count >= 1
         store.complete.assert_called_once()
+
+    def test_completion_failure_retains_claim_for_request_ttl(self):
+        store = MagicMock()
+        store.claim.return_value = ClaimResult(
+            ClaimState.ACQUIRED,
+            owner_token="owner",
+        )
+        store.complete.return_value = False
+        store.renew.return_value = True
+        coordinator = RequestIdempotencyCoordinator(
+            store,
+            ttl_seconds=60,
+            lease_seconds=5,
+            wait_seconds=0.1,
+            poll_interval_seconds=0.001,
+            heartbeat_interval_seconds=100,
+        )
+
+        claim = coordinator.begin("invoke", "api", "jerry", "retain-on-failure")
+
+        assert coordinator.complete(claim, {"status": "failed"}) is False
+        store.complete.assert_called_once_with(
+            claim.key,
+            "owner",
+            {"status": "failed"},
+            60,
+        )
+        store.renew.assert_called_once_with(claim.key, "owner", 60)
+        store.abandon.assert_not_called()
 
     def test_expired_lease_can_be_taken_over(self):
         class Clock:

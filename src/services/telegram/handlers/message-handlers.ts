@@ -11,7 +11,7 @@ import { MessageProcessorService } from '../message-processor.service';
 import { BotActivityService, BotActivityType } from '../bot-activity.service';
 import {
   collapseClarification,
-  sendClarificationReply,
+  sendClarificationReplyWithReceipt,
   sendFinalReply,
 } from '../formatters/telegram-rich';
 import { normalizeMarkdownTables } from '../formatters/markdown-table-normalizer';
@@ -22,9 +22,13 @@ import {
   PendingPausePresentation,
   TextProcessorResult,
 } from '../processors/text-processor.service';
-import { PendingClarificationStore } from '../pending-clarification.store';
+import {
+  PendingClarificationRecord,
+  PendingClarificationStore,
+} from '../pending-clarification.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { formatReplyContext } from '../reply-context';
+import { ConversationGateStore } from '../conversation-gate.store';
 
 export class MessageHandlers {
   constructor(
@@ -33,6 +37,7 @@ export class MessageHandlers {
     private readonly activityService: BotActivityService,
     // Attaches the rich clarification block's message id after the processor saves the pause.
     private readonly pendingStore: PendingClarificationStore,
+    private readonly conversationGate?: ConversationGateStore,
   ) {}
 
   // Primary text message handler. Shows a rotating progress indicator while the
@@ -97,7 +102,7 @@ export class MessageHandlers {
         return;
       }
       if (outcome === 'abandoned') {
-        await this.collapsePendingClarification(ctx, pending, logContext);
+        await this.cleanupPendingPrompt(ctx, pending, logContext);
       }
       await sendFinalReply(
         ctx,
@@ -140,6 +145,10 @@ export class MessageHandlers {
         },
       );
       await progressReporter.complete(this.completionStatus(lastProgressStage));
+      if (result.suppressed) {
+        logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
+        return;
+      }
       await this.sendResult(ctx, result, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
@@ -380,6 +389,10 @@ export class MessageHandlers {
         },
       );
       await progressReporter.complete(this.completionStatus(lastProgressStage));
+      if (result.suppressed) {
+        logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
+        return;
+      }
       await this.sendResult(ctx, result, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
@@ -419,31 +432,84 @@ export class MessageHandlers {
     result: TextProcessorResult,
     logContext: LogContext,
   ): Promise<void> {
+    if (result.suppressed) return;
     const userId = ctx.from?.id;
     const gateKey = buildConversationKey(userId, mapTelegramUserId(userId), ctx.chat?.id);
 
-    if (result.resolvedPendingPause) {
-      if (result.consumedClarificationMessageId && result.consumedClarificationQuestion) {
-        await this.collapsePendingClarification(
-          ctx,
-          {
-            clarificationMessageId: result.consumedClarificationMessageId,
-            question: result.consumedClarificationQuestion,
-          },
-          logContext,
-        );
+    if (result.interruptType && result.threadId) {
+      if (!result.settlementRequestId || !(await this.isCurrentPromptOwner(
+        gateKey,
+        result.threadId,
+        result.settlementRequestId,
+      ))) {
+        logger.info('telegram.interrupt.prompt_suppressed_stale_owner', {
+          ...logContext,
+          gateKey,
+          settlementRequestId: result.settlementRequestId,
+        });
+        return;
       }
     }
 
+    if (result.resolvedPendingPause) {
+      await this.cleanupPendingPrompt(ctx, {
+        interruptType: result.consumedInterruptType,
+        promptMessageId: result.consumedPromptMessageId,
+        clarificationMessageId: result.consumedClarificationMessageId,
+        question: result.consumedClarificationQuestion,
+      }, logContext);
+    }
+
+    let promptMessageId: number | undefined;
+    let collapsibleClarificationMessageId: number | undefined;
     if (result.interruptType === 'confirm' && result.threadId) {
-      await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
+      promptMessageId = await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
     } else if (result.interruptType === 'clarify' && result.threadId) {
-      const clarificationMessageId = await sendClarificationReply(ctx, result.response, logContext);
-      if (clarificationMessageId !== undefined) {
-        await this.attachClarificationMessageId(gateKey, clarificationMessageId, logContext);
-      }
+      const receipt = await sendClarificationReplyWithReceipt(ctx, result.response, logContext);
+      promptMessageId = receipt.messageId;
+      collapsibleClarificationMessageId = receipt.collapsibleMessageId;
     } else {
       await sendFinalReply(ctx, result.response, logContext);
+    }
+
+    if (result.interruptType && result.threadId && result.settlementRequestId) {
+      if (promptMessageId !== undefined) {
+        const attached = await this.pendingStore
+          .attachPromptMessageIdIfMatches(
+            gateKey,
+            { threadId: result.threadId, requestId: result.settlementRequestId },
+            promptMessageId,
+          )
+          .catch(() => false);
+        if (!attached) {
+          await this.deleteStalePrompt(ctx, promptMessageId, gateKey, logContext);
+          return;
+        }
+      }
+      const stillOwned = await this.isCurrentPromptOwner(
+        gateKey,
+        result.threadId,
+        result.settlementRequestId,
+      );
+      if (!stillOwned) {
+        await this.deleteStalePrompt(ctx, promptMessageId, gateKey, logContext);
+        logger.info('telegram.interrupt.prompt_removed_stale_owner', {
+          ...logContext,
+          gateKey,
+          settlementRequestId: result.settlementRequestId,
+          promptMessageId,
+        });
+        return;
+      }
+      if (collapsibleClarificationMessageId !== undefined) {
+        await this.attachClarificationMessageId(
+          gateKey,
+          result.threadId,
+          result.settlementRequestId,
+          collapsibleClarificationMessageId,
+          logContext,
+        );
+      }
     }
 
     if (result.interruptType === 'clarify' && result.threadId) {
@@ -456,12 +522,55 @@ export class MessageHandlers {
     }
   }
 
+  private async isCurrentPromptOwner(
+    gateKey: string,
+    threadId: string,
+    requestId: string,
+  ): Promise<boolean> {
+    const [pending, gateSnapshot] = await Promise.all([
+      this.pendingStore.get(gateKey).catch(() => undefined),
+      this.conversationGate
+        ? this.conversationGate.getSnapshot(gateKey).catch(() => undefined)
+        : Promise.resolve(undefined),
+    ]);
+    if (pending?.threadId !== threadId || pending.requestId !== requestId) return false;
+    return !this.conversationGate || (
+      gateSnapshot?.status === 'waiting_for_clarification'
+      && gateSnapshot.requestId === requestId
+    );
+  }
+
+  private async deleteStalePrompt(
+    ctx: Context,
+    messageId: number | undefined,
+    gateKey: string,
+    logContext: LogContext,
+  ): Promise<void> {
+    if (messageId === undefined || !ctx.chat) return;
+    try {
+      await ctx.telegram.deleteMessage(ctx.chat.id, messageId);
+    } catch (error) {
+      logger.warn('telegram.interrupt.stale_prompt_delete_failed', {
+        ...logContext,
+        gateKey,
+        promptMessageId: messageId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async attachClarificationMessageId(
     gateKey: string,
+    threadId: string,
+    requestId: string,
     messageId: number,
     logContext: LogContext,
   ): Promise<void> {
-    await this.pendingStore.attachClarificationMessageId(gateKey, messageId).catch((error) => {
+    await this.pendingStore.attachClarificationMessageIdIfMatches(
+      gateKey,
+      { threadId, requestId },
+      messageId,
+    ).catch((error) => {
       logger.warn('telegram.clarification.attach_failed', {
         ...logContext,
         gateKey,
@@ -477,6 +586,38 @@ export class MessageHandlers {
     logContext: LogContext,
   ): Promise<void> {
     await this.collapsePendingClarification(ctx, presentation, logContext);
+  }
+
+  private async cleanupPendingPrompt(
+    ctx: Context,
+    presentation: Partial<Pick<
+      PendingClarificationRecord,
+      'interruptType' | 'promptMessageId' | 'clarificationMessageId' | 'question'
+    >> | undefined,
+    logContext: LogContext,
+  ): Promise<void> {
+    if (
+      presentation?.interruptType !== 'confirm'
+      && presentation?.clarificationMessageId !== undefined
+      && presentation.question
+    ) {
+      await this.collapsePendingClarification(ctx, {
+        clarificationMessageId: presentation.clarificationMessageId,
+        question: presentation.question,
+      }, logContext);
+      return;
+    }
+
+    if (presentation?.promptMessageId === undefined || !ctx.chat) return;
+    try {
+      await ctx.telegram.deleteMessage(ctx.chat.id, presentation.promptMessageId);
+    } catch (error) {
+      logger.warn('telegram.interrupt.prompt_cleanup_failed', {
+        ...logContext,
+        promptMessageId: presentation.promptMessageId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private async collapsePendingClarification(
@@ -539,7 +680,7 @@ export class MessageHandlers {
     text: string,
     threadId: string,
     logContext: LogContext,
-  ): Promise<void> {
+  ): Promise<number | undefined> {
     const normalizedText = normalizeMarkdownTables(text);
     const replyMarkup = {
       inline_keyboard: [
@@ -550,16 +691,18 @@ export class MessageHandlers {
       ],
     };
     try {
-      await ctx.reply(toTelegramMarkdownV2(normalizedText), {
+      const message = await ctx.reply(toTelegramMarkdownV2(normalizedText), {
         parse_mode: 'MarkdownV2',
         reply_markup: replyMarkup,
       });
+      return message.message_id;
     } catch (error) {
       logger.warn('telegram.confirm_reply.markdown_parse_failed', {
         ...logContext,
         error: (error as Error).message,
       });
-      await ctx.reply(normalizedText, { reply_markup: replyMarkup });
+      const message = await ctx.reply(normalizedText, { reply_markup: replyMarkup });
+      return message.message_id;
     }
   }
 

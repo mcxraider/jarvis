@@ -19,6 +19,7 @@ from agents.agent_api.app.tools.dispatcher import (
     ToolDispatcher,
     tool_idempotency_context,
 )
+from agents.agent_api.app.tools.todoist.client import TodoistApiError
 from agents.agent_api.app.tools.todoist.tools import TodoistToolDispatcher
 
 
@@ -180,6 +181,35 @@ class TestOperationLifecycle:
         assert second["success"] is True
         assert attempts == 2
 
+    def test_ambiguous_mutation_error_is_cached_without_reexecution(self):
+        attempts = 0
+
+        def mutate(_arguments):
+            nonlocal attempts
+            attempts += 1
+            raise TodoistApiError(
+                kind="transient",
+                message="Check Todoist before trying again.",
+                retryable=False,
+                operation="todoist.request",
+                method="POST",
+                ambiguous_commit=True,
+            )
+
+        dispatcher = build_dispatcher(
+            build_registry(mutating_handler=mutate),
+            MemoryIdempotencyStore(),
+        )
+
+        first = dispatcher.execute_tool("call-1", "mutate", {}, "calendar-key")
+        second = dispatcher.execute_tool("call-2", "mutate", {}, "calendar-key")
+
+        assert attempts == 1
+        assert first["success"] is second["success"] is False
+        assert first["mutation_blocked"] is second["mutation_blocked"] is True
+        assert first["classified_error"]["ambiguous_commit"] is True
+        assert second["tool_call_id"] == "call-2"
+
     def test_store_exception_blocks_mutation(self):
         handler = MagicMock(return_value={"ok": True})
         dispatcher = build_dispatcher(
@@ -206,7 +236,7 @@ class TestOperationLifecycle:
         assert result["success"] is True
         handler.assert_called_once()
 
-    def test_completion_failure_does_not_turn_mutation_into_failure(self):
+    def test_completion_failure_is_ambiguous_and_does_not_abandon_claim(self):
         store = MagicMock()
         store.claim.return_value = ClaimResult(
             ClaimState.ACQUIRED,
@@ -218,8 +248,14 @@ class TestOperationLifecycle:
 
         result = dispatcher.execute_tool("call-1", "mutate", {}, "key")
 
-        assert result["success"] is True
-        store.complete.assert_called_once()
+        assert result["success"] is False
+        assert result["content"] is None
+        assert result["mutation_blocked"] is True
+        assert "may have completed" in result["error"]
+        assert "Do not retry automatically" in result["error"]
+        assert store.complete.call_count == 2
+        store.renew.assert_called_once_with("key", "owner", 60)
+        store.abandon.assert_not_called()
 
     def test_partial_bulk_result_is_cached_as_success(self):
         handler = MagicMock(

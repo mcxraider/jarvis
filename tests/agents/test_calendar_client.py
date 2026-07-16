@@ -218,6 +218,31 @@ class TestErrorClassification:
         # Retried up to the max attempt count.
         assert service.events().list().execute.call_count == 3
 
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            "calendar.events.insert",
+            "calendar.events.patch",
+            "calendar.events.delete",
+        ],
+    )
+    @pytest.mark.parametrize("failure", [_http_error(503), OSError("connection reset")])
+    def test_mutations_never_retry_ambiguous_or_retryable_failures(
+        self,
+        operation,
+        failure,
+    ):
+        request = MagicMock()
+        request.execute.side_effect = failure
+
+        with pytest.raises(GoogleCalendarApiError) as excinfo:
+            _client(MagicMock())._execute(request, operation)
+
+        assert excinfo.value.kind == "transient"
+        assert excinfo.value.retryable is False
+        assert "Check the calendar before trying again" in excinfo.value.message
+        request.execute.assert_called_once_with()
+
 
 class _OverlapProbe:
     """A fake Google request whose execute() records concurrent overlap.

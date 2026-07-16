@@ -78,6 +78,11 @@ TODOIST_ERROR_MESSAGES = {
     "deprecated": "This Todoist endpoint is no longer available.",
 }
 
+TODOIST_AMBIGUOUS_MUTATION_MESSAGE = (
+    "Todoist could not confirm whether the change completed. "
+    "Check Todoist before trying again."
+)
+
 
 _shared_http_client: Optional[httpx.Client] = None
 _shared_http_client_lock = threading.Lock()
@@ -209,6 +214,7 @@ class TodoistApiError(ClassifiedApiError):
     provider_message: Optional[str] = None
     provider_code: Optional[int] = None
     provider_tag: Optional[str] = None
+    ambiguous_commit: bool = False
 
     def __str__(self) -> str:
         return self.message
@@ -232,6 +238,8 @@ class TodoistApiError(ClassifiedApiError):
             payload["provider_code"] = self.provider_code
         if self.provider_tag is not None:
             payload["provider_tag"] = self.provider_tag
+        if self.ambiguous_commit:
+            payload["ambiguous_commit"] = True
         return payload
 
 
@@ -318,7 +326,12 @@ class TodoistApiClient:
                     timeout=attempt_timeout,
                 )
                 if _remaining_retry_seconds(retry_deadline) <= 0:
-                    raise _todoist_deadline_error(url, method, attempt)
+                    raise _todoist_deadline_error(
+                        url,
+                        method,
+                        attempt,
+                        dispatched=True,
+                    )
             except (httpx.RequestError, httpx.InvalidURL) as error:
                 api_error = _todoist_request_error(error, url, method, attempt)
                 last_error = api_error
@@ -385,7 +398,14 @@ class TodoistApiClient:
             )
             if status == 204 or not body:
                 return None
-            parsed = json.loads(body)
+            try:
+                parsed = json.loads(body)
+            except json.JSONDecodeError as error:
+                raise _todoist_response_decode_error(
+                    url,
+                    method,
+                    attempt,
+                ) from error
             self.tracer.payload("todoist.payload", "response", parsed)
             return parsed
 
@@ -529,7 +549,14 @@ class TodoistApiClient:
             )
             if status == 204 or not body:
                 return None
-            parsed = json.loads(body)
+            try:
+                parsed = json.loads(body)
+            except json.JSONDecodeError as error:
+                raise _todoist_response_decode_error(
+                    url,
+                    method,
+                    attempt,
+                ) from error
             self.tracer.payload("todoist.payload", "response", parsed)
             return parsed
 
@@ -930,9 +957,13 @@ def _todoist_http_error(
     message = TODOIST_ERROR_MESSAGES[kind]
     if provider_message:
         message = f"{message.rstrip('.')}: {provider_message}"
+    ambiguous_commit = (
+        not _is_retry_safe_method(method)
+        and (status_code == 408 or 500 <= status_code <= 599)
+    )
     return TodoistApiError(
         kind=kind,
-        message=message,
+        message=TODOIST_AMBIGUOUS_MUTATION_MESSAGE if ambiguous_commit else message,
         status_code=status_code,
         retryable=(
             kind in {"rate-limit", "transient"}
@@ -945,6 +976,7 @@ def _todoist_http_error(
         provider_message=provider_message,
         provider_code=provider_code,
         provider_tag=provider_tag,
+        ambiguous_commit=ambiguous_commit,
     )
 
 
@@ -959,13 +991,19 @@ def _todoist_request_error(
         (httpx.InvalidURL, httpx.UnsupportedProtocol, httpx.LocalProtocolError),
     )
     kind = "validation" if invalid_request else "transient"
+    ambiguous_commit = not invalid_request and not _is_retry_safe_method(method)
     return TodoistApiError(
         kind=kind,
-        message=TODOIST_ERROR_MESSAGES[kind],
+        message=(
+            TODOIST_AMBIGUOUS_MUTATION_MESSAGE
+            if ambiguous_commit
+            else TODOIST_ERROR_MESSAGES[kind]
+        ),
         retryable=not invalid_request and _is_retry_safe_method(method),
         url=url,
         method=method,
         attempts=attempts,
+        ambiguous_commit=ambiguous_commit,
     )
 
 
@@ -973,14 +1011,43 @@ def _todoist_deadline_error(
     url: str,
     method: str,
     attempts: int,
+    *,
+    dispatched: bool = False,
 ) -> TodoistApiError:
+    ambiguous_commit = dispatched and not _is_retry_safe_method(method)
     return TodoistApiError(
         kind="transient",
-        message=TODOIST_ERROR_MESSAGES["transient"],
+        message=(
+            TODOIST_AMBIGUOUS_MUTATION_MESSAGE
+            if ambiguous_commit
+            else TODOIST_ERROR_MESSAGES["transient"]
+        ),
         retryable=_is_retry_safe_method(method),
         url=url,
         method=method,
         attempts=max(1, attempts),
+        ambiguous_commit=ambiguous_commit,
+    )
+
+
+def _todoist_response_decode_error(
+    url: str,
+    method: str,
+    attempts: int,
+) -> TodoistApiError:
+    ambiguous_commit = not _is_retry_safe_method(method)
+    return TodoistApiError(
+        kind="transient",
+        message=(
+            TODOIST_AMBIGUOUS_MUTATION_MESSAGE
+            if ambiguous_commit
+            else TODOIST_ERROR_MESSAGES["transient"]
+        ),
+        retryable=_is_retry_safe_method(method),
+        url=url,
+        method=method,
+        attempts=attempts,
+        ambiguous_commit=ambiguous_commit,
     )
 
 

@@ -58,6 +58,36 @@ describe('AudioProcessorService', () => {
     );
   });
 
+  it('propagates stale-owner suppression from the text processor', async () => {
+    const textProcessor = {
+      processTextMessage: jest.fn().mockResolvedValue({ response: '', suppressed: true }),
+    };
+    const service = makeService(textProcessor);
+
+    const result = await service.processAudioMessage('https://example.com/voice.ogg', 7);
+
+    expect(result).toEqual(expect.objectContaining({ response: '', suppressed: true }));
+  });
+
+  it('preserves ambiguous delivery from voice text processing', async () => {
+    const textProcessor = {
+      processTextMessage: jest.fn().mockResolvedValue({
+        response: 'The request may still be running.',
+        delivery: 'ambiguous',
+      }),
+    };
+    const service = makeService(textProcessor);
+
+    await expect(
+      service.processAudioMessage('https://example.com/voice.ogg', 7),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        response: 'The request may still be running.',
+        delivery: 'ambiguous',
+      }),
+    );
+  });
+
   it('sends the transcription then awaits hooks before processing audio text', async () => {
     const onTranscription = jest.fn().mockResolvedValue(undefined);
     const onTranscribed = jest.fn().mockResolvedValue(undefined);
@@ -139,6 +169,30 @@ describe('AudioProcessorService', () => {
     );
     expect(response).toEqual(
       expect.objectContaining({ response: 'Summary ready.' }),
+    );
+  });
+
+  it('preserves ambiguous delivery from audio-document text processing', async () => {
+    const textProcessor = {
+      processTextMessage: jest.fn().mockResolvedValue({
+        response: 'The request may still be running.',
+        delivery: 'ambiguous',
+      }),
+    };
+    const service = makeService(textProcessor);
+
+    await expect(
+      service.processAudioDocument(
+        'https://example.com/meeting.mp3',
+        'meeting.mp3',
+        'audio/mpeg',
+        7,
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        response: 'The request may still be running.',
+        delivery: 'ambiguous',
+      }),
     );
   });
 

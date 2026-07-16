@@ -33,6 +33,9 @@ class ClassifiedApiError(Exception):
     retryable: bool = False
     status_code: Optional[int] = None
     attempts: int = 1
+    # True when an external mutation may have committed even though its result
+    # could not be confirmed. Idempotency claims must be retained in this case.
+    ambiguous_commit: bool = False
 
     def __str__(self) -> str:
         return self.message or self.__class__.__name__
@@ -48,6 +51,8 @@ class ClassifiedApiError(Exception):
         }
         if self.status_code is not None:
             payload["status_code"] = self.status_code
+        if self.ambiguous_commit:
+            payload["ambiguous_commit"] = True
         return payload
 
 

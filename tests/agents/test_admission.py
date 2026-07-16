@@ -54,6 +54,35 @@ def test_admission_acquires_to_limit_and_release_is_idempotent() -> None:
     replacement.release()
 
 
+def test_run_slot_release_is_idempotent_across_threads() -> None:
+    gate = RunAdmission(1)
+    slot = gate.try_acquire()
+    assert slot is not None
+    barrier = threading.Barrier(17)
+    failures: list[BaseException] = []
+
+    def release() -> None:
+        try:
+            barrier.wait(timeout=2)
+            slot.release()
+        except BaseException as error:
+            failures.append(error)
+
+    threads = [threading.Thread(target=release) for _ in range(16)]
+    for thread in threads:
+        thread.start()
+    barrier.wait(timeout=2)
+    for thread in threads:
+        thread.join(timeout=2)
+
+    assert failures == []
+    assert all(not thread.is_alive() for thread in threads)
+    returned = gate.try_acquire()
+    assert returned is not None
+    assert gate.try_acquire() is None
+    returned.release()
+
+
 def test_sync_and_async_acquisitions_share_one_pool() -> None:
     gate = RunAdmission(1)
     sync_slot = gate.try_acquire()

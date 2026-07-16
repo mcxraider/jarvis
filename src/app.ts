@@ -4,7 +4,7 @@
 
 import 'dotenv/config';
 import { Telegraf, Context } from 'telegraf';
-import { logger } from './utils/logger';
+import { createRequestId, logger } from './utils/logger';
 import { TelegramConfig } from './types/telegram.types';
 import { LangGraphAgentClient } from './services/ai/langgraph-agent-client.service';
 import { WhisperService } from './services/ai/whisper.service';
@@ -114,8 +114,20 @@ const audioProcessor = new AudioProcessorService(whisperService, textProcessor);
 const messageProcessor = new MessageProcessorService(textProcessor, audioProcessor, conversationGate, pendingStore);
 
 // Telegram handlers: commands (/help, /status, /cancel), message types, and inline callbacks.
-const messageHandlers = new MessageHandlers(fileService, messageProcessor, activityService, pendingStore);
-const commandHandlers = new CommandHandlers(activityService, statusService, conversationGate, pendingStore);
+const messageHandlers = new MessageHandlers(
+  fileService,
+  messageProcessor,
+  activityService,
+  pendingStore,
+  conversationGate,
+);
+const commandHandlers = new CommandHandlers(
+  activityService,
+  statusService,
+  conversationGate,
+  pendingStore,
+  agentClient,
+);
 const callbackHandler = new CallbackHandler(agentClient, pendingStore, conversationGate);
 
 const handlers = new TelegramHandlers(commandHandlers, messageHandlers, callbackHandler);
@@ -138,26 +150,63 @@ export const botService = new TelegramBotService(
 // When a conversation gate times out, notify the user, collapse any active clarification,
 // and mark the matching pending clarification 'expired' (gateKey === pendingKey). Resumption is
 // already blocked by the store's expires_at filter; this keeps the persisted status accurate and the
-// chat clean. Read the record before clearing so we still have its clarification message id.
-conversationGate.setOnExpiry((gateKey, chatId) => {
-  botService
-    .sendRichMessage(chatId, '⏱ Request timed out. Send a new message to try again.', { chatId, gateKey })
-    .catch(() => {});
-  pendingStore
-    .get(gateKey)
-    .then(async (pending) => {
-      if (pending?.clarificationMessageId !== undefined) {
-        await botService.collapseClarification(
-          chatId,
-          pending.clarificationMessageId,
-          pending.question,
+// chat clean. The atomic expiry claim bypasses the normal read TTL so prompt metadata remains
+// available even when the pending row and gate reach their deadline at the same instant.
+conversationGate.setOnExpiry((gateKey, chatId, requestId) => {
+  void (async () => {
+    const cleanupRequestId = createRequestId('expiry');
+    const cleanupClaimed = await conversationGate
+      .tryAcquire(gateKey, 30_000, chatId, cleanupRequestId)
+      .catch(() => false);
+    try {
+      // Exact matching remains safe when a newer request won the gate. An
+      // unscoped claim is needed only for running HITL resumes whose pending
+      // prompt still carries the prior waiting generation, and is permitted
+      // only while this callback owns the cleanup generation.
+      let pending = await pendingStore.expireIfMatches(gateKey, { requestId });
+      if (!pending && cleanupClaimed) {
+        pending = await pendingStore.expireIfMatches(gateKey);
+      }
+
+      const pendingChatId = pending?.chatId === undefined ? undefined : Number(pending.chatId);
+      const targetChatId = chatId ?? (Number.isFinite(pendingChatId) ? pendingChatId : undefined);
+      if (targetChatId === undefined) return;
+
+      if (
+        pending?.interruptType === 'clarify'
+        && pending.clarificationMessageId !== undefined
+        && pending.clarificationMessageId === pending.promptMessageId
+      ) {
+        await botService.collapseClarification(targetChatId, pending.clarificationMessageId, pending.question);
+      } else if (pending?.promptMessageId !== undefined) {
+        await botService.deleteMessage(targetChatId, pending.promptMessageId);
+      } else if (pending?.clarificationMessageId !== undefined) {
+        await botService.collapseClarification(targetChatId, pending.clarificationMessageId, pending.question);
+      }
+
+      // If a newer request already owns the gate, cleaning the old exact prompt
+      // is safe but an old timeout notice would be misleading and out of order.
+      if (cleanupClaimed) {
+        await botService.sendRichMessage(
+          targetChatId,
+          '⏱ Request timed out. Send a new message to try again.',
+          { chatId: targetChatId, gateKey, requestId },
         );
       }
-    })
-    .catch(() => {})
-    .finally(() => {
-      pendingStore.clear(gateKey, 'expired').catch(() => {});
+    } finally {
+      if (cleanupClaimed) {
+        await conversationGate
+          .releaseIfActiveRequestId(gateKey, cleanupRequestId)
+          .catch(() => ({ released: false }));
+      }
+    }
+  })().catch((error) => {
+    logger.warn('telegram.gate_expiry.cleanup_failed', {
+      gateKey,
+      requestId,
+      error: error instanceof Error ? error.message : String(error),
     });
+  });
 });
 
 // Periodic safety net: in-process gate timers are lost on restart, so sweep any pending

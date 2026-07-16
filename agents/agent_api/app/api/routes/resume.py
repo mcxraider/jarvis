@@ -14,6 +14,7 @@ from agents.agent_api.app.api.routes.invoke import (
     stream_final_response,
 )
 from agents.agent_api.app.api.schemas import AgentResponse, ResumeRequest
+from agents.agent_api.app.graph.run_control import RunControl
 from agents.agent_api.app.middleware.request_gate import apply_request_gate_async
 from agents.agent_api.app.service import (
     NULL_TRACE,
@@ -41,6 +42,8 @@ async def resume(
     if ctx.cached_response is not None:
         return ctx.cached_response
 
+    run_control = RunControl()
+
     async def run_with_tracer(_tracer: UserProgressTracePrinter) -> Any:
         return await _call_runner(
             run_jarvis,
@@ -53,6 +56,7 @@ async def resume(
             identity=ctx.identity,
             clarification_reply=request.message,
             request_id=request.request_id,
+            run_control=run_control,
             checkpointer=runtime_checkpointer(http_request),
         )
 
@@ -61,6 +65,10 @@ async def resume(
         ctx.claim,
         ctx.run_slot,
         failure_thread_id=request.thread_id,
+        run_control=run_control,
+        user_id=request.user_id,
+        request_id=request.request_id,
+        thread_id=request.thread_id,
     )
 
 
@@ -81,6 +89,8 @@ async def resume_stream(
     if ctx.cached_response is not None:
         return stream_final_response(ctx.cached_response)
 
+    run_control = RunControl()
+
     async def run_with_tracer(tracer: UserProgressTracePrinter) -> Any:
         return await _call_runner(
             run_jarvis,
@@ -93,6 +103,7 @@ async def resume_stream(
             identity=ctx.identity,
             clarification_reply=request.message,
             request_id=request.request_id,
+            run_control=run_control,
             checkpointer=runtime_checkpointer(http_request),
         )
 
@@ -101,4 +112,8 @@ async def resume_stream(
         request_claim=ctx.claim,
         run_slot=ctx.run_slot,
         failure_thread_id=request.thread_id,
+        run_control=run_control,
+        user_id=request.user_id,
+        request_id=request.request_id,
+        thread_id=request.thread_id,
     )
