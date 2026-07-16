@@ -119,12 +119,19 @@ class Settings:
     model_router_enabled: bool
     model_router_default_model: str
     model_router_default_reasoning: str
+    model_router_default_timeout_seconds: float
     model_router_complex_model: str
     model_router_complex_reasoning: str
+    model_router_complex_timeout_seconds: float
     model_router_multi_domain_reasoning: str
+    model_router_multi_domain_timeout_seconds: float
 
 
 def load_settings() -> Settings:
+    deepseek_request_timeout_seconds = _positive_float_env(
+        "DEEPSEEK_REQUEST_TIMEOUT_SECONDS",
+        30.0,
+    )
     postgres_dsn = os.getenv("JARVIS_POSTGRES_DSN") or os.getenv("DATABASE_URL")
     configured_checkpoint_backend = os.getenv("JARVIS_CHECKPOINT_BACKEND")
     checkpoint_backend = (
@@ -158,7 +165,7 @@ def load_settings() -> Settings:
         deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
         deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         deepseek_reasoning_effort=os.getenv("DEEPSEEK_REASONING_EFFORT", "max"),
-        deepseek_request_timeout_seconds=_float_env("DEEPSEEK_REQUEST_TIMEOUT_SECONDS", 30.0),
+        deepseek_request_timeout_seconds=deepseek_request_timeout_seconds,
         deepseek_max_retry_attempts=_int_env("DEEPSEEK_MAX_RETRY_ATTEMPTS", 3),
         deepseek_retry_max_delay_seconds=_float_env("DEEPSEEK_RETRY_MAX_DELAY_SECONDS", 8.0),
         deepseek_sdk_max_retries=_non_negative_int_env("DEEPSEEK_SDK_MAX_RETRIES", 0),
@@ -240,9 +247,24 @@ def load_settings() -> Settings:
             os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
         ),
         model_router_default_reasoning=os.getenv("MODEL_ROUTER_DEFAULT_REASONING", "high"),
+        model_router_default_timeout_seconds=_positive_float_env(
+            "MODEL_ROUTER_DEFAULT_TIMEOUT_SECONDS",
+            deepseek_request_timeout_seconds,
+        ),
         model_router_complex_model=os.getenv("MODEL_ROUTER_COMPLEX_MODEL", "deepseek-v4-pro"),
         model_router_complex_reasoning=os.getenv("MODEL_ROUTER_COMPLEX_REASONING", "max"),
-        model_router_multi_domain_reasoning=os.getenv("MODEL_ROUTER_MULTI_DOMAIN_REASONING", "high"),
+        model_router_complex_timeout_seconds=_positive_float_env(
+            "MODEL_ROUTER_COMPLEX_TIMEOUT_SECONDS",
+            90.0,
+        ),
+        model_router_multi_domain_reasoning=os.getenv(
+            "MODEL_ROUTER_MULTI_DOMAIN_REASONING",
+            "high",
+        ),
+        model_router_multi_domain_timeout_seconds=_positive_float_env(
+            "MODEL_ROUTER_MULTI_DOMAIN_TIMEOUT_SECONDS",
+            60.0,
+        ),
     )
 
 
