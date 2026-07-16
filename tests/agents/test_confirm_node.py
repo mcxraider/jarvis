@@ -1,5 +1,6 @@
 """Tests for the confirm node."""
 
+import asyncio
 from unittest.mock import patch
 
 import pytest
@@ -109,7 +110,7 @@ class TestConfirmNode:
     def test_missing_held_calls(self):
         node = create_confirm_node()
         state = {"held_calls": None, "messages": []}
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result.get("error")
         assert result.get("next") == "end"
 
@@ -128,7 +129,7 @@ class TestConfirmNode:
             "messages": [],
             "pending_interrupt": "confirm",
         }
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result["confirm_decision"] == "approve"
         assert result["pending_interrupt"] is None
         mock_interrupt.assert_called_once()
@@ -153,7 +154,7 @@ class TestConfirmNode:
             "messages": [],
             "pending_interrupt": "confirm",
         }
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result["confirm_decision"] == "decline"
         assert result["pending_interrupt"] is None
         assert result.get("final_response")
@@ -171,7 +172,7 @@ class TestConfirmNode:
             "messages": [],
             "pending_interrupt": "confirm",
         }
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result["confirm_decision"] == "approve"
         payload = mock_interrupt.call_args[0][0]
         assert payload["count"] == 3
@@ -194,7 +195,7 @@ class TestConfirmNode:
                 "messages": [],
                 "pending_interrupt": "confirm",
             }
-            result = node(state)
+            result = asyncio.run(node(state))
             assert result["confirm_decision"] == "approve"
 
 

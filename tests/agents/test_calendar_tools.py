@@ -5,7 +5,7 @@ same set of tools. Drift there means the model calls a tool that dispatches to
 nothing.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from agents.agent_api.app.tools.google_calendar import (
     MUTATING_CALENDAR_TOOLS,
@@ -56,6 +56,8 @@ def test_spec_handlers_bound_to_client():
 
 def test_spec_async_handlers_bound_to_client():
     client = MagicMock()
+    for name in EXPECTED:
+        setattr(client, f"async_{name}", AsyncMock())
     specs = {s.name: s for s in get_calendar_tool_specs(client)}
 
     assert specs["list_calendars"].async_handler is client.async_list_calendars

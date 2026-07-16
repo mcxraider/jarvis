@@ -93,7 +93,7 @@ def create_hitl_node(tracer: Optional[TracePrinter] = None):
 
     _captured = RunDeps(tracer=tracer or NULL_TRACE)
 
-    def hitl_node(
+    async def hitl_node(
         state: JarvisState,
         config: RunnableConfig | None = None,
     ) -> JarvisState:

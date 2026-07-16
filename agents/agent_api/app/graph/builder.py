@@ -1,5 +1,6 @@
-"""LangGraph builder: graph factory, initial state, and the run entrypoint."""
+"""LangGraph builder: graph factory, initial state, and run entrypoints."""
 
+import asyncio
 import logging
 import threading
 import uuid
@@ -11,8 +12,11 @@ from langgraph.types import Command
 
 from agents.agent_api.app.checkpointing import (
     DEFAULT_CHECKPOINTER,
+    as_async_checkpointer,
     ensure_default_checkpointer_setup,
+    get_async_checkpointer,
 )
+from agents.agent_api.app.async_offload import bounded_to_thread
 from agents.agent_api.app.config import settings
 from agents.agent_api.app.constants import (
     ALLOW_MUTATIONS,
@@ -69,9 +73,9 @@ from agents.agent_api.app.tools.selection import ToolSelector, get_selector
 from agents.agent_api.app.tools.todoist.client import TodoistApiClient
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 from agents.agent_api.app.user_context.resolver import (
-    load_thread_runtime_context,
-    resolve_runtime_context,
-    store_thread_context,
+    load_thread_runtime_context_async,
+    resolve_runtime_context_async,
+    store_thread_context_async,
 )
 from agents.agent_api.app.user_context.identity import TelegramIdentity, telegram_identity
 from agents.agent_api.app.user_context.runtime import (
@@ -82,6 +86,8 @@ from agents.agent_api.app.user_context.runtime import (
 
 _builder_logger = logging.getLogger(__name__)
 _USE_DEFAULT_CHECKPOINTER = object()
+_SYNC_RUNNER: Optional[asyncio.Runner] = None
+_SYNC_RUNNER_LOCK = threading.Lock()
 
 
 def _retarget_tracer(client, tracer: TracePrinter):
@@ -479,7 +485,7 @@ def _resolve_tool_selector(
     return get_selector(name, allow_mutations=allow_mutations)
 
 
-def run_jarvis(
+async def run_jarvis_async(
     user_prompt: str = USER_PROMPT,
     user_id: str = USER_ID,
     request_source: str = "api",
@@ -500,7 +506,7 @@ def run_jarvis(
     tool_selector: Optional[ToolSelector] = None,
     idempotency_store: Optional[IdempotencyStore] = None,
 ) -> JarvisState:
-    """Run the full Jarvis graph for one invocation.
+    """Run the full Jarvis graph natively on the caller's event loop.
 
     Each call is one LangSmith trace named ``jarvis.invoke`` or ``jarvis.resume``,
     correlated by ``request_id`` and grouped by ``thread_id``. ``request_id`` is
@@ -517,9 +523,8 @@ def run_jarvis(
         )
     thread_id = thread_id or str(uuid.uuid4())
     request_id = request_id or str(uuid.uuid4())
-    checkpointer = checkpointer or DEFAULT_CHECKPOINTER
-    if checkpointer is DEFAULT_CHECKPOINTER:
-        ensure_default_checkpointer_setup()
+    if checkpointer is None:
+        checkpointer = get_async_checkpointer()
     # A caller-supplied selector (DI/tests) is honored as-is; otherwise the default
     # is resolved later — after the runtime context and tracer are known — so the
     # opt-in router selector can be built against the resolved snapshot (see below).
@@ -534,9 +539,9 @@ def run_jarvis(
     runtime_context = None
     if identity is not None and settings.postgres_dsn:
         runtime_context = (
-            load_thread_runtime_context(thread_id, identity)
+            await load_thread_runtime_context_async(thread_id, identity)
             if resuming
-            else resolve_runtime_context(identity)
+            else await resolve_runtime_context_async(identity)
         )
 
     base_tracer = tracer if tracer is not None else TracePrinter()
@@ -547,7 +552,7 @@ def run_jarvis(
         telegram_username=telegram_username,
         telegram_first_name=telegram_first_name,
     )
-    run_log = open_run_log(thread_id, run_log_identity)
+    run_log = await bounded_to_thread(open_run_log, thread_id, run_log_identity)
     if run_log is not None:
         run_log.write_header(
             started_at=format_singapore_log_iso(started_at),
@@ -597,7 +602,13 @@ def run_jarvis(
         )
         apply_registered_tools(runtime_context, registry, tool_names_by_provider)
         if not resuming:
-            store_thread_context(thread_id, user_prompt, runtime_context.snapshot)
+            # Resume ownership and provider credentials depend on this snapshot.
+            # Persist it before the graph can reach an interrupt checkpoint.
+            await store_thread_context_async(
+                thread_id,
+                user_prompt,
+                runtime_context.snapshot,
+            )
     else:
         # Offline / dependency-injection path: run with caller-supplied clients.
         # No credential resolution happens here — production always resolves a
@@ -671,9 +682,9 @@ def run_jarvis(
     # best-effort: callback failures never propagate into the graph result.
     try:
         if resuming:
-            result = app.invoke(Command(resume=clarification_reply), config)
+            result = await app.ainvoke(Command(resume=clarification_reply), config)
         else:
-            result = app.invoke(
+            result = await app.ainvoke(
                 build_initial_state(
                     user_prompt,
                     user_id=user_id,
@@ -700,12 +711,19 @@ def run_jarvis(
             )
     except BaseException as exc:
         if run_log is not None:
-            run_log.write_crash(exc)
+            await bounded_to_thread(run_log.write_crash, exc)
         raise
     result = enrich_interrupt_status(result, thread_id)
 
     thread_status = "interrupted" if result.get("interrupted") else "completed"
-    _register_thread(thread_id, identity, user_prompt, thread_status, resuming)
+    await bounded_to_thread(
+        _register_thread,
+        thread_id,
+        identity,
+        user_prompt,
+        thread_status,
+        resuming,
+    )
 
     # Production DeepSeek clients write into the explicitly run-scoped
     # accumulator. Preserve compatibility with injected/duck-typed clients that
@@ -764,9 +782,122 @@ def run_jarvis(
         result["run_log_path"] = str(run_log.path.resolve())
 
     duration_ms = int((finished_at - started_at).total_seconds() * 1000)
-    _log_usage(identity, thread_id, usage, duration_ms, DEEPSEEK_MODEL)
+    await bounded_to_thread(
+        _log_usage,
+        identity,
+        thread_id,
+        usage,
+        duration_ms,
+        DEEPSEEK_MODEL,
+    )
 
     return result
+
+
+def run_jarvis(
+    user_prompt: str = USER_PROMPT,
+    user_id: str = USER_ID,
+    request_source: str = "api",
+    allow_mutations: bool = ALLOW_MUTATIONS,
+    agent_client: Optional[Any] = None,
+    todoist_client: Optional[Any] = None,
+    max_agent_turns: int = MAX_AGENT_TURNS,
+    tracer: Optional[TracePrinter] = None,
+    thread_id: Optional[str] = None,
+    identity: Optional[TelegramIdentity] = None,
+    telegram_user_id: Optional[int] = None,
+    telegram_username: Optional[str] = None,
+    telegram_first_name: Optional[str] = None,
+    clarification_reply: Optional[str] = None,
+    checkpointer: Optional[Any] = None,
+    request_id: Optional[str] = None,
+    tool_selector: Optional[ToolSelector] = None,
+    idempotency_store: Optional[IdempotencyStore] = None,
+) -> JarvisState:
+    """Synchronous CLI/test adapter around :func:`run_jarvis_async`.
+
+    The adapter reuses one CLI-owned event loop so pooled async transports remain
+    loop-safe across sequential prompts and HITL resumes. Async API routes must
+    call ``run_jarvis_async`` directly.
+    """
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError(
+            "run_jarvis cannot be called from an active event loop; "
+            "await run_jarvis_async instead."
+        )
+    if checkpointer is None:
+        checkpointer = DEFAULT_CHECKPOINTER
+        ensure_default_checkpointer_setup()
+    checkpointer = as_async_checkpointer(checkpointer)
+    global _SYNC_RUNNER
+    invocation = run_jarvis_async(
+        user_prompt=user_prompt,
+        user_id=user_id,
+        request_source=request_source,
+        allow_mutations=allow_mutations,
+        agent_client=agent_client,
+        todoist_client=todoist_client,
+        max_agent_turns=max_agent_turns,
+        tracer=tracer,
+        thread_id=thread_id,
+        identity=identity,
+        telegram_user_id=telegram_user_id,
+        telegram_username=telegram_username,
+        telegram_first_name=telegram_first_name,
+        clarification_reply=clarification_reply,
+        checkpointer=checkpointer,
+        request_id=request_id,
+        tool_selector=tool_selector,
+        idempotency_store=idempotency_store,
+    )
+    with _SYNC_RUNNER_LOCK:
+        if _SYNC_RUNNER is None:
+            _SYNC_RUNNER = asyncio.Runner()
+        try:
+            return _SYNC_RUNNER.run(invocation)
+        except BaseException:
+            invocation.close()
+            raise
+
+
+def shutdown_sync_runner() -> None:
+    """Close CLI-owned async transports on their owning loop."""
+
+    global _SYNC_RUNNER
+    with _SYNC_RUNNER_LOCK:
+        runner = _SYNC_RUNNER
+        if runner is None:
+            return
+
+        async def close_resources() -> None:
+            from agents.agent_api.app.graph.nodes.orchestrator import (
+                close_shared_async_agent_client,
+            )
+            from agents.agent_api.app.graph.nodes.summarize import (
+                close_shared_async_summarizer_client,
+            )
+            from agents.agent_api.app.router.client import (
+                close_shared_async_router_openai_client,
+            )
+            from agents.agent_api.app.tools.todoist.client import (
+                close_todoist_async_http_client,
+            )
+
+            await close_shared_async_agent_client()
+            await close_shared_async_router_openai_client()
+            await close_shared_async_summarizer_client()
+            await close_todoist_async_http_client()
+
+        try:
+            runner.run(close_resources())
+        finally:
+            runner.close()
+            _SYNC_RUNNER = None
 
 
 __all__ = [
@@ -775,4 +906,6 @@ __all__ = [
     "get_or_compile_graph",
     "reset_compiled_graphs",
     "run_jarvis",
+    "run_jarvis_async",
+    "shutdown_sync_runner",
 ]

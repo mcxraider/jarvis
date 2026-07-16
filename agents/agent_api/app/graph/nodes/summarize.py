@@ -1,5 +1,6 @@
 """Summarization node: condenses large tool outputs before returning to agent."""
 
+import inspect
 import json
 import os
 import threading
@@ -15,8 +16,15 @@ from openai import (
     OpenAI,
     RateLimitError,
 )
-from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_random_exponential
+from tenacity import (
+    AsyncRetrying,
+    Retrying,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_random_exponential,
+)
 
+from agents.agent_api.app.async_offload import bounded_to_thread
 from agents.agent_api.app.constants import (
     DEEPSEEK_BASE_URL,
     SUMMARIZE_THRESHOLD,
@@ -199,10 +207,10 @@ async def close_shared_async_summarizer_client() -> None:
 def create_summarize_node(
     tracer: Optional[TracePrinter] = None,
     *,
-    client: Optional[OpenAI] = None,
+    client: Optional[Any] = None,
     model: str = SUMMARIZER_MODEL,
 ):
-    """Create a sync-compatible node over a shared, request-stateless SDK client."""
+    """Create an async node over a shared, request-stateless SDK client."""
 
     captured = RunDeps(tracer=tracer or NULL_TRACE)
     # Do not require provider credentials merely to compile the shared graph.
@@ -296,7 +304,94 @@ def create_summarize_node(
             )
             return _truncate_fallback(items, SUMMARIZE_THRESHOLD)
 
-    def summarize_node(
+    async def _async_call_summarizer(
+        items: List[Any],
+        user_query: str = "",
+        *,
+        tracer: TracePrinter,
+        client: Optional[Any] = None,
+    ) -> str:
+        """Call the shared async summarizer transport with retry and validation."""
+
+        count = len(items)
+        content = json.dumps(items, default=str)
+        max_tokens = _compute_max_tokens(count)
+        original_ids = _extract_task_ids(items)
+        query_display = user_query or "(no specific query — list all tasks)"
+        user_message = SUMMARIZE_USER_TEMPLATE.format(
+            user_query=query_display,
+            count=count,
+            content=content,
+        )
+        async def _create_completion(messages: List[Dict[str, str]]) -> Any:
+            provider_client = (
+                client if client is not None else get_shared_async_summarizer_client()
+            )
+            return await provider_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0,
+                max_tokens=max_tokens,
+            )
+
+        retrying = AsyncRetrying(
+            retry=retry_if_exception(_is_retryable_error),
+            wait=wait_random_exponential(
+                multiplier=1,
+                max=SUMMARIZER_RETRY_MAX_DELAY_SECONDS,
+            ),
+            stop=stop_after_attempt(SUMMARIZER_MAX_RETRY_ATTEMPTS),
+            reraise=True,
+        )
+        messages = [
+            {"role": "system", "content": SUMMARIZE_SYSTEM_PROMPT},
+            {"role": "user", "content": user_message},
+        ]
+        min_coverage = _compute_min_coverage(count)
+
+        try:
+            response = await retrying(_create_completion, messages)
+            summary = response.choices[0].message.content or ""
+
+            if original_ids and not _validate_summary(summary, original_ids, min_coverage):
+                tracer.event(
+                    "graph.summarize.validation_failed",
+                    "Summary missing too many task IDs, retrying with stronger instruction.",
+                    id_count=len(original_ids),
+                    min_coverage=min_coverage,
+                )
+                retry_messages = messages + [
+                    {"role": "assistant", "content": summary},
+                    {"role": "user", "content": SUMMARIZE_RETRY_INSTRUCTION},
+                ]
+                response = await retrying(_create_completion, retry_messages)
+                summary = response.choices[0].message.content or ""
+
+                if not _validate_summary(summary, original_ids, min_coverage):
+                    tracer.event(
+                        "graph.summarize.validation_failed_final",
+                        "Second attempt also failed validation, using fallback.",
+                    )
+                    return _truncate_fallback(items, SUMMARIZE_THRESHOLD)
+
+            tracer.event(
+                "graph.summarize.llm_done",
+                "Summarizer LLM returned.",
+                summary_length=len(summary),
+                item_count=count,
+                max_tokens=max_tokens,
+            )
+            return summary
+        except Exception as error:
+            tracer.event(
+                "graph.summarize.fallback",
+                "Summarizer LLM failed after retries, using truncated fallback.",
+                error=str(error),
+                item_count=count,
+            )
+            return _truncate_fallback(items, SUMMARIZE_THRESHOLD)
+
+    async def summarize_node(
         state: JarvisState,
         config: RunnableConfig | None = None,
     ) -> JarvisState:
@@ -364,11 +459,28 @@ def create_summarize_node(
                 item_count=item_count,
             )
 
-            summary = _call_summarizer(
-                items,
-                user_query=user_query,
-                tracer=tracer,
+            injected_create = (
+                getattr(summarizer_client.chat.completions, "create", None)
+                if summarizer_client is not None
+                else None
             )
+            if summarizer_client is None or inspect.iscoroutinefunction(injected_create):
+                summary = await _async_call_summarizer(
+                    items,
+                    user_query=user_query,
+                    tracer=tracer,
+                    client=summarizer_client,
+                )
+            else:
+                # Injected clients predate the async transport and remain useful
+                # for CLI integrations and deterministic tests. Run the complete
+                # retry/validation operation in the bounded compatibility pool.
+                summary = await bounded_to_thread(
+                    _call_summarizer,
+                    items,
+                    user_query=user_query,
+                    tracer=tracer,
+                )
 
             messages[i] = dict(messages[i])
             if isinstance(parsed, dict):

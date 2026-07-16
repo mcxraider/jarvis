@@ -4,33 +4,26 @@ This node is deterministic: it never calls the LLM. It applies guards
 (global mutation gate, approval check, hash binding, single-use token)
 and dispatches the exact frozen payloads on success.
 
-Approved calls execute concurrently (ThreadPoolExecutor) for throughput,
-while guard checks run sequentially (they're instant set-membership tests).
+Approved mutations execute sequentially so confirmation, idempotency, and external
+side effects retain a single deterministic order. Guard checks are also sequential
+(they are instant set-membership tests).
 
 Resilience: the batch is protected by a configurable timeout, a shared
 rate-limit throttle, and a circuit breaker that short-circuits remaining
 calls when the upstream service is consistently failing.
 """
 
-import contextvars
+import asyncio
 import json
-import logging
-import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from concurrent.futures import TimeoutError as FuturesTimeoutError
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from langchain_core.runnables import RunnableConfig
 
-_logger = logging.getLogger(__name__)
-
-REAPER_JOIN_TIMEOUT_SECONDS = 5.0
-
+from agents.agent_api.app.async_offload import bounded_to_thread
 from agents.agent_api.app.constants import (
     EXECUTOR_BATCH_TIMEOUT_SECONDS,
     EXECUTOR_CIRCUIT_BREAKER_THRESHOLD,
-    EXECUTOR_MAX_WORKERS,
     EXECUTOR_THROTTLE_ENABLED,
 )
 from agents.agent_api.app.graph.canonicalize import verify_hash
@@ -45,25 +38,6 @@ from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.dispatcher import ToolDispatcher, tool_result_to_message
 from agents.agent_api.app.tools.metadata import get_service
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
-
-
-def _reap_pool(pool: ThreadPoolExecutor) -> None:
-    """Spawn a background daemon that waits for orphaned threads to drain."""
-    def _join():
-        pool.shutdown(wait=True)
-        # If we get here within the timeout, threads drained cleanly.
-
-    def _monitor():
-        reaper = threading.Thread(target=_join, daemon=True)
-        reaper.start()
-        reaper.join(timeout=REAPER_JOIN_TIMEOUT_SECONDS)
-        if reaper.is_alive():
-            _logger.warning(
-                "Executor pool threads did not drain within %.1fs — orphaned threads may still be running.",
-                REAPER_JOIN_TIMEOUT_SECONDS,
-            )
-
-    threading.Thread(target=_monitor, daemon=True).start()
 
 
 def _decline_message(held: dict) -> dict:
@@ -108,32 +82,27 @@ def create_executor_node(
 
     _captured = RunDeps(dispatcher=tool_dispatcher, tracer=tracer or NULL_TRACE)
 
-    def _execute_one(
+    async def _execute_one(
         held: dict,
         tool_dispatcher: ToolDispatcher,
         throttle: BatchThrottle,
         breaker: BatchCircuitBreaker,
         batch_deadline: float,
-        cancelled: threading.Event,
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """Execute a single held call with resilience checks."""
-        if cancelled.is_set():
-            return timeout_error_envelope(held, EXECUTOR_BATCH_TIMEOUT_SECONDS)
-
         if breaker.is_open():
             return circuit_breaker_error_envelope(held, breaker.open_reason() or "transient")
 
         remaining = max(0.0, batch_deadline - time.monotonic())
-        if EXECUTOR_THROTTLE_ENABLED:
-            throttle.wait_if_paused(timeout=remaining)
-
-        if cancelled.is_set():
+        if remaining <= 0:
             return timeout_error_envelope(held, EXECUTOR_BATCH_TIMEOUT_SECONDS)
+        if EXECUTOR_THROTTLE_ENABLED:
+            await bounded_to_thread(throttle.wait_if_paused, timeout=remaining)
 
         if breaker.is_open():
             return circuit_breaker_error_envelope(held, breaker.open_reason() or "transient")
 
-        result = tool_dispatcher.execute_tool(
+        result = await tool_dispatcher.async_execute_tool(
             held["origin_tool_call_id"],
             held["tool_name"],
             held["args"],
@@ -154,7 +123,7 @@ def create_executor_node(
 
         return result
 
-    def executor_node(
+    async def executor_node(
         state: JarvisState,
         config: RunnableConfig | None = None,
     ) -> JarvisState:
@@ -238,80 +207,108 @@ def create_executor_node(
             all_consumed.add(held["id"])
             ready_to_execute.append((idx, held))
 
-        # Phase 2: Concurrent execution with resilience
-        execution_results: Dict[int, Dict[str, any]] = {}
+        # Phase 2: Sequential mutation execution with batch-scoped resilience.
+        # Once a confirmed mutation starts it is allowed to settle even if the
+        # batch deadline elapses; cancelling it would make the external outcome
+        # ambiguous. The elapsed deadline prevents later mutations from starting.
+        execution_results: Dict[int, Dict[str, Any]] = {}
 
         if ready_to_execute:
-            max_workers = min(len(ready_to_execute), EXECUTOR_MAX_WORKERS)
             batch_deadline = time.monotonic() + EXECUTOR_BATCH_TIMEOUT_SECONDS
             throttle = BatchThrottle()
             breaker = BatchCircuitBreaker(threshold=EXECUTOR_CIRCUIT_BREAKER_THRESHOLD)
-            cancelled = threading.Event()
 
             tracer.event(
                 "graph.executor",
-                "Dispatching concurrent execution.",
+                "Dispatching serialized confirmed mutations.",
                 count=len(ready_to_execute),
-                max_workers=max_workers,
                 timeout=EXECUTOR_BATCH_TIMEOUT_SECONDS,
             )
 
-            pool = ThreadPoolExecutor(max_workers=max_workers)
-            future_to_idx = {}
-            for idx, held in ready_to_execute:
+            completed = 0
+            for position, (idx, held) in enumerate(ready_to_execute):
+                remaining_timeout = max(0.0, batch_deadline - time.monotonic())
+                if remaining_timeout <= 0:
+                    for timeout_idx, timeout_held in ready_to_execute[position:]:
+                        execution_results[timeout_idx] = timeout_error_envelope(
+                            timeout_held,
+                            EXECUTOR_BATCH_TIMEOUT_SECONDS,
+                        )
+                    tracer.event(
+                        "graph.executor",
+                        "Batch timeout reached.",
+                        timeout=EXECUTOR_BATCH_TIMEOUT_SECONDS,
+                        completed=completed,
+                        total=len(ready_to_execute),
+                    )
+                    break
                 tracer.event(
                     "graph.executor",
                     "Executing confirmed action.",
                     held_call_id=held["id"],
                     tool_name=held["tool_name"],
                 )
-                ctx = contextvars.copy_context()
-                future = pool.submit(
-                    ctx.run, _execute_one, held, tool_dispatcher, throttle, breaker, batch_deadline, cancelled
-                )
-                future_to_idx[future] = (idx, held)
-
-            completed_futures: set = set()
-            remaining_timeout = max(0.001, batch_deadline - time.monotonic())
-            try:
-                for future in as_completed(future_to_idx, timeout=remaining_timeout):
-                    completed_futures.add(future)
-                    idx, held = future_to_idx[future]
-                    try:
-                        result = future.result()
-                    except Exception as exc:
-                        result = {
-                            "tool_call_id": held["origin_tool_call_id"],
-                            "tool_name": held["tool_name"],
-                            "success": False,
-                            "content": None,
-                            "error": f"Execution error: {exc}",
-                        }
-                    tracer.event(
-                        "graph.executor",
-                        "Execution completed.",
-                        held_call_id=held["id"],
-                        success=result.get("success"),
+                mutation_task = asyncio.create_task(
+                    _execute_one(
+                        held,
+                        tool_dispatcher,
+                        throttle,
+                        breaker,
+                        batch_deadline,
                     )
-                    execution_results[idx] = result
-            except FuturesTimeoutError:
-                cancelled.set()
+                )
+                try:
+                    done, _pending = await asyncio.wait(
+                        {mutation_task},
+                        timeout=max(0.001, remaining_timeout),
+                    )
+                    deadline_elapsed = not done
+                    # Provider-level request timeouts bound this wait. Shielding
+                    # ensures the batch timeout never cancels an in-flight write.
+                    result = await asyncio.shield(mutation_task)
+                except asyncio.CancelledError:
+                    # A request cancellation must likewise wait for a dispatched
+                    # mutation to settle; otherwise its external outcome and
+                    # idempotency claim would be left ambiguous.
+                    while not mutation_task.done():
+                        try:
+                            await asyncio.shield(mutation_task)
+                        except asyncio.CancelledError:
+                            continue
+                        except BaseException:
+                            break
+                    raise
+                except Exception as exc:
+                    result = {
+                        "tool_call_id": held["origin_tool_call_id"],
+                        "tool_name": held["tool_name"],
+                        "success": False,
+                        "content": None,
+                        "error": f"Execution error: {exc}",
+                    }
+                completed += 1
                 tracer.event(
                     "graph.executor",
-                    "Batch timeout reached.",
-                    timeout=EXECUTOR_BATCH_TIMEOUT_SECONDS,
-                    completed=len(completed_futures),
-                    total=len(future_to_idx),
+                    "Execution completed.",
+                    held_call_id=held["id"],
+                    success=result.get("success"),
                 )
-                for future, (idx, held) in future_to_idx.items():
-                    if future not in completed_futures:
-                        future.cancel()
-                        execution_results[idx] = timeout_error_envelope(
-                            held, EXECUTOR_BATCH_TIMEOUT_SECONDS
+                execution_results[idx] = result
+
+                if deadline_elapsed:
+                    for timeout_idx, timeout_held in ready_to_execute[position + 1 :]:
+                        execution_results[timeout_idx] = timeout_error_envelope(
+                            timeout_held,
+                            EXECUTOR_BATCH_TIMEOUT_SECONDS,
                         )
-            finally:
-                pool.shutdown(wait=False, cancel_futures=True)
-                _reap_pool(pool)
+                    tracer.event(
+                        "graph.executor",
+                        "Batch timeout reached after in-flight mutation settled.",
+                        timeout=EXECUTOR_BATCH_TIMEOUT_SECONDS,
+                        completed=completed,
+                        total=len(ready_to_execute),
+                    )
+                    break
 
         # Phase 3: Reassemble results in original order
         result_messages: List[dict] = []

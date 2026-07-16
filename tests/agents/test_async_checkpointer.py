@@ -36,6 +36,58 @@ def test_async_postgres_factory_uses_exact_shared_pool() -> None:
     postgres_aio.AsyncPostgresSaver.assert_called_once_with(pool)
 
 
+def test_sync_saver_compatibility_adapter_is_stable_and_offloads_methods() -> None:
+    from langgraph.checkpoint.base import BaseCheckpointSaver
+
+    class SyncSaver(BaseCheckpointSaver):
+        def __init__(self) -> None:
+            super().__init__()
+            self.writes = []
+
+        def get_tuple(self, config):
+            return ("tuple", config)
+
+        def list(self, config, **_kwargs):
+            yield ("listed", config)
+
+        def put(self, config, checkpoint, metadata, new_versions):
+            return {**config, "stored": checkpoint}
+
+        def put_writes(self, config, writes, task_id, task_path=""):
+            self.writes.append((config, writes, task_id, task_path))
+
+        def delete_thread(self, thread_id):
+            self.deleted = thread_id
+
+    saver = SyncSaver()
+    first = checkpointing.as_async_checkpointer(saver)
+    second = checkpointing.as_async_checkpointer(saver)
+
+    async def exercise() -> None:
+        assert await first.aget_tuple({"thread": "one"}) == (
+            "tuple",
+            {"thread": "one"},
+        )
+        assert [item async for item in first.alist({"thread": "one"})] == [
+            ("listed", {"thread": "one"})
+        ]
+        stored = await first.aput(
+            {"thread": "one"},
+            {"id": "checkpoint"},
+            {},
+            {},
+        )
+        assert stored["stored"] == {"id": "checkpoint"}
+        await first.aput_writes({"thread": "one"}, [("key", "value")], "task")
+        await first.adelete_thread("one")
+
+    asyncio.run(exercise())
+
+    assert first is second
+    assert saver.writes[-1][2] == "task"
+    assert saver.deleted == "one"
+
+
 def test_async_postgres_factory_requires_pool_and_dependency() -> None:
     with pytest.raises(RuntimeError, match="open async Postgres pool"):
         create_async_postgres_checkpointer(None)

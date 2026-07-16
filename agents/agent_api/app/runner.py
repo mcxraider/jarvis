@@ -32,7 +32,7 @@ os.environ.setdefault("JARVIS_CHECKPOINT_BACKEND", "memory")
 from agents.agent_api.app.checkpointing import DEFAULT_CHECKPOINTER  # noqa: E402
 from agents.agent_api.app.constants import ALLOW_MUTATIONS, MAX_AGENT_TURNS
 from agents.agent_api.app.formatting.tool_tree import render_tool_tree
-from agents.agent_api.app.graph.builder import run_jarvis
+from agents.agent_api.app.graph.builder import run_jarvis, shutdown_sync_runner
 from agents.agent_api.app.graph.nodes.orchestrator import DeepSeekAgentClient
 from agents.agent_api.app.graph.prompts import USER_PROMPT, USER_PROMPTS
 from agents.agent_api.app.graph.state import JarvisState
@@ -451,6 +451,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(str(error))
         traceback.print_exc()
         return 1
+    finally:
+        shutdown_sync_runner()
 
 
 __all__ = [

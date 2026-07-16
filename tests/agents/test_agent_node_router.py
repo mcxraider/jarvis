@@ -5,16 +5,21 @@ selector and a recording LLM client, so they verify the node's wiring (slim
 messages[0], preserve tool history) without any real DeepSeek or LangGraph run.
 """
 
+import asyncio
 import os
 from typing import Any, Dict, List
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # Disable tracing before importing anything that touches LangSmith/LangChain.
 os.environ["LANGSMITH_TRACING"] = "false"
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
-    from agents.agent_api.app.graph.nodes.orchestrator import create_agent_node
+    from agents.agent_api.app.graph.nodes.orchestrator import (
+        DeepSeekAgentClient,
+        UsageSummary,
+        create_agent_node,
+    )
 
 from agents.agent_api.app.graph.prompts.context import build_initial_messages
 from agents.agent_api.app.router.model_router import create_default_model_router
@@ -100,7 +105,7 @@ def _state_with_history(snapshot, *, turn_count=1):
 def _run_node(state, selector):
     client = RecordingClient()
     node = create_agent_node(client, _registry(), max_agent_turns=20, tool_selector=selector)
-    result = node(state)
+    result = asyncio.run(node(state))
     return client, result
 
 
@@ -325,7 +330,93 @@ class TestComplexityModelRouting:
             ),
         )
 
-        node(state)
+        asyncio.run(node(state))
 
         assert client.seen_kwargs["model"] == "pro"
         assert client.seen_kwargs["reasoning_effort"] == "max"
+
+
+class TestAsyncCompatibility:
+    def test_deepseek_node_uses_async_client_and_run_usage_accumulator(self):
+        client = DeepSeekAgentClient(
+            api_key="test-key",
+            client=MagicMock(),
+            async_client=MagicMock(),
+        )
+        client.create_message = MagicMock(side_effect=AssertionError("sync path used"))
+        client.async_create_message = AsyncMock(
+            return_value={"role": "assistant", "content": "done"}
+        )
+        usage = UsageSummary()
+        node = create_agent_node(
+            client,
+            _registry(),
+            max_agent_turns=20,
+            tool_selector=FakeDecisionSelector(
+                RouterDecision(
+                    outcome="routed",
+                    domains=["todoist"],
+                    uncertain=False,
+                    candidate_domains=[],
+                    complexity="low",
+                    reasoning="test",
+                )
+            ),
+            usage_accumulator=usage,
+        )
+
+        result = asyncio.run(node(_state_turn0(make_snapshot(active=("todoist",)))))
+
+        assert result["final_response"] == "done"
+        client.async_create_message.assert_awaited_once()
+        assert client.async_create_message.await_args.kwargs["usage_accumulator"] is usage
+        client.create_message.assert_not_called()
+
+    def test_injected_deepseek_without_async_transport_keeps_configured_sync_client(self):
+        client = DeepSeekAgentClient(api_key="test-key", client=MagicMock())
+        client.create_message = MagicMock(
+            return_value={"role": "assistant", "content": "configured"}
+        )
+        client.async_create_message = AsyncMock(
+            side_effect=AssertionError("global async path used")
+        )
+        node = create_agent_node(
+            client,
+            _registry(),
+            max_agent_turns=20,
+            tool_selector=FakeDecisionSelector(
+                RouterDecision(
+                    outcome="routed",
+                    domains=["todoist"],
+                    uncertain=False,
+                    candidate_domains=[],
+                    complexity="low",
+                    reasoning="test",
+                )
+            ),
+        )
+
+        result = asyncio.run(node(_state_turn0(make_snapshot(active=("todoist",)))))
+
+        assert result["final_response"] == "configured"
+        client.create_message.assert_called_once()
+        client.async_create_message.assert_not_awaited()
+
+    def test_magicmock_async_attributes_do_not_bypass_sync_compatibility(self):
+        client = MagicMock()
+        client.create_message.return_value = {"role": "assistant", "content": "done"}
+        selector = MagicMock()
+        selector.select_schemas.return_value = _registry().openai_schemas()
+        selector.decision = None
+        node = create_agent_node(
+            client,
+            _registry(),
+            max_agent_turns=20,
+            tool_selector=selector,
+        )
+
+        result = asyncio.run(node(_state_turn0(make_snapshot(active=("todoist",)))))
+
+        assert result["final_response"] == "done"
+        selector.select_schemas.assert_called_once()
+        client.create_message.assert_called_once()

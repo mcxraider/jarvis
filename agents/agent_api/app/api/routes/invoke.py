@@ -1,80 +1,114 @@
 """Invocation routes for starting Jarvis runs."""
 
-import json
-import logging
-import queue
-import threading
-import time
-from typing import Any, Dict, Optional
+from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException
+import asyncio
+import inspect
+import json
+import threading
+import weakref
+from typing import Any, Callable, Dict, Optional
+
+from fastapi import APIRouter, Header, HTTPException, Request as FastAPIRequest
 from fastapi.responses import StreamingResponse
 
+from agents.agent_api.app.async_offload import bounded_to_thread
 from agents.agent_api.app.api.admission import (
     RunSlot,
     capacity_exceeded,
-    try_acquire_run_slot,
+    try_acquire_run_slot_async,
 )
 from agents.agent_api.app.api.request_idempotency import RequestClaim
-from agents.agent_api.app.api.schemas import AgentResponse, BulkAgentResponse, BulkInvokeRequest, InvokeRequest
+from agents.agent_api.app.api.schemas import (
+    AgentResponse,
+    BulkAgentResponse,
+    BulkInvokeRequest,
+    InvokeRequest,
+)
+from agents.agent_api.app.checkpointing import DEFAULT_CHECKPOINTER, get_async_checkpointer
+from agents.agent_api.app.config import settings
 from agents.agent_api.app.errors import require_api_key
 from agents.agent_api.app.middleware import idempotency
 import agents.agent_api.app.middleware.rate_limit as rate_limit
-from agents.agent_api.app.middleware.request_gate import apply_request_gate
-from agents.agent_api.app.service import ALLOW_MUTATIONS, MAX_AGENT_TURNS, NULL_TRACE, JarvisState, run_jarvis
+from agents.agent_api.app.middleware.request_gate import (
+    abandon_claim_async,
+    apply_request_gate_async,
+)
+from agents.agent_api.app.service import (
+    ALLOW_MUTATIONS,
+    MAX_AGENT_TURNS,
+    NULL_TRACE,
+    JarvisState,
+    run_jarvis_async as run_jarvis,
+)
 from agents.agent_api.app.tracing import UserProgressTracePrinter
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
-STREAM_LIVENESS_TIMEOUT_SECONDS = 120.0
 STREAM_WORKER_DRAIN_TIMEOUT_SECONDS = 5.0
+STREAM_QUEUE_MAX = 256
 
-_active_stream_workers: set[threading.Thread] = set()
-_active_stream_workers_lock = threading.Lock()
-
-
-def _start_registered_stream_worker(worker_thread: threading.Thread) -> None:
-    """Publish and start a worker atomically with respect to shutdown drain."""
-
-    with _active_stream_workers_lock:
-        _active_stream_workers.add(worker_thread)
-        try:
-            worker_thread.start()
-        except BaseException:
-            _active_stream_workers.discard(worker_thread)
-            raise
+_active_stream_producers: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, set[asyncio.Task[Any]]
+] = weakref.WeakKeyDictionary()
+_active_stream_producers_lock = threading.Lock()
 
 
-def _unregister_stream_worker(worker_thread: threading.Thread) -> None:
-    with _active_stream_workers_lock:
-        _active_stream_workers.discard(worker_thread)
+def _track_producer(task: asyncio.Task[Any]) -> asyncio.Task[Any]:
+    """Track accepted graph work until it actually settles."""
+
+    loop = task.get_loop()
+    with _active_stream_producers_lock:
+        _active_stream_producers.setdefault(loop, set()).add(task)
+
+    def remove(completed: asyncio.Task[Any]) -> None:
+        with _active_stream_producers_lock:
+            tasks = _active_stream_producers.get(loop)
+            if tasks is not None:
+                tasks.discard(completed)
+                if not tasks:
+                    _active_stream_producers.pop(loop, None)
+        if not completed.cancelled():
+            # Retrieve an exception when a disconnected client no longer awaits
+            # the producer. Other awaiters can still retrieve the same result.
+            completed.exception()
+
+    task.add_done_callback(remove)
+    return task
 
 
-def drain_stream_workers(
+async def drain_stream_workers(
     timeout: float = STREAM_WORKER_DRAIN_TIMEOUT_SECONDS,
 ) -> bool:
-    """Wait up to ``timeout`` seconds for active stream workers to finish."""
+    """Wait for accepted graph producers owned by this event loop to settle."""
 
-    deadline = time.monotonic() + max(0.0, timeout)
-    current_thread = threading.current_thread()
+    loop = asyncio.get_running_loop()
+    current_task = asyncio.current_task()
+    deadline = loop.time() + max(0.0, timeout)
     while True:
-        with _active_stream_workers_lock:
-            workers = tuple(
-                worker
-                for worker in _active_stream_workers
-                if worker is not current_thread
-            )
-        if not workers:
-            return True
-
-        remaining = deadline - time.monotonic()
+        with _active_stream_producers_lock:
+            tasks = {
+                task
+                for task in _active_stream_producers.get(loop, ())
+                if task is not current_task and not task.done()
+            }
+        if not tasks:
+            # Let completion callbacks and already-admitted routes publish any
+            # successor work before declaring the registry stably empty.
+            await asyncio.sleep(0)
+            with _active_stream_producers_lock:
+                if not any(
+                    task is not current_task and not task.done()
+                    for task in _active_stream_producers.get(loop, ())
+                ):
+                    return True
+            continue
+        remaining = deadline - loop.time()
         if remaining <= 0:
             return False
-        for worker in workers:
-            worker.join(timeout=max(0.0, deadline - time.monotonic()))
-            if time.monotonic() >= deadline:
-                break
+        _done, pending = await asyncio.wait(tasks, timeout=remaining)
+        if pending:
+            return False
 
 
 def allow_mutations(request_value: Optional[bool]) -> bool:
@@ -123,7 +157,10 @@ def to_response(result: JarvisState) -> AgentResponse:
 
     if result.get("error"):
         error = str(result.get("error"))
-        user_response = str(result.get("final_response") or "Jarvis could not complete that request.")
+        user_response = str(
+            result.get("final_response")
+            or "Jarvis could not complete that request."
+        )
         return AgentResponse(
             status="failed",
             thread_id=thread_id,
@@ -151,173 +188,280 @@ begin_idempotent_request = idempotency.begin_idempotent_request
 finish_idempotent_request = idempotency.finish_idempotent_request
 
 
-def stream_final_response(response: AgentResponse) -> StreamingResponse:
-    event = {"type": "final", "response": response_payload(response)}
-    return StreamingResponse(
-        iter([json.dumps(event, default=str) + "\n"]),
-        media_type="application/x-ndjson",
+def runtime_checkpointer(http_request: Optional[FastAPIRequest] = None) -> Any:
+    """Use the request app's saver, with a memory-only direct-test fallback."""
+
+    if http_request is not None:
+        checkpointer = getattr(http_request.app.state, "async_checkpointer", None)
+        if checkpointer is not None:
+            return checkpointer
+
+    try:
+        return get_async_checkpointer()
+    except RuntimeError:
+        if settings.checkpoint_backend == "memory":
+            return DEFAULT_CHECKPOINTER
+        raise
+
+
+async def _call_maybe_async(
+    run_callable: Callable[[UserProgressTracePrinter], Any],
+    tracer: UserProgressTracePrinter,
+) -> JarvisState:
+    if inspect.iscoroutinefunction(run_callable):
+        return await run_callable(tracer)
+    result = await bounded_to_thread(run_callable, tracer)
+    if inspect.isawaitable(result):
+        result = await result
+    return result
+
+
+async def _call_runner(runner: Callable[..., Any], **kwargs: Any) -> JarvisState:
+    """Call the production async runner or a patched legacy sync fake safely."""
+
+    if inspect.iscoroutinefunction(runner):
+        return await runner(**kwargs)
+    result = await bounded_to_thread(runner, **kwargs)
+    if inspect.isawaitable(result):
+        result = await result
+    return result
+
+
+def _failed_response(error: BaseException, thread_id: str = "") -> AgentResponse:
+    return AgentResponse(
+        status="failed",
+        thread_id=thread_id,
+        response="Jarvis is temporarily unavailable. Please try again in a moment.",
+        error=str(error),
     )
 
 
-def stream_agent_run(
-    run_callable: Any,
-    request_claim: Optional[RequestClaim] = None,
-    run_slot: Optional[RunSlot] = None,
-):
-    def cleanup_failed_start() -> None:
-        """Release route-owned resources when worker ownership never begins."""
+async def _settle_agent_run(
+    run_callable: Callable[[UserProgressTracePrinter], Any],
+    tracer: UserProgressTracePrinter,
+    request_claim: Optional[RequestClaim],
+    run_slot: Optional[RunSlot],
+    failure_thread_id: str = "",
+) -> AgentResponse:
+    """Run and finalize one accepted request before returning its capacity."""
 
+    try:
+        result = await _call_maybe_async(run_callable, tracer)
+        response = to_response(result)
+        if request_claim is not None:
+            await bounded_to_thread(
+                finish_idempotent_request,
+                request_claim,
+                response,
+            )
+        return response
+    except asyncio.CancelledError:
+        if request_claim is not None:
+            await abandon_claim_async(request_claim)
+        raise
+    except Exception as error:
+        if request_claim is not None:
+            await abandon_claim_async(request_claim)
+        return _failed_response(error, failure_thread_id)
+    finally:
+        if run_slot is not None:
+            run_slot.release()
+
+
+async def _start_agent_run(
+    run_callable: Callable[[UserProgressTracePrinter], Any],
+    tracer: UserProgressTracePrinter,
+    request_claim: Optional[RequestClaim],
+    run_slot: Optional[RunSlot],
+    failure_thread_id: str = "",
+) -> asyncio.Task[AgentResponse]:
+    """Create a tracked producer, cleaning route-owned resources on failure."""
+
+    producer = _settle_agent_run(
+        run_callable,
+        tracer,
+        request_claim,
+        run_slot,
+        failure_thread_id,
+    )
+    try:
+        task = asyncio.create_task(producer)
+    except BaseException:
+        producer.close()
         try:
             if request_claim is not None:
-                idempotency.abandon_idempotent_request(request_claim)
-        except Exception:
-            # Claim cleanup is best-effort; capacity must still be returned and
-            # the original stream-start failure should reach the caller.
-            pass
+                await abandon_claim_async(request_claim)
         finally:
             if run_slot is not None:
                 run_slot.release()
-
+        raise
     try:
-        events: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue()
+        return _track_producer(task)
     except BaseException:
-        cleanup_failed_start()
+        task.cancel()
+        try:
+            await task
+        except BaseException:
+            pass
+        try:
+            if request_claim is not None:
+                await abandon_claim_async(request_claim)
+        finally:
+            if run_slot is not None:
+                run_slot.release()
+        raise
+
+
+async def _await_accepted_task(task: asyncio.Task[Any]) -> Any:
+    """Do not let request cancellation duplicate accepted mutation work."""
+
+    cancellation_requested = False
+    while True:
+        try:
+            result = await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if task.cancelled():
+                raise
+            cancellation_requested = True
+            continue
+        if cancellation_requested:
+            raise asyncio.CancelledError
+        return result
+
+
+async def run_agent_request(
+    run_callable: Callable[[UserProgressTracePrinter], Any],
+    request_claim: Optional[RequestClaim],
+    run_slot: Optional[RunSlot],
+    failure_thread_id: str = "",
+) -> AgentResponse:
+    """Run a non-streaming request through the tracked producer lifecycle."""
+
+    task = await _start_agent_run(
+        run_callable,
+        UserProgressTracePrinter(lambda _progress: None, enabled=False),
+        request_claim,
+        run_slot,
+        failure_thread_id,
+    )
+    return await _await_accepted_task(task)
+
+
+def stream_final_response(response: AgentResponse) -> StreamingResponse:
+    async def iterator():
+        event = {"type": "final", "response": response_payload(response)}
+        yield json.dumps(event, default=str) + "\n"
+
+    return StreamingResponse(iterator(), media_type="application/x-ndjson")
+
+
+async def stream_agent_run(
+    run_callable: Callable[[UserProgressTracePrinter], Any],
+    request_claim: Optional[RequestClaim] = None,
+    run_slot: Optional[RunSlot] = None,
+    failure_thread_id: str = "",
+) -> StreamingResponse:
+    """Start one native async producer and stream bounded NDJSON progress."""
+
+    loop = asyncio.get_running_loop()
+    loop_thread_id = threading.get_ident()
+    try:
+        events: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(
+            maxsize=STREAM_QUEUE_MAX
+        )
+        # Progress callbacks may originate from bounded compatibility threads.
+        consumer_closed = threading.Event()
+        pending_callbacks = threading.BoundedSemaphore(STREAM_QUEUE_MAX)
+    except BaseException:
+        try:
+            if request_claim is not None:
+                await abandon_claim_async(request_claim)
+        finally:
+            if run_slot is not None:
+                run_slot.release()
         raise
     sequence = 0
 
-    def emit_progress(progress: Dict[str, Any]) -> None:
+    def enqueue_progress(progress: Dict[str, Any]) -> None:
         nonlocal sequence
-        sequence += 1
-        event = {
-            "type": "progress",
-            "sequence": sequence,
-            # Preserve legacy fields for clients that have not adopted facts.
-            "stage": progress.get("stage", "progress"),
-            "message": progress.get("message", "Jarvis is working"),
-        }
-        if isinstance(progress.get("fact"), dict):
-            event["fact"] = progress["fact"]
-        events.put(event)
-
-    def worker() -> None:
         try:
-            result = run_callable(UserProgressTracePrinter(emit_progress, enabled=False))
-            response = to_response(result)
-            if request_claim is not None:
-                finish_idempotent_request(request_claim, response)
-            events.put({"type": "final", "response": response_payload(response)})
-        except Exception as error:
-            logger.exception(
-                "Jarvis streaming invocation failed before producing a result.",
-                extra={"error": str(error)},
-            )
-            if request_claim is not None:
-                idempotency.abandon_idempotent_request(request_claim)
-            events.put(
-                {
-                    "type": "final",
-                    "response": response_payload(
-                        AgentResponse(
-                            status="failed",
-                            thread_id="",
-                            response="Jarvis is temporarily unavailable. Please try again in a moment.",
-                            error=str(error),
-                        )
-                    ),
-                }
-            )
+            if consumer_closed.is_set() or events.full():
+                return
+            sequence += 1
+            event: Dict[str, Any] = {
+                "type": "progress",
+                "sequence": sequence,
+                # Preserve legacy fields for clients that have not adopted facts.
+                "stage": progress.get("stage", "progress"),
+                "message": progress.get("message", "Jarvis is working"),
+            }
+            if isinstance(progress.get("fact"), dict):
+                event["fact"] = progress["fact"]
+            events.put_nowait(event)
         finally:
-            try:
-                if run_slot is not None:
-                    run_slot.release()
-            finally:
-                try:
-                    events.put(None)
-                finally:
-                    _unregister_stream_worker(threading.current_thread())
+            pending_callbacks.release()
 
-    worker_thread: Optional[threading.Thread] = None
-    try:
-        worker_thread = threading.Thread(target=worker, daemon=True)
-        _start_registered_stream_worker(worker_thread)
-    except BaseException:
-        cleanup_failed_start()
-        raise
+    def emit_progress(progress: Dict[str, Any]) -> None:
+        if consumer_closed.is_set() or not pending_callbacks.acquire(blocking=False):
+            return
+        progress_copy = dict(progress)
+        if threading.get_ident() == loop_thread_id:
+            enqueue_progress(progress_copy)
+            return
+        try:
+            loop.call_soon_threadsafe(enqueue_progress, progress_copy)
+        except RuntimeError:
+            pending_callbacks.release()
 
-    def iterator():
-        while True:
+    tracer = UserProgressTracePrinter(emit_progress, enabled=False)
+    task = await _start_agent_run(
+        run_callable,
+        tracer,
+        request_claim,
+        run_slot,
+        failure_thread_id,
+    )
+
+    def publish_final(completed: asyncio.Task[AgentResponse]) -> None:
+        if completed.cancelled() or consumer_closed.is_set():
+            return
+        try:
+            response = completed.result()
+        except BaseException as error:
+            response = _failed_response(error)
+        # Final delivery has priority over progress under backpressure. Keeping
+        # this loop-owned and synchronous avoids an orphan terminal enqueue task.
+        while events.full():
             try:
-                event = events.get(timeout=STREAM_LIVENESS_TIMEOUT_SECONDS)
-            except queue.Empty:
-                if not worker_thread.is_alive():
-                    logger.error("Stream worker thread died without sending sentinel.")
-                    yield json.dumps({
-                        "type": "final",
-                        "response": {
-                            "status": "failed",
-                            "thread_id": "",
-                            "response": "Jarvis encountered an internal error. Please try again.",
-                            "error": "Worker thread terminated unexpectedly.",
-                        },
-                    }, default=str) + "\n"
-                    break
-                continue
-            if event is None:
+                events.get_nowait()
+            except asyncio.QueueEmpty:
                 break
-            yield json.dumps(event, default=str) + "\n"
+        events.put_nowait({"type": "final", "response": response_payload(response)})
+
+    task.add_done_callback(publish_final)
+
+    async def iterator():
+        try:
+            while True:
+                event = await events.get()
+                yield json.dumps(event, default=str) + "\n"
+                if event.get("type") == "final":
+                    break
+        finally:
+            # Disconnect never cancels accepted graph/mutation work. The producer
+            # remains tracked and owns its claim/slot until durable finalization.
+            consumer_closed.set()
 
     return StreamingResponse(iterator(), media_type="application/x-ndjson")
 
 
 @router.post("/invoke", response_model=AgentResponse)
-def invoke(
+async def invoke(
     request: InvokeRequest,
+    http_request: FastAPIRequest,
     x_jarvis_agent_key: Optional[str] = Header(default=None),
 ) -> AgentResponse:
-    ctx = apply_request_gate(
-        "invoke",
-        request,
-        x_jarvis_agent_key,
-        charges_new_thread_quota=True,
-        require_thread_ownership=True,
-        admit_run=True,
-    )
-    try:
-        if ctx.cached_response is not None:
-            return ctx.cached_response
-        try:
-            result = run_jarvis(
-                user_prompt=request.message,
-                user_id=request.user_id,
-                request_source=ctx.request_source,
-                allow_mutations=allow_mutations(request.allow_mutations),
-                tracer=NULL_TRACE,
-                thread_id=request.thread_id,
-                identity=ctx.identity,
-                request_id=request.request_id,
-            )
-            response = to_response(result)
-            finish_idempotent_request(ctx.claim, response)
-            return response
-        except Exception as error:
-            idempotency.abandon_idempotent_request(ctx.claim)
-            return AgentResponse(
-                status="failed",
-                thread_id=request.thread_id or "",
-                response="Jarvis is temporarily unavailable. Please try again in a moment.",
-                error=str(error),
-            )
-    finally:
-        if ctx.run_slot is not None:
-            ctx.run_slot.release()
-
-
-@router.post("/invoke/stream")
-def invoke_stream(
-    request: InvokeRequest,
-    x_jarvis_agent_key: Optional[str] = Header(default=None),
-) -> StreamingResponse:
-    ctx = apply_request_gate(
+    ctx = await apply_request_gate_async(
         "invoke",
         request,
         x_jarvis_agent_key,
@@ -326,12 +470,11 @@ def invoke_stream(
         admit_run=True,
     )
     if ctx.cached_response is not None:
-        if ctx.run_slot is not None:
-            ctx.run_slot.release()
-        return stream_final_response(ctx.cached_response)
+        return ctx.cached_response
 
-    def run_with_tracer(tracer: UserProgressTracePrinter) -> JarvisState:
-        return run_jarvis(
+    async def run_with_tracer(tracer: UserProgressTracePrinter) -> Any:
+        return await _call_runner(
+            run_jarvis,
             user_prompt=request.message,
             user_id=request.user_id,
             request_source=ctx.request_source,
@@ -340,78 +483,142 @@ def invoke_stream(
             thread_id=request.thread_id,
             identity=ctx.identity,
             request_id=request.request_id,
+            checkpointer=runtime_checkpointer(http_request),
         )
 
-    return stream_agent_run(
+    return await run_agent_request(
+        run_with_tracer,
+        ctx.claim,
+        ctx.run_slot,
+        failure_thread_id=request.thread_id or "",
+    )
+
+
+@router.post("/invoke/stream")
+async def invoke_stream(
+    request: InvokeRequest,
+    http_request: FastAPIRequest,
+    x_jarvis_agent_key: Optional[str] = Header(default=None),
+) -> StreamingResponse:
+    ctx = await apply_request_gate_async(
+        "invoke",
+        request,
+        x_jarvis_agent_key,
+        charges_new_thread_quota=True,
+        require_thread_ownership=True,
+        admit_run=True,
+    )
+    if ctx.cached_response is not None:
+        return stream_final_response(ctx.cached_response)
+
+    async def run_with_tracer(tracer: UserProgressTracePrinter) -> Any:
+        return await _call_runner(
+            run_jarvis,
+            user_prompt=request.message,
+            user_id=request.user_id,
+            request_source=ctx.request_source,
+            allow_mutations=allow_mutations(request.allow_mutations),
+            tracer=tracer,
+            thread_id=request.thread_id,
+            identity=ctx.identity,
+            request_id=request.request_id,
+            checkpointer=runtime_checkpointer(http_request),
+        )
+
+    return await stream_agent_run(
         run_with_tracer,
         request_claim=ctx.claim,
         run_slot=ctx.run_slot,
+        failure_thread_id=request.thread_id or "",
     )
 
 
 @router.post("/invoke-bulk", response_model=BulkAgentResponse)
-def invoke_bulk(
+async def invoke_bulk(
     request: BulkInvokeRequest,
+    http_request: FastAPIRequest,
     x_jarvis_agent_key: Optional[str] = Header(default=None),
 ) -> BulkAgentResponse:
     require_api_key(x_jarvis_agent_key)
     identity = request.resolved_telegram_identity()
     messages = [message.strip() for message in request.messages if message.strip()]
     if not messages:
-        raise HTTPException(status_code=422, detail="At least one non-empty message is required.")
+        raise HTTPException(
+            status_code=422,
+            detail="At least one non-empty message is required.",
+        )
 
-    run_slot = try_acquire_run_slot()
+    run_slot = await try_acquire_run_slot_async()
     if run_slot is None:
         raise capacity_exceeded()
 
-    try:
+    async def run_batch() -> BulkAgentResponse:
         results = []
-        for index, message in enumerate(messages):
-            try:
-                rate_limit.consume_new_thread_quota(identity)
-                result = run_jarvis(
-                    user_prompt=message,
-                    user_id=request.user_id,
-                    request_source=request_source(request.source, identity),
-                    allow_mutations=allow_bulk_mutations(request.allow_mutations),
-                    max_agent_turns=request.max_agent_turns or MAX_AGENT_TURNS,
-                    tracer=NULL_TRACE,
-                    identity=identity,
-                    request_id=request.request_id,
-                )
-                results.append(to_response(result))
-            except HTTPException as error:
-                if error.status_code != 429:
-                    raise
-                detail = str(error.detail)
-                failed_response = AgentResponse(
-                    status="failed",
-                    thread_id="",
-                    response=detail,
-                    error=f"HTTP 429: {detail}",
-                )
-                results.append(failed_response)
-                remaining = len(messages) - index - 1
-                results.extend(
-                    AgentResponse(
+        try:
+            for index, message in enumerate(messages):
+                try:
+                    await bounded_to_thread(
+                        rate_limit.consume_new_thread_quota,
+                        identity,
+                    )
+                    result = await _call_runner(
+                        run_jarvis,
+                        user_prompt=message,
+                        user_id=request.user_id,
+                        request_source=request_source(request.source, identity),
+                        allow_mutations=allow_bulk_mutations(request.allow_mutations),
+                        max_agent_turns=request.max_agent_turns or MAX_AGENT_TURNS,
+                        tracer=NULL_TRACE,
+                        identity=identity,
+                        request_id=request.request_id,
+                        checkpointer=runtime_checkpointer(http_request),
+                    )
+                    results.append(to_response(result))
+                except HTTPException as error:
+                    if error.status_code != 429:
+                        raise
+                    detail = str(error.detail)
+                    failed_response = AgentResponse(
                         status="failed",
                         thread_id="",
                         response=detail,
                         error=f"HTTP 429: {detail}",
                     )
-                    for _ in range(remaining)
-                )
-                break
-            except Exception as error:
-                results.append(
-                    AgentResponse(
-                        status="failed",
-                        thread_id="",
-                        response="Jarvis is temporarily unavailable. Please try again in a moment.",
-                        error=str(error),
+                    results.append(failed_response)
+                    remaining = len(messages) - index - 1
+                    results.extend(
+                        AgentResponse(
+                            status="failed",
+                            thread_id="",
+                            response=detail,
+                            error=f"HTTP 429: {detail}",
+                        )
+                        for _ in range(remaining)
                     )
-                )
+                    break
+                except Exception as error:
+                    results.append(_failed_response(error))
 
-        return BulkAgentResponse(results=results)
-    finally:
+            return BulkAgentResponse(results=results)
+        finally:
+            run_slot.release()
+
+    producer = run_batch()
+    try:
+        task = asyncio.create_task(producer)
+    except BaseException:
+        producer.close()
         run_slot.release()
+        raise
+    try:
+        _track_producer(task)
+    except BaseException:
+        task.cancel()
+        try:
+            await task
+        except BaseException:
+            pass
+        finally:
+            run_slot.release()
+        raise
+    return await _await_accepted_task(task)

@@ -80,6 +80,8 @@ def test_cancelled_waiter_keeps_permit_until_worker_finishes() -> None:
             )
             await first_entered.wait()
             first.cancel()
+            await asyncio.sleep(0)
+            first.cancel()
             second = asyncio.create_task(
                 async_offload.bounded_to_thread(lambda value: value, "second")
             )

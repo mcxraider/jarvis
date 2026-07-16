@@ -1,5 +1,6 @@
 """Tests for the prepare_confirm node."""
 
+import asyncio
 import json
 
 import pytest
@@ -49,7 +50,7 @@ class TestPrepareConfirmNode:
         calls = [_make_tool_call("delete_todoist_task", "c1", {"task_id": "99"})]
         state = _make_state(calls)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         held_calls = result["held_calls"]
         assert len(held_calls) == 1
         assert held_calls[0]["tool_name"] == "delete_todoist_task"
@@ -65,7 +66,7 @@ class TestPrepareConfirmNode:
         ]
         state = _make_state(calls)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         # All risky calls held, safe calls deferred
         assert len(result["held_calls"]) == 1
         messages = result["messages"]
@@ -83,7 +84,7 @@ class TestPrepareConfirmNode:
         ]
         state = _make_state(calls)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         held_calls = result["held_calls"]
         assert len(held_calls) == 2
         assert held_calls[0]["origin_tool_call_id"] == "c1"
@@ -96,14 +97,14 @@ class TestPrepareConfirmNode:
         calls = [_make_tool_call("get_todoist_tasks", "c1")]
         state = _make_state(calls)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result.get("error")
         assert result["next"] == "end"
 
     def test_empty_tool_calls_errors(self):
         state = _make_state([])
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result.get("error")
 
     def test_enriches_update_with_task_content_from_prior_results(self):
@@ -134,7 +135,7 @@ class TestPrepareConfirmNode:
             prior_messages=prior_messages,
         )
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result["held_calls"][0]["context"] == {
             "task_content": "Submit expense report"
         }
@@ -149,7 +150,7 @@ class TestPrepareConfirmNode:
         ]
         state = _make_state(calls, prior_messages=prior_messages)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result["held_calls"][0]["context"] == {
             "task_content": "Cancel duplicate reminder"
         }
@@ -171,7 +172,7 @@ class TestPrepareConfirmNode:
         ]
         state = _make_state(calls, prior_messages=prior_messages)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result["held_calls"][0]["context"] == {"event_summary": "Team sync"}
 
     def test_enriches_calendar_delete_from_single_event_result(self):
@@ -186,7 +187,7 @@ class TestPrepareConfirmNode:
         ]
         state = _make_state(calls, prior_messages=prior_messages)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result["held_calls"][0]["context"] == {
             "event_summary": "Dentist appointment"
         }
@@ -214,7 +215,7 @@ class TestPrepareConfirmNode:
             prior_messages=prior_messages,
         )
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result["held_calls"][0]["context"] == {"event_summary": "Team sync"}
 
     def test_calendar_delete_without_prior_read_has_no_context(self):
@@ -223,7 +224,7 @@ class TestPrepareConfirmNode:
         ]
         state = _make_state(calls)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         assert "context" not in result["held_calls"][0]
 
     def test_call_index_uses_full_array_position_not_subset(self):
@@ -240,7 +241,7 @@ class TestPrepareConfirmNode:
         ]
         state = _make_state(calls)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
 
         # All mutations are risky (bulk gate + delete); only read is safe.
         # The focal calls are c1 (idx=1) and c2 (idx=2) in the full array.

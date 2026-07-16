@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 
 from agents.api import app, create_app
+from agents.agent_api.app import run_logging
 from agents.agent_api.app.checkpointing.postgres import create_postgres_checkpointer
 from agents.agent_api.app.config import load_settings
 from agents.agent_api.app.service import InMemorySaver, create_default_checkpointer
@@ -16,6 +17,12 @@ from agents.agent_api.app.service import InMemorySaver, create_default_checkpoin
 class JarvisApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
+
+    def tearDown(self) -> None:
+        self.client.close()
+        # Lifespan tests intentionally exercise the process-final logger shutdown.
+        # Restore its worker so later tests do not inherit a closed executor.
+        run_logging.reset_log_writer()
 
     def test_health(self) -> None:
         response = self.client.get("/health")
@@ -27,7 +34,8 @@ class JarvisApiTests(unittest.TestCase):
         with patch("agents.agent_api.app.db.verify_database_runtime"), \
             patch("agents.agent_api.app.db.close_pool"), \
             patch(
-                "agents.agent_api.app.api.routes.invoke.drain_stream_workers"
+                "agents.agent_api.app.api.routes.invoke.drain_stream_workers",
+                new_callable=AsyncMock,
             ) as drain_workers, \
             patch("agents.agent_api.app.run_logging.shutdown_run_logs") as shutdown, \
             patch(
@@ -43,7 +51,7 @@ class JarvisApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         close_todoist.assert_called_once_with()
         close_todoist_async.assert_awaited_once_with()
-        drain_workers.assert_called_once_with(timeout=5.0)
+        drain_workers.assert_awaited_once_with(timeout=5.0)
         shutdown.assert_called_once_with(timeout=5.0)
 
     def test_fastapi_lifespan_owns_async_checkpointer_and_pool(self) -> None:
@@ -67,6 +75,7 @@ class JarvisApiTests(unittest.TestCase):
             side_effect=lambda: lifecycle_order.append("sync_readiness"),
         ), patch(
             "agents.agent_api.app.api.routes.invoke.drain_stream_workers",
+            new_callable=AsyncMock,
             return_value=True,
         ), patch(
             "agents.agent_api.app.db.close_pool",
@@ -111,6 +120,7 @@ class JarvisApiTests(unittest.TestCase):
             side_effect=RuntimeError("readiness failed"),
         ), patch(
             "agents.agent_api.app.api.routes.invoke.drain_stream_workers",
+            new_callable=AsyncMock,
             return_value=True,
         ), patch(
             "agents.agent_api.app.db.close_pool"
@@ -150,6 +160,7 @@ class JarvisApiTests(unittest.TestCase):
     def test_fastapi_lifespan_reports_undrained_blocking_offloads(self) -> None:
         with patch("agents.agent_api.app.db.verify_database_runtime"), patch(
             "agents.agent_api.app.api.routes.invoke.drain_stream_workers",
+            new_callable=AsyncMock,
             return_value=True,
         ), patch(
             "agents.agent_api.app.async_offload.drain_offloads",
@@ -172,11 +183,80 @@ class JarvisApiTests(unittest.TestCase):
         close_pool.assert_not_called()
         close_async_pool.assert_not_awaited()
 
+    def test_fastapi_lifespan_leaves_resources_open_for_undrained_producers(
+        self,
+    ) -> None:
+        with patch("agents.agent_api.app.db.verify_database_runtime"), patch(
+            "agents.agent_api.app.api.routes.invoke.drain_stream_workers",
+            new_callable=AsyncMock,
+            return_value=False,
+        ) as drain_workers, patch(
+            "agents.agent_api.app.async_offload.drain_offloads",
+            new_callable=AsyncMock,
+            return_value=True,
+        ), patch(
+            "agents.agent_api.app.graph.nodes.orchestrator.close_shared_agent_client"
+        ) as close_agent, patch(
+            "agents.agent_api.app.router.client.close_shared_router_client"
+        ) as close_router, patch(
+            "agents.agent_api.app.graph.nodes.summarize.close_shared_summarizer_client"
+        ) as close_summarizer, patch(
+            "agents.agent_api.app.graph.nodes.orchestrator.close_shared_async_agent_client",
+            new_callable=AsyncMock,
+        ) as close_agent_async, patch(
+            "agents.agent_api.app.router.client.close_shared_async_router_openai_client",
+            new_callable=AsyncMock,
+        ) as close_router_async, patch(
+            "agents.agent_api.app.graph.nodes.summarize.close_shared_async_summarizer_client",
+            new_callable=AsyncMock,
+        ) as close_summarizer_async, patch(
+            "agents.agent_api.app.graph.builder.reset_compiled_graphs"
+        ) as reset_graphs, patch(
+            "agents.agent_api.app.checkpointing.reset_async_checkpointer"
+        ) as reset_checkpointer, patch(
+            "agents.agent_api.app.async_offload.reset_offload_limiters"
+        ) as reset_offloads, patch(
+            "agents.agent_api.app.run_logging.shutdown_run_logs"
+        ) as shutdown_logs, patch(
+            "agents.agent_api.app.tools.todoist.client.close_todoist_http_client"
+        ) as close_todoist, patch(
+            "agents.agent_api.app.tools.todoist.client.close_todoist_async_http_client",
+            new_callable=AsyncMock,
+        ) as close_todoist_async, patch(
+            "agents.agent_api.app.db.close_pool"
+        ) as close_pool, patch(
+            "agents.agent_api.app.db.close_async_pool",
+            new_callable=AsyncMock,
+        ) as close_async_pool:
+            with self.assertRaisesRegex(
+                TimeoutError,
+                "Active streaming workers did not drain",
+            ):
+                with TestClient(create_app()) as client:
+                    self.assertEqual(client.get("/health").status_code, 200)
+
+        drain_workers.assert_awaited_once_with(timeout=5.0)
+        close_agent.assert_not_called()
+        close_router.assert_not_called()
+        close_summarizer.assert_not_called()
+        close_agent_async.assert_not_awaited()
+        close_router_async.assert_not_awaited()
+        close_summarizer_async.assert_not_awaited()
+        reset_graphs.assert_not_called()
+        reset_checkpointer.assert_not_called()
+        reset_offloads.assert_not_called()
+        shutdown_logs.assert_not_called()
+        close_todoist.assert_not_called()
+        close_todoist_async.assert_not_awaited()
+        close_pool.assert_not_called()
+        close_async_pool.assert_not_awaited()
+
     def test_fastapi_lifespan_cleanup_order_drains_workers_first(self) -> None:
         cleanup_order = []
 
         with patch("agents.agent_api.app.db.verify_database_runtime"), patch(
             "agents.agent_api.app.api.routes.invoke.drain_stream_workers",
+            new_callable=AsyncMock,
             side_effect=lambda **_kwargs: cleanup_order.append("workers") or True,
         ), patch(
             "agents.agent_api.app.run_logging.shutdown_run_logs",
@@ -207,6 +287,7 @@ class JarvisApiTests(unittest.TestCase):
 
         with patch("agents.agent_api.app.db.verify_database_runtime"), patch(
             "agents.agent_api.app.api.routes.invoke.drain_stream_workers",
+            new_callable=AsyncMock,
             side_effect=lambda **_kwargs: cleanup_order.append("workers") or True,
         ), patch(
             "agents.agent_api.app.graph.nodes.orchestrator.close_shared_agent_client",
@@ -271,7 +352,8 @@ class JarvisApiTests(unittest.TestCase):
 
     def test_fastapi_lifespan_preserves_multiple_cleanup_failures(self) -> None:
         with patch("agents.agent_api.app.db.verify_database_runtime"), patch(
-            "agents.agent_api.app.api.routes.invoke.drain_stream_workers"
+            "agents.agent_api.app.api.routes.invoke.drain_stream_workers",
+            new_callable=AsyncMock,
         ) as drain_workers, patch(
             "agents.agent_api.app.run_logging.shutdown_run_logs",
             side_effect=RuntimeError("logs failed"),
@@ -304,7 +386,7 @@ class JarvisApiTests(unittest.TestCase):
                 "async database failed",
             },
         )
-        drain_workers.assert_called_once_with(timeout=5.0)
+        drain_workers.assert_awaited_once_with(timeout=5.0)
         shutdown.assert_called_once_with(timeout=5.0)
         close_todoist.assert_called_once_with()
         close_todoist_async.assert_awaited_once_with()
@@ -430,6 +512,31 @@ class JarvisApiTests(unittest.TestCase):
         self.assertEqual(identity.telegram_id, 123)
         self.assertEqual(identity.username, "tester")
         self.assertEqual(run.call_args.kwargs["request_id"], "tg_test")
+
+    def test_invoke_awaits_async_runner(self) -> None:
+        run = AsyncMock(
+            return_value={
+                "thread_id": "thread-async",
+                "interrupted": False,
+                "final_response": "Awaited.",
+                "tool_results": [],
+                "error": "",
+            }
+        )
+
+        with patch(
+            "agents.agent_api.app.api.routes.invoke.run_jarvis",
+            run,
+        ):
+            response = self.client.post(
+                "/invoke",
+                json={"message": "async please", "user_id": "jerry"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["response"], "Awaited.")
+        run.assert_awaited_once()
+        self.assertIn("checkpointer", run.await_args.kwargs)
 
     def test_invoke_interrupted(self) -> None:
         interrupt = {

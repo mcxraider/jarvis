@@ -1,8 +1,9 @@
-"""Tests for the executor node — all 4 guards + success + decline paths."""
+"""Tests for the async executor node — guards, safety, and resilience."""
 
+import asyncio
 import json
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -18,13 +19,13 @@ def _make_held_call(task_id="42"):
 def _make_dispatcher(allow=True, result=None):
     dispatcher = MagicMock()
     dispatcher.allow_mutations = allow
-    dispatcher.execute_tool.return_value = result or {
+    dispatcher.async_execute_tool = AsyncMock(return_value=result or {
         "tool_call_id": "call_1",
         "tool_name": "delete_todoist_task",
         "success": True,
         "content": {"deleted": True},
         "error": None,
-    }
+    })
     return dispatcher
 
 
@@ -38,16 +39,20 @@ def _make_state(held_call, decision="approve", consumed=None):
     }
 
 
+def _run(node, state):
+    return asyncio.run(node(state))
+
+
 class TestGuard0MutationsDisabled:
     def test_blocks_when_mutations_disabled(self):
         held = _make_held_call()
         dispatcher = _make_dispatcher(allow=False)
         node = create_executor_node(dispatcher)
         state = _make_state(held, decision="approve")
-        result = node(state)
+        result = _run(node, state)
         assert result["held_calls"] is None
         assert "mutations globally disabled" in result["messages"][-1]["content"]
-        dispatcher.execute_tool.assert_not_called()
+        dispatcher.async_execute_tool.assert_not_awaited()
 
 
 class TestGuard1Approval:
@@ -56,22 +61,22 @@ class TestGuard1Approval:
         dispatcher = _make_dispatcher()
         node = create_executor_node(dispatcher)
         state = _make_state(held, decision="decline")
-        result = node(state)
+        result = _run(node, state)
         assert result["held_calls"] is None
         msg_content = json.loads(result["messages"][-1]["content"])
         assert msg_content["user_declined"] is True
         assert msg_content["success"] is False
-        dispatcher.execute_tool.assert_not_called()
+        dispatcher.async_execute_tool.assert_not_awaited()
 
     def test_none_decision_treated_as_decline(self):
         held = _make_held_call()
         dispatcher = _make_dispatcher()
         node = create_executor_node(dispatcher)
         state = _make_state(held, decision=None)
-        result = node(state)
+        result = _run(node, state)
         msg_content = json.loads(result["messages"][-1]["content"])
         assert msg_content["user_declined"] is True
-        dispatcher.execute_tool.assert_not_called()
+        dispatcher.async_execute_tool.assert_not_awaited()
 
 
 class TestGuard2HashBinding:
@@ -81,9 +86,9 @@ class TestGuard2HashBinding:
         dispatcher = _make_dispatcher()
         node = create_executor_node(dispatcher)
         state = _make_state(held, decision="approve")
-        result = node(state)
+        result = _run(node, state)
         assert "hash mismatch" in result["messages"][-1]["content"]
-        dispatcher.execute_tool.assert_not_called()
+        dispatcher.async_execute_tool.assert_not_awaited()
 
 
 class TestGuard3SingleUse:
@@ -92,9 +97,9 @@ class TestGuard3SingleUse:
         dispatcher = _make_dispatcher()
         node = create_executor_node(dispatcher)
         state = _make_state(held, decision="approve", consumed=[held["id"]])
-        result = node(state)
+        result = _run(node, state)
         assert "already executed" in result["messages"][-1]["content"]
-        dispatcher.execute_tool.assert_not_called()
+        dispatcher.async_execute_tool.assert_not_awaited()
 
 
 class TestSuccessfulExecution:
@@ -103,8 +108,8 @@ class TestSuccessfulExecution:
         dispatcher = _make_dispatcher()
         node = create_executor_node(dispatcher)
         state = _make_state(held, decision="approve")
-        result = node(state)
-        dispatcher.execute_tool.assert_called_once_with(
+        result = _run(node, state)
+        dispatcher.async_execute_tool.assert_awaited_once_with(
             held["origin_tool_call_id"],
             held["tool_name"],
             held["args"],
@@ -129,13 +134,13 @@ class TestSuccessfulExecution:
         dispatcher = _make_dispatcher(result=expected_result)
         node = create_executor_node(dispatcher)
         state = _make_state(held, decision="approve")
-        result = node(state)
+        result = _run(node, state)
         assert result["tool_results"][-1] == expected_result
 
 
-class TestConcurrentExecution:
-    def test_multiple_calls_execute_concurrently(self):
-        """Multiple held_calls should all execute and produce ordered results."""
+class TestSerializedExecution:
+    def test_multiple_calls_execute_serially_in_original_order(self):
+        """Confirmed mutations execute once each in their frozen order."""
         held_calls = []
         for i in range(5):
             tc = {"id": f"call_{i}", "function": {"name": "add_todoist_task", "arguments": json.dumps({"content": f"task {i}"})}}
@@ -143,13 +148,13 @@ class TestConcurrentExecution:
 
         dispatcher = MagicMock()
         dispatcher.allow_mutations = True
-        dispatcher.execute_tool.side_effect = lambda call_id, name, args, **_kwargs: {
+        dispatcher.async_execute_tool = AsyncMock(side_effect=lambda call_id, name, args, **_kwargs: {
             "tool_call_id": call_id,
             "tool_name": name,
             "success": True,
             "content": {"created": True, "content": args.get("content")},
             "error": None,
-        }
+        })
 
         node = create_executor_node(dispatcher)
         state = {
@@ -159,9 +164,12 @@ class TestConcurrentExecution:
             "messages": [],
             "tool_results": [],
         }
-        result = node(state)
+        result = _run(node, state)
 
-        assert dispatcher.execute_tool.call_count == 5
+        assert dispatcher.async_execute_tool.await_count == 5
+        assert [call.args[0] for call in dispatcher.async_execute_tool.await_args_list] == [
+            f"call_{i}" for i in range(5)
+        ]
         assert len(result["messages"]) == 5
         assert len(result["tool_results"]) == 5
         assert len(result["consumed_call_ids"]) == 5
@@ -182,13 +190,13 @@ class TestConcurrentExecution:
 
         dispatcher = MagicMock()
         dispatcher.allow_mutations = True
-        dispatcher.execute_tool.return_value = {
+        dispatcher.async_execute_tool = AsyncMock(return_value={
             "tool_call_id": "any",
             "tool_name": "add_todoist_task",
             "success": True,
             "content": {"created": True},
             "error": None,
-        }
+        })
 
         node = create_executor_node(dispatcher)
         state = {
@@ -198,11 +206,11 @@ class TestConcurrentExecution:
             "messages": [],
             "tool_results": [],
         }
-        result = node(state)
+        result = _run(node, state)
 
         # 2 successful + 1 guard failure = 3 messages total
         assert len(result["messages"]) == 3
-        assert dispatcher.execute_tool.call_count == 2
+        assert dispatcher.async_execute_tool.await_count == 2
         assert len(result["consumed_call_ids"]) == 2
         # The middle message should be the guard failure
         middle_content = json.loads(result["messages"][1]["content"])
@@ -215,30 +223,42 @@ class TestMissingHeldCall:
         dispatcher = _make_dispatcher()
         node = create_executor_node(dispatcher)
         state = {"held_calls": None, "confirm_decision": "approve", "consumed_call_ids": [], "messages": [], "tool_results": []}
-        result = node(state)
+        result = _run(node, state)
         assert result.get("error")
         assert result["next"] == "end"
 
 
 class TestBatchTimeout:
     @patch("agents.agent_api.app.graph.nodes.executor.EXECUTOR_BATCH_TIMEOUT_SECONDS", 0.3)
-    def test_timeout_produces_error_envelope(self):
-        """A call that hangs past the batch timeout gets a timeout error."""
+    def test_in_flight_mutation_settles_after_batch_deadline(self):
+        """A mutation already sent is not cancelled when the batch deadline elapses."""
         held = _make_held_call()
         dispatcher = MagicMock()
         dispatcher.allow_mutations = True
-        dispatcher.execute_tool.side_effect = lambda *a, **kw: time.sleep(10) or {}
+
+        async def slow_success(call_id, name, *_args, **_kwargs):
+            await asyncio.sleep(0.35)
+            return {
+                "tool_call_id": call_id,
+                "tool_name": name,
+                "success": True,
+                "content": {"deleted": True},
+                "error": None,
+            }
+
+        dispatcher.async_execute_tool = AsyncMock(side_effect=slow_success)
 
         node = create_executor_node(dispatcher)
         state = _make_state(held, decision="approve")
         start = time.monotonic()
-        result = node(state)
+        result = _run(node, state)
         elapsed = time.monotonic() - start
 
         assert elapsed < 2.0
+        assert elapsed >= 0.3
         msg_content = json.loads(result["messages"][-1]["content"])
-        assert msg_content["success"] is False
-        assert "timed out" in msg_content["error"]
+        assert msg_content["success"] is True
+        assert msg_content["content"] == {"deleted": True}
 
     @patch("agents.agent_api.app.graph.nodes.executor.EXECUTOR_BATCH_TIMEOUT_SECONDS", 0.5)
     def test_partial_timeout(self):
@@ -250,11 +270,11 @@ class TestBatchTimeout:
 
         call_count = {"n": 0}
 
-        def execute_side_effect(call_id, name, args, **_kwargs):
+        async def execute_side_effect(call_id, name, args, **_kwargs):
             call_count["n"] += 1
             idx = int(call_id.split("_")[1])
-            if idx == 2:
-                time.sleep(10)
+            if idx == 1:
+                await asyncio.sleep(0.55)
             return {
                 "tool_call_id": call_id,
                 "tool_name": name,
@@ -265,7 +285,7 @@ class TestBatchTimeout:
 
         dispatcher = MagicMock()
         dispatcher.allow_mutations = True
-        dispatcher.execute_tool.side_effect = execute_side_effect
+        dispatcher.async_execute_tool = AsyncMock(side_effect=execute_side_effect)
 
         node = create_executor_node(dispatcher)
         state = {
@@ -275,17 +295,18 @@ class TestBatchTimeout:
             "messages": [],
             "tool_results": [],
         }
-        result = node(state)
+        result = _run(node, state)
 
         assert len(result["messages"]) == 3
-        # First two should succeed
+        # The first succeeds; the already-started second settles successfully.
         for i in range(2):
             content = json.loads(result["messages"][i]["content"])
             assert content["success"] is True
-        # Third should timeout
+        # The deadline prevents the third mutation from starting.
         content = json.loads(result["messages"][2]["content"])
         assert content["success"] is False
         assert "timed out" in content["error"]
+        assert dispatcher.async_execute_tool.await_count == 2
 
 
 class TestCircuitBreakerIntegration:
@@ -315,19 +336,17 @@ class TestCircuitBreakerIntegration:
 
         dispatcher = MagicMock()
         dispatcher.allow_mutations = True
-        dispatcher.execute_tool.side_effect = execute_side_effect
+        dispatcher.async_execute_tool = AsyncMock(side_effect=execute_side_effect)
 
-        # Use max_workers=1 to ensure sequential execution within the pool
-        with patch("agents.agent_api.app.graph.nodes.executor.EXECUTOR_MAX_WORKERS", 1):
-            node = create_executor_node(dispatcher)
-            state = {
-                "held_calls": held_calls,
-                "confirm_decision": "approve",
-                "consumed_call_ids": [],
-                "messages": [],
-                "tool_results": [],
-            }
-            result = node(state)
+        node = create_executor_node(dispatcher)
+        state = {
+            "held_calls": held_calls,
+            "confirm_decision": "approve",
+            "consumed_call_ids": [],
+            "messages": [],
+            "tool_results": [],
+        }
+        result = _run(node, state)
 
         assert len(result["messages"]) == 4
         # At least one should have "circuit breaker" error (calls 3+ after breaker trips)
@@ -337,7 +356,7 @@ class TestCircuitBreakerIntegration:
         ]
         assert len(breaker_msgs) >= 1
         # Dispatcher should NOT have been called for circuit-broken calls
-        assert dispatcher.execute_tool.call_count < 4
+        assert dispatcher.async_execute_tool.await_count < 4
 
 
 class TestThrottleIntegration:
@@ -380,41 +399,38 @@ class TestThrottleIntegration:
 
         dispatcher = MagicMock()
         dispatcher.allow_mutations = True
-        dispatcher.execute_tool.side_effect = execute_side_effect
+        dispatcher.async_execute_tool = AsyncMock(side_effect=execute_side_effect)
 
-        # Force sequential with max_workers=1 so throttle is observable
-        with patch("agents.agent_api.app.graph.nodes.executor.EXECUTOR_MAX_WORKERS", 1):
-            node = create_executor_node(dispatcher)
-            state = {
-                "held_calls": held_calls,
-                "confirm_decision": "approve",
-                "consumed_call_ids": [],
-                "messages": [],
-                "tool_results": [],
-            }
-            result = node(state)
+        node = create_executor_node(dispatcher)
+        state = {
+            "held_calls": held_calls,
+            "confirm_decision": "approve",
+            "consumed_call_ids": [],
+            "messages": [],
+            "tool_results": [],
+        }
+        result = _run(node, state)
 
-        assert dispatcher.execute_tool.call_count == 2
+        assert dispatcher.async_execute_tool.await_count == 2
         # Second call should have been delayed by ~0.2s
         if len(call_times) == 2:
             delay = call_times[1] - call_times[0]
             assert delay >= 0.15
 
 
-class TestCooperativeCancellation:
-    @patch("agents.agent_api.app.graph.nodes.executor.EXECUTOR_BATCH_TIMEOUT_SECONDS", 0.3)
-    def test_cancelled_event_prevents_execution_after_timeout(self):
-        """After timeout fires, pending calls see the cancelled event and skip execution."""
+class TestBatchDeadlineSettlement:
+    @patch("agents.agent_api.app.graph.nodes.executor.EXECUTOR_BATCH_TIMEOUT_SECONDS", 0.05)
+    def test_timeout_waits_for_current_call_and_does_not_start_later_mutations(self):
+        """The async timeout leaves no orphan and prevents later writes from starting."""
         held_calls = []
         for i in range(3):
             tc = {"id": f"call_{i}", "function": {"name": "add_todoist_task", "arguments": json.dumps({"content": f"task {i}"})}}
             held_calls.append(build_held_call(tc, "thread_1", 1))
 
-        executed_ids = []
-
-        def execute_side_effect(call_id, name, args, **_kwargs):
-            executed_ids.append(call_id)
-            time.sleep(0.5)
+        started = []
+        async def execute_side_effect(call_id, name, *_args, **_kwargs):
+            started.append(call_id)
+            await asyncio.sleep(0.08)
             return {
                 "tool_call_id": call_id,
                 "tool_name": name,
@@ -425,66 +441,63 @@ class TestCooperativeCancellation:
 
         dispatcher = MagicMock()
         dispatcher.allow_mutations = True
-        dispatcher.execute_tool.side_effect = execute_side_effect
+        dispatcher.async_execute_tool = AsyncMock(side_effect=execute_side_effect)
 
-        with patch("agents.agent_api.app.graph.nodes.executor.EXECUTOR_MAX_WORKERS", 1):
-            node = create_executor_node(dispatcher)
-            state = {
-                "held_calls": held_calls,
-                "confirm_decision": "approve",
-                "consumed_call_ids": [],
-                "messages": [],
-                "tool_results": [],
-            }
-            result = node(state)
+        node = create_executor_node(dispatcher)
+        state = {
+            "held_calls": held_calls,
+            "confirm_decision": "approve",
+            "consumed_call_ids": [],
+            "messages": [],
+            "tool_results": [],
+        }
+        result = _run(node, state)
 
-        # With max_workers=1, only the first call starts before timeout.
-        # Remaining calls should see cancelled and not call execute_tool.
-        assert len(executed_ids) <= 2
-        # All 3 messages should exist (some as timeout envelopes)
+        assert started == ["call_0"]
         assert len(result["messages"]) == 3
-        timeout_msgs = [
-            m for m in result["messages"]
-            if "timed out" in json.loads(m["content"]).get("error", "")
-        ]
-        assert len(timeout_msgs) >= 1
+        assert json.loads(result["messages"][0]["content"])["success"] is True
+        assert all(
+            "timed out" in json.loads(message["content"])["error"]
+            for message in result["messages"][1:]
+        )
 
-    @patch("agents.agent_api.app.graph.nodes.executor.EXECUTOR_BATCH_TIMEOUT_SECONDS", 0.2)
-    def test_cancellation_checked_before_execute(self):
-        """If cancelled is set before _execute_one starts, it returns immediately."""
-        held_calls = []
-        for i in range(4):
-            tc = {"id": f"call_{i}", "function": {"name": "add_todoist_task", "arguments": json.dumps({"content": f"task {i}"})}}
-            held_calls.append(build_held_call(tc, "thread_1", 1))
+    def test_request_cancellation_waits_for_dispatched_mutation_to_settle(self):
+        """Cancelling the graph task cannot orphan an already-started write."""
+        held = _make_held_call()
 
-        def execute_side_effect(call_id, name, args, **_kwargs):
-            time.sleep(2)
-            return {
-                "tool_call_id": call_id,
-                "tool_name": name,
-                "success": True,
-                "content": {"created": True},
-                "error": None,
-            }
+        async def scenario():
+            started = asyncio.Event()
+            finish = asyncio.Event()
+            settled = asyncio.Event()
 
-        dispatcher = MagicMock()
-        dispatcher.allow_mutations = True
-        dispatcher.execute_tool.side_effect = execute_side_effect
+            async def execute(call_id, name, *_args, **_kwargs):
+                started.set()
+                await finish.wait()
+                settled.set()
+                return {
+                    "tool_call_id": call_id,
+                    "tool_name": name,
+                    "success": True,
+                    "content": {"deleted": True},
+                    "error": None,
+                }
 
-        with patch("agents.agent_api.app.graph.nodes.executor.EXECUTOR_MAX_WORKERS", 1):
+            dispatcher = MagicMock()
+            dispatcher.allow_mutations = True
+            dispatcher.async_execute_tool = AsyncMock(side_effect=execute)
             node = create_executor_node(dispatcher)
-            state = {
-                "held_calls": held_calls,
-                "confirm_decision": "approve",
-                "consumed_call_ids": [],
-                "messages": [],
-                "tool_results": [],
-            }
-            start = time.monotonic()
-            result = node(state)
-            elapsed = time.monotonic() - start
+            task = asyncio.create_task(node(_make_state(held, decision="approve")))
 
-        # Should not wait for all 4 calls (4 * 2s = 8s). The cancelled event
-        # stops subsequent calls from even starting execute_tool.
-        assert elapsed < 3.0
-        assert dispatcher.execute_tool.call_count <= 2
+            await asyncio.wait_for(started.wait(), timeout=1)
+            task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
+            await asyncio.sleep(0)
+            assert not task.done()
+
+            finish.set()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert settled.is_set()
+
+        asyncio.run(scenario())

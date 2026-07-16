@@ -1,5 +1,6 @@
 """Isolation tests for dependencies injected into a shared graph node."""
 
+import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -74,8 +75,8 @@ def test_configured_tracer_does_not_replace_direct_call_fallback() -> None:
     node = create_confirm_node(captured_tracer)
     state = {"held_calls": None, "messages": []}
 
-    node(state, _config(RunDeps(tracer=configured_tracer)))
-    node(state)
+    asyncio.run(node(state, _config(RunDeps(tracer=configured_tracer))))
+    asyncio.run(node(state))
 
     assert [event[0] for event in configured_tracer.events] == ["graph.confirm"]
     assert [event[0] for event in captured_tracer.events] == ["graph.confirm"]
@@ -94,9 +95,8 @@ def test_compiled_node_receives_isolated_runnable_config_dependencies() -> None:
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = {
             name: pool.submit(
-                app.invoke,
-                state,
-                _config(RunDeps(tracer=tracer)),
+                asyncio.run,
+                app.ainvoke(state, _config(RunDeps(tracer=tracer))),
             )
             for name, tracer in configured_tracers.items()
         }
@@ -130,11 +130,12 @@ def test_shared_tools_node_isolates_concurrent_run_dispatchers_and_tracers() -> 
         for name, dispatcher in dispatchers.items()
     }
 
-    barrier = threading.Barrier(2)
-
-    def execute(_calls, _tool_node, dispatcher):
+    async def execute(_calls, dispatcher):
         if dispatcher.name in dispatchers:
-            barrier.wait(timeout=5)
+            entered.add(dispatcher.name)
+            if entered == set(dispatchers):
+                both_entered.set()
+            await asyncio.wait_for(both_entered.wait(), timeout=5)
         return [
             {
                 "tool_call_id": "call-1",
@@ -145,28 +146,34 @@ def test_shared_tools_node_isolates_concurrent_run_dispatchers_and_tracers() -> 
             }
         ]
 
-    with (
-        patch("langgraph.prebuilt.ToolNode", side_effect=lambda tools, **_kwargs: object()),
-        patch(
-            "agents.agent_api.app.graph.nodes.tools.execute_tool_calls_with_toolnode",
-            side_effect=execute,
-        ),
-    ):
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            futures = {
-                name: pool.submit(node, _tool_state(), _config(deps[name]))
-                for name in dispatchers
-            }
-            results = {name: future.result(timeout=5) for name, future in futures.items()}
+    entered = set()
+    both_entered = asyncio.Event()
 
-        # Reusing one run container reuses only that run's ToolNode.
-        barrier = threading.Barrier(1)
-        second_alpha = node(_tool_state(), _config(deps["alpha"]))
-        direct = node(_tool_state())
-        partial_config = node(
+    async def run_calls():
+        results = dict(
+            zip(
+                dispatchers,
+                await asyncio.gather(
+                    *(
+                        node(_tool_state(), _config(deps[name]))
+                        for name in dispatchers
+                    )
+                ),
+            )
+        )
+        second_alpha = await node(_tool_state(), _config(deps["alpha"]))
+        direct = await node(_tool_state())
+        partial_config = await node(
             _tool_state(),
             _config(RunDeps(tracer=partial_config_tracer)),
         )
+        return results, second_alpha, direct, partial_config
+
+    with patch(
+        "agents.agent_api.app.graph.nodes.tools.async_execute_tool_calls",
+        side_effect=execute,
+    ):
+        results, second_alpha, direct, partial_config = asyncio.run(run_calls())
 
     assert results["alpha"]["tool_results"][0]["content"] == {"dispatcher": "alpha"}
     assert results["beta"]["tool_results"][0]["content"] == {"dispatcher": "beta"}
@@ -174,9 +181,9 @@ def test_shared_tools_node_isolates_concurrent_run_dispatchers_and_tracers() -> 
     assert direct["tool_results"][0]["content"] == {"dispatcher": "captured"}
     assert partial_config["tool_results"][0]["content"] == {"dispatcher": "captured"}
 
-    assert dispatchers["alpha"].tool_node_builds == 1
-    assert dispatchers["beta"].tool_node_builds == 1
-    assert captured_dispatcher.tool_node_builds == 1
+    assert dispatchers["alpha"].tool_node_builds == 0
+    assert dispatchers["beta"].tool_node_builds == 0
+    assert captured_dispatcher.tool_node_builds == 0
     assert tracers["alpha"].events and tracers["beta"].events
     assert captured_tracer.events
     assert partial_config_tracer.events

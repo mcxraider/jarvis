@@ -138,12 +138,12 @@ async def lifespan(_app: FastAPI):
             close_todoist_http_client,
         )
 
-        # Workers can outlive disconnected streaming responses. Drain them before
+        # Producers can outlive disconnected streaming responses. Drain them before
         # closing shared resources, then attempt every cleanup without allowing a
         # later failure to hide an earlier one.
+        workers_drained = True
         try:
-            workers_drained = await asyncio.to_thread(
-                drain_stream_workers,
+            workers_drained = await drain_stream_workers(
                 timeout=STREAM_WORKER_DRAIN_TIMEOUT_SECONDS,
             )
             if not workers_drained:
@@ -153,6 +153,7 @@ async def lifespan(_app: FastAPI):
                     )
                 )
         except BaseException as error:
+            workers_drained = False
             cleanup_errors.append(error)
         offloads_drained = True
         try:
@@ -168,10 +169,10 @@ async def lifespan(_app: FastAPI):
         except BaseException as error:
             offloads_drained = False
             cleanup_errors.append(error)
-        if not offloads_drained:
-            # ``to_thread`` work cannot be force-cancelled. Leave every dependent
-            # transport/pool and its tracking intact rather than closing resources
-            # underneath a still-running mutation or durable database write.
+        if not workers_drained or not offloads_drained:
+            # Neither native producers nor ``to_thread`` work can be force-closed
+            # safely once a mutation may be in flight. Leave every dependent
+            # transport/pool intact rather than closing underneath accepted work.
             _raise_lifespan_errors(primary_error, cleanup_errors)
         for close_resource in (
             close_shared_agent_client,

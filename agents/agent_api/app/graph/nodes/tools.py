@@ -1,20 +1,20 @@
 """Tool execution graph node."""
 
 import copy
-from typing import Optional
+from typing import Dict, Optional
 
 from langchain_core.runnables import RunnableConfig
 
 from agents.agent_api.app.graph.run_deps import RunDeps, deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
+from agents.agent_api.app.tools.base import tool_call_name
 from agents.agent_api.app.tools.dispatcher import (
-    build_tool_result,
     ToolDispatcher,
-    execute_tool_calls_with_toolnode,
+    async_execute_tool_calls,
+    build_tool_result,
     tool_idempotency_context,
     tool_result_to_message,
 )
-from agents.agent_api.app.tools.base import tool_call_name
 from agents.agent_api.app.tools.metadata import get_service
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
@@ -46,7 +46,7 @@ def create_tools_node(
 
     _captured = RunDeps(dispatcher=tool_dispatcher, tracer=tracer or NULL_TRACE)
 
-    def tools_node(
+    async def tools_node(
         state: JarvisState,
         config: RunnableConfig | None = None,
     ) -> JarvisState:
@@ -66,7 +66,6 @@ def create_tools_node(
             raise RuntimeError(
                 "Tools node requires a dispatcher from RunDeps or captured fallbacks."
             )
-        tool_node = dispatcher_deps.get_tool_node()
         messages = copy.deepcopy(state.get("messages", []))
         latest_message = messages[-1] if messages else {}
         tool_calls = latest_message.get("tool_calls") or []
@@ -92,11 +91,11 @@ def create_tools_node(
 
         selected_tool_names = state.get("selected_tool_names") or []
         selected = set(selected_tool_names)
-        rejected_results = []
+        rejected_results: Dict[int, dict] = {}
         executable_calls = tool_calls
         if selected:
             executable_calls = []
-            for tool_call in tool_calls:
+            for call_index, tool_call in enumerate(tool_calls):
                 name = tool_call_name(tool_call)
                 if name in selected:
                     executable_calls.append(tool_call)
@@ -111,28 +110,42 @@ def create_tools_node(
                     ),
                 )
                 result["out_of_route_tool"] = True
-                rejected_results.append(result)
+                rejected_results[call_index] = result
             if rejected_results:
                 tracer.event(
                     "graph.tools.rejected",
                     "Rejected tool calls outside the selected route.",
                     requested=sorted({tool_call_name(call) for call in tool_calls}),
                     allowed=selected_tool_names,
-                    rejected=sorted({result["tool_name"] for result in rejected_results}),
+                    rejected=sorted(
+                        {result["tool_name"] for result in rejected_results.values()}
+                    ),
                 )
 
-        call_index_map = {tc.get("id", ""): i for i, tc in enumerate(executable_calls)}
+        # Idempotency keys use the call's original assistant-message position, not
+        # its position after out-of-route calls have been filtered out.
+        executable_ids = {id(tool_call) for tool_call in executable_calls}
+        call_index_map = {
+            tool_call.get("id", ""): index
+            for index, tool_call in enumerate(tool_calls)
+            if id(tool_call) in executable_ids
+        }
         with tool_idempotency_context(
             str(state.get("thread_id") or ""),
             int(state.get("turn_count") or 0),
             call_index_map,
         ):
-            results = execute_tool_calls_with_toolnode(
+            executable_results = await async_execute_tool_calls(
                 executable_calls,
-                tool_node,
                 tool_dispatcher,
             )
-        results = rejected_results + results
+        executable_iter = iter(executable_results)
+        results = [
+            rejected_results[index]
+            if index in rejected_results
+            else next(executable_iter)
+            for index in range(len(tool_calls))
+        ]
 
         existing_results = state.get("tool_results", [])
         existing_batches = {r.get("batch_index") for r in existing_results if r.get("batch_index") is not None}
@@ -167,4 +180,4 @@ def create_tools_node(
     return tools_node
 
 
-__all__ = ["create_tools_node", "execute_tool_calls_with_toolnode"]
+__all__ = ["create_tools_node"]

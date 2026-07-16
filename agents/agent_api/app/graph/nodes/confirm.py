@@ -93,7 +93,7 @@ def create_confirm_node(tracer: Optional[TracePrinter] = None):
 
     _captured = RunDeps(tracer=tracer or NULL_TRACE)
 
-    def confirm_node(
+    async def confirm_node(
         state: JarvisState,
         config: RunnableConfig | None = None,
     ) -> JarvisState:

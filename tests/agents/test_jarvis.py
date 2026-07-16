@@ -676,13 +676,13 @@ class JarvisGraphTests(unittest.TestCase):
 
         def capturing_create(*args: Any, **kwargs: Any):
             app = real_create(*args, **kwargs)
-            real_app_invoke = app.invoke
+            real_app_ainvoke = app.ainvoke
 
-            def invoke_spy(state: Any, config: Dict[str, Any]):
+            async def invoke_spy(state: Any, config: Dict[str, Any]):
                 captured.append(config)
-                return real_app_invoke(state, config)
+                return await real_app_ainvoke(state, config)
 
-            app.invoke = invoke_spy  # type: ignore[assignment]
+            app.ainvoke = invoke_spy  # type: ignore[assignment]
             return app
 
         with patch.object(builder_module, "create_jarvis_graph", side_effect=capturing_create):
@@ -708,13 +708,13 @@ class JarvisGraphTests(unittest.TestCase):
 
         def capturing_create(*args: Any, **kwargs: Any):
             app = real_create(*args, **kwargs)
-            real_app_invoke = app.invoke
+            real_app_ainvoke = app.ainvoke
 
-            def invoke_spy(state: Any, config: Dict[str, Any]):
+            async def invoke_spy(state: Any, config: Dict[str, Any]):
                 captured.append(config)
-                return real_app_invoke(state, config)
+                return await real_app_ainvoke(state, config)
 
-            app.invoke = invoke_spy  # type: ignore[assignment]
+            app.ainvoke = invoke_spy  # type: ignore[assignment]
             return app
 
         with patch.object(builder_module, "create_jarvis_graph", side_effect=capturing_create):
@@ -1371,8 +1371,8 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(len(result["tool_results"]), 2)
         self.assertEqual(result["final_response"], "Here is the combined summary.")
 
-    def test_multiple_tool_calls_in_one_turn_execute_in_parallel(self) -> None:
-        todoist_client = ParallelTrackingTodoistClient(expected_concurrent_calls=2)
+    def test_multiple_tool_calls_in_one_turn_preserve_order(self) -> None:
+        todoist_client = FakeTodoistClient()
         result = jarvis.run_jarvis(
             user_prompt="fake prompt",
             agent_client=FakeDeepSeekAgentClient(
@@ -1398,7 +1398,10 @@ class JarvisGraphTests(unittest.TestCase):
             ["call_today", "call_tomorrow"],
         )
         self.assertEqual(len(todoist_client.calls), 2)
-        self.assertGreaterEqual(todoist_client.max_active_calls, 2)
+        self.assertEqual(
+            [call["arguments"]["query"] for call in todoist_client.calls],
+            ["today", "tomorrow"],
+        )
 
     def test_unsupported_tool_is_rejected_before_execution(self) -> None:
         result = self.run_graph_with_fakes(
@@ -1665,7 +1668,7 @@ class ContextGateTests(unittest.TestCase):
             builder_module, "settings", SimpleNamespace(postgres_dsn="postgresql://fake")
         ), patch.object(
             builder_module,
-            "resolve_runtime_context",
+            "resolve_runtime_context_async",
             side_effect=PermissionError("No active Jarvis user for this identity."),
         ):
             with self.assertRaises(PermissionError):
