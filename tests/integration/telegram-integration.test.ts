@@ -16,10 +16,7 @@ describeIntegration('Telegram Integration Tests', () => {
   const testChatId = Number(process.env.TEST_CHAT_ID);
 
   beforeAll(async () => {
-    const [{ TelegramBotService }, { MessageProcessorService }] = await Promise.all([
-      import('../../src/services/telegram/telegram-bot.service'),
-      import('../../src/services/telegram/message-processor.service'),
-    ]);
+    const { TelegramBotService } = await import('../../src/services/telegram/telegram-bot.service');
 
     const telegramConfig = {
       token: process.env.BOT_TOKEN!,
@@ -28,19 +25,9 @@ describeIntegration('Telegram Integration Tests', () => {
       secretToken: process.env.TELEGRAM_SECRET_TOKEN!,
     };
 
-    const fakeAgentClient = {
-      invoke: jest.fn().mockResolvedValue({
-        status: 'completed',
-        threadId: 'telegram-smoke',
-        response: 'ok',
-        toolResults: [],
-      }),
-      resume: jest.fn(),
-    };
-
     botService = new TelegramBotService(
       telegramConfig,
-      new MessageProcessorService(fakeAgentClient as any),
+      { setupHandlers: jest.fn() } as any,
     );
   });
 
