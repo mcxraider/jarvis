@@ -52,7 +52,8 @@ def test_parallel_calls_use_distinct_authorized_http_transports() -> None:
         "time_max": "2026-07-07T00:00:00+08:00",
     }
 
-    def make_http() -> object:
+    def make_http(*, timeout) -> object:
+        assert timeout == 30.0
         transport = object()
         raw_transports.append(transport)
         return transport
@@ -92,6 +93,7 @@ def test_parallel_calls_use_distinct_authorized_http_transports() -> None:
 def test_request_failure_closes_every_retry_transport() -> None:
     client = GoogleCalendarClient(service=object(), credentials=object())
     authorized_transports = []
+    observed_timeouts = []
 
     class FailingRequest:
         def execute(self, *, http):
@@ -106,7 +108,14 @@ def test_request_failure_closes_every_retry_transport() -> None:
         def close(self) -> None:
             self.closed = True
 
-    with patch("httplib2.Http", side_effect=lambda: object()), patch(
+    def make_http(*, timeout):
+        observed_timeouts.append(timeout)
+        return object()
+
+    with patch(
+        "httplib2.Http",
+        side_effect=make_http,
+    ), patch(
         "google_auth_httplib2.AuthorizedHttp",
         FakeAuthorizedHttp,
     ), patch("time.sleep"):
@@ -114,6 +123,7 @@ def test_request_failure_closes_every_retry_transport() -> None:
             client._execute(FailingRequest(), "calendar.events.list")
 
     assert len(authorized_transports) == 3
+    assert observed_timeouts == [30.0, 30.0, 30.0]
     assert all(item.closed for item in authorized_transports)
 
 

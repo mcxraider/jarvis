@@ -50,6 +50,7 @@ from agents.agent_api.app.graph.prompts import (
     build_initial_messages,
 )
 from agents.agent_api.app.graph.run_deps import RunDeps
+from agents.agent_api.app.graph.run_control import RunControl
 from agents.agent_api.app.graph.state import JarvisState, enrich_interrupt_status
 from agents.agent_api.app.idempotency import DEFAULT_IDEMPOTENCY_STORE, IdempotencyStore
 from agents.agent_api.app.pricing import (
@@ -505,6 +506,7 @@ async def run_jarvis_async(
     request_id: Optional[str] = None,
     tool_selector: Optional[ToolSelector] = None,
     idempotency_store: Optional[IdempotencyStore] = None,
+    run_control: Optional[RunControl] = None,
 ) -> JarvisState:
     """Run the full Jarvis graph natively on the caller's event loop.
 
@@ -622,6 +624,7 @@ async def run_jarvis_async(
         registry,
         allow_mutations=allow_mutations,
         tracer=tracer,
+        run_control=run_control,
         idempotency_store=idempotency_store,
         idempotency_operation_ttl_seconds=settings.idempotency_operation_ttl_seconds,
         idempotency_lease_seconds=settings.idempotency_lease_seconds,
@@ -654,6 +657,7 @@ async def run_jarvis_async(
         model_router=model_router,
         usage_accumulator=run_usage,
         max_agent_turns=max_agent_turns,
+        run_control=run_control,
     )
     app = get_or_compile_graph(checkpointer)
     config = {
@@ -709,6 +713,10 @@ async def run_jarvis_async(
                 ),
                 config,
             )
+    except asyncio.CancelledError:
+        # Intentional run cancellation/deadline is a controlled terminal path,
+        # not a graph crash. The API producer persists its terminal response.
+        raise
     except BaseException as exc:
         if run_log is not None:
             await bounded_to_thread(run_log.write_crash, exc)
@@ -813,6 +821,7 @@ def run_jarvis(
     request_id: Optional[str] = None,
     tool_selector: Optional[ToolSelector] = None,
     idempotency_store: Optional[IdempotencyStore] = None,
+    run_control: Optional[RunControl] = None,
 ) -> JarvisState:
     """Synchronous CLI/test adapter around :func:`run_jarvis_async`.
 
@@ -854,6 +863,7 @@ def run_jarvis(
         request_id=request_id,
         tool_selector=tool_selector,
         idempotency_store=idempotency_store,
+        run_control=run_control,
     )
     with _SYNC_RUNNER_LOCK:
         if _SYNC_RUNNER is None:

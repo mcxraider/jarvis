@@ -4,11 +4,12 @@ import asyncio
 import threading
 from dataclasses import replace
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from agents.agent_api.app.graph import builder
+from agents.agent_api.app.graph.run_control import RunControl
 from agents.agent_api.app.graph.nodes.orchestrator import UsageSummary
 from agents.agent_api.app.tools.base import ToolRegistry
 from agents.agent_api.app.tracing import NULL_TRACE
@@ -110,6 +111,71 @@ def test_async_runner_executes_inside_the_callers_event_loop() -> None:
             checkpointer=builder.DEFAULT_CHECKPOINTER,
         )
         assert result["final_response"] == "async answer"
+
+    asyncio.run(scenario())
+
+
+def test_async_runner_injects_exact_run_control_into_dispatcher_and_deps() -> None:
+    control = RunControl()
+
+    class _Graph:
+        async def ainvoke(self, state, config):
+            deps = config["configurable"]["deps"]
+            assert deps.run_control is control
+            assert deps.dispatcher.run_control is control
+            return {
+                **state,
+                "final_response": "controlled",
+                "interrupted": False,
+                "error": "",
+            }
+
+    with patch.object(builder, "get_or_compile_graph", return_value=_Graph()):
+        result = asyncio.run(
+            builder.run_jarvis_async(
+                user_prompt="controlled",
+                agent_client=_FakeAgent("unused"),
+                todoist_client=_FakeTodoist(),
+                tracer=NULL_TRACE,
+                checkpointer=builder.DEFAULT_CHECKPOINTER,
+                run_control=control,
+            )
+        )
+
+    assert result["final_response"] == "controlled"
+
+
+def test_intentional_async_cancellation_is_not_written_as_graph_crash() -> None:
+    async def scenario() -> None:
+        started = asyncio.Event()
+
+        class _Graph:
+            async def ainvoke(self, _state, _config):
+                started.set()
+                await asyncio.Event().wait()
+
+        run_log = MagicMock()
+        with patch.object(builder, "get_or_compile_graph", return_value=_Graph()), patch.object(
+            builder,
+            "open_run_log",
+            return_value=run_log,
+        ):
+            task = asyncio.create_task(
+                builder.run_jarvis_async(
+                    user_prompt="cancel cleanly",
+                    agent_client=_FakeAgent("unused"),
+                    todoist_client=_FakeTodoist(),
+                    tracer=NULL_TRACE,
+                    checkpointer=builder.DEFAULT_CHECKPOINTER,
+                    run_control=RunControl(),
+                )
+            )
+            await started.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        run_log.write_crash.assert_not_called()
 
     asyncio.run(scenario())
 

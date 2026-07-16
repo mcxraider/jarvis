@@ -237,6 +237,39 @@ def test_sync_rejects_success_response_that_arrives_after_deadline():
     assert http_client.request.call_count == 1
 
 
+def test_sync_mutation_late_success_is_classified_as_ambiguous():
+    clock = FakeClock()
+    bounded_settings = SimpleNamespace(
+        **{
+            **FAST_SETTINGS.__dict__,
+            "todoist_retry_total_timeout_seconds": 1.0,
+        }
+    )
+    http_client = Mock(spec=httpx.Client)
+
+    def late_response(*_args, **_kwargs):
+        clock.now += 2.0
+        return httpx.Response(200, json={"id": "possibly-created"})
+
+    http_client.request.side_effect = late_response
+    client = TodoistApiClient(api_key="token", http_client=http_client)
+
+    with (
+        patch.object(todoist_client_module, "settings", bounded_settings),
+        patch.object(todoist_client_module, "time", clock),
+    ):
+        with pytest.raises(TodoistApiError) as raised:
+            client._request(
+                f"{TODOIST_REST_BASE_URL}/tasks",
+                "POST",
+                {"content": "do not duplicate"},
+            )
+
+    assert raised.value.ambiguous_commit is True
+    assert raised.value.to_classifier_payload()["ambiguous_commit"] is True
+    assert http_client.request.call_count == 1
+
+
 @pytest.mark.parametrize("failure_kind", ["transport", "http"])
 def test_sync_mutation_failure_is_never_retried(failure_kind):
     http_client = Mock(spec=httpx.Client)
@@ -257,7 +290,27 @@ def test_sync_mutation_failure_is_never_retried(failure_kind):
 
     assert raised.value.kind == "transient"
     assert raised.value.retryable is False
+    assert raised.value.ambiguous_commit is True
+    assert raised.value.to_classifier_payload()["ambiguous_commit"] is True
     assert raised.value.attempts == 1
+    assert http_client.request.call_count == 1
+
+
+def test_sync_mutation_malformed_success_body_is_ambiguous():
+    http_client = Mock(spec=httpx.Client)
+    http_client.request.return_value = httpx.Response(200, text="{not-json")
+    client = TodoistApiClient(api_key="token", http_client=http_client)
+
+    with patch.object(todoist_client_module, "settings", FAST_SETTINGS):
+        with pytest.raises(TodoistApiError) as raised:
+            client._request(
+                f"{TODOIST_REST_BASE_URL}/tasks",
+                "POST",
+                {"content": "do not duplicate"},
+            )
+
+    assert raised.value.ambiguous_commit is True
+    assert raised.value.retryable is False
     assert http_client.request.call_count == 1
 
 
@@ -524,7 +577,31 @@ def test_async_mutation_failure_is_never_retried(failure_kind):
 
     assert error.kind == "transient"
     assert error.retryable is False
+    assert error.ambiguous_commit is True
+    assert error.to_classifier_payload()["ambiguous_commit"] is True
     assert error.attempts == 1
+    assert async_client.request.await_count == 1
+
+
+def test_async_mutation_malformed_success_body_is_ambiguous():
+    async def exercise():
+        async_client = AsyncMock(spec=httpx.AsyncClient)
+        async_client.request.return_value = httpx.Response(200, text="{not-json")
+        client = TodoistApiClient(api_key="token", async_http_client=async_client)
+
+        with patch.object(todoist_client_module, "settings", FAST_SETTINGS):
+            with pytest.raises(TodoistApiError) as raised:
+                await client.async_request(
+                    f"{TODOIST_REST_BASE_URL}/tasks",
+                    "POST",
+                    {"content": "do not duplicate"},
+                )
+        return raised.value, async_client
+
+    error, async_client = asyncio.run(exercise())
+
+    assert error.ambiguous_commit is True
+    assert error.retryable is False
     assert async_client.request.await_count == 1
 
 

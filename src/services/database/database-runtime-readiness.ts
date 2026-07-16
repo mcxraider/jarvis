@@ -62,8 +62,19 @@ export async function verifyDatabaseRuntime(
       LEFT JOIN public.user_preferences ON public.user_preferences.user_id = public.users.id
       LIMIT 0
     `);
-    await pool.query('SELECT 1 FROM public.telegram_pending_clarifications LIMIT 0');
-    await pool.query('SELECT 1 FROM public.telegram_conversation_gates LIMIT 0');
+    // Select every migration-gated runtime column explicitly. A bare SELECT 1 only
+    // proves the table exists and lets a partially migrated deployment start before
+    // its first real Telegram request fails.
+    await pool.query(`
+      SELECT pending_key, request_id, clarification_message_id, prompt_message_id
+      FROM public.telegram_pending_clarifications
+      LIMIT 0
+    `);
+    await pool.query(`
+      SELECT gate_key, active_request_id
+      FROM public.telegram_conversation_gates
+      LIMIT 0
+    `);
     await pool.query('SELECT 1 FROM public.rate_limits LIMIT 0');
 
     return {

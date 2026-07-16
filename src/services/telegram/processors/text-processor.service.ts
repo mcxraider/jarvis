@@ -1,11 +1,19 @@
-import { LogContext, logger } from '../../../utils/logger';
-import { LangGraphAgentClient, LangGraphProgressCallback } from '../../ai/langgraph-agent-client.service';
+import { createRequestId, LogContext, logger } from '../../../utils/logger';
+import {
+  LangGraphAgentClient,
+  LangGraphDelivery,
+  LangGraphProgressCallback,
+} from '../../ai/langgraph-agent-client.service';
 import {
   PendingClarificationRecord,
   PendingClarificationStore,
   PendingInterruptType,
 } from '../pending-clarification.store';
-import { ConversationGateStore, ConversationGateStatus } from '../conversation-gate.store';
+import {
+  ConversationGateStore,
+  ConversationGateSnapshot,
+  GateReleaseResult,
+} from '../conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { classifyError } from '../errors/classified-error';
 
@@ -14,10 +22,17 @@ const DEFAULT_WAITING_TTL_MS = 30 * 60 * 1000;
 
 export interface TextProcessorResult {
   response: string;
+  /** Whether the backend returned a terminal envelope or transport delivery is uncertain. */
+  delivery?: LangGraphDelivery;
+  /** The producing request lost gate ownership; callers must not emit response or HITL UI. */
+  suppressed?: boolean;
   interruptType?: PendingInterruptType;
   threadId?: string;
+  settlementRequestId?: string;
   blocked?: boolean;
   bufferedMessage?: string;
+  consumedInterruptType?: PendingInterruptType;
+  consumedPromptMessageId?: number;
   consumedClarificationMessageId?: number;
   consumedClarificationQuestion?: string;
   // True when this turn resolved or superseded a pending pause (a pending record left 'pending').
@@ -47,6 +62,8 @@ export type AbandonOutcome = 'idle' | 'running' | 'abandoned';
 
 interface AbandonResult {
   outcome: AbandonOutcome;
+  interruptType?: PendingInterruptType;
+  promptMessageId?: number;
   clarificationMessageId?: number;
   question?: string;
 }
@@ -88,17 +105,21 @@ export class TextProcessorService {
 
     const internalUserId = mapTelegramUserId(userId);
     const gateKey = buildConversationKey(userId, internalUserId, logContext.chatId);
+    const activeRequestId = logContext.requestId ?? createRequestId('tg');
     let gateAcquired = options?.gatePreAcquired ?? false;
+    let ownedActiveRequestId: string | undefined;
 
     try {
       if (options?.pendingClarificationPreReserved) {
         const pending = await this.pendingClarificationStore.get(gateKey);
         if (!pending) {
           logger.warn('conversation_gate.inconsistent_state', { ...logContext, gateKey });
-          await this.conversationGate.release(gateKey).catch(() => {});
-          return {
-            response: 'That clarification expired. Please send the request again.',
-          };
+          const release = await this.conversationGate
+            .releaseIfActiveRequestId(gateKey, activeRequestId)
+            .catch(() => ({ released: false }));
+          return release.released
+            ? { response: 'That clarification expired. Please send the request again.' }
+            : this.suppressedResult();
         }
         return await this.handlePendingClarification(
           normalizedText,
@@ -107,6 +128,8 @@ export class TextProcessorService {
           internalUserId,
           userId,
           logContext,
+          activeRequestId,
+          undefined,
           onProgress,
           {
             alreadyRunning: true,
@@ -120,6 +143,8 @@ export class TextProcessorService {
       // path below. Refuse if the agent is mid-flight so we never run two invokes on one gate.
       let supersededClarificationMessageId: number | undefined;
       let supersededClarificationQuestion: string | undefined;
+      let supersededInterruptType: PendingInterruptType | undefined;
+      let supersededPromptMessageId: number | undefined;
       let supersededPause = false;
       if (options?.forceFresh && !gateAcquired) {
         const abandon = await this.abandonIfWaiting(gateKey, logContext);
@@ -131,18 +156,40 @@ export class TextProcessorService {
           };
         }
         supersededPause = abandon.outcome === 'abandoned';
+        supersededInterruptType = abandon.interruptType;
+        supersededPromptMessageId = abandon.promptMessageId;
         supersededClarificationMessageId = abandon.clarificationMessageId;
         supersededClarificationQuestion = abandon.question;
       }
 
       if (!gateAcquired) {
-        const gateStatus = await this.safeGetGateStatus(gateKey);
+        const gateSnapshot = await this.safeGetGateSnapshot(gateKey);
+        const gateStatus = gateSnapshot.status;
+
+        // A competitor may acquire after /new successfully supersedes the old
+        // pause. Never feed the /new payload into that newer generation, and do
+        // not lose the old prompt metadata that the handler still must clean up.
+        if (options?.forceFresh && gateStatus !== 'idle') {
+          return {
+            response: "I'm still working on another request. Please wait.",
+            blocked: true,
+            consumedInterruptType: supersededInterruptType,
+            consumedPromptMessageId: supersededPromptMessageId,
+            consumedClarificationMessageId: supersededClarificationMessageId,
+            consumedClarificationQuestion: supersededClarificationQuestion,
+            resolvedPendingPause: supersededPause,
+          };
+        }
 
         if (gateStatus === 'running') {
-          await this.conversationGate.setBufferedMessage(gateKey, normalizedText).catch(() => {});
+          const buffered = await this.conversationGate
+            .setBufferedMessageIfActiveRequestId(gateKey, gateSnapshot.requestId, normalizedText)
+            .catch(() => false);
           logger.info('conversation_gate.blocked', { ...logContext, gateKey });
           return {
-            response: "I'm still working on your previous request. Your message has been noted — I'll mention it when I'm done.",
+            response: buffered
+              ? "I'm still working on your previous request. Your message has been noted — I'll mention it when I'm done."
+              : "I'm still working on your previous request. Please wait.",
             blocked: true,
           };
         }
@@ -151,8 +198,9 @@ export class TextProcessorService {
           const pending = await this.pendingClarificationStore.get(gateKey);
           if (!pending) {
             logger.warn('conversation_gate.inconsistent_state', { ...logContext, gateKey });
-            await this.conversationGate.release(gateKey).catch(() => {});
+            return this.suppressedResult();
           } else {
+            if (pending.requestId !== gateSnapshot.requestId) return this.suppressedResult();
             return await this.handlePendingClarification(
               normalizedText,
               pending,
@@ -160,6 +208,8 @@ export class TextProcessorService {
               internalUserId,
               userId,
               logContext,
+              activeRequestId,
+              gateSnapshot.requestId,
               onProgress,
               { onPendingPauseAccepted: options?.onPendingPauseAccepted, replyContext: options?.replyContext },
             );
@@ -167,17 +217,23 @@ export class TextProcessorService {
         }
 
         const chatIdNum = typeof logContext.chatId === 'number' ? logContext.chatId : undefined;
-        gateAcquired = await this.safeAcquireGate(gateKey, chatIdNum);
+        gateAcquired = await this.safeAcquireGate(gateKey, activeRequestId, chatIdNum);
         if (!gateAcquired) {
           logger.info('conversation_gate.acquire_failed', { ...logContext, gateKey });
           return {
             response: "I'm still working on your previous request. Please wait.",
             blocked: true,
+            consumedInterruptType: supersededInterruptType,
+            consumedPromptMessageId: supersededPromptMessageId,
+            consumedClarificationMessageId: supersededClarificationMessageId,
+            consumedClarificationQuestion: supersededClarificationQuestion,
+            resolvedPendingPause: supersededPause,
           };
         }
       }
 
-      const requestContext = { ...logContext };
+      ownedActiveRequestId = activeRequestId;
+      const requestContext = { ...logContext, requestId: activeRequestId };
       const message = options?.replyContext
         ? `${options.replyContext}\n\n${normalizedText}`
         : normalizedText;
@@ -191,18 +247,62 @@ export class TextProcessorService {
               telegramId: userId,
               username: logContext.telegramUsername,
             },
-        requestId: logContext.requestId,
+        requestId: activeRequestId,
       };
-      const agentResponse = onProgress
-        ? await this.agentClient.invoke(agentRequest, requestContext, onProgress)
+      const bound = await this.conversationGate.setActiveRequestId(gateKey, activeRequestId);
+      if (!bound) return this.suppressedResult();
+      const guardedProgress = this.guardProgressCallback(
+        gateKey,
+        activeRequestId,
+        requestContext,
+        onProgress,
+      );
+      const agentResponse = guardedProgress
+        ? await this.agentClient.invoke(agentRequest, requestContext, guardedProgress)
         : await this.agentClient.invoke(agentRequest, requestContext);
 
-      let buffered: string | undefined;
-      if (agentResponse.status === 'interrupted') {
-        await this.handleInterrupt(gateKey, agentResponse, internalUserId, userId, logContext);
-      } else {
-        buffered = await this.releaseGateWithBuffer(gateKey, logContext);
+      if (agentResponse.delivery === 'ambiguous') {
+        // The backend may still be producing a result after our transport died.
+        // Keep the exact gate generation and active request id so a retry cannot
+        // duplicate a mutation; /cancel or TTL expiry remains the escape hatch.
+        logger.warn('conversation_gate.delivery_ambiguous_retained', {
+          ...requestContext,
+          gateKey,
+          phase: 'invoke',
+        });
+        return {
+          response: agentResponse.response,
+          delivery: agentResponse.delivery,
+          threadId: agentResponse.threadId || undefined,
+          consumedInterruptType: supersededInterruptType,
+          consumedPromptMessageId: supersededPromptMessageId,
+          consumedClarificationMessageId: supersededClarificationMessageId,
+          consumedClarificationQuestion: supersededClarificationQuestion,
+          resolvedPendingPause: supersededPause,
+        };
       }
+
+      let buffered: string | undefined;
+      let ownershipSettled = false;
+      if (agentResponse.status === 'interrupted') {
+        ownershipSettled = await this.handleInterrupt(
+          gateKey,
+          agentResponse,
+          internalUserId,
+          userId,
+          requestContext,
+          activeRequestId,
+        );
+      } else {
+        const release = await this.releaseGateWithBuffer(
+          gateKey,
+          requestContext,
+          activeRequestId,
+        );
+        ownershipSettled = release.released;
+        buffered = release.bufferedMessage;
+      }
+      if (!ownershipSettled) return this.suppressedResult();
 
       let response = agentResponse.response;
       if (buffered) {
@@ -220,6 +320,7 @@ export class TextProcessorService {
         responseLength: response.length,
         agentStatus: agentResponse.status,
         threadId: agentResponse.threadId,
+        settlementRequestId: resultInterruptType ? activeRequestId : undefined,
         requestedThreadId: undefined,
         interruptType: resultInterruptType,
         durationMs: Date.now() - startedAt,
@@ -229,16 +330,33 @@ export class TextProcessorService {
         response,
         interruptType: resultInterruptType,
         threadId: agentResponse.threadId,
+        settlementRequestId: resultInterruptType ? activeRequestId : undefined,
         bufferedMessage: buffered,
+        consumedInterruptType: supersededInterruptType,
+        consumedPromptMessageId: supersededPromptMessageId,
         consumedClarificationMessageId: supersededClarificationMessageId,
         consumedClarificationQuestion: supersededClarificationQuestion,
         resolvedPendingPause: supersededPause,
       };
     } catch (error) {
       if (gateAcquired) {
-        await this.conversationGate.release(gateKey).catch(e =>
-          logger.error('conversation_gate.release_failed', { ...logContext, error: (e as Error).message })
-        );
+        if (ownedActiveRequestId) {
+          const release = await this.conversationGate
+            .releaseIfActiveRequestId(gateKey, ownedActiveRequestId)
+            .catch(e => {
+              logger.error('conversation_gate.release_failed', {
+                ...logContext,
+                error: (e as Error).message,
+              });
+              return { released: false };
+            });
+          if (!release.released) return this.suppressedResult();
+        } else {
+          logger.warn('conversation_gate.release_skipped_without_owner', {
+            ...logContext,
+            gateKey,
+          });
+        }
       }
 
       logger.error('text_processor.failed', {
@@ -266,18 +384,25 @@ export class TextProcessorService {
   }
 
   private async abandonIfWaiting(gateKey: string, logContext: LogContext): Promise<AbandonResult> {
-    const status = await this.safeGetGateStatus(gateKey);
+    const snapshot = await this.safeGetGateSnapshot(gateKey);
+    const status = snapshot.status;
     if (status === 'running') {
       return { outcome: 'running' };
     }
     if (status === 'waiting_for_clarification') {
       // Read the record before clearing so its clarification block can be collapsed.
       const pending = await this.pendingClarificationStore.get(gateKey).catch(() => undefined);
-      await this.conversationGate.release(gateKey).catch(() => {});
-      await this.pendingClarificationStore.clear(gateKey, 'superseded').catch(() => {});
+      if (!pending || pending.requestId !== snapshot.requestId) return { outcome: 'running' };
+      const release = await this.conversationGate
+        .releaseIfWaitingRequestId(gateKey, snapshot.requestId)
+        .catch(() => ({ released: false }));
+      if (!release.released) return { outcome: 'running' };
+      await this.pendingClarificationStore.clearIfMatches(gateKey, pending, 'superseded').catch(() => false);
       logger.info('conversation_gate.superseded', { ...logContext, gateKey });
       return {
         outcome: 'abandoned',
+        interruptType: pending.interruptType,
+        promptMessageId: pending.promptMessageId,
         clarificationMessageId: pending?.clarificationMessageId,
         question: pending?.question,
       };
@@ -292,6 +417,8 @@ export class TextProcessorService {
     internalUserId: string,
     userId: number | undefined,
     logContext: LogContext,
+    activeRequestId: string,
+    expectedWaitingRequestId: string | undefined,
     onProgress?: LangGraphProgressCallback,
     options?: {
       alreadyRunning?: boolean;
@@ -300,11 +427,22 @@ export class TextProcessorService {
       replyContext?: string;
     },
   ): Promise<TextProcessorResult> {
+    if (options?.alreadyRunning) {
+      const bound = await this.conversationGate.setActiveRequestId(gateKey, activeRequestId);
+      if (!bound) return this.suppressedResult();
+    }
+
     if (pending.interruptType === 'confirm' && !this.isConfirmDecision(text)) {
       if (options?.alreadyRunning) {
-        await this.conversationGate.transitionToWaiting(gateKey, this.waitingTtlMs).catch(() => {
-          this.conversationGate.release(gateKey).catch(() => {});
-        });
+        const restored = await this.conversationGate
+          .transitionToWaitingIfActiveRequestId(
+            gateKey,
+            activeRequestId,
+            this.waitingTtlMs,
+            pending.requestId,
+          )
+          .catch(() => false);
+        if (!restored) return this.suppressedResult();
       }
       return {
         response: 'You have a pending approval. Please tap ✓ Approve or ✗ Decline in the previous message, reply *yes* or *no* to decide, or send `/new <message>` to start over.',
@@ -312,7 +450,12 @@ export class TextProcessorService {
     }
 
     if (!options?.alreadyRunning) {
-      const transitioned = await this.conversationGate.transitionToRunning(gateKey, this.runningTtlMs);
+      const transitioned = await this.conversationGate.transitionToRunning(
+        gateKey,
+        this.runningTtlMs,
+        activeRequestId,
+        expectedWaitingRequestId,
+      );
       if (!transitioned) {
         return { response: "I'm already processing your response. Please wait." };
       }
@@ -348,24 +491,68 @@ export class TextProcessorService {
             telegramId: userId,
             username: logContext.telegramUsername,
           },
-      requestId: logContext.requestId,
+      requestId: activeRequestId,
       threadId: pending.threadId,
     };
 
     try {
-      const requestContext = { ...logContext, threadId: pending.threadId };
-      const agentResponse = onProgress
-        ? await this.agentClient.resume(agentRequest, requestContext, onProgress)
+      const requestContext = {
+        ...logContext,
+        requestId: activeRequestId,
+        threadId: pending.threadId,
+      };
+      const bound = await this.conversationGate.setActiveRequestId(gateKey, activeRequestId);
+      if (!bound) return this.suppressedResult();
+      const guardedProgress = this.guardProgressCallback(
+        gateKey,
+        activeRequestId,
+        requestContext,
+        onProgress,
+      );
+      const agentResponse = guardedProgress
+        ? await this.agentClient.resume(agentRequest, requestContext, guardedProgress)
         : await this.agentClient.resume(agentRequest, requestContext);
 
-      await this.pendingClarificationStore.clear(gateKey, 'completed').catch(() => {});
+      if (agentResponse.delivery === 'ambiguous') {
+        // Do not restore the old waiting generation or clear its pending row: the
+        // resume may be running remotely under this new active request id.
+        logger.warn('conversation_gate.delivery_ambiguous_retained', {
+          ...requestContext,
+          gateKey,
+          phase: 'resume',
+        });
+        return {
+          response: agentResponse.response,
+          delivery: agentResponse.delivery,
+          threadId: agentResponse.threadId || pending.threadId,
+        };
+      }
 
       let buffered: string | undefined;
+      let ownershipSettled = false;
       if (agentResponse.status === 'interrupted') {
-        await this.handleInterrupt(gateKey, agentResponse, internalUserId, userId, logContext);
+        ownershipSettled = await this.handleInterrupt(
+          gateKey,
+          agentResponse,
+          internalUserId,
+          userId,
+          requestContext,
+          activeRequestId,
+          () => this.pendingClarificationStore.clearIfMatches(gateKey, pending, 'completed'),
+        );
       } else {
-        buffered = await this.releaseGateWithBuffer(gateKey, logContext);
+        const release = await this.releaseGateWithBuffer(
+          gateKey,
+          requestContext,
+          activeRequestId,
+        );
+        ownershipSettled = release.released;
+        buffered = release.bufferedMessage;
+        if (release.released) {
+          await this.pendingClarificationStore.clearIfMatches(gateKey, pending, 'completed').catch(() => false);
+        }
       }
+      if (!ownershipSettled) return this.suppressedResult();
 
       let response = agentResponse.response;
       if (buffered) {
@@ -380,15 +567,32 @@ export class TextProcessorService {
         response,
         interruptType: resultInterruptType,
         threadId: agentResponse.threadId,
+        settlementRequestId: resultInterruptType ? activeRequestId : undefined,
         bufferedMessage: buffered,
-        consumedClarificationMessageId: pausePresentationHandled ? undefined : pending.clarificationMessageId,
-        consumedClarificationQuestion: pausePresentationHandled ? undefined : pending.question,
-        resolvedPendingPause: true,
+        consumedInterruptType: ownershipSettled && !pausePresentationHandled
+          ? pending.interruptType
+          : undefined,
+        consumedPromptMessageId: ownershipSettled && !pausePresentationHandled
+          ? pending.promptMessageId
+          : undefined,
+        consumedClarificationMessageId: ownershipSettled && !pausePresentationHandled
+          ? pending.clarificationMessageId
+          : undefined,
+        consumedClarificationQuestion: ownershipSettled && !pausePresentationHandled
+          ? pending.question
+          : undefined,
+        resolvedPendingPause: ownershipSettled,
       };
     } catch (error) {
-      await this.conversationGate.transitionToWaiting(gateKey, this.waitingTtlMs).catch(() => {
-        this.conversationGate.release(gateKey).catch(() => {});
-      });
+      const restoredWaiting = await this.conversationGate
+        .transitionToWaitingIfActiveRequestId(
+          gateKey,
+          activeRequestId,
+          this.waitingTtlMs,
+          pending.requestId,
+        )
+        .catch(() => false);
+      if (!restoredWaiting) return this.suppressedResult();
       throw error;
     }
   }
@@ -399,59 +603,180 @@ export class TextProcessorService {
     internalUserId: string,
     userId: number | undefined,
     logContext: LogContext,
-  ): Promise<void> {
+    expectedRequestId: string,
+    beforeSave?: () => Promise<boolean>,
+  ): Promise<boolean> {
     const interruptType: PendingInterruptType =
       agentResponse.interrupt?.type === 'confirm' ? 'confirm' : 'clarify';
+    const pendingRecord = this.buildPendingClarificationRecord(
+      gateKey,
+      agentResponse.threadId,
+      agentResponse.response,
+      internalUserId,
+      userId,
+      logContext,
+      interruptType,
+    );
     try {
-      await this.conversationGate.transitionToWaiting(gateKey, this.waitingTtlMs);
-      await this.pendingClarificationStore.save(
-        this.buildPendingClarificationRecord(
-          gateKey, agentResponse.threadId, agentResponse.response,
-          internalUserId, userId, logContext, interruptType,
-        ),
+      const transitioned = await this.conversationGate.transitionToWaitingIfActiveRequestId(
+        gateKey,
+        expectedRequestId,
+        this.waitingTtlMs,
       );
+      if (!transitioned) {
+        logger.info('conversation_gate.settlement_skipped_stale_owner', {
+          ...logContext,
+          gateKey,
+          expectedRequestId,
+        });
+        return false;
+      }
+      if (beforeSave && !(await beforeSave())) {
+        throw new Error('Pending clarification ownership changed before settlement.');
+      }
+      await this.pendingClarificationStore.save(pendingRecord);
+      let gateSnapshot: ConversationGateSnapshot;
+      let persistedPending: PendingClarificationRecord | undefined;
+      try {
+        [gateSnapshot, persistedPending] = await Promise.all([
+          this.conversationGate.getSnapshot(gateKey),
+          this.pendingClarificationStore.get(gateKey),
+        ]);
+      } catch (error) {
+        // Save already succeeded and the exact waiting generation is still the
+        // only ownership token we can trust. Retain it fail-closed; clearing the
+        // token here could strand a durable pending row behind a legacy NULL gate.
+        logger.warn('conversation_gate.interrupt_save_verification_failed', {
+          ...logContext,
+          gateKey,
+          expectedRequestId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return true;
+      }
+      if (
+        gateSnapshot.status !== 'waiting_for_clarification'
+        || gateSnapshot.requestId !== expectedRequestId
+        || persistedPending?.threadId !== pendingRecord.threadId
+        || persistedPending.requestId !== pendingRecord.requestId
+      ) {
+        if (
+          gateSnapshot.status === 'waiting_for_clarification'
+          && gateSnapshot.requestId === expectedRequestId
+        ) {
+          try {
+            await this.conversationGate.releaseIfWaitingRequestId(
+              gateKey,
+              expectedRequestId,
+            );
+          } catch (error) {
+            // Keep the exact token when cleanup storage is unavailable. The
+            // caller must not compare-clear it to NULL in its outer finally.
+            logger.warn('conversation_gate.interrupt_stale_cleanup_failed', {
+              ...logContext,
+              gateKey,
+              expectedRequestId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return true;
+          }
+        }
+        await this.pendingClarificationStore
+          .clearIfMatches(gateKey, pendingRecord, 'failed')
+          .catch(() => false);
+        logger.info('conversation_gate.interrupt_save_discarded_stale_owner', {
+          ...logContext,
+          gateKey,
+          expectedRequestId,
+        });
+        return false;
+      }
       logger.info('conversation_gate.transition_to_waiting', { ...logContext, gateKey, interruptType });
+      return true;
     } catch (error) {
-      await this.conversationGate.release(gateKey).catch(() => {});
-      await this.pendingClarificationStore.clear(gateKey, 'failed').catch(() => {});
+      const release = await this.conversationGate
+        .releaseIfActiveRequestId(gateKey, expectedRequestId)
+        .catch(() => ({ released: false }));
+      if (release.released) {
+        await this.pendingClarificationStore.clearIfMatches(gateKey, pendingRecord, 'failed').catch(() => false);
+      }
       logger.error('conversation_gate.interrupt_save_failed', {
         ...logContext, error: (error as Error).message,
       });
+      return false;
     }
   }
 
   private async releaseGateWithBuffer(
     gateKey: string,
     logContext: LogContext,
-  ): Promise<string | undefined> {
-    const buffered = await this.conversationGate.getAndClearBufferedMessage(gateKey).catch(() => undefined);
-    await this.conversationGate.release(gateKey).catch(e =>
-      logger.error('conversation_gate.release_failed', { ...logContext, error: (e as Error).message })
+    expectedRequestId: string,
+  ): Promise<GateReleaseResult> {
+    const release = await this.conversationGate
+      .releaseIfActiveRequestId(gateKey, expectedRequestId)
+      .catch(e => {
+        logger.error('conversation_gate.release_failed', { ...logContext, error: (e as Error).message });
+        return { released: false, bufferedMessage: undefined };
+      });
+    logger.info(
+      release.released
+        ? 'conversation_gate.released'
+        : 'conversation_gate.settlement_skipped_stale_owner',
+      {
+        ...logContext,
+        gateKey,
+        expectedRequestId,
+        hadBufferedMessage: !!release.bufferedMessage,
+      },
     );
-    logger.info('conversation_gate.released', { ...logContext, gateKey, hadBufferedMessage: !!buffered });
-    return buffered;
+    return release;
   }
 
-  private async safeGetGateStatus(gateKey: string): Promise<ConversationGateStatus> {
+  private async safeGetGateSnapshot(gateKey: string): Promise<ConversationGateSnapshot> {
     try {
-      return await this.conversationGate.getStatus(gateKey);
+      return await this.conversationGate.getSnapshot(gateKey);
     } catch (error) {
       logger.error('conversation_gate.store_error', {
-        gateKey, error: (error as Error).message, strategy: 'fail_open',
+        gateKey, error: (error as Error).message, strategy: 'fail_closed',
       });
-      return 'idle';
+      return { status: 'running' };
     }
   }
 
-  private async safeAcquireGate(gateKey: string, chatId?: number): Promise<boolean> {
+  private guardProgressCallback(
+    gateKey: string,
+    expectedRequestId: string,
+    logContext: LogContext,
+    onProgress?: LangGraphProgressCallback,
+  ): LangGraphProgressCallback | undefined {
+    if (!onProgress) return undefined;
+    return async (event, signal) => {
+      const snapshot = await this.safeGetGateSnapshot(gateKey);
+      if (snapshot.status !== 'running' || snapshot.requestId !== expectedRequestId) {
+        logger.info('conversation_gate.progress_suppressed_stale_owner', {
+          ...logContext,
+          gateKey,
+          expectedRequestId,
+        });
+        return;
+      }
+      await onProgress(event, signal);
+    };
+  }
+
+  private async safeAcquireGate(gateKey: string, requestId: string, chatId?: number): Promise<boolean> {
     try {
-      return await this.conversationGate.tryAcquire(gateKey, this.runningTtlMs, chatId);
+      return await this.conversationGate.tryAcquire(gateKey, this.runningTtlMs, chatId, requestId);
     } catch (error) {
       logger.error('conversation_gate.acquire_error', {
-        gateKey, error: (error as Error).message, strategy: 'fail_open',
+        gateKey, error: (error as Error).message, strategy: 'fail_closed',
       });
-      return true;
+      return false;
     }
+  }
+
+  private suppressedResult(): TextProcessorResult {
+    return { response: '', suppressed: true };
   }
 
   private pendingKey(telegramUserId: number | undefined, internalUserId: string, logContext: LogContext = {}): string {

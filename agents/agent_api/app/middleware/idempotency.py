@@ -51,11 +51,29 @@ def finish_idempotent_request(
     claim: RequestClaim,
     response: AgentResponse,
 ) -> None:
-    coordinator = request_idempotency.DEFAULT_REQUEST_IDEMPOTENCY_COORDINATOR
-    if response.status in {"completed", "interrupted"}:
-        coordinator.complete(claim, _response_payload(response))
-    else:
-        coordinator.abandon(claim)
+    """Cache every terminal response produced by an accepted graph run.
+
+    A ``failed`` response is still a settled outcome: the graph may have
+    reached external systems before reporting that failure. Reopening its
+    request claim would make a same-id retry execute the graph again.
+    """
+
+    request_idempotency.DEFAULT_REQUEST_IDEMPOTENCY_COORDINATOR.complete(
+        claim,
+        _response_payload(response),
+    )
+
+
+def finish_terminal_idempotent_request(
+    claim: RequestClaim,
+    response: AgentResponse,
+) -> None:
+    """Persist an intentional cancellation/deadline as a terminal replay result."""
+
+    request_idempotency.DEFAULT_REQUEST_IDEMPOTENCY_COORDINATOR.complete(
+        claim,
+        _response_payload(response),
+    )
 
 
 def abandon_idempotent_request(claim: RequestClaim) -> None:

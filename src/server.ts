@@ -12,24 +12,6 @@ const NGROK_URL = process.env.NGROK_URL!;
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
 const SKIP_WEBHOOK_SETUP = process.env.TELEGRAM_SKIP_WEBHOOK_SETUP === 'true';
 
-// Register the webhook URL with Telegram's servers on every startup.
-// This is idempotent — Telegram ignores the call if the URL hasn't changed.
-(async () => {
-  try {
-    await databaseReadiness;
-    if (SKIP_WEBHOOK_SETUP) {
-      logger.info('telegram.webhook.setup_skipped');
-      return;
-    }
-    await botService.setupWebhook(NGROK_URL, TELEGRAM_SECRET_TOKEN);
-  } catch (err) {
-    logger.error('telegram.webhook.setup_failed', {
-      error: (err as Error).message,
-    });
-    process.exit(1);
-  }
-})();
-
 // --- Express application setup ---
 
 const app = express();
@@ -97,9 +79,29 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 // --- Start listening ---
 
 const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => {
-  logger.info('server.started', { url: `http://localhost:${PORT}` });
-  logger.info('telegram.webhook.awaiting_updates', { path: '/webhook/:secret' });
+let server: ReturnType<typeof app.listen> | undefined;
+
+// Database migration readiness is a startup barrier, not merely a health check.
+// Do not accept a webhook on a schema that cannot support generation-safe gates.
+export async function startServer(): Promise<void> {
+  await databaseReadiness;
+  if (SKIP_WEBHOOK_SETUP) {
+    logger.info('telegram.webhook.setup_skipped');
+  } else {
+    await botService.setupWebhook(NGROK_URL, TELEGRAM_SECRET_TOKEN);
+  }
+
+  server = app.listen(PORT, () => {
+    logger.info('server.started', { url: `http://localhost:${PORT}` });
+    logger.info('telegram.webhook.awaiting_updates', { path: '/webhook/:secret' });
+  });
+}
+
+export const serverStartup = startServer().catch((err) => {
+  logger.error('server.startup_failed', {
+    error: (err as Error).message,
+  });
+  process.exit(1);
 });
 
 // Graceful shutdown: close the HTTP server, stop the bot, then exit.
@@ -113,7 +115,7 @@ function shutdown(signal: string) {
   }, SHUTDOWN_TIMEOUT_MS);
   forceExit.unref();
 
-  server.close(() => {
+  const stopBotAndExit = () => {
     botService.stop().finally(async () => {
       logger.info('server.shutdown.completed', { signal });
       try {
@@ -124,7 +126,12 @@ function shutdown(signal: string) {
       }
       process.exit(0);
     });
-  });
+  };
+  if (server) {
+    server.close(stopBotAndExit);
+  } else {
+    stopBotAndExit();
+  }
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));

@@ -2,9 +2,10 @@
 
 One class, per-run construction, lazy discovery service, a shared ``_execute``
 wrapper that classifies ``HttpError`` into :class:`GoogleCalendarApiError` and
-retries transient/rate-limit failures. Every method returns a *normalized* dict
-(the raw Google event carries ~40 fields; we keep the handful the model needs)
-to hold down LLM context tokens.
+retries transient/rate-limit failures for reads. Mutations are single-attempt
+because a timeout or provider error can be ambiguous. Every method returns a
+*normalized* dict (the raw Google event carries ~40 fields; we keep the handful
+the model needs) to hold down LLM context tokens.
 
 Tracing logs operation + status + attempt only — never request/response bodies
 (event summaries and attendee emails are user data; tokens are never present in
@@ -29,9 +30,15 @@ from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 logger = logging.getLogger(__name__)
 
 _MAX_ATTEMPTS = 3
+_HTTP_TIMEOUT_SECONDS = 30.0
 _BASE_DELAY_SECONDS = 0.5
 _MAX_DELAY_SECONDS = 4.0
 _RETRYABLE_KINDS = {"transient", "rate-limit"}
+_MUTATION_OPERATIONS = {
+    "calendar.events.insert",
+    "calendar.events.patch",
+    "calendar.events.delete",
+}
 
 # HTTP status -> classified kind. 403 is treated as auth (single-user setup);
 # Google also uses 403 for some rate limits, but that is rare here and only
@@ -61,6 +68,10 @@ _ERROR_MESSAGES = {
     "transient": "Google Calendar is temporarily unavailable. Please try again shortly.",
     "validation": "Google Calendar rejected the request as invalid.",
 }
+_AMBIGUOUS_MUTATION_MESSAGE = (
+    "Google Calendar could not confirm whether the change completed. "
+    "Check the calendar before trying again."
+)
 
 
 def _normalize_event(event: Any) -> Any:
@@ -245,14 +256,16 @@ class GoogleCalendarClient:
         from google_auth_httplib2 import AuthorizedHttp
         from googleapiclient.errors import HttpError
 
+        mutation = operation in _MUTATION_OPERATIONS
+        max_attempts = 1 if mutation else _MAX_ATTEMPTS
         last_error: Optional[GoogleCalendarApiError] = None
-        for attempt in range(1, _MAX_ATTEMPTS + 1):
+        for attempt in range(1, max_attempts + 1):
             self.tracer.event(
                 "calendar.request",
                 "Sending Calendar API request.",
                 operation=operation,
                 attempt=attempt,
-                max_attempts=_MAX_ATTEMPTS,
+                max_attempts=max_attempts,
             )
             try:
                 # Discovery requests otherwise share one non-thread-safe
@@ -262,7 +275,10 @@ class GoogleCalendarClient:
                 # established bare execute() seam.
                 if self._credentials is not None:
                     credentials = self._credential_coordinator.proxy()
-                    raw_http = httplib2.Http()
+                    # Bound every provider attempt. Reads can make up to three
+                    # attempts and still remain comfortably below the outer
+                    # 120-second graph deadline, including retry backoff.
+                    raw_http = httplib2.Http(timeout=_HTTP_TIMEOUT_SECONDS)
                     http = None
                     try:
                         http = AuthorizedHttp(credentials, http=raw_http)
@@ -283,15 +299,27 @@ class GoogleCalendarClient:
                 return result
             except HttpError as error:
                 api_error = self._classify_http_error(error, operation, attempt)
+                if mutation and api_error.retryable:
+                    # A provider-side retryable response can arrive after the
+                    # mutation was accepted. Do not advertise it as safe for a
+                    # caller to replay automatically.
+                    api_error.message = _AMBIGUOUS_MUTATION_MESSAGE
+                    api_error.retryable = False
+                    api_error.ambiguous_commit = True
             except GoogleCalendarApiError:
                 raise
             except Exception as error:  # network/transport failure
                 api_error = GoogleCalendarApiError(
                     kind="transient",
-                    message=_ERROR_MESSAGES["transient"],
-                    retryable=True,
+                    message=(
+                        _AMBIGUOUS_MUTATION_MESSAGE
+                        if mutation
+                        else _ERROR_MESSAGES["transient"]
+                    ),
+                    retryable=not mutation,
                     attempts=attempt,
                     operation=operation,
+                    ambiguous_commit=mutation,
                 )
                 self.tracer.event(
                     "calendar.error",
@@ -300,7 +328,7 @@ class GoogleCalendarClient:
                     attempt=attempt,
                     error=type(error).__name__,
                 )
-                if attempt < _MAX_ATTEMPTS:
+                if attempt < max_attempts:
                     last_error = api_error
                     progress = getattr(self.tracer, "progress", None)
                     if callable(progress): progress({
@@ -322,7 +350,7 @@ class GoogleCalendarClient:
                 retryable=api_error.retryable,
                 attempt=attempt,
             )
-            if api_error.retryable and attempt < _MAX_ATTEMPTS:
+            if api_error.retryable and attempt < max_attempts:
                 last_error = api_error
                 retry_reason = "rate_limited" if api_error.kind == "rate-limit" else "service_unavailable"
                 progress = getattr(self.tracer, "progress", None)

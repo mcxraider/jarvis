@@ -216,6 +216,8 @@ class JarvisApiTests(unittest.TestCase):
         ) as reset_checkpointer, patch(
             "agents.agent_api.app.async_offload.reset_offload_limiters"
         ) as reset_offloads, patch(
+            "agents.agent_api.app.api.active_runs.reset_active_run_registry"
+        ) as reset_active_runs, patch(
             "agents.agent_api.app.run_logging.shutdown_run_logs"
         ) as shutdown_logs, patch(
             "agents.agent_api.app.tools.todoist.client.close_todoist_http_client"
@@ -245,6 +247,7 @@ class JarvisApiTests(unittest.TestCase):
         reset_graphs.assert_not_called()
         reset_checkpointer.assert_not_called()
         reset_offloads.assert_not_called()
+        reset_active_runs.assert_not_called()
         shutdown_logs.assert_not_called()
         close_todoist.assert_not_called()
         close_todoist_async.assert_not_awaited()

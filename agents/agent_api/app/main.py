@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from agents.agent_api.app.api.routes.cancel import router as cancel_router
 from agents.agent_api.app.api.routes.health import router as health_router
 from agents.agent_api.app.api.routes.invoke import router as invoke_router
 from agents.agent_api.app.api.routes.resume import router as resume_router
@@ -65,6 +66,7 @@ async def run_idempotency_cleanup_loop(
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     from agents.agent_api.app.async_offload import drain_offloads, reset_offload_limiters
+    from agents.agent_api.app.api.active_runs import reset_active_run_registry
     from agents.agent_api.app.checkpointing import (
         initialize_async_checkpointer,
         reset_async_checkpointer,
@@ -174,6 +176,11 @@ async def lifespan(_app: FastAPI):
             # safely once a mutation may be in flight. Leave every dependent
             # transport/pool intact rather than closing underneath accepted work.
             _raise_lifespan_errors(primary_error, cleanup_errors)
+        try:
+            reset_active_run_registry()
+        except BaseException as error:
+            cleanup_errors.append(error)
+            _raise_lifespan_errors(primary_error, cleanup_errors)
         for close_resource in (
             close_shared_agent_client,
             close_shared_router_client,
@@ -240,6 +247,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(invoke_router)
     app.include_router(resume_router)
+    app.include_router(cancel_router)
     return app
 
 

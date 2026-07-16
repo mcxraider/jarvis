@@ -86,6 +86,7 @@ class Settings:
     allow_mutations: bool
     max_agent_turns: int
     max_concurrent_runs: int
+    run_deadline_seconds: float
     todoist_max_retry_attempts: int
     todoist_retry_total_timeout_seconds: float
     todoist_retry_base_delay_seconds: float
@@ -210,6 +211,10 @@ def load_settings() -> Settings:
         allow_mutations=_bool_env("JARVIS_ALLOW_MUTATIONS", True),
         max_agent_turns=_int_env("JARVIS_MAX_AGENT_TURNS", 20),
         max_concurrent_runs=_positive_int_env("JARVIS_MAX_CONCURRENT_RUNS", 8),
+        run_deadline_seconds=_positive_float_env(
+            "JARVIS_RUN_DEADLINE_SECONDS",
+            120.0,
+        ),
         todoist_max_retry_attempts=_int_env("TODOIST_MAX_RETRY_ATTEMPTS", 3),
         todoist_retry_total_timeout_seconds=_positive_float_env(
             "TODOIST_RETRY_TOTAL_TIMEOUT_SECONDS",

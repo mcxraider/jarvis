@@ -14,7 +14,13 @@ import {
 } from '../../types/agent.types';
 
 export type LangGraphAgentStatus = 'completed' | 'interrupted' | 'failed';
+export type LangGraphDelivery = 'terminal' | 'ambiguous';
 export type LangGraphInterruptType = 'clarify' | 'confirm';
+export type LangGraphCancelOutcome =
+  | 'cancelled'
+  | 'mutation_in_flight'
+  | 'already_finished'
+  | 'not_found';
 
 export type { LangGraphInterrupt } from '../../types/agent.types';
 
@@ -22,6 +28,12 @@ export type { LangGraphInterrupt } from '../../types/agent.types';
 // the underlying request was standard or streamed.
 export interface LangGraphAgentResponse {
   status: LangGraphAgentStatus;
+  /**
+   * `terminal` means the backend returned a valid final envelope. `ambiguous`
+   * means the transport failed after the request may have been accepted, so
+   * callers must retain ownership and must not automatically replay it.
+   */
+  delivery: LangGraphDelivery;
   threadId: string;
   response: string;
   interrupt?: import('../../types/agent.types').LangGraphInterrupt;
@@ -91,12 +103,27 @@ const RETRY_DELAYS_MS = [1000, 3000];
 // Health probes are user-facing (/status) and must fail fast — don't inherit the
 // generous invoke/resume timeout.
 const HEALTH_TIMEOUT_MS = 8000;
+const CANCEL_TIMEOUT_MS = 5000;
+const CANCEL_OUTCOMES = new Set<LangGraphCancelOutcome>([
+  'cancelled',
+  'mutation_in_flight',
+  'already_finished',
+  'not_found',
+]);
 
 function finitePositiveTimeout(value: number, name: string): number {
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`${name} must be finite and greater than zero`);
   }
   return value;
+}
+
+// A completed 4xx response (other than 409) is a pre-admission rejection: the
+// backend has told us that it did not accept this request for execution. A 409
+// can represent an in-flight idempotency conflict, so its delivery remains
+// ambiguous and callers must retain ownership rather than replaying it.
+function isTerminalHttpRejection(status: number): boolean {
+  return status >= 400 && status < 500 && status !== 409;
 }
 
 type StreamFailureKind =
@@ -122,8 +149,7 @@ export class LangGraphAgentClient {
     // Strip trailing slashes so we can append paths without double-slash issues.
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.timeoutMs = finitePositiveTimeout(
-      config.timeoutMs ??
-        Number(process.env.LANGGRAPH_AGENT_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS),
+      config.timeoutMs ?? Number(process.env.LANGGRAPH_AGENT_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS),
       'timeoutMs',
     );
     this.streamIdleTimeoutMs = finitePositiveTimeout(
@@ -187,6 +213,33 @@ export class LangGraphAgentClient {
     }
   }
 
+  /** Ask the Python service to cooperatively cancel one accepted run. */
+  async cancelRun(userId: string, requestId: string): Promise<LangGraphCancelOutcome> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CANCEL_TIMEOUT_MS);
+    try {
+      const response = await fetch(`${this.baseUrl}/runs/cancel`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ user_id: userId, request_id: requestId }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`LangGraph cancel returned ${response.status}`);
+      }
+      const body = (await response.json()) as { outcome?: unknown };
+      if (
+        typeof body.outcome !== 'string' ||
+        !CANCEL_OUTCOMES.has(body.outcome as LangGraphCancelOutcome)
+      ) {
+        throw new Error('LangGraph cancel returned an invalid outcome');
+      }
+      return body.outcome as LangGraphCancelOutcome;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   // Standard (non-streaming) POST to the agent API. Uses AbortController for timeout
   // management. On any failure, returns a graceful fallback response rather than throwing.
   private async post(
@@ -223,10 +276,14 @@ export class LangGraphAgentClient {
       const bodyText = await this.awaitWithAbort(response.text(), controller.signal);
 
       if (!response.ok) {
-        throw new Error(`LangGraph API returned ${response.status}`);
+        const error = `LangGraph API returned ${response.status}`;
+        if (isTerminalHttpRejection(response.status)) {
+          return this.fallbackResponse(request.threadId, error, 'terminal');
+        }
+        throw new Error(error);
       }
 
-      const normalized = this.parseAndNormalize(bodyText, logContext);
+      const normalized = this.parseAndNormalize(bodyText, logContext, request.threadId);
       logger.info('langgraph.request.completed', {
         ...logContext,
         path,
@@ -249,7 +306,7 @@ export class LangGraphAgentClient {
         durationMs: Date.now() - startedAt,
       });
 
-      return this.fallbackResponse(request.threadId, (error as Error).message);
+      return this.fallbackResponse(request.threadId, (error as Error).message, 'ambiguous');
     } finally {
       clearTimeout(timeout);
     }
@@ -312,7 +369,19 @@ export class LangGraphAgentClient {
         },
       );
 
-      if (!response.ok || !response.body) {
+      if (!response.ok) {
+        const error = `LangGraph stream returned ${response.status}`;
+        if (isTerminalHttpRejection(response.status)) {
+          // Do not classify a rejection as terminal until its response body is
+          // readable. A socket failure after headers still leaves delivery
+          // uncertain, even when the received status was 4xx.
+          await this.awaitWithAbort(response.text(), controller.signal);
+          return this.fallbackResponse(request.threadId, error, 'terminal');
+        }
+        throw new Error(error);
+      }
+
+      if (!response.body) {
         throw new Error(`LangGraph stream returned ${response.status}`);
       }
 
@@ -367,6 +436,7 @@ export class LangGraphAgentClient {
       return this.fallbackResponse(
         request.threadId,
         this.streamFailureMessage(failureKind, error as Error),
+        'ambiguous',
       );
     } finally {
       clearTimeout(overallTimer);
@@ -700,10 +770,19 @@ export class LangGraphAgentClient {
   }
 
   // Parses the raw JSON body from a non-streaming response and validates it against
-  // the Zod schema. Returns a normalized response or a safe fallback on parse failures.
-  private parseAndNormalize(bodyText: string, logContext: LogContext): LangGraphAgentResponse {
+  // the Zod schema. An invalid body is delivery-ambiguous: the backend accepted the
+  // request but failed to return a usable terminal envelope.
+  private parseAndNormalize(
+    bodyText: string,
+    logContext: LogContext,
+    threadId?: string,
+  ): LangGraphAgentResponse {
     if (!bodyText) {
-      return this.fallbackResponse();
+      return this.fallbackResponse(
+        threadId,
+        'LangGraph API returned an empty response',
+        'ambiguous',
+      );
     }
 
     let raw: unknown;
@@ -711,7 +790,7 @@ export class LangGraphAgentClient {
       raw = JSON.parse(bodyText);
     } catch {
       logger.warn('langgraph.response.parse_failed', { ...logContext });
-      return this.fallbackResponse();
+      return this.fallbackResponse(threadId, 'LangGraph API returned invalid JSON', 'ambiguous');
     }
 
     const result = AgentResponseSchema.safeParse(raw);
@@ -720,7 +799,11 @@ export class LangGraphAgentClient {
         ...logContext,
         issues: result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
       });
-      return this.fallbackResponse();
+      return this.fallbackResponse(
+        threadId,
+        'LangGraph API returned an invalid response',
+        'ambiguous',
+      );
     }
 
     return this.normalize(result.data);
@@ -735,7 +818,9 @@ export class LangGraphAgentClient {
   }
 
   // Converts the TypeScript-shaped request to the snake_case payload the Python API expects.
-  private toPayload(request: LangGraphAgentRequest & { threadId?: string }): Record<string, unknown> {
+  private toPayload(
+    request: LangGraphAgentRequest & { threadId?: string },
+  ): Record<string, unknown> {
     return {
       message: request.message,
       user_id: request.userId,
@@ -764,6 +849,7 @@ export class LangGraphAgentClient {
     const status = (body.status as LangGraphAgentStatus) || 'failed';
     return {
       status,
+      delivery: 'terminal',
       threadId: body.thread_id || '',
       response: body.response || 'Jarvis could not complete that request.',
       interrupt: body.interrupt ?? undefined,
@@ -773,9 +859,7 @@ export class LangGraphAgentClient {
     };
   }
 
-  private backendErrorLogFields(
-    details?: Record<string, unknown>,
-  ): Record<string, unknown> {
+  private backendErrorLogFields(details?: Record<string, unknown>): Record<string, unknown> {
     if (!details) return {};
     return {
       backendErrorSource: details.source,
@@ -790,14 +874,24 @@ export class LangGraphAgentClient {
   }
 
   // User-safe error response when the agent API is unreachable or returns garbage.
-  private fallbackResponse(threadId?: string, error?: string): LangGraphAgentResponse {
+  private fallbackResponse(
+    threadId?: string,
+    error?: string,
+    delivery: LangGraphDelivery = 'terminal',
+  ): LangGraphAgentResponse {
     const timedOut = /abort|timed?\s*out/i.test(error || '');
     return {
       status: 'failed',
+      delivery,
       threadId: threadId || '',
-      response: timedOut
-        ? 'I wasn’t able to finish this in time. Please try again in a moment.'
-        : 'Jarvis is temporarily unavailable. Please try again in a moment.',
+      response:
+        delivery === 'ambiguous'
+          ? timedOut
+            ? 'I wasn’t able to finish this in time or confirm the result. This request may still be running, so I’m keeping it active to prevent a duplicate. Use /cancel if you want to stop it.'
+            : 'I lost the connection before I could confirm the result. This request may still have completed, so I’m keeping it active to prevent a duplicate. Use /cancel if you want to stop it.'
+          : timedOut
+            ? 'I wasn’t able to finish this in time. Please try again in a moment.'
+            : 'Jarvis is temporarily unavailable. Please try again in a moment.',
       toolResults: [],
       ...(error && { error }),
     };

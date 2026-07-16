@@ -9,7 +9,10 @@ function makePendingStore(overrides: Record<string, any> = {}) {
     get: jest.fn().mockResolvedValue(undefined),
     save: jest.fn().mockResolvedValue(undefined),
     attachClarificationMessageId: jest.fn().mockResolvedValue(undefined),
+    attachClarificationMessageIdIfMatches: jest.fn().mockResolvedValue(true),
+    attachPromptMessageIdIfMatches: jest.fn().mockResolvedValue(true),
     clear: jest.fn().mockResolvedValue(undefined),
+    clearIfMatches: jest.fn().mockResolvedValue(true),
     sweepExpired: jest.fn().mockResolvedValue(undefined),
     ...overrides,
   } as any;
@@ -41,6 +44,7 @@ describe('MessageHandlers', () => {
     messageProcessor?: any;
     activityService?: any;
     pendingStore?: any;
+    gateStore?: any;
   } = {}) {
     const fileService = options.fileService || {
       isAudioFile: jest.fn(),
@@ -56,10 +60,76 @@ describe('MessageHandlers', () => {
       messageProcessor,
       activityService,
       pendingStore,
+      options.gateStore,
     );
 
     return { handlers, fileService, messageProcessor, activityService, pendingStore };
   }
+
+  it('deletes a just-sent confirmation prompt when ownership changes after delivery', async () => {
+    const pendingStore = makePendingStore({
+      get: jest.fn()
+        .mockResolvedValueOnce({ threadId: 'thread-old', requestId: 'request-old' })
+        .mockResolvedValueOnce({ threadId: 'thread-new', requestId: 'request-new' }),
+    });
+    const gateStore = {
+      getSnapshot: jest.fn()
+        .mockResolvedValueOnce({ status: 'waiting_for_clarification', requestId: 'request-old' })
+        .mockResolvedValueOnce({ status: 'waiting_for_clarification', requestId: 'request-new' }),
+    };
+    const { handlers } = createHandlers({ pendingStore, gateStore });
+    const ctx = createContext({ text: 'confirm it', message_id: 30 });
+    ctx.reply.mockResolvedValue({ message_id: 811 });
+
+    await (handlers as any).sendResult(
+      ctx,
+      {
+        response: 'Delete the task?',
+        interruptType: 'confirm',
+        threadId: 'thread-old',
+        settlementRequestId: 'request-old',
+      },
+      { requestId: 'request-old' },
+    );
+
+    expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 811);
+    expect(gateStore.getSnapshot).toHaveBeenCalledTimes(2);
+    expect(pendingStore.attachPromptMessageIdIfMatches.mock.invocationCallOrder[0]).toBeLessThan(
+      gateStore.getSnapshot.mock.invocationCallOrder[1],
+    );
+  });
+
+  it('deletes a just-sent clarification prompt when ownership changes after delivery', async () => {
+    setRichMessagesEnabled(true);
+    const pendingStore = makePendingStore({
+      get: jest.fn()
+        .mockResolvedValueOnce({ threadId: 'thread-old', requestId: 'request-old' })
+        .mockResolvedValueOnce({ threadId: 'thread-new', requestId: 'request-new' }),
+    });
+    const gateStore = {
+      getSnapshot: jest.fn()
+        .mockResolvedValueOnce({ status: 'waiting_for_clarification', requestId: 'request-old' })
+        .mockResolvedValueOnce({ status: 'waiting_for_clarification', requestId: 'request-new' }),
+    };
+    const { handlers } = createHandlers({ pendingStore, gateStore });
+    const ctx = createContext({ text: 'clarify it', message_id: 31 });
+    ctx.telegram.callApi.mockResolvedValue({ message_id: 812 });
+
+    await (handlers as any).sendResult(
+      ctx,
+      {
+        response: 'Which task?',
+        interruptType: 'clarify',
+        threadId: 'thread-old',
+        settlementRequestId: 'request-old',
+      },
+      { requestId: 'request-old' },
+    );
+
+    expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 812);
+    expect(pendingStore.attachClarificationMessageIdIfMatches).not.toHaveBeenCalled();
+    expect(gateStore.getSnapshot).toHaveBeenCalledTimes(2);
+  });
 
   it('routes text messages with Telegram identity metadata', async () => {
     const fileService = {
@@ -103,6 +173,25 @@ describe('MessageHandlers', () => {
       expect.any(Object),
     );
     expect(ctx.reply).toHaveBeenCalledWith('processed text', { parse_mode: 'MarkdownV2' });
+  });
+
+  it('cleans up progress and sends no response or HITL UI for a suppressed text result', async () => {
+    const messageProcessor = {
+      processTextMessage: jest.fn().mockResolvedValue({
+        response: 'stale response',
+        suppressed: true,
+        interruptType: 'clarify',
+        threadId: 'stale-thread',
+      }),
+    } as any;
+    const { handlers } = createHandlers({ messageProcessor });
+    const ctx = createContext({ text: 'hello', message_id: 99 });
+
+    await handlers.handleText(ctx);
+
+    expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
+    expect(ctx.reply).not.toHaveBeenCalledWith('stale response', expect.anything());
+    expect(ctx.telegram.callApi).not.toHaveBeenCalledWith('sendRichMessage', expect.anything());
   });
 
   it('sends the max-turn termination as a persistent rich message', async () => {
@@ -291,6 +380,27 @@ describe('MessageHandlers', () => {
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
   });
 
+  it('cleans up progress and sends no final response for suppressed audio settlement', async () => {
+    const fileService = {
+      getFileUrl: jest.fn().mockResolvedValue('https://example.com/audio.ogg'),
+    } as any;
+    const messageProcessor = {
+      processAudioMessage: jest.fn().mockResolvedValue({ response: 'stale audio', suppressed: true }),
+    } as any;
+    const handlers = new MessageHandlers(
+      fileService,
+      messageProcessor,
+      { recordActivity: jest.fn() } as any,
+      makePendingStore(),
+    );
+    const ctx = createContext({ voice: { file_id: 'voice-1', duration: 3 } });
+
+    await handlers.handleVoice(ctx);
+
+    expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
+    expect(ctx.reply).not.toHaveBeenCalledWith('stale audio', expect.anything());
+  });
+
   it('rejects photos with a helpful reply', async () => {
     const fileService = {
       isAudioFile: jest.fn(),
@@ -431,6 +541,34 @@ describe('MessageHandlers', () => {
       expect(activityService.recordActivity).toHaveBeenCalledWith('command_new');
     });
 
+    it('removes the superseded confirmation prompt before delivering a /new result', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn().mockResolvedValue({
+          response: 'Fresh result',
+          resolvedPendingPause: true,
+          consumedInterruptType: 'confirm',
+          consumedPromptMessageId: 559,
+          consumedClarificationQuestion: 'Delete it?',
+        }),
+        abandonConversation: jest.fn(),
+      } as any;
+      const { handlers } = createHandlers({ messageProcessor });
+      const ctx = createContext({ text: '/new do something else', message_id: 13 });
+
+      await handlers.handleNew(ctx);
+
+      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 559);
+      const promptDeleteIndex = ctx.telegram.deleteMessage.mock.calls.findIndex(
+        (call: unknown[]) => call[1] === 559,
+      );
+      const finalReplyOrder = ctx.reply.mock.invocationCallOrder[
+        ctx.reply.mock.invocationCallOrder.length - 1
+      ];
+      expect(ctx.telegram.deleteMessage.mock.invocationCallOrder[promptDeleteIndex]).toBeLessThan(
+        finalReplyOrder,
+      );
+    });
+
     it('handles /new@botname mention prefixes', async () => {
       const messageProcessor = {
         processTextMessage: jest.fn().mockResolvedValue({ response: 'ok' }),
@@ -534,6 +672,33 @@ describe('MessageHandlers', () => {
       });
     });
 
+    it.each([
+      ['confirm', 557],
+      ['clarify', 558],
+    ])('bare /new removes a superseded %s prompt without a rich clarification block', async (interruptType, promptMessageId) => {
+      const messageProcessor = {
+        processTextMessage: jest.fn(),
+        abandonConversation: jest.fn().mockResolvedValue('abandoned'),
+      } as any;
+      const pendingStore = makePendingStore({
+        get: jest.fn().mockResolvedValue({
+          interruptType,
+          promptMessageId,
+          question: 'Continue?',
+        }),
+      });
+      const { handlers } = createHandlers({ messageProcessor, pendingStore });
+      const ctx = createContext({ text: '/new', message_id: 12 });
+
+      await handlers.handleNew(ctx);
+
+      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, promptMessageId);
+      expect(ctx.telegram.callApi).not.toHaveBeenCalledWith(
+        'editMessageText',
+        expect.objectContaining({ message_id: promptMessageId }),
+      );
+    });
+
     it('bare /new does not delete anything when the agent is still running', async () => {
       const messageProcessor = {
         processTextMessage: jest.fn(),
@@ -564,9 +729,13 @@ describe('MessageHandlers', () => {
           response: 'Delete 5 tasks?',
           interruptType: 'confirm',
           threadId: 'tg_x',
+          settlementRequestId: 'request-confirm',
         }),
       } as any;
-      const { handlers } = createHandlers({ messageProcessor });
+      const pendingStore = makePendingStore({
+        get: jest.fn().mockResolvedValue({ threadId: 'tg_x', requestId: 'request-confirm' }),
+      });
+      const { handlers } = createHandlers({ messageProcessor, pendingStore });
       const ctx = createContext({ text: 'delete everything', message_id: 11 });
 
       await handlers.handleText(ctx);
@@ -584,9 +753,15 @@ describe('MessageHandlers', () => {
           response: 'Which project?',
           interruptType: 'clarify',
           threadId: 'tg_order_clarify',
+          settlementRequestId: 'request-clarify',
         }),
       } as any;
-      const pendingStore = makePendingStore();
+      const pendingStore = makePendingStore({
+        get: jest.fn().mockResolvedValue({
+          threadId: 'tg_order_clarify',
+          requestId: 'request-clarify',
+        }),
+      });
       const { handlers } = createHandlers({ messageProcessor, pendingStore });
       const ctx = createContext({ text: 'add a task', message_id: 12 });
       ctx.telegram.callApi = jest.fn().mockResolvedValue({ message_id: 701 });
@@ -601,7 +776,45 @@ describe('MessageHandlers', () => {
       expect(promptCall.rich_message.markdown).toBe(
         '<details open><summary>Clarification</summary>\n\nWhich project?\n\n</details>',
       );
-      expect(pendingStore.attachClarificationMessageId).toHaveBeenCalledWith(expect.any(String), 701);
+      expect(pendingStore.attachClarificationMessageIdIfMatches).toHaveBeenCalledWith(
+        expect.any(String),
+        { threadId: 'tg_order_clarify', requestId: 'request-clarify' },
+        701,
+      );
+    });
+
+    it('presents a valid typed-resume re-interrupt with its settlement request id', async () => {
+      setRichMessagesEnabled(true);
+      const messageProcessor = {
+        processTextMessage: jest.fn().mockResolvedValue({
+          response: 'What time?',
+          interruptType: 'clarify',
+          threadId: 'thread-second',
+          settlementRequestId: 'resume-request',
+          resolvedPendingPause: true,
+        }),
+      } as any;
+      const pendingStore = makePendingStore({
+        get: jest.fn().mockResolvedValue({
+          threadId: 'thread-second',
+          requestId: 'resume-request',
+        }),
+      });
+      const { handlers } = createHandlers({ messageProcessor, pendingStore });
+      const ctx = createContext({ text: 'tomorrow', message_id: 13 });
+      ctx.telegram.callApi = jest.fn().mockResolvedValue({ message_id: 77 });
+
+      await handlers.handleText(ctx);
+
+      expect(ctx.telegram.callApi).toHaveBeenCalledWith('sendRichMessage', {
+        chat_id: 456,
+        rich_message: { markdown: expect.stringContaining('What time?') },
+      });
+      expect(pendingStore.attachClarificationMessageIdIfMatches).toHaveBeenCalledWith(
+        expect.any(String),
+        { threadId: 'thread-second', requestId: 'resume-request' },
+        77,
+      );
     });
 
     it('collapses the clarification immediately when an accepted reply invokes the lifecycle hook', async () => {

@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 CredentialPersistCallback = Callable[[str, Optional[datetime]], None]
 
 DEFAULT_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar"
+_REFRESH_TIMEOUT_SECONDS = 30.0
 
 
 class GoogleCalendarApiError(ClassifiedApiError):
@@ -49,6 +50,7 @@ class GoogleCalendarApiError(ClassifiedApiError):
         attempts: int = 1,
         reconnect: bool = False,
         operation: str = "calendar.request",
+        ambiguous_commit: bool = False,
     ) -> None:
         super().__init__(message)
         self.kind = kind
@@ -58,6 +60,7 @@ class GoogleCalendarApiError(ClassifiedApiError):
         self.attempts = attempts
         self.reconnect = reconnect
         self.operation = operation
+        self.ambiguous_commit = ambiguous_commit
 
     def __str__(self) -> str:
         return self.message
@@ -88,6 +91,21 @@ def _write_token(token_path: str, creds) -> None:
 
     with open(token_path, "w", encoding="utf-8") as handle:
         handle.write(creds.to_json())
+
+
+def _bounded_refresh_request(request):
+    """Force OAuth refresh I/O under the same bound as Calendar attempts."""
+
+    def send(*args, **kwargs):
+        configured = kwargs.get("timeout")
+        kwargs["timeout"] = (
+            min(float(configured), _REFRESH_TIMEOUT_SECONDS)
+            if configured is not None
+            else _REFRESH_TIMEOUT_SECONDS
+        )
+        return request(*args, **kwargs)
+
+    return send
 
 
 def load_credentials(
@@ -137,7 +155,7 @@ def load_credentials(
 
     if creds.expired and creds.refresh_token:
         try:
-            creds.refresh(Request())
+            creds.refresh(_bounded_refresh_request(Request()))
         except Exception as exc:  # google.auth.exceptions.RefreshError, etc.
             logger.warning(
                 "calendar.auth.refresh_failed",

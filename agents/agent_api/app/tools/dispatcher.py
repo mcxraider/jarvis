@@ -26,6 +26,7 @@ from agents.agent_api.app.config import settings
 from agents.agent_api.app.constants import ALLOW_MUTATIONS
 from agents.agent_api.app.async_offload import bounded_to_thread
 from agents.agent_api.app.graph.canonicalize import build_operation_idempotency_key
+from agents.agent_api.app.graph.run_control import RunControl
 from agents.agent_api.app.idempotency.store import ClaimResult, ClaimState, IdempotencyStore
 from agents.agent_api.app.tools.base import (
     ToolRegistry,
@@ -98,6 +99,25 @@ def build_tool_result(
     }
 
 
+def build_ambiguous_mutation_result(
+    tool_call_id: str,
+    tool_name: str,
+) -> Dict[str, Any]:
+    """Fail closed when a completed mutation cannot be durably recorded."""
+
+    return build_tool_result(
+        tool_call_id,
+        tool_name,
+        success=False,
+        error=(
+            "The change may have completed, but Jarvis could not safely record "
+            "the outcome. Do not retry automatically; verify the external "
+            "service first."
+        ),
+        mutation_blocked=True,
+    )
+
+
 async def _await_mutation_settlement(
     task: asyncio.Task[Any],
 ) -> tuple[Any, bool]:
@@ -126,10 +146,12 @@ class ToolDispatcher:
         idempotency_lease_seconds: int = settings.idempotency_lease_seconds,
         idempotency_wait_seconds: float = settings.idempotency_wait_seconds,
         idempotency_poll_interval_seconds: float = settings.idempotency_poll_interval_seconds,
+        run_control: Optional[RunControl] = None,
     ):
         self.registry = registry
         self.allow_mutations = allow_mutations
         self.tracer = tracer or NULL_TRACE
+        self.run_control = run_control
         self.idempotency_store = idempotency_store
         self.idempotency_operation_ttl_seconds = idempotency_operation_ttl_seconds
         self.idempotency_lease_seconds = idempotency_lease_seconds
@@ -394,25 +416,56 @@ class ToolDispatcher:
                             ctx_turn_count,
                         )
                         if not completed:
+                            # The provider has already reported success. Releasing
+                            # the claim here would allow an automatic retry to
+                            # duplicate the mutation. Cache an ambiguous terminal
+                            # result when possible, otherwise retain the claim for
+                            # as long as the operation TTL permits.
+                            ambiguous_result = build_ambiguous_mutation_result(
+                                tool_call_id,
+                                tool_name,
+                            )
                             await bounded_to_thread(
-                                self._abandon_operation,
+                                self._retain_ambiguous_operation,
                                 resolved_key,
                                 owner_token,
+                                ambiguous_result,
                                 tool_name,
                                 ctx_thread_id,
                                 ctx_turn_count,
                             )
+                            return ambiguous_result
                     return result
                 except ClassifiedApiError as error:
-                    await bounded_to_thread(
-                        self._abandon_operation,
-                        resolved_key,
-                        owner_token,
-                        tool_name,
-                        ctx_thread_id,
-                        ctx_turn_count,
-                    )
                     classified_error = error.to_classifier_payload()
+                    ambiguous_result = build_tool_result(
+                        tool_call_id,
+                        tool_name,
+                        success=False,
+                        error=error.message,
+                        mutation_blocked=error.ambiguous_commit,
+                        classified_error=classified_error,
+                    )
+                    if error.ambiguous_commit:
+                        if owner_token and resolved_key and self.idempotency_store:
+                            await bounded_to_thread(
+                                self._retain_ambiguous_operation,
+                                resolved_key,
+                                owner_token,
+                                ambiguous_result,
+                                tool_name,
+                                ctx_thread_id,
+                                ctx_turn_count,
+                            )
+                    else:
+                        await bounded_to_thread(
+                            self._abandon_operation,
+                            resolved_key,
+                            owner_token,
+                            tool_name,
+                            ctx_thread_id,
+                            ctx_turn_count,
+                        )
                     self.tracer.event(
                         "tool.error",
                         "Tool call failed with a classified API error.",
@@ -422,13 +475,7 @@ class ToolDispatcher:
                         status_code=error.status_code,
                         attempts=error.attempts,
                     )
-                    return build_tool_result(
-                        tool_call_id,
-                        tool_name,
-                        success=False,
-                        error=error.message,
-                        classified_error=classified_error,
-                    )
+                    return ambiguous_result
                 except Exception as error:
                     await bounded_to_thread(
                         self._abandon_operation,
@@ -453,26 +500,77 @@ class ToolDispatcher:
 
             cancellation_requested = False
             if tool_name in self._mutating_names:
-                mutation_started = True
-                handler_task = asyncio.create_task(execute_and_finalize())
-                content, cancellation_requested = await _await_mutation_settlement(
-                    handler_task
-                )
+                if self.run_control is not None and not self.run_control.begin_mutation():
+                    await bounded_to_thread(
+                        self._abandon_operation,
+                        resolved_key,
+                        owner_token,
+                        tool_name,
+                        ctx_thread_id,
+                        ctx_turn_count,
+                    )
+                    raise asyncio.CancelledError
+                handler_coro = execute_and_finalize()
+                try:
+                    try:
+                        handler_task = asyncio.create_task(handler_coro)
+                    except BaseException:
+                        handler_coro.close()
+                        await bounded_to_thread(
+                            self._abandon_operation,
+                            resolved_key,
+                            owner_token,
+                            tool_name,
+                            ctx_thread_id,
+                            ctx_turn_count,
+                        )
+                        owner_token = None
+                        raise
+                    mutation_started = True
+                    content, cancellation_requested = await _await_mutation_settlement(
+                        handler_task
+                    )
+                finally:
+                    if (
+                        self.run_control is not None
+                        and self.run_control.finish_mutation()
+                    ):
+                        cancellation_requested = True
             else:
                 content = await execute_and_finalize()
             if cancellation_requested:
                 raise asyncio.CancelledError
             return content
         except ClassifiedApiError as error:
-            await bounded_to_thread(
-                self._abandon_operation,
-                resolved_key,
-                owner_token,
-                tool_name,
-                ctx_thread_id,
-                ctx_turn_count,
-            )
             classified_error = error.to_classifier_payload()
+            result = build_tool_result(
+                tool_call_id,
+                tool_name,
+                success=False,
+                error=error.message,
+                mutation_blocked=error.ambiguous_commit,
+                classified_error=classified_error,
+            )
+            if error.ambiguous_commit:
+                if owner_token and resolved_key and self.idempotency_store:
+                    await bounded_to_thread(
+                        self._retain_ambiguous_operation,
+                        resolved_key,
+                        owner_token,
+                        result,
+                        tool_name,
+                        ctx_thread_id,
+                        ctx_turn_count,
+                    )
+            else:
+                await bounded_to_thread(
+                    self._abandon_operation,
+                    resolved_key,
+                    owner_token,
+                    tool_name,
+                    ctx_thread_id,
+                    ctx_turn_count,
+                )
             self.tracer.event(
                 "tool.error",
                 "Tool call failed with a classified API error.",
@@ -482,13 +580,7 @@ class ToolDispatcher:
                 status_code=error.status_code,
                 attempts=error.attempts,
             )
-            return build_tool_result(
-                tool_call_id,
-                tool_name,
-                success=False,
-                error=error.message,
-                classified_error=classified_error,
-            )
+            return result
         except asyncio.CancelledError:
             # Never release a mutation claim merely because its caller stopped
             # waiting after dispatch. The shielded handler settles and the normal
@@ -669,11 +761,45 @@ class ToolDispatcher:
                             "turn_count": ctx_turn_count,
                         },
                     )
-                    self._abandon_operation(resolved_key, owner_token, tool_name, ctx_thread_id, ctx_turn_count)
+                    # The provider has already reported success. Do not release
+                    # the claim and make an automatic retry eligible to execute
+                    # the mutation again.
+                    ambiguous_result = build_ambiguous_mutation_result(
+                        tool_call_id,
+                        tool_name,
+                    )
+                    self._retain_ambiguous_operation(
+                        resolved_key,
+                        owner_token,
+                        ambiguous_result,
+                        tool_name,
+                        ctx_thread_id,
+                        ctx_turn_count,
+                    )
+                    return ambiguous_result
             return result
         except ClassifiedApiError as error:
-            self._abandon_operation(resolved_key, owner_token, tool_name, ctx_thread_id, ctx_turn_count)
             classified_error = error.to_classifier_payload()
+            result = build_tool_result(
+                tool_call_id,
+                tool_name,
+                success=False,
+                error=error.message,
+                mutation_blocked=error.ambiguous_commit,
+                classified_error=classified_error,
+            )
+            if error.ambiguous_commit:
+                if owner_token and resolved_key and self.idempotency_store:
+                    self._retain_ambiguous_operation(
+                        resolved_key,
+                        owner_token,
+                        result,
+                        tool_name,
+                        ctx_thread_id,
+                        ctx_turn_count,
+                    )
+            else:
+                self._abandon_operation(resolved_key, owner_token, tool_name, ctx_thread_id, ctx_turn_count)
             self.tracer.event(
                 "tool.error",
                 "Tool call failed with a classified API error.",
@@ -683,13 +809,7 @@ class ToolDispatcher:
                 status_code=error.status_code,
                 attempts=error.attempts,
             )
-            return build_tool_result(
-                tool_call_id,
-                tool_name,
-                success=False,
-                error=error.message,
-                classified_error=classified_error,
-            )
+            return result
         except Exception as error:
             self._abandon_operation(resolved_key, owner_token, tool_name, ctx_thread_id, ctx_turn_count)
             self.tracer.event("tool.error", "Tool call failed.", name=tool_name, error=str(error))
@@ -804,6 +924,49 @@ class ToolDispatcher:
             )
         except Exception:
             return False
+
+    def _renew_operation(self, key: str, owner_token: str) -> bool:
+        if self.idempotency_store is None:
+            return False
+        try:
+            return self.idempotency_store.renew(
+                key,
+                owner_token,
+                self.idempotency_operation_ttl_seconds,
+            )
+        except Exception:
+            return False
+
+    def _retain_ambiguous_operation(
+        self,
+        key: str,
+        owner_token: str,
+        result: Dict[str, Any],
+        tool_name: str,
+        thread_id: Optional[str] = None,
+        turn_count: Optional[int] = None,
+    ) -> None:
+        """Cache an ambiguous outcome or extend the owned claim fail closed."""
+
+        completed = self._complete_operation(key, owner_token, result)
+        self._trace_idempotency(
+            "ambiguous_completed" if completed else "ambiguous_completion_failed",
+            tool_name,
+            key,
+            thread_id,
+            turn_count,
+        )
+        if completed:
+            return
+
+        renewed = self._renew_operation(key, owner_token)
+        self._trace_idempotency(
+            "lease_extended" if renewed else "lease_extension_failed",
+            tool_name,
+            key,
+            thread_id,
+            turn_count,
+        )
 
     def _trace_idempotency(
         self,
@@ -988,17 +1151,42 @@ async def async_execute_tool_calls(
     tool_calls: List[Dict[str, Any]],
     tool_dispatcher: ToolDispatcher,
 ) -> List[Dict[str, Any]]:
-    """Execute a batch through async handlers while preserving input order.
+    """Run consecutive reads concurrently and every mutation serially in order."""
 
-    Stage 5 deliberately keeps batch execution sequential. The following
-    concurrency stage can parallelize reads once it can also serialize mutations
-    and propagate cancellation without creating duplicate side effects.
-    """
+    results: List[Optional[Dict[str, Any]]] = [None] * len(tool_calls)
+    semaphore = asyncio.Semaphore(max(1, settings.executor_max_workers))
 
-    results: List[Dict[str, Any]] = []
-    for tool_call in tool_calls:
-        results.append(await tool_dispatcher.async_execute_tool_call(tool_call))
-    return results
+    def is_read_only(tool_call: Dict[str, Any]) -> bool:
+        spec = tool_dispatcher.registry.get(tool_call_name(tool_call))
+        return spec is not None and not spec.mutating
+
+    async def execute_read(index: int, tool_call: Dict[str, Any]) -> None:
+        async with semaphore:
+            results[index] = await tool_dispatcher.async_execute_tool_call(tool_call)
+
+    index = 0
+    while index < len(tool_calls):
+        if not is_read_only(tool_calls[index]):
+            results[index] = await tool_dispatcher.async_execute_tool_call(
+                tool_calls[index]
+            )
+            index += 1
+            continue
+
+        group_end = index
+        while group_end < len(tool_calls) and is_read_only(tool_calls[group_end]):
+            group_end += 1
+        await asyncio.gather(
+            *(
+                execute_read(read_index, tool_calls[read_index])
+                for read_index in range(index, group_end)
+            )
+        )
+        index = group_end
+
+    if any(result is None for result in results):
+        raise RuntimeError("Tool batch completed without producing every result.")
+    return [result for result in results if result is not None]
 
 
 __all__ = [
