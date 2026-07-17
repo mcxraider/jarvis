@@ -237999,3 +237999,1718 @@
       "baseUrl": "https://07e9-116-87-102-52.ngrok-free.app",
       "path": "/webhook/[REDACTED]"
     }
+[2026-07-17 12:54:01] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 5,
+      "nodeEnv": "development"
+    }
+[2026-07-17 12:54:01] INFO telegram.authorization.configured
+  details:
+    {
+      "store": "postgres",
+      "emergencyDeniedUsers": 0
+    }
+[2026-07-17 12:54:01] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 166,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      },
+      "requestTimeoutMs": 12000,
+      "maxRetryAttempts": 2,
+      "retryMaxDelayMs": 2000,
+      "retryTotalTimeoutMs": 20000,
+      "maxRetryAfterMs": 5000,
+      "sdkMaxRetries": 0
+    }
+[2026-07-17 12:54:01] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-07-17 12:54:01] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-07-17 12:54:01] INFO telegram.bot.initialized
+[2026-07-17 12:54:01] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-07-17 12:54:01] INFO database.runtime.ready
+  details:
+    {
+      "role": "jarvis_app",
+      "inheritedRole": "jarvis_runtime",
+      "requiredTables": 6
+    }
+[2026-07-17 12:54:01] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://1156-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-07-17 12:54:02] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://1156-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-07-17 12:54:02] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-07-17 12:54:02] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-07-17 13:00:33] INFO telegram.webhook.received
+  requestId: tg_update_564452624
+  updateId: 564452624
+  messageType: text
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-17 13:00:33] INFO telegram.update.handling_started
+  requestId: tg_update_564452624
+  updateId: 564452624
+[2026-07-17 13:00:33] INFO telegram.message.received
+  requestId: tg_update_564452624
+  updateId: 564452624
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1549
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 5,
+      "messagePreview": "hello",
+      "hasReplyContext": false
+    }
+[2026-07-17 13:00:34] INFO processor.route.selected
+  requestId: tg_update_564452624
+  updateId: 564452624
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1549
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 5,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-07-17 13:00:34] INFO text_processor.started
+  requestId: tg_update_564452624
+  updateId: 564452624
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1549
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 5
+    }
+[2026-07-17 13:00:34] INFO langgraph.stream.started
+  requestId: tg_update_564452624
+  updateId: 564452624
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1549
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "hasTelegramIdentity": true,
+      "hasThreadId": false
+    }
+[2026-07-17 13:00:39] INFO langgraph.stream.completed
+  requestId: tg_update_564452624
+  updateId: 564452624
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1549
+  messageType: text
+  threadId: 9d29b4fb-9ffc-4519-8712-72d9e151eec5
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "status": "completed",
+      "durationMs": 5108
+    }
+[2026-07-17 13:00:39] INFO conversation_gate.released
+  requestId: tg_update_564452624
+  updateId: 564452624
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1549
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "expectedRequestId": "tg_update_564452624",
+      "hadBufferedMessage": false
+    }
+[2026-07-17 13:00:39] INFO text_processor.completed
+  requestId: tg_update_564452624
+  updateId: 564452624
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1549
+  messageType: text
+  threadId: 9d29b4fb-9ffc-4519-8712-72d9e151eec5
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 5,
+      "responseLength": 116,
+      "agentStatus": "completed",
+      "durationMs": 5235
+    }
+[2026-07-17 13:00:39] INFO telegram.reply.sent
+  requestId: tg_update_564452624
+  updateId: 564452624
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1549
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 116,
+      "totalDurationMs": 5986
+    }
+[2026-07-17 13:00:39] INFO telegram.update.handling_completed
+  requestId: tg_update_564452624
+  updateId: 564452624
+  details:
+    {
+      "durationMs": 6245
+    }
+[2026-07-17 13:01:02] INFO telegram.webhook.received
+  requestId: tg_update_564452625
+  updateId: 564452625
+  messageType: text
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-17 13:01:02] INFO telegram.update.handling_started
+  requestId: tg_update_564452625
+  updateId: 564452625
+[2026-07-17 13:01:02] INFO telegram.message.received
+  requestId: tg_update_564452625
+  updateId: 564452625
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1551
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 27,
+      "messagePreview": "what’s on my schedule today",
+      "hasReplyContext": false
+    }
+[2026-07-17 13:01:02] INFO processor.route.selected
+  requestId: tg_update_564452625
+  updateId: 564452625
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1551
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 27,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-07-17 13:01:02] INFO text_processor.started
+  requestId: tg_update_564452625
+  updateId: 564452625
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1551
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 27
+    }
+[2026-07-17 13:01:02] INFO langgraph.stream.started
+  requestId: tg_update_564452625
+  updateId: 564452625
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1551
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "hasTelegramIdentity": true,
+      "hasThreadId": false
+    }
+[2026-07-17 13:01:11] INFO langgraph.stream.completed
+  requestId: tg_update_564452625
+  updateId: 564452625
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1551
+  messageType: text
+  threadId: 41f184c0-1f8c-4e9b-aa1a-3d0950201d4d
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "status": "interrupted",
+      "durationMs": 8536
+    }
+[2026-07-17 13:01:11] INFO conversation_gate.transition_to_waiting
+  requestId: tg_update_564452625
+  updateId: 564452625
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1551
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "interruptType": "clarify"
+    }
+[2026-07-17 13:01:11] INFO text_processor.completed
+  requestId: tg_update_564452625
+  updateId: 564452625
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1551
+  messageType: text
+  threadId: 41f184c0-1f8c-4e9b-aa1a-3d0950201d4d
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 27,
+      "responseLength": 687,
+      "agentStatus": "interrupted",
+      "settlementRequestId": "tg_update_564452625",
+      "interruptType": "clarify",
+      "durationMs": 8683
+    }
+[2026-07-17 13:01:11] INFO telegram.interrupt.prompt_presented
+  requestId: tg_update_564452625
+  updateId: 564452625
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1551
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "interruptType": "clarify",
+      "presentation": "clarification_block"
+    }
+[2026-07-17 13:01:11] INFO telegram.reply.sent
+  requestId: tg_update_564452625
+  updateId: 564452625
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1551
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 687,
+      "totalDurationMs": 9474
+    }
+[2026-07-17 13:01:11] INFO telegram.update.handling_completed
+  requestId: tg_update_564452625
+  updateId: 564452625
+  details:
+    {
+      "durationMs": 9548
+    }
+[2026-07-17 13:01:18] INFO telegram.webhook.received
+  requestId: tg_update_564452626
+  updateId: 564452626
+  messageType: text
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-17 13:01:18] INFO telegram.update.handling_started
+  requestId: tg_update_564452626
+  updateId: 564452626
+[2026-07-17 13:01:18] INFO telegram.message.received
+  requestId: tg_update_564452626
+  updateId: 564452626
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1553
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 12,
+      "messagePreview": "nope thanks!",
+      "hasReplyContext": false
+    }
+[2026-07-17 13:01:19] INFO processor.route.selected
+  requestId: tg_update_564452626
+  updateId: 564452626
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1553
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 12,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-07-17 13:01:19] INFO text_processor.started
+  requestId: tg_update_564452626
+  updateId: 564452626
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1553
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 12
+    }
+[2026-07-17 13:01:19] INFO langgraph.stream.started
+  requestId: tg_update_564452626
+  updateId: 564452626
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1553
+  messageType: text
+  threadId: 41f184c0-1f8c-4e9b-aa1a-3d0950201d4d
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/resume/stream",
+      "hasTelegramIdentity": true,
+      "hasThreadId": true
+    }
+[2026-07-17 13:01:22] INFO langgraph.stream.completed
+  requestId: tg_update_564452626
+  updateId: 564452626
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1553
+  messageType: text
+  threadId: 41f184c0-1f8c-4e9b-aa1a-3d0950201d4d
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/resume/stream",
+      "status": "completed",
+      "requestedThreadId": "41f184c0-1f8c-4e9b-aa1a-3d0950201d4d",
+      "durationMs": 2364
+    }
+[2026-07-17 13:01:22] INFO conversation_gate.released
+  requestId: tg_update_564452626
+  updateId: 564452626
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1553
+  messageType: text
+  threadId: 41f184c0-1f8c-4e9b-aa1a-3d0950201d4d
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "expectedRequestId": "tg_update_564452626",
+      "hadBufferedMessage": false
+    }
+[2026-07-17 13:01:22] INFO telegram.reply.sent
+  requestId: tg_update_564452626
+  updateId: 564452626
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1553
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 54,
+      "totalDurationMs": 3646
+    }
+[2026-07-17 13:01:22] INFO telegram.update.handling_completed
+  requestId: tg_update_564452626
+  updateId: 564452626
+  details:
+    {
+      "durationMs": 3744
+    }
+[2026-07-17 13:01:39] INFO telegram.webhook.received
+  requestId: tg_update_564452627
+  updateId: 564452627
+  messageType: voice
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-17 13:01:39] INFO telegram.update.handling_started
+  requestId: tg_update_564452627
+  updateId: 564452627
+[2026-07-17 13:01:39] INFO telegram.message.received
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "fileSize": 19473,
+      "duration": 4,
+      "hasReplyContext": false
+    }
+[2026-07-17 13:01:40] INFO processor.route.selected
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "processor": "AudioProcessorService",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-07-17 13:01:41] INFO audio_processor.started
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-07-17 13:01:41] INFO whisper.transcription.started
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-07-17 13:01:41] DEBUG whisper.download.started
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "fileUrl": "[REDACTED_TELEGRAM_FILE_URL]"
+    }
+[2026-07-17 13:01:41] WARN whisper.download.unexpected_content_type
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-07-17 13:01:41] DEBUG whisper.download.completed
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "sizeBytes": 19473,
+      "durationMs": 715,
+      "contentType": "application/octet-stream"
+    }
+[2026-07-17 13:01:41] INFO audio.transcription.direct_selected
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg"
+    }
+[2026-07-17 13:01:41] INFO audio.conversion.skipped
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "originalFormat": "oga",
+      "normalizedFormat": "ogg",
+      "reason": "groq_direct_format"
+    }
+[2026-07-17 13:01:41] INFO whisper.api.request
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "model": "whisper-large-v3",
+      "language": "en",
+      "responseFormat": "verbose_json",
+      "promptLength": 166,
+      "fileSizeBytes": 19473,
+      "fileExtension": "ogg",
+      "temperature": 0,
+      "attempt": 1,
+      "timeoutMs": 12000
+    }
+[2026-07-17 13:01:42] INFO whisper.api.response
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "attempt": 1,
+      "providerRequestId": "req_01kxq77anne9zscx3t12k3zfaz",
+      "status": 200,
+      "detectedLanguage": "English",
+      "segmentCount": 1,
+      "textLength": 48,
+      "durationMs": 369,
+      "rateLimitLimitRequests": "2000",
+      "rateLimitRemainingRequests": "1999",
+      "rateLimitResetRequests": "43.2s",
+      "rateLimitLimitTokens": "[REDACTED]",
+      "rateLimitRemainingTokens": "[REDACTED]",
+      "rateLimitResetTokens": "[REDACTED]"
+    }
+[2026-07-17 13:01:42] INFO whisper.transcription.completed
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "textPreview": " What's on my plate for this week and next week?",
+      "textLength": 48,
+      "processingTimeMs": 1086,
+      "fileSizeBytes": 19473,
+      "qualityFlaggedSegments": 0,
+      "qualityTotalSegments": 1
+    }
+[2026-07-17 13:01:42] INFO text_processor.started
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 47
+    }
+[2026-07-17 13:01:42] INFO langgraph.stream.started
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "hasTelegramIdentity": true,
+      "hasThreadId": false
+    }
+[2026-07-17 13:01:58] INFO langgraph.stream.completed
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  threadId: aa7ed472-59c8-4e0c-96d8-e20c767d2a73
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "status": "completed",
+      "durationMs": 15610
+    }
+[2026-07-17 13:01:58] INFO conversation_gate.released
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "expectedRequestId": "tg_update_564452627",
+      "hadBufferedMessage": false
+    }
+[2026-07-17 13:01:58] INFO text_processor.completed
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  threadId: aa7ed472-59c8-4e0c-96d8-e20c767d2a73
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 47,
+      "responseLength": 1966,
+      "agentStatus": "completed",
+      "durationMs": 15640
+    }
+[2026-07-17 13:01:58] INFO audio_processor.completed
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "durationMs": 17116,
+      "transcriptionTextLength": 48,
+      "hasTranscription": true
+    }
+[2026-07-17 13:01:58] INFO telegram.reply.sent
+  requestId: tg_update_564452627
+  updateId: 564452627
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1555
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 1966,
+      "totalDurationMs": 18703
+    }
+[2026-07-17 13:01:58] INFO telegram.update.handling_completed
+  requestId: tg_update_564452627
+  updateId: 564452627
+  details:
+    {
+      "durationMs": 18838
+    }
+[2026-07-17 13:52:27] INFO telegram.webhook.received
+  requestId: tg_update_564452628
+  updateId: 564452628
+  messageType: text
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-17 13:52:27] INFO telegram.update.handling_started
+  requestId: tg_update_564452628
+  updateId: 564452628
+[2026-07-17 13:52:27] INFO telegram.message.received
+  requestId: tg_update_564452628
+  updateId: 564452628
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1558
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 34,
+      "messagePreview": "add in: reach sgh tmr at 345 pm p1",
+      "hasReplyContext": false
+    }
+[2026-07-17 13:52:28] INFO processor.route.selected
+  requestId: tg_update_564452628
+  updateId: 564452628
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1558
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 34,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-07-17 13:52:28] INFO text_processor.started
+  requestId: tg_update_564452628
+  updateId: 564452628
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1558
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 34
+    }
+[2026-07-17 13:52:28] INFO langgraph.stream.started
+  requestId: tg_update_564452628
+  updateId: 564452628
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1558
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "hasTelegramIdentity": true,
+      "hasThreadId": false
+    }
+[2026-07-17 13:52:41] INFO langgraph.stream.completed
+  requestId: tg_update_564452628
+  updateId: 564452628
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1558
+  messageType: text
+  threadId: a174560b-2ad0-49ae-a985-8c6aecdf363d
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "status": "interrupted",
+      "durationMs": 12671
+    }
+[2026-07-17 13:52:41] INFO conversation_gate.transition_to_waiting
+  requestId: tg_update_564452628
+  updateId: 564452628
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1558
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "interruptType": "clarify"
+    }
+[2026-07-17 13:52:41] INFO text_processor.completed
+  requestId: tg_update_564452628
+  updateId: 564452628
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1558
+  messageType: text
+  threadId: a174560b-2ad0-49ae-a985-8c6aecdf363d
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 34,
+      "responseLength": 560,
+      "agentStatus": "interrupted",
+      "settlementRequestId": "tg_update_564452628",
+      "interruptType": "clarify",
+      "durationMs": 12886
+    }
+[2026-07-17 13:52:41] INFO telegram.interrupt.prompt_presented
+  requestId: tg_update_564452628
+  updateId: 564452628
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1558
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "interruptType": "clarify",
+      "presentation": "clarification_block"
+    }
+[2026-07-17 13:52:41] INFO telegram.reply.sent
+  requestId: tg_update_564452628
+  updateId: 564452628
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1558
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 560,
+      "totalDurationMs": 14052
+    }
+[2026-07-17 13:52:41] INFO telegram.update.handling_completed
+  requestId: tg_update_564452628
+  updateId: 564452628
+  details:
+    {
+      "durationMs": 14197
+    }
+[2026-07-17 14:22:41] INFO conversation_gate.ttl_expired
+  requestId: tg_update_564452628
+  chatId: [REDACTED_ID]
+  details:
+    {
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67"
+    }
+[2026-07-17 15:09:28] INFO telegram.webhook.received
+  requestId: tg_update_564452629
+  updateId: 564452629
+  messageType: text
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-17 15:09:28] INFO telegram.update.handling_started
+  requestId: tg_update_564452629
+  updateId: 564452629
+[2026-07-17 15:09:28] INFO telegram.message.received
+  requestId: tg_update_564452629
+  updateId: 564452629
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1561
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 75,
+      "messagePreview": "change the reach SGH to \"pick up feebeee\" and remove the 3pm pick up feebee",
+      "hasReplyContext": false
+    }
+[2026-07-17 15:09:29] INFO processor.route.selected
+  requestId: tg_update_564452629
+  updateId: 564452629
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1561
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 75,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-07-17 15:09:29] INFO text_processor.started
+  requestId: tg_update_564452629
+  updateId: 564452629
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1561
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 75
+    }
+[2026-07-17 15:09:29] INFO langgraph.stream.started
+  requestId: tg_update_564452629
+  updateId: 564452629
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1561
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "hasTelegramIdentity": true,
+      "hasThreadId": false
+    }
+[2026-07-17 15:09:37] INFO langgraph.stream.completed
+  requestId: tg_update_564452629
+  updateId: 564452629
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1561
+  messageType: text
+  threadId: b825c6fc-716f-4122-9fa5-10f304a006ce
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "status": "interrupted",
+      "durationMs": 8487
+    }
+[2026-07-17 15:09:37] INFO conversation_gate.transition_to_waiting
+  requestId: tg_update_564452629
+  updateId: 564452629
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1561
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "interruptType": "confirm"
+    }
+[2026-07-17 15:09:37] INFO text_processor.completed
+  requestId: tg_update_564452629
+  updateId: 564452629
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1561
+  messageType: text
+  threadId: b825c6fc-716f-4122-9fa5-10f304a006ce
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 75,
+      "responseLength": 87,
+      "agentStatus": "interrupted",
+      "settlementRequestId": "tg_update_564452629",
+      "interruptType": "confirm",
+      "durationMs": 8720
+    }
+[2026-07-17 15:09:38] INFO telegram.reply.sent
+  requestId: tg_update_564452629
+  updateId: 564452629
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1561
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 87,
+      "totalDurationMs": 9924
+    }
+[2026-07-17 15:09:38] INFO telegram.update.handling_completed
+  requestId: tg_update_564452629
+  updateId: 564452629
+  details:
+    {
+      "durationMs": 10157
+    }
+[2026-07-17 15:09:56] INFO telegram.webhook.received
+  requestId: tg_update_564452630
+  updateId: 564452630
+  messageType: unknown
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-17 15:09:56] INFO telegram.update.handling_started
+  requestId: tg_update_564452630
+  updateId: 564452630
+[2026-07-17 15:09:58] INFO langgraph.stream.started
+  requestId: cb_mrollidr_j24qyl
+  userId: [REDACTED_ID]
+  threadId: b825c6fc-716f-4122-9fa5-10f304a006ce
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/resume/stream",
+      "hasTelegramIdentity": true,
+      "hasThreadId": true
+    }
+[2026-07-17 15:10:09] INFO langgraph.stream.completed
+  requestId: cb_mrollidr_j24qyl
+  userId: [REDACTED_ID]
+  threadId: b825c6fc-716f-4122-9fa5-10f304a006ce
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/resume/stream",
+      "status": "completed",
+      "requestedThreadId": "b825c6fc-716f-4122-9fa5-10f304a006ce",
+      "durationMs": 10809
+    }
+[2026-07-17 15:10:09] INFO telegram.callback.confirm.completed
+  requestId: cb_mrollidr_j24qyl
+  userId: [REDACTED_ID]
+  threadId: b825c6fc-716f-4122-9fa5-10f304a006ce
+  details:
+    {
+      "decision": "approve",
+      "agentStatus": "completed"
+    }
+[2026-07-17 15:10:09] INFO telegram.update.handling_completed
+  requestId: tg_update_564452630
+  updateId: 564452630
+  details:
+    {
+      "durationMs": 13052
+    }
+[2026-07-17 16:03:53] INFO telegram.webhook.received
+  requestId: tg_update_564452631
+  updateId: 564452631
+  messageType: text
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-17 16:03:53] INFO telegram.update.handling_started
+  requestId: tg_update_564452631
+  updateId: 564452631
+[2026-07-17 16:03:54] INFO telegram.message.received
+  requestId: tg_update_564452631
+  updateId: 564452631
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1566
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 49,
+      "messagePreview": "check govtech google calendar for today anything?",
+      "hasReplyContext": false
+    }
+[2026-07-17 16:03:54] INFO processor.route.selected
+  requestId: tg_update_564452631
+  updateId: 564452631
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1566
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 49,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-07-17 16:03:54] INFO text_processor.started
+  requestId: tg_update_564452631
+  updateId: 564452631
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1566
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 49
+    }
+[2026-07-17 16:03:54] INFO langgraph.stream.started
+  requestId: tg_update_564452631
+  updateId: 564452631
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1566
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "hasTelegramIdentity": true,
+      "hasThreadId": false
+    }
+[2026-07-17 16:04:05] INFO langgraph.stream.completed
+  requestId: tg_update_564452631
+  updateId: 564452631
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1566
+  messageType: text
+  threadId: 3c26c1f1-bd98-4502-b4f3-de33ba8528f3
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "status": "completed",
+      "durationMs": 11034
+    }
+[2026-07-17 16:04:05] INFO conversation_gate.released
+  requestId: tg_update_564452631
+  updateId: 564452631
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1566
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "expectedRequestId": "tg_update_564452631",
+      "hadBufferedMessage": false
+    }
+[2026-07-17 16:04:05] INFO text_processor.completed
+  requestId: tg_update_564452631
+  updateId: 564452631
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1566
+  messageType: text
+  threadId: 3c26c1f1-bd98-4502-b4f3-de33ba8528f3
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 49,
+      "responseLength": 124,
+      "agentStatus": "completed",
+      "durationMs": 11164
+    }
+[2026-07-17 16:04:06] INFO telegram.reply.sent
+  requestId: tg_update_564452631
+  updateId: 564452631
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1566
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 124,
+      "totalDurationMs": 12367
+    }
+[2026-07-17 16:04:06] INFO telegram.update.handling_completed
+  requestId: tg_update_564452631
+  updateId: 564452631
+  details:
+    {
+      "durationMs": 12494
+    }
+[2026-07-17 17:13:44] INFO server.shutdown.started
+  details:
+    {
+      "signal": "SIGTERM"
+    }
+[2026-07-17 17:13:44] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-17 17:13:44] INFO server.shutdown.completed
+  details:
+    {
+      "signal": "SIGTERM"
+    }
+[2026-07-17 17:13:44] INFO server.shutdown.started
+  details:
+    {
+      "signal": "SIGTERM"
+    }
+[2026-07-17 17:13:44] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-17 17:13:44] INFO server.shutdown.completed
+  details:
+    {
+      "signal": "SIGTERM"
+    }
+[2026-07-17 17:13:44] INFO server.shutdown.started
+  details:
+    {
+      "signal": "SIGINT"
+    }
+[2026-07-17 17:13:44] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-17 17:13:44] INFO server.shutdown.completed
+  details:
+    {
+      "signal": "SIGINT"
+    }
+[2026-07-17 17:13:53] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 5,
+      "nodeEnv": "development"
+    }
+[2026-07-17 17:13:53] INFO telegram.authorization.configured
+  details:
+    {
+      "store": "postgres",
+      "emergencyDeniedUsers": 0
+    }
+[2026-07-17 17:13:53] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 166,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      },
+      "requestTimeoutMs": 12000,
+      "maxRetryAttempts": 2,
+      "retryMaxDelayMs": 2000,
+      "retryTotalTimeoutMs": 20000,
+      "maxRetryAfterMs": 5000,
+      "sdkMaxRetries": 0
+    }
+[2026-07-17 17:13:53] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-07-17 17:13:53] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-07-17 17:13:53] INFO telegram.bot.initialized
+[2026-07-17 17:13:53] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true
+    }
+[2026-07-17 17:13:54] INFO database.runtime.ready
+  details:
+    {
+      "role": "jarvis_app",
+      "inheritedRole": "jarvis_runtime",
+      "requiredTables": 6
+    }
+[2026-07-17 17:13:54] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://9742-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-07-17 17:13:55] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://9742-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-07-17 17:13:55] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-07-17 17:13:55] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-07-17 17:17:12] INFO telegram.webhook.received
+  requestId: tg_update_564452632
+  updateId: 564452632
+  messageType: text
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-17 17:17:12] INFO telegram.update.handling_started
+  requestId: tg_update_564452632
+  updateId: 564452632
+[2026-07-17 17:17:13] INFO telegram.message.received
+  requestId: tg_update_564452632
+  updateId: 564452632
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1569
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 162,
+      "messagePreview": "based on my events in my calendar and the fact that i have 10 days of leave, fig...",
+      "hasReplyContext": false
+    }
+[2026-07-17 17:17:13] INFO processor.route.selected
+  requestId: tg_update_564452632
+  updateId: 564452632
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1569
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 162,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-07-17 17:17:13] INFO text_processor.started
+  requestId: tg_update_564452632
+  updateId: 564452632
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1569
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 162
+    }
+[2026-07-17 17:17:13] INFO langgraph.stream.started
+  requestId: tg_update_564452632
+  updateId: 564452632
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1569
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "hasTelegramIdentity": true,
+      "hasThreadId": false
+    }
+[2026-07-17 17:18:41] INFO langgraph.stream.completed
+  requestId: tg_update_564452632
+  updateId: 564452632
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1569
+  messageType: text
+  threadId: f4449b8f-8261-40ab-8ae5-e96b03037afe
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/invoke/stream",
+      "status": "interrupted",
+      "durationMs": 87948
+    }
+[2026-07-17 17:18:41] INFO conversation_gate.transition_to_waiting
+  requestId: tg_update_564452632
+  updateId: 564452632
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1569
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "interruptType": "clarify"
+    }
+[2026-07-17 17:18:41] INFO text_processor.completed
+  requestId: tg_update_564452632
+  updateId: 564452632
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1569
+  messageType: text
+  threadId: f4449b8f-8261-40ab-8ae5-e96b03037afe
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 162,
+      "responseLength": 293,
+      "agentStatus": "interrupted",
+      "settlementRequestId": "tg_update_564452632",
+      "interruptType": "clarify",
+      "durationMs": 88173
+    }
+[2026-07-17 17:18:42] INFO telegram.interrupt.prompt_presented
+  requestId: tg_update_564452632
+  updateId: 564452632
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1569
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "interruptType": "clarify",
+      "presentation": "clarification_block"
+    }
+[2026-07-17 17:18:42] INFO telegram.reply.sent
+  requestId: tg_update_564452632
+  updateId: 564452632
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1569
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 293,
+      "totalDurationMs": 89042
+    }
+[2026-07-17 17:18:42] INFO telegram.update.handling_completed
+  requestId: tg_update_564452632
+  updateId: 564452632
+  details:
+    {
+      "durationMs": 89310
+    }
+[2026-07-17 17:21:08] INFO telegram.webhook.received
+  requestId: tg_update_564452633
+  updateId: 564452633
+  messageType: text
+  details:
+    {
+      "hasReplyToMessage": false
+    }
+[2026-07-17 17:21:08] INFO telegram.update.handling_started
+  requestId: tg_update_564452633
+  updateId: 564452633
+[2026-07-17 17:21:08] INFO telegram.message.received
+  requestId: tg_update_564452633
+  updateId: 564452633
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1571
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "username": "jer_jerryyy",
+      "messageLength": 29,
+      "messagePreview": "decide for me and report back",
+      "hasReplyContext": false
+    }
+[2026-07-17 17:21:08] INFO processor.route.selected
+  requestId: tg_update_564452633
+  updateId: 564452633
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1571
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 29,
+      "processor": "TextProcessorService",
+      "forceFresh": false
+    }
+[2026-07-17 17:21:08] INFO text_processor.started
+  requestId: tg_update_564452633
+  updateId: 564452633
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1571
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "messageLength": 29
+    }
+[2026-07-17 17:21:09] INFO langgraph.stream.started
+  requestId: tg_update_564452633
+  updateId: 564452633
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1571
+  messageType: text
+  threadId: f4449b8f-8261-40ab-8ae5-e96b03037afe
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/resume/stream",
+      "hasTelegramIdentity": true,
+      "hasThreadId": true
+    }
+[2026-07-17 17:21:23] INFO langgraph.stream.completed
+  requestId: tg_update_564452633
+  updateId: 564452633
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1571
+  messageType: text
+  threadId: f4449b8f-8261-40ab-8ae5-e96b03037afe
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "path": "/resume/stream",
+      "status": "completed",
+      "requestedThreadId": "f4449b8f-8261-40ab-8ae5-e96b03037afe",
+      "durationMs": 14304
+    }
+[2026-07-17 17:21:23] INFO conversation_gate.released
+  requestId: tg_update_564452633
+  updateId: 564452633
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1571
+  messageType: text
+  threadId: f4449b8f-8261-40ab-8ae5-e96b03037afe
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "gateKey": "telegram-chat:ad23af2c30b2333d242fa95bb136bf67",
+      "expectedRequestId": "tg_update_564452633",
+      "hadBufferedMessage": false
+    }
+[2026-07-17 17:21:24] INFO telegram.reply.sent
+  requestId: tg_update_564452633
+  updateId: 564452633
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1571
+  messageType: text
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "responseLength": 977,
+      "totalDurationMs": 15690
+    }
+[2026-07-17 17:21:24] INFO telegram.update.handling_completed
+  requestId: tg_update_564452633
+  updateId: 564452633
+  details:
+    {
+      "durationMs": 15774
+    }
