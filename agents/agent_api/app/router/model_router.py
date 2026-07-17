@@ -16,10 +16,11 @@ from agents.agent_api.app.router.prompt import QueryComplexity, RouterDecision
 
 @dataclass(frozen=True)
 class ModelSelection:
-    """The resolved model + reasoning effort for one orchestrator turn."""
+    """The resolved model, reasoning effort, and optional timeout for one turn."""
 
     model: str
     reasoning_effort: str
+    request_timeout_seconds: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -72,18 +73,25 @@ def create_default_model_router(
     enabled: bool = True,
     default_model: str = "deepseek-v4-flash",
     default_reasoning: str = "high",
+    default_timeout_seconds: float = 30.0,
     complex_model: str = "deepseek-v4-pro",
     complex_reasoning: str = "max",
+    complex_timeout_seconds: float = 90.0,
     multi_domain_reasoning: str = "high",
+    multi_domain_timeout_seconds: float = 60.0,
 ) -> ModelRouter:
     """Build the standard model router from configuration values.
 
     Strongest-signal-wins priority (first match wins):
-    1. uncertain or high complexity → complex_model / complex_reasoning
-    2. multi-domain (>1) or medium complexity → complex_model / multi_domain_reasoning
+    1. uncertain or high complexity → complex model/reasoning/timeout
+    2. multi-domain (>1) or medium complexity → complex model + multi-domain budget
     3. low complexity, certain, single/empty domain → default selection
     """
-    default = ModelSelection(model=default_model, reasoning_effort=default_reasoning)
+    default = ModelSelection(
+        model=default_model,
+        reasoning_effort=default_reasoning,
+        request_timeout_seconds=default_timeout_seconds,
+    )
 
     rules: List[ModelRoutingRule] = [
         ModelRoutingRule(
@@ -92,7 +100,9 @@ def create_default_model_router(
                 d.uncertain or d.complexity == QueryComplexity.HIGH
             ),
             selection=ModelSelection(
-                model=complex_model, reasoning_effort=complex_reasoning
+                model=complex_model,
+                reasoning_effort=complex_reasoning,
+                request_timeout_seconds=complex_timeout_seconds,
             ),
         ),
         ModelRoutingRule(
@@ -101,7 +111,9 @@ def create_default_model_router(
                 len(d.domains) > 1 or d.complexity == QueryComplexity.MEDIUM
             ),
             selection=ModelSelection(
-                model=complex_model, reasoning_effort=multi_domain_reasoning
+                model=complex_model,
+                reasoning_effort=multi_domain_reasoning,
+                request_timeout_seconds=multi_domain_timeout_seconds,
             ),
         ),
     ]

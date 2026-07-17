@@ -661,9 +661,14 @@ async def run_jarvis_async(
         enabled=settings.model_router_enabled,
         default_model=settings.model_router_default_model,
         default_reasoning=settings.model_router_default_reasoning,
+        default_timeout_seconds=settings.model_router_default_timeout_seconds,
         complex_model=settings.model_router_complex_model,
         complex_reasoning=settings.model_router_complex_reasoning,
+        complex_timeout_seconds=settings.model_router_complex_timeout_seconds,
         multi_domain_reasoning=settings.model_router_multi_domain_reasoning,
+        multi_domain_timeout_seconds=(
+            settings.model_router_multi_domain_timeout_seconds
+        ),
     )
     run_deps = RunDeps(
         agent_client=agent_client,

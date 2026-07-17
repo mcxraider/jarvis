@@ -1,6 +1,8 @@
 
 .github/copilot-instructions.md
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/skills/**
 
 # dependencies
 /node_modules

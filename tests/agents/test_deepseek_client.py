@@ -269,6 +269,26 @@ class TestRetryableErrors:
         assert fields["timeout_kind"] == "read"
         assert fields["elapsed_ms"] >= 0
 
+    def test_retries_keep_the_selected_request_timeout(self):
+        client = build_client(max_retry_attempts=3)
+        with patch.object(
+            client.client.chat.completions,
+            "create",
+            side_effect=[make_timeout_error(), make_timeout_error(), make_response()],
+        ) as mock_create:
+            client.create_message(
+                messages=[{"role": "user", "content": "hi"}],
+                tools=[],
+                request_timeout_seconds=90.0,
+            )
+
+        assert mock_create.call_count == 3
+        assert [call.kwargs["timeout"] for call in mock_create.call_args_list] == [
+            90.0,
+            90.0,
+            90.0,
+        ]
+
 
 class TestNonRetryableErrors:
     """Non-retryable errors raise DeepSeekAgentClientError immediately."""
@@ -394,6 +414,44 @@ class TestErrorPayloadStructure:
         assert fields["base_url"] == client.base_url
         assert fields["max_tokens"] == DEEPSEEK_MAX_TOKENS
         assert fields["thinking_enabled"] is True
+
+    def test_selected_timeout_is_reported_in_retry_diagnostics_and_failure(self):
+        tracer = RecordingTracer()
+        client = DeepSeekAgentClient(
+            api_key="test-key",
+            request_timeout_seconds=30.0,
+            max_retry_attempts=2,
+            retry_sleep=NO_SLEEP,
+            tracer=tracer,
+        )
+        with patch.object(
+            client.client.chat.completions,
+            "create",
+            side_effect=[make_timeout_error(), make_timeout_error()],
+        ):
+            with pytest.raises(DeepSeekAgentClientError) as exc_info:
+                client.create_message(
+                    messages=[{"role": "user", "content": "hi"}],
+                    tools=[],
+                    request_timeout_seconds=90.0,
+                )
+
+        request_event = next(
+            event for event in tracer.events if event["stage"] == "agent.request"
+        )
+        attempt_events = [
+            event for event in tracer.events if event["stage"] == "agent.attempt.error"
+        ]
+        retry_event = next(
+            event for event in tracer.events if event["stage"] == "agent.retry"
+        )
+        assert request_event["fields"]["request_timeout_seconds"] == 90.0
+        assert all(
+            event["fields"]["request_timeout_seconds"] == 90.0
+            for event in attempt_events
+        )
+        assert retry_event["fields"]["request_timeout_seconds"] == 90.0
+        assert exc_info.value.payload["request_timeout_seconds"] == 90.0
 
     def test_create_message_diagnostics_do_not_serialize_hot_path_payloads(self):
         source = inspect.getsource(DeepSeekAgentClient.create_message)
@@ -643,6 +701,7 @@ class TestAsyncCompatibility:
             client.async_create_message(
                 messages=[{"role": "user", "content": "hi"}],
                 tools=[],
+                request_timeout_seconds=90.0,
                 tracer=tracer,
                 usage_accumulator=usage,
                 async_client=async_sdk,
@@ -653,6 +712,7 @@ class TestAsyncCompatibility:
         assert usage.prompt_tokens == 17
         assert client.usage.prompt_tokens == 0
         async_sdk.chat.completions.create.assert_awaited_once()
+        assert async_sdk.chat.completions.create.await_args.kwargs["timeout"] == 90.0
 
 
 class TestDefaultReasoning:
@@ -682,6 +742,7 @@ class TestSuccessfulResponse:
 
         assert mock_create.call_args.kwargs["reasoning_effort"] == "high"
         assert mock_create.call_args.kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
+        assert mock_create.call_args.kwargs["timeout"] == client.request_timeout_seconds
 
     def test_successful_response_returns_message_dict(self):
         """Normal completion returns the message as a dict."""
