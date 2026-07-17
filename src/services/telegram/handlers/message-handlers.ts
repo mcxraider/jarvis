@@ -29,6 +29,7 @@ import {
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { formatReplyContext } from '../reply-context';
 import { ConversationGateStore } from '../conversation-gate.store';
+import { createTerminalReplyStore, TerminalReplyStore } from '../terminal-reply.store';
 
 export class MessageHandlers {
   constructor(
@@ -38,6 +39,7 @@ export class MessageHandlers {
     // Attaches the rich clarification block's message id after the processor saves the pause.
     private readonly pendingStore: PendingClarificationStore,
     private readonly conversationGate?: ConversationGateStore,
+    private readonly terminalReplyStore: TerminalReplyStore = createTerminalReplyStore(),
   ) {}
 
   // Primary text message handler. Shows a rotating progress indicator while the
@@ -149,6 +151,7 @@ export class MessageHandlers {
         logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
         return;
       }
+      if (!this.claimTerminalReply(logContext, 'message_result')) return;
       await this.sendResult(ctx, result, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
@@ -163,7 +166,9 @@ export class MessageHandlers {
         durationMs: Date.now() - startedAt,
       });
       await progressReporter.complete('Something went wrong');
-      await ctx.reply('Something went wrong processing your message. Please try again.');
+      if (this.claimTerminalReply(logContext, 'message_error')) {
+        await ctx.reply('Something went wrong processing your message. Please try again.');
+      }
     }
   }
 
@@ -393,6 +398,7 @@ export class MessageHandlers {
         logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
         return;
       }
+      if (!this.claimTerminalReply(logContext, 'audio_result')) return;
       await this.sendResult(ctx, result, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
@@ -407,8 +413,14 @@ export class MessageHandlers {
         durationMs: Date.now() - startedAt,
       });
       await progressReporter.complete('Something went wrong');
-      await ctx.reply(errorMessage);
+      if (this.claimTerminalReply(logContext, 'audio_error')) {
+        await ctx.reply(errorMessage);
+      }
     }
+  }
+
+  private claimTerminalReply(logContext: LogContext, kind: string): boolean {
+    return this.terminalReplyStore.claim(logContext.requestId as string, kind);
   }
 
   // Sends the transcription as its own message once Whisper finishes, decoupled

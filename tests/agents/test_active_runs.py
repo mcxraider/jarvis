@@ -10,10 +10,16 @@ from agents.agent_api.app.config import load_settings
 from agents.agent_api.app.graph.run_control import CancelOutcome, RunControl
 
 
-def test_run_deadline_defaults_to_120_seconds(monkeypatch) -> None:
+def test_run_deadline_defaults_to_150_seconds(monkeypatch) -> None:
     monkeypatch.delenv("JARVIS_RUN_DEADLINE_SECONDS", raising=False)
 
-    assert load_settings().run_deadline_seconds == 120.0
+    assert load_settings().run_deadline_seconds == 150.0
+
+
+def test_run_deadline_accepts_optional_environment_override(monkeypatch) -> None:
+    monkeypatch.setenv("JARVIS_RUN_DEADLINE_SECONDS", "12.5")
+
+    assert load_settings().run_deadline_seconds == 12.5
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf"])

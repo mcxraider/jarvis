@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter
 
+from agents.agent_api.app.config import settings
 from agents.agent_api.app.constants import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 
 logger = logging.getLogger(__name__)
@@ -133,4 +134,12 @@ def health_detail(telegram_user_id: Optional[int] = None) -> Dict[str, Any]:
         "status": "ok" if overall_ok else "degraded",
         "model": DEEPSEEK_MODEL,
         "checks": checks,
+        "limits": {
+            "run_deadline_seconds": settings.run_deadline_seconds,
+            "max_agent_turns": settings.max_agent_turns,
+            "deepseek_request_timeout_seconds": settings.deepseek_request_timeout_seconds,
+            "model_router_complex_timeout_seconds": (
+                settings.model_router_complex_timeout_seconds
+            ),
+        },
     }

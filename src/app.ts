@@ -24,6 +24,9 @@ import { TelegramBotService } from './services/telegram/telegram-bot.service';
 import { createUserAuthorizationStore } from './services/telegram/user-authorization.store';
 import { setRichMessagesEnabled } from './services/telegram/formatters/telegram-rich';
 import { verifyDatabaseRuntime } from './services/database/database-runtime-readiness';
+import { verifyAgentContract } from './services/ai/agent-contract-readiness';
+import { createTerminalReplyStore } from './services/telegram/terminal-reply.store';
+import { resolveTurnTimeoutConfig } from './config/turn-timeout.config';
 
 // --- Environment validation ---
 // All of these must be set before the app can start. A missing variable
@@ -54,6 +57,7 @@ logger.info('app.startup.validation_completed', {
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 const NGROK_URL = process.env.NGROK_URL!;
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
+const turnTimeoutConfig = resolveTurnTimeoutConfig();
 
 // Rich messages use Telegram Bot API 10.1's sendRichMessage/sendRichMessageDraft
 // for animated progress indicators. Falls back to MarkdownV2 if disabled or on error.
@@ -83,7 +87,21 @@ export const databaseReadiness = verifyDatabaseRuntime(runtimeDsn).then((result)
 
 // AI services: the LangGraph agent client talks to the Python FastAPI backend,
 // and WhisperService handles Groq-hosted audio transcription.
-const agentClient = new LangGraphAgentClient();
+const agentClient = new LangGraphAgentClient({
+  timeoutMs: turnTimeoutConfig.overallMs,
+  streamIdleTimeoutMs: turnTimeoutConfig.streamIdleMs,
+});
+const agentTimeouts = agentClient.getRuntimeTimeouts();
+export const agentContractReadiness = verifyAgentContract(agentClient, {
+  clientOverallMs: agentTimeouts.overallMs,
+  clientIdleMs: agentTimeouts.streamIdleMs,
+  telegrafHandlerTimeoutMs: turnTimeoutConfig.telegrafHandlerMs,
+}).catch((error) => {
+  logger.error('agent.contract.not_ready', {
+    error: error instanceof Error ? error.message : String(error),
+  });
+  throw error;
+});
 const whisperService = new WhisperService({
   enforceEnglishOnly: true,
   language: 'en',
@@ -97,6 +115,7 @@ const pendingStore = createPendingClarificationStore();
 // Conversation gate serializes access to the agent — prevents concurrent invocations
 // from rapid messages, and coordinates resume paths (text reply vs callback button).
 const conversationGate = createConversationGateStore();
+const terminalReplyStore = createTerminalReplyStore();
 
 // Telegram infrastructure: file downloads, activity metrics, and health reporting.
 const fileService = new FileService(BOT_TOKEN, bot.telegram);
@@ -120,6 +139,7 @@ const messageHandlers = new MessageHandlers(
   activityService,
   pendingStore,
   conversationGate,
+  terminalReplyStore,
 );
 const commandHandlers = new CommandHandlers(
   activityService,
@@ -128,7 +148,12 @@ const commandHandlers = new CommandHandlers(
   pendingStore,
   agentClient,
 );
-const callbackHandler = new CallbackHandler(agentClient, pendingStore, conversationGate);
+const callbackHandler = new CallbackHandler(
+  agentClient,
+  pendingStore,
+  conversationGate,
+  terminalReplyStore,
+);
 
 const handlers = new TelegramHandlers(commandHandlers, messageHandlers, callbackHandler);
 
@@ -139,12 +164,14 @@ const telegramConfig: TelegramConfig = {
   webhookUrl: NGROK_URL,
   secretToken: TELEGRAM_SECRET_TOKEN,
   richMessages: RICH_MESSAGES_ENABLED,
+  handlerTimeoutMs: turnTimeoutConfig.telegrafHandlerMs,
 };
 
 export const botService = new TelegramBotService(
   telegramConfig,
   handlers,
   userAuthorizationStore,
+  terminalReplyStore,
 );
 
 // When a conversation gate times out, notify the user, collapse any active clarification,
@@ -226,4 +253,7 @@ logger.info('app.services.initialized', {
   langGraphAgentConfigured: true,
   audioTranscriptionConfigured: true,
   telegramPendingStoreConfigured: true,
+  telegramHandlerTimeoutMs: turnTimeoutConfig.telegrafHandlerMs,
+  langGraphClientOverallTimeoutMs: agentTimeouts.overallMs,
+  langGraphClientIdleTimeoutMs: agentTimeouts.streamIdleMs,
 });

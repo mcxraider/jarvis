@@ -1,152 +1,223 @@
-# Technical Failure Report — "Something went wrong" on a long-running agent turn
+# Fix the Telegram turn-timeout inversion (false "Something went wrong")
 
-- **Date of incident:** 2026-07-17 ~02:06 (Asia/Singapore)
-- **Branch:** `mvp`
-- **Request ID:** `tg_update_564452619`
-- **Thread ID:** `b69f97ab-8980-479d-8dbb-57e190ea1d29`
-- **Severity:** Medium — user-facing false error, backend healthy
-- **Status:** Root cause identified; fix not yet applied
+## Context
+
+On 2026-07-17 02:06 a healthy 129.7s calendar-planning turn produced a user-facing
+**"Something went wrong. Please try again."** while the backend was still working. The
+answer arrived 40s later, after the user had already given up and sent `/cancel` — a
+confusing double reply.
+
+**Root cause (verified):** Telegraf's `handlerTimeout` defaults to 90s and is never set at
+[telegram-bot.service.ts:30](src/services/telegram/telegram-bot.service.ts:30). The handler
+`await`s the whole agent run, so at 90s Telegraf's `p-timeout` rejected and `bot.catch`
+([:42-59](src/services/telegram/telegram-bot.service.ts:42)) emitted the generic error.
+Critically, **`p-timeout` cannot cancel a native promise** — it only rejects the outer one.
+The handler kept running, kept owning the conversation gate, and replied again at 129.7s.
+
+This is a **timeout inversion**: the outermost bound (Telegraf 90s) is shorter than the inner
+bound (LangGraph client 150s), so the only layer that fires is the one that cannot cancel
+anything or produce an honest message.
+
+**Evidence:** the incident logs were removed from the working tree by merge `618d4e8a`.
+They are recoverable via `git show 48042a94:logs/app.log`. Verified there: `langgraph.stream.started`
+02:05:21 → `telegram.bot.error` "Promise timed out after 90000 milliseconds" 02:06:50 →
+`langgraph.stream.completed durationMs=129674 status=interrupted` 02:07:31 → `telegram.reply.sent`
+02:07:31. Same error occurred 3 times over 3 weeks (2026-06-26, 07-06, 07-17) and accounts for
+**100% of all `telegram.bot.error` events**.
+
+**Latency reality:** p50 8s, p90 22.6s, p95 28.3s, p99 57.1s (n=354). This is a fat-tail
+problem affecting ~1% of turns, not creeping latency — which is why it took 3 weeks to surface.
+
+### Two corrections to the failure report
+
+1. **Its P0 recommendation is now unsafe.** A 120s server-side run deadline
+   (`JARVIS_RUN_DEADLINE_SECONDS`, [config.py:222](agents/agent_api/app/config.py:222)) landed
+   in commit `aaa5c8b2`, merged ~10h *after* the report was written and confirmed absent at
+   incident time. Setting `handlerTimeout: 150_000` as the report advises would leave **120s**
+   binding — and this exact 129.7s turn would then be killed for real. Any fix must move
+   `run_deadline` too.
+2. **Its P1 is largely already built.** The webhook already returns 200 before dispatching
+   ([webhook.controller.ts:53](src/controllers/webhook.controller.ts:53)), so "acknowledge fast"
+   is done. The "still working" heartbeat also exists —
+   [progress-narrator.ts](src/services/telegram/progress-narrator.ts) has 45s/75s/120s escalation
+   bands plus a 45s keepalive. **The 120s band is unreachable dead code** purely because Telegraf
+   kills the handler at 90s. Fixing the ceiling revives it at no cost.
+
+### The real residual bug
+
+The double reply is **structural, not incidental**. Nothing dedupes terminal replies per
+`requestId`. The gate's stale-owner guard
+([`settlement_skipped_stale_owner`](src/services/telegram/processors/text-processor.service.ts:621))
+doesn't help, because a Telegraf timeout never invalidates gate ownership — the orphaned handler
+still legitimately owns the gate and replies. Any future timeout at any layer reproduces this.
+
+### Intended outcome
+
+A legitimate long turn never reports failure; a genuinely failed turn reports it once, honestly;
+and the ladder cannot silently invert again.
 
 ---
 
-## 1. Summary
+## Design principle
 
-A normal calendar-planning request produced a user-facing **"Something went wrong. Please try again."** message even though **nothing in the backend actually failed**. The Python LangGraph agent completed the turn successfully (~130s) and produced a valid clarification prompt.
+> **Exactly one layer may bind, and it must be the only layer that can actually cancel work and
+> return a proper envelope.**
 
-The error was caused by **Telegraf's built-in `handlerTimeout` (default 90,000 ms)** firing before the agent finished. The Telegram-side handler `await`s the entire agent run inline, so when the run exceeded 90s, Telegraf aborted the middleware chain and the global `bot.catch` boundary emitted the generic error reply.
+That layer is the **Python run deadline**. It cancels cooperatively, refuses to interrupt a
+mutation in flight, returns a structured `kind: "deadline"` envelope, and caches it idempotently.
+Every layer outside it is a watchdog with margin that should never fire in normal operation.
 
-This is a **timeout inversion**: the outermost timeout (Telegraf, 90s) is *shorter* than the inner timeout that was previously raised (LangGraph client, 150s). Raising the DeepSeek or LangGraph timeouts again would **not** fix this — the effective ceiling is Telegraf's 90s handler timeout.
+### Target ladder (budget = 150s)
+
+| Layer | Now | Target | Role |
+|---|---|---|---|
+| DeepSeek per-call | 30s (complex 90s) | unchanged | innermost |
+| **Python `run_deadline_seconds`** | **120s** | **150s** | **authoritative budget** |
+| TS client overall | 150s | **165s** | net — server must win first |
+| TS client stream-idle | 90s | **120s** | must exceed complex-model 90s |
+| Telegraf `handlerTimeout` | **90s (unset)** | **195s** | last-resort watchdog only |
+
+Two live landmines this closes: client idle (90s) currently **exactly equals**
+`MODEL_ROUTER_COMPLEX_TIMEOUT_SECONDS` (90s), so one silent complex model call sits precisely on
+the abort deadline; and Telegraf currently binds below everything.
+
+`handlerTimeout` is kept finite rather than `Infinity` because not every await is bounded —
+Telegram Bot API calls have no client-side timeout, so a genuinely hung `ctx.reply` still needs a
+backstop. It is now a watchdog that *logs*, never one that *lies*.
 
 ---
 
-## 2. Triggering prompt
+## Changes
 
-A text message from Telegram user `jer_jerryyy` (messageId `1537`, 162 chars):
+### A. Fix the ladder
 
-> "based on my events in my calendar and the fact that i have 10 days of leave, fig…" *(truncated in logs by design)*
+- **[agents/agent_api/app/config.py:222](agents/agent_api/app/config.py:222)** — default
+  `JARVIS_RUN_DEADLINE_SECONDS` 120.0 → **150.0**.
+- **[src/services/ai/langgraph-agent-client.service.ts:97,100](src/services/ai/langgraph-agent-client.service.ts:97)** —
+  `DEFAULT_TIMEOUT_MS` 150000 → **165000**; `DEFAULT_STREAM_IDLE_TIMEOUT_MS` 90000 → **120000**.
+- **[src/types/telegram.types.ts](src/types/telegram.types.ts)** — add `handlerTimeoutMs?: number`
+  to `TelegramConfig`.
+- **[src/services/telegram/telegram-bot.service.ts:30](src/services/telegram/telegram-bot.service.ts:30)** —
+  `new Telegraf(config.token, { handlerTimeout: config.handlerTimeoutMs ?? 195_000 })`.
+- **[src/app.ts](src/app.ts)** — pass `handlerTimeoutMs` from `TELEGRAM_HANDLER_TIMEOUT_MS`
+  (default 195000) into the `TelegramConfig`. Reuse the existing `Number.isFinite && > 0` fallback
+  idiom already used for the gate TTLs.
+- **[.env.sample](.env.sample)** — document `TELEGRAM_HANDLER_TIMEOUT_MS`, update the
+  `LANGGRAPH_AGENT_TIMEOUT_MS` comment, and add the ladder as an explicit ordering contract.
+  Also document `TELEGRAM_GATE_RUNNING_TTL_MS` / `TELEGRAM_GATE_WAITING_TTL_MS`, which are read in
+  four files but documented nowhere.
 
-This is a multi-step planning request that reasons over calendar events and leave balance — i.e. multiple model calls plus tool executions. Because the conversation gate was already in a `waiting` state from a prior interrupt, the message was routed to **`/resume/stream`** (a HITL resume), not a fresh `/invoke`.
+> Note: [app.ts:67](src/app.ts:67) constructs a *second* Telegraf instance used only by
+> `FileService`. It registers no handlers, so its `handlerTimeout` is irrelevant — leave it, but
+> do not mistake it for the real bot.
+
+### B. Assert the ladder against the live backend
+
+The inversion existed because nothing checked it. Validate against the *actually running* Python
+service, not a hardcoded assumption — this catches cross-service drift.
+
+- **[agents/agent_api/app/api/routes/health.py](agents/agent_api/app/api/routes/health.py)** — add a
+  `limits` block to `/health/detail` exposing non-secret config: `run_deadline_seconds`,
+  `max_agent_turns`, `deepseek_request_timeout_seconds`, `model_router_complex_timeout_seconds`.
+- **New `src/services/ai/agent-contract-readiness.ts`** — mirror the existing
+  [database-runtime-readiness.ts](src/services/database/database-runtime-readiness.ts) shape.
+  Reuse the client's existing
+  [`fetchDependencyHealth`](src/services/ai/langgraph-agent-client.service.ts:193) rather than a
+  new fetch. Assert:
+  - `model_router_complex_timeout_seconds < clientIdleMs`
+  - `run_deadline_seconds < clientOverallMs < telegrafHandlerTimeoutMs`
+
+  **Failure posture:** a reachable backend reporting an inverted ladder is a known-bad config →
+  **throw, fail fast**. An unreachable backend is *not* a startup failure (Python may boot after
+  TS) → log `agent.contract.unverified` at error and continue.
+- **[src/server.ts:87](src/server.ts:87)** — await it alongside the existing `databaseReadiness`
+  barrier, before the webhook is registered.
+
+### C. Terminal-reply ledger — kill double replies structurally
+
+- **New `src/services/telegram/terminal-reply.store.ts`** — in-process `Map<requestId, {claimedAt, kind}>`
+  with an unref'd TTL sweep (mirror the pattern at [app.ts:215](src/app.ts:215)). API:
+  `claim(requestId, kind): boolean` — first caller wins. In-process is *correct and sufficient*
+  here: `bot.catch` and the orphaned handler are always the same process.
+- **[src/services/telegram/handlers/message-handlers.ts](src/services/telegram/handlers/message-handlers.ts)** —
+  claim before `sendResult` (:152) and before each catch-block error reply (:166, :410). On a lost
+  claim, log `telegram.reply.suppressed_already_terminal` and skip the send. This composes with the
+  existing `telegram.reply.suppressed_stale_owner` guard rather than replacing it — that one
+  handles ownership, this one handles delivery.
+- **[src/services/telegram/handlers/callback-handler.ts](src/services/telegram/handlers/callback-handler.ts)** —
+  same claim at its terminal reply.
+
+### D. Make `bot.catch` honest
+
+**[src/services/telegram/telegram-bot.service.ts:42-59](src/services/telegram/telegram-bot.service.ts:42)**:
+
+- Read `requestId` from `(ctx.update as any).__requestId` — already injected at
+  [webhook.controller.ts:42](src/controllers/webhook.controller.ts:42). This closes the gap that
+  `telegram.bot.error` carries no `requestId`, which today makes it unjoinable to a run.
+- **Watchdog timeout** (`p-timeout`'s `TimeoutError`, or `/Promise timed out after/`) → log
+  `telegram.handler.watchdog_expired` with `requestId`/`durationMs` and **send nothing**. The
+  handler is still running and owns the terminal reply via the ledger.
+- **All other errors** → claim the ledger; reply only if the claim succeeds.
+
+### E. Near-timeout telemetry
+
+- **[src/services/ai/langgraph-agent-client.service.ts](src/services/ai/langgraph-agent-client.service.ts)** —
+  on stream completion, if `durationMs > 0.66 * this.timeoutMs`, log
+  `langgraph.turn.near_timeout` (warn) with `durationMs`/`timeoutMs`/`path`. Surfaces creeping
+  latency and future inversions before users hit them. The client owns the budget, so it is the
+  right place.
 
 ---
 
-## 3. Information flow
+## Out of scope (deliberate)
 
-```text
-Telegram update (messageId 1537, "based on my events…")
-  -> webhook.controller.ts                 [02:05:20 telegram.webhook.received]
-  -> TelegramBotService (Telegraf)         <-- 90s handlerTimeout starts HERE
-  -> MessageHandlers / MessageProcessor    [02:05:21 processor.route.selected]
-  -> TextProcessorService                  [02:05:21 text_processor.started]
-  -> LangGraphAgentClient                  [02:05:21 langgraph.stream.started, path=/resume/stream]
-  -> Python FastAPI /resume/stream
-  -> agents/jarvis.py LangGraph loop  (DeepSeek calls + tool executions)
-        |
-        |  ... run in progress ...
-        |
-  [02:06:50]  Telegraf handlerTimeout (90,000ms) FIRES  ── p-timeout throws TimeoutError
-        |        -> bot.catch boundary -> ctx.reply("Something went wrong. Please try again.")
-        |        -> telegram.bot.error logged, durationMs 90556
-        |
-  [02:07:08]  User sends /cancel (reacting to the error)
-        |
-  [02:07:31]  LangGraph /resume/stream COMPLETES SUCCESSFULLY
-                 status=interrupted (clarify), durationMs 129674
-                 -> conversation_gate.transition_to_waiting
-                 -> telegram.interrupt.prompt_presented (clarification_block, 2451 chars)
-                 -> telegram.reply.sent, totalDurationMs 131147
+**Durable delivery across a restart.** If the Node process restarts mid-turn, the Python run
+continues and completes but nobody delivers it; the gate stays `running` until its 5-min TTL
+sweeper fires. Fixing this needs a delivery worker plus restart recovery — real infrastructure,
+disproportionate for a 2-user MVP with a ~1% fat tail. The state *is* durably checkpointed by
+`thread_id`, so this remains recoverable later. Worth a follow-up issue, not this change.
+
+**The 129.7s latency itself.** Ties into `latency-reduction-p0`. This change makes the turn
+*succeed*; it does not make it *fast*.
+
+---
+
+## Verification
+
+Reproduce the bug first (it is fast to simulate — no 90s wait needed).
+
+**New tests**
+- `tests/unit/services/telegram/terminal-reply.store.test.ts` — second `claim` on the same
+  `requestId` returns false; entries expire after TTL.
+- Extend `tests/unit/services/telegram/telegram-bot.service.test.ts` — construct with
+  `handlerTimeoutMs: 50`, register a handler that awaits 200ms. **Assert `ctx.reply` is never
+  called with "Something went wrong"** and that `telegram.handler.watchdog_expired` is logged with
+  the `requestId`. This is the regression test for the incident.
+- `tests/unit/services/ai/agent-contract-readiness.test.ts` — an inverted ladder throws; an
+  unreachable backend warns and resolves.
+- Extend `tests/contract/agent-contract.test.ts` — `/health/detail` exposes the `limits` block.
+- `tests/agents/test_health.py` (new) — `limits.run_deadline_seconds == 150.0` by default.
+
+**Commands** (flush the async logger before asserting on logs — see CLAUDE.md):
+```bash
+npm test -- --runInBand
+npm run test:integration -- --runInBand
+npm run build && npm run lint
+pytest tests/agents/          # venv active; see memory project_python_venv_starlette
 ```
 
-### Timeout layers (the key to the diagnosis)
+**End-to-end (u wont be able to run this cos this is not in the prod server. so u will need to tell me to run this for u when ure done. )**
+1. `scripts/start_servers.sh`
+2. Confirm startup logs the resolved ladder and no inversion.
+3. Temporarily set `JARVIS_RUN_DEADLINE_SECONDS=5`, restart, send any request → expect **one**
+   honest deadline message, no "Something went wrong", no double reply. Restore to 150.
+4. Replay the original failing prompt ("based on my events in my calendar and the fact that i have
+   10 days of leave…") against a thread already in `waiting` so it takes the `/resume/stream` path.
+   Expect: escalating progress copy through 45s/75s/**120s** (the revived band), then exactly one
+   clarification prompt. Confirm `logs/app.log` shows `langgraph.stream.completed` with no
+   `telegram.bot.error`.
+5. Verify the inversion guard: set `TELEGRAM_HANDLER_TIMEOUT_MS=60000` → startup must **fail fast**.
 
-| Layer | Mechanism | Configured | Fired? |
-|-------|-----------|-----------|--------|
-| DeepSeek per-request | `DEEPSEEK_REQUEST_TIMEOUT_SECONDS` (`agents/agent_api/app/config.py:131`) | 30s default | No |
-| LangGraph client (TS → Python HTTP) | `AbortController` w/ `LANGGRAPH_AGENT_TIMEOUT_MS` (`src/services/ai/langgraph-agent-client.service.ts:81,232`) | 150s | No |
-| **Telegraf handler** | `p-timeout(middleware, handlerTimeout)` (`node_modules/telegraf/lib/telegraf.js:233`) | **90s (default, not overridden)** | **✅ Yes** |
-
-The outermost boundary (90s) is lower than the inner boundary (150s) that was raised in a previous fix, so any turn between 90s and 150s produces a false error while the backend keeps working.
-
----
-
-## 4. Evidence (log excerpts)
-
-`logs/error-readable.log`:
-
-```text
-[2026-07-17 02:06:50] ERROR telegram.bot.error
-  details: { "error": "Promise timed out after 90000 milliseconds" }
-  stack:
-    TimeoutError: Promise timed out after 90000 milliseconds
-        at Timeout._onTimeout (/Users/jerry/projects/jarvis-mcp/node_modules/p-timeout/index.js:39:64)
-```
-
-`logs/app-readable.log` (same requestId `tg_update_564452619`):
-
-```text
-[2026-07-17 02:05:21] INFO langgraph.stream.started   path=/resume/stream
-[2026-07-17 02:06:50] ERROR telegram.bot.error         "Promise timed out after 90000 milliseconds"
-[2026-07-17 02:06:51] INFO telegram.update.handling_completed  durationMs 90556
-[2026-07-17 02:07:08] INFO telegram.command.cancel
-[2026-07-17 02:07:31] INFO langgraph.stream.completed  status=interrupted  durationMs 129674
-[2026-07-17 02:07:31] INFO telegram.interrupt.prompt_presented  interruptType=clarify
-[2026-07-17 02:07:31] INFO telegram.reply.sent         responseLength 2451  totalDurationMs 131147
-```
-
-Confirming source:
-
-- `node_modules/telegraf/lib/telegraf.js:46` → `handlerTimeout: 90000` (default)
-- `node_modules/telegraf/lib/telegraf.js:233` → `await p_timeout(Promise.resolve(this.middleware()(ctx, anoop)), this.options.handlerTimeout)`
-- `src/app.ts:67` / `src/services/telegram/telegram-bot.service.ts:30` → `new Telegraf(token)` with **no `handlerTimeout` option**, so the 90s default applies
-- `src/services/telegram/telegram-bot.service.ts:52` → `ctx.reply('Something went wrong. Please try again.')` inside `bot.catch`
-
----
-
-## 5. Root cause
-
-**Proximate cause:** Telegraf's default `handlerTimeout` of 90s aborted the update handler because the handler blocks on the full agent run, and this `/resume` turn legitimately took ~130s.
-
-**Contributing cause (timeout inversion):** A prior mitigation raised the *inner* LangGraph client timeout to 150s but left the *outer* Telegraf handler at its 90s default. The outer boundary now silently caps everything, defeating the inner increase.
-
-**Deeper architectural cause:** The Telegram webhook handler **awaits a long-running, multi-step agent turn synchronously**. Telegram webhooks are meant to be acknowledged quickly; binding user-visible success to the wall-clock duration of an unbounded agent loop makes long (but healthy) turns indistinguishable from failures.
-
----
-
-## 6. What the user saw
-
-1. **02:06:50** — "Something went wrong. Please try again." (false alarm; backend still working)
-2. **02:07:08** — User, believing it failed, sent `/cancel`
-3. **02:07:31** — The *real* answer arrived anyway: a 2,451-char clarification prompt — ~40s after the error and ~23s after they'd already cancelled
-
-Net effect: a confusing **double reply** (error, then a late real response the user had mentally discarded), plus an unnecessary `/cancel` and a `telegram.cancel.clarification_collapse_failed` warning downstream.
-
----
-
-## 7. Did DeepSeek time out?
-
-**No.** There is no DeepSeek, model-router, or LangGraph-client timeout in the logs. The DeepSeek per-call timeout (30s) governs a *single* model call, not the whole turn; the ~130s was the aggregate of multiple model calls + tool executions across a resume. **Increasing the DeepSeek timeout would have zero effect on this failure.**
-
----
-
-## 8. Hardening & good practices to implement
-
-### P0 — Stop the false error (small, targeted)
-1. **Raise Telegraf `handlerTimeout` to exceed the LangGraph client timeout.** Set it explicitly at construction (e.g. `new Telegraf(token, { handlerTimeout: 150_000 })` in `src/app.ts:67`) and keep it `>= LANGGRAPH_AGENT_TIMEOUT_MS` at all times. Treat this as an invariant, not a magic number.
-2. **Assert the timeout hierarchy at startup.** Validate `deepseek < langgraph_client < telegraf_handler` in env validation (`src/app.ts`) and fail fast / warn loudly if inverted. This is the single guardrail that would have prevented this class of bug.
-
-### P1 — Decouple long turns from the webhook lifecycle (structural)
-3. **Acknowledge the Telegram update fast; deliver the agent result asynchronously.** Don't `await` the full agent run inside the Telegraf handler. Kick off processing, return, and push the reply/interrupt when the stream resolves. This removes handler-timeout failures regardless of turn length.
-4. **Emit a "still working…" progress signal** for turns crossing a threshold (e.g. 15–20s), so long turns feel intentional rather than hung. `TelegramProgressReporter` already models `Done | Paused | Something went wrong` states — extend it with an in-progress heartbeat.
-
-### P2 — Make errors honest and observable
-5. **Don't let the global `bot.catch` report a timeout as "Something went wrong."** Distinguish *handler timed out (backend may still succeed)* from *genuine failure*, and avoid emitting a hard-failure message for a run that can still complete. If a late success arrives after an error was shown, reconcile it (edit/annotate) instead of double-replying.
-6. **Guard against post-error/late-completion double replies.** If the gate has already been cancelled or an error already sent for a `requestId`, suppress or clearly re-frame the late interrupt prompt.
-7. **Add a latency SLO alert.** Any turn where `totalDurationMs` approaches the Telegraf handler timeout should be logged as a near-miss (`telegram.turn.near_timeout`) so inversions and creeping latency surface before users hit them.
-
-### P3 — Address the underlying latency
-8. **Investigate the 130s resume cost** (ties into `latency-reduction-p0`): number of DeepSeek round-trips and tool calls per resume, and whether calendar+leave planning can be shortened or parallelised.
-
----
-
-## 9. Recommended immediate action
-
-Apply **P0 (#1 and #2)** on `mvp` now — a two-line change plus a startup assertion — to eliminate the false errors immediately. Schedule **P1** (async reply) as the durable fix. **Do not** raise the DeepSeek timeout; it is not the constraint.
+**Restore the evidence:** `git show 48042a94:logs/app.log` still holds the only copy of the
+incident. Either restore the `logs/` lines dropped by merge `618d4e8a` or pin the commit hash in
+the failure report — otherwise anyone re-verifying it today concludes it was fabricated.

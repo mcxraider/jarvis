@@ -14,6 +14,11 @@ if load_dotenv is not None:
     load_dotenv()
 
 
+# Authoritative Python-side turn budget. Outer Node/Telegraf watchdog defaults
+# live in src/config/turn-timeout.config.ts and are verified against this value.
+DEFAULT_RUN_DEADLINE_SECONDS = 150.0
+
+
 def _bool_env(name: str, default: bool) -> bool:
     raw_value = os.getenv(name)
     if raw_value is None:
@@ -221,7 +226,7 @@ def load_settings() -> Settings:
         max_concurrent_runs=_positive_int_env("JARVIS_MAX_CONCURRENT_RUNS", 8),
         run_deadline_seconds=_positive_float_env(
             "JARVIS_RUN_DEADLINE_SECONDS",
-            120.0,
+            DEFAULT_RUN_DEADLINE_SECONDS,
         ),
         todoist_max_retry_attempts=_int_env("TODOIST_MAX_RETRY_ATTEMPTS", 3),
         todoist_retry_total_timeout_seconds=_positive_float_env(
@@ -288,7 +293,7 @@ def load_settings() -> Settings:
             deepseek_request_timeout_seconds,
         ),
         model_router_complex_model=os.getenv("MODEL_ROUTER_COMPLEX_MODEL", "deepseek-v4-pro"),
-        model_router_complex_reasoning=os.getenv("MODEL_ROUTER_COMPLEX_REASONING", "max"),
+        model_router_complex_reasoning=os.getenv("MODEL_ROUTER_COMPLEX_REASONING", "high"),
         model_router_complex_timeout_seconds=_positive_float_env(
             "MODEL_ROUTER_COMPLEX_TIMEOUT_SECONDS",
             90.0,

@@ -11,11 +11,15 @@ describe('server startup readiness barrier', () => {
     }
   });
 
-  it('does not listen until database readiness has completed', async () => {
+  it('does not listen until database and agent-contract readiness have completed', async () => {
     process.env.TELEGRAM_SKIP_WEBHOOK_SETUP = 'true';
     let resolveReadiness!: () => void;
     const databaseReadiness = new Promise<void>((resolve) => {
       resolveReadiness = resolve;
+    });
+    let resolveAgentReadiness!: () => void;
+    const agentContractReadiness = new Promise<void>((resolve) => {
+      resolveAgentReadiness = resolve;
     });
     const listen = jest.fn((_port, callback) => {
       callback?.();
@@ -34,6 +38,7 @@ describe('server startup readiness barrier', () => {
     jest.doMock('../../src/app', () => ({
       botService: { setupWebhook, stop: jest.fn().mockResolvedValue(undefined) },
       databaseReadiness,
+      agentContractReadiness,
     }));
     jest.doMock('../../src/controllers/webhook.controller', () => ({
       createWebhookRouter: jest.fn(() => jest.fn()),
@@ -57,6 +62,10 @@ describe('server startup readiness barrier', () => {
     expect(setupWebhook).not.toHaveBeenCalled();
 
     resolveReadiness();
+    await Promise.resolve();
+    expect(listen).not.toHaveBeenCalled();
+
+    resolveAgentReadiness();
     await serverModule.serverStartup;
 
     expect(listen).toHaveBeenCalledTimes(1);

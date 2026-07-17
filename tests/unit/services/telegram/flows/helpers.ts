@@ -25,6 +25,7 @@ export interface CtxOpts {
 }
 
 export interface FakeContext {
+  update?: { __requestId?: string };
   from: { id: number };
   chat: { id: number };
   message?: Record<string, unknown>;
@@ -107,6 +108,7 @@ export function createFlowHarness(agentClient: MockAgentClient): FlowHarness {
   const gateStore = new MemoryConversationGateStore();
   const textProcessor = new TextProcessorService(agentClient as any, store, gateStore);
   const callbackHandler = new CallbackHandler(agentClient as any, store, gateStore);
+  let callbackSequence = 0;
 
   return {
     agentClient,
@@ -127,6 +129,7 @@ export function createFlowHarness(agentClient: MockAgentClient): FlowHarness {
 
     async pressButton(data: string, opts: CtxOpts = {}) {
       const ctx = createCallbackCtx(data, opts);
+      ctx.update = { __requestId: `tg_flow_callback_${++callbackSequence}` };
       await callbackHandler.handleCallbackQuery(ctx as any);
       return { ctx };
     },

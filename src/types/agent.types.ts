@@ -38,6 +38,27 @@ export const AgentResponseSchema = z.object({
   error_details: z.record(z.unknown()).nullish(),
 });
 
+export const AgentDependencyCheckSchema = z.object({
+  ok: z.boolean(),
+  detail: z.string(),
+});
+
+export const AgentRuntimeLimitsSchema = z.object({
+  run_deadline_seconds: z.number().positive(),
+  max_agent_turns: z.number().int().positive(),
+  deepseek_request_timeout_seconds: z.number().positive(),
+  model_router_complex_timeout_seconds: z.number().positive(),
+});
+
+export const AgentHealthDetailSchema = z.object({
+  status: z.enum(['ok', 'degraded']),
+  model: z.string(),
+  checks: z.record(AgentDependencyCheckSchema),
+  // Optional so /status remains compatible with a backend during a rolling upgrade.
+  // Startup readiness separately requires this block before accepting webhooks.
+  limits: AgentRuntimeLimitsSchema.optional(),
+});
+
 export const ProgressDomainSchema = z.enum(['todoist', 'calendar', 'gmail', 'notion']);
 export const ProgressFactSchema = z.object({
   phase: z.enum([
@@ -89,6 +110,9 @@ export const StreamEventSchema = z.discriminatedUnion('type', [
 export type LangGraphInterrupt = z.infer<typeof LangGraphInterruptSchema>;
 export type TelegramIdentityPayload = z.infer<typeof TelegramIdentitySchema>;
 export type AgentResponse = z.infer<typeof AgentResponseSchema>;
+export type AgentDependencyCheck = z.infer<typeof AgentDependencyCheckSchema>;
+export type AgentRuntimeLimits = z.infer<typeof AgentRuntimeLimitsSchema>;
+export type AgentHealthDetail = z.infer<typeof AgentHealthDetailSchema>;
 export type ProgressFact = z.infer<typeof ProgressFactSchema>;
 export type StreamProgressEvent = z.infer<typeof StreamProgressEventSchema>;
 export type StreamFinalEvent = z.infer<typeof StreamFinalEventSchema>;

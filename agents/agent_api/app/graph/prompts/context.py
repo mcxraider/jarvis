@@ -17,14 +17,15 @@ from agents.agent_api.app.graph.prompts.orchestrator import (
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 USER_PROMPTS: List[str] = [
+    "check my calendar and the fact that i have 14 days of leave, figure out the maximum amount of time that i can go overseas for, including weekends, optimise for public holidays."
     # --- Date-range regression prompts (verify year-inclusive filter dates) ---
-    "Show me what's on my plate for this week and next week.",
-    "What tasks do I have due next week?",
-    "Give me a summary of everything due between now and end of next week.",
+    # "Show me what's on my plate for this week and next week.",
+    # "What tasks do I have due next week?",
+    # "Give me a summary of everything due between now and end of next week.",
 
     # "pull my events from my govtech google calendar and then update lunch with grandparents on todoist to p3 task."
     
-    # "Find the plans i have with feebee in the next 2 weeks, put them into google calendar events, then add to todoist a new dinner with feebee church friends next saturday."
+    # "Find the plans i have with feebee in the next 2 weeks, put them into google calendar events, then add to todoist a new dinner with feebee church frien ds next saturday."
     
     # "Find all my Todoist tasks and Google Calendar events involving Zac next week. Move anything after 6pm to the earliest free afternoon slot that same week, and mark the related Todoist tasks as P2.",
 

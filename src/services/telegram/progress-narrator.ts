@@ -1,7 +1,20 @@
 import { ProgressFact } from '../../types/agent.types';
 
 export const PROGRESS_MIN_RENDER_MS = 4_000;
-export const PROGRESS_KEEPALIVE_MS = 45_000;
+export const PROGRESS_RICH_REFRESH_MS = 20_000;
+export const PROGRESS_DELIVERY_RETRY_MS = 5_000;
+
+export type ProgressRenderReason = 'phase' | 'elapsed' | 'keepalive';
+
+export interface ProgressRender {
+  label: string;
+  reason: ProgressRenderReason;
+  phase: ProgressFact['phase'];
+  sequence?: number;
+  elapsedMs: number;
+  baseRevision: number;
+  elapsedBand: number;
+}
 
 const DOMAIN_LABELS: Record<string, string> = {
   todoist: 'Todoist',
@@ -9,6 +22,8 @@ const DOMAIN_LABELS: Record<string, string> = {
   gmail: 'Gmail',
   notion: 'Notion',
 };
+
+const ELAPSED_BANDS = [45_000, 75_000, 120_000] as const;
 
 function domainLabel(domains: ProgressFact['domains']): string | undefined {
   if (!domains?.length) return undefined;
@@ -20,51 +35,125 @@ function domainLabel(domains: ProgressFact['domains']): string | undefined {
 
 /** Reduces safe graph facts plus elapsed time into user-facing Telegram copy. */
 export class ProgressNarrator {
-  private current = 'Thinking…';
-  private pending?: string;
-  private retrying = false;
+  private baseLabel = 'Thinking…';
+  private phase: ProgressFact['phase'] = 'request';
+  private sequence?: number;
+  private latestSequence?: number;
   private startedAt?: number;
-  private lastRenderedAt?: number;
-  private lastElapsedBand = 0;
+  private baseRevision = 0;
+  private delivered?: {
+    label: string;
+    baseRevision: number;
+    elapsedBand: number;
+    renderedAt: number;
+  };
 
   start(now = Date.now()): void {
     this.startedAt = now;
-    this.current = 'Thinking…';
-    this.pending = this.current;
-    this.retrying = false;
-    this.lastRenderedAt = undefined;
-    this.lastElapsedBand = 0;
+    this.baseLabel = 'Thinking…';
+    this.phase = 'request';
+    this.sequence = undefined;
+    this.latestSequence = undefined;
+    this.baseRevision = 1;
+    this.delivered = undefined;
   }
 
-  record(fact: ProgressFact): void {
+  record(fact: ProgressFact, sequence?: number): void {
+    if (
+      sequence !== undefined
+      && this.latestSequence !== undefined
+      && sequence <= this.latestSequence
+    ) {
+      return;
+    }
+    if (sequence !== undefined) this.latestSequence = sequence;
+
     const label = this.labelFor(fact);
     if (!label) return;
-    this.retrying = fact.phase === 'retrying';
-    if (label !== this.current) this.pending = label;
+    this.sequence = sequence ?? this.sequence;
+    if (label === this.baseLabel && fact.phase === this.phase) return;
+    this.baseLabel = label;
+    this.phase = fact.phase;
+    this.baseRevision += 1;
   }
 
-  /** Returns a label only when it is due for delivery. */
-  next(now = Date.now()): string | undefined {
+  /** Returns the currently due render without marking it as delivered. */
+  nextDesired(now = Date.now(), keepaliveMs?: number): ProgressRender | undefined {
     if (this.startedAt === undefined) return undefined;
-    const elapsed = now - this.startedAt;
-    const elapsedLabel = this.elapsedLabel(elapsed);
-    if (elapsedLabel && !this.retrying && !this.pending) this.pending = elapsedLabel;
+    const desired = this.snapshot(now);
+    if (!this.delivered) return { ...desired, reason: 'phase' };
 
-    const dueForChange =
-      this.pending &&
-      (this.lastRenderedAt === undefined || now - this.lastRenderedAt >= PROGRESS_MIN_RENDER_MS);
-    if (dueForChange) {
-      this.current = this.pending!;
-      this.pending = undefined;
-      this.lastRenderedAt = now;
-      return this.current;
+    const changed = desired.label !== this.delivered.label;
+    if (changed) {
+      if (now - this.delivered.renderedAt < PROGRESS_MIN_RENDER_MS) return undefined;
+      return {
+        ...desired,
+        reason: desired.baseRevision !== this.delivered.baseRevision ? 'phase' : 'elapsed',
+      };
     }
 
-    if (this.lastRenderedAt !== undefined && now - this.lastRenderedAt >= PROGRESS_KEEPALIVE_MS) {
-      this.lastRenderedAt = now;
-      return this.current;
+    if (
+      keepaliveMs !== undefined
+      && now - this.delivered.renderedAt >= keepaliveMs
+    ) {
+      return { ...desired, reason: 'keepalive' };
     }
     return undefined;
+  }
+
+  /** Commits a render only after its Telegram delivery succeeds. */
+  markDelivered(render: ProgressRender, now = Date.now()): void {
+    this.delivered = {
+      label: render.label,
+      baseRevision: render.baseRevision,
+      elapsedBand: render.elapsedBand,
+      renderedAt: now,
+    };
+  }
+
+  /** Returns the next phase, elapsed-band, or rich-draft refresh deadline. */
+  nextDueAt(now = Date.now(), keepaliveMs?: number): number | undefined {
+    if (this.startedAt === undefined) return undefined;
+    if (!this.delivered) return now;
+
+    const desired = this.snapshot(now);
+    if (desired.label !== this.delivered.label) {
+      return Math.max(now, this.delivered.renderedAt + PROGRESS_MIN_RENDER_MS);
+    }
+
+    const candidates: number[] = [];
+    const nextBand = ELAPSED_BANDS.find((band) => band > desired.elapsedMs);
+    if (nextBand !== undefined) candidates.push(this.startedAt + nextBand);
+    if (keepaliveMs !== undefined) candidates.push(this.delivered.renderedAt + keepaliveMs);
+    return candidates.length ? Math.min(...candidates) : undefined;
+  }
+
+  private snapshot(now: number): Omit<ProgressRender, 'reason'> {
+    const elapsedMs = Math.max(0, now - (this.startedAt ?? now));
+    const elapsedBand = this.elapsedBand(elapsedMs);
+    return {
+      label: this.composeLabel(elapsedBand),
+      phase: this.phase,
+      sequence: this.sequence,
+      elapsedMs,
+      baseRevision: this.baseRevision,
+      elapsedBand,
+    };
+  }
+
+  private composeLabel(elapsedBand: number): string {
+    if (elapsedBand === 0) return this.baseLabel;
+    const phaseLabel = removeEllipsis(this.baseLabel);
+    if (elapsedBand >= 120_000) return `${phaseLabel} — taking longer than expected…`;
+    if (elapsedBand >= 75_000) return `${phaseLabel} — still working…`;
+    return `${phaseLabel} — taking a little longer…`;
+  }
+
+  private elapsedBand(elapsedMs: number): number {
+    if (elapsedMs >= 120_000) return 120_000;
+    if (elapsedMs >= 75_000) return 75_000;
+    if (elapsedMs >= 45_000) return 45_000;
+    return 0;
   }
 
   private labelFor(fact: ProgressFact): string | undefined {
@@ -91,31 +180,6 @@ export class ProgressNarrator {
       return domain ? `Retrying ${domain}…` : 'Reconnecting…';
     }
     if (fact.phase === 'failed') return 'Unable to complete that step…';
-    return undefined;
-  }
-
-  private elapsedLabel(elapsed: number): string | undefined {
-    if (elapsed >= 120_000 && this.lastElapsedBand < 120_000) {
-      this.lastElapsedBand = 120_000;
-
-      return this.current
-        ? `${removeEllipsis(this.current)} — this is taking longer than expected…`
-        : 'This is taking longer than expected, but I’m still on it…';
-    }
-
-    if (elapsed >= 75_000 && this.lastElapsedBand < 75_000) {
-      this.lastElapsedBand = 75_000;
-
-      return this.current
-        ? `${removeEllipsis(this.current)} — still working on it…`
-        : 'Still working on this…';
-    }
-
-    if (elapsed >= 45_000 && this.lastElapsedBand < 45_000) {
-      this.lastElapsedBand = 45_000;
-      return 'Taking a little longer than usual…';
-    }
-
     return undefined;
   }
 }
