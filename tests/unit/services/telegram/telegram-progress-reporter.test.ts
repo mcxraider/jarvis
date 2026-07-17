@@ -1,9 +1,16 @@
 import { TelegramProgressReporter } from '../../../../src/services/telegram/telegram-progress-reporter';
 import { setRichMessagesEnabled } from '../../../../src/services/telegram/formatters/telegram-rich';
+import { logger } from '../../../../src/utils/logger';
 
 describe('TelegramProgressReporter', () => {
-  beforeEach(() => jest.useFakeTimers());
+  let infoSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger);
+  });
   afterEach(() => {
+    infoSpy.mockRestore();
     setRichMessagesEnabled(false);
     jest.clearAllTimers();
     jest.useRealTimers();
@@ -20,6 +27,55 @@ describe('TelegramProgressReporter', () => {
       },
     } as any;
   }
+
+  it('logs each successfully delivered user-visible label at info level', async () => {
+    const ctx = context('group');
+    const reporter = new TelegramProgressReporter(ctx, { requestId: 'request-1' });
+
+    await reporter.start();
+    expect(infoSpy).toHaveBeenLastCalledWith('telegram.progress.rendered', expect.objectContaining({
+      requestId: 'request-1',
+      label: 'Thinking…',
+      transport: 'plain',
+      phase: 'request',
+      deliveredAtMs: expect.any(Number),
+    }));
+
+    infoSpy.mockClear();
+    await reporter.record({
+      sequence: 1, stage: 'progress', message: 'ignored', fact: {
+        phase: 'lookup', action: 'started', domains: ['calendar'], intent: 'read',
+      },
+    });
+    await jest.advanceTimersByTimeAsync(4_000);
+
+    expect(infoSpy).toHaveBeenCalledTimes(1);
+    expect(infoSpy).toHaveBeenLastCalledWith('telegram.progress.rendered', expect.objectContaining({
+      requestId: 'request-1',
+      label: 'Pulling up Calendar…',
+      transport: 'plain',
+      phase: 'lookup',
+      sequence: 1,
+      deliveredAtMs: expect.any(Number),
+    }));
+    await reporter.complete('Done');
+  });
+
+  it('does not log a successful render when all delivery transports fail', async () => {
+    setRichMessagesEnabled(true);
+    const ctx = context('private');
+    ctx.telegram.callApi.mockRejectedValue(new Error('rich unavailable'));
+    ctx.reply.mockRejectedValue(new Error('plain unavailable'));
+    const reporter = new TelegramProgressReporter(ctx, { requestId: 'request-2' });
+
+    await reporter.start();
+
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      'telegram.progress.rendered',
+      expect.anything(),
+    );
+    await reporter.complete('Something went wrong');
+  });
 
   it('uses semantic facts and respects the four-second render floor', async () => {
     const ctx = context('group');

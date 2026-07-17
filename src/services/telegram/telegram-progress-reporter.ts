@@ -113,13 +113,15 @@ export class TelegramProgressReporter {
     const deliveredAt = Date.now();
     this.retryNotBefore = undefined;
     this.narrator.markDelivered(render, deliveredAt);
-    logger.debug('telegram.progress.rendered', {
+    logger.info('telegram.progress.rendered', {
       ...this.logContext,
+      label: render.label,
       transport: result.transport,
       reason: render.reason,
       phase: render.phase,
       sequence: render.sequence,
       elapsedMs: render.elapsedMs,
+      deliveredAtMs: deliveredAt,
     });
   }
 
