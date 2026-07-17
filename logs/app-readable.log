@@ -239714,3 +239714,147 @@
     {
       "durationMs": 15774
     }
+[2026-07-17 17:37:22] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 5,
+      "nodeEnv": "development"
+    }
+[2026-07-17 17:37:22] INFO telegram.authorization.configured
+  details:
+    {
+      "store": "postgres",
+      "emergencyDeniedUsers": 0
+    }
+[2026-07-17 17:37:22] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 166,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      },
+      "requestTimeoutMs": 12000,
+      "maxRetryAttempts": 2,
+      "retryMaxDelayMs": 2000,
+      "retryTotalTimeoutMs": 20000,
+      "maxRetryAfterMs": 5000,
+      "sdkMaxRetries": 0
+    }
+[2026-07-17 17:37:22] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-07-17 17:37:22] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-07-17 17:37:22] INFO telegram.terminal_reply_store.configured
+  details:
+    {
+      "store": "memory"
+    }
+[2026-07-17 17:37:22] INFO telegram.bot.initialized
+[2026-07-17 17:37:22] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true,
+      "telegramHandlerTimeoutMs": 195000,
+      "langGraphClientOverallTimeoutMs": 165000,
+      "langGraphClientIdleTimeoutMs": 120000
+    }
+[2026-07-17 17:37:22] ERROR agent.contract.unverified
+  details:
+    {
+      "error": "fetch failed",
+      "clientOverallMs": 165000,
+      "clientIdleMs": 120000,
+      "telegrafHandlerTimeoutMs": 195000
+    }
+[2026-07-17 17:37:22] INFO database.runtime.ready
+  details:
+    {
+      "role": "jarvis_app",
+      "inheritedRole": "jarvis_runtime",
+      "requiredTables": 6
+    }
+[2026-07-17 17:37:22] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://f254-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-07-17 17:37:23] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://f254-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-07-17 17:37:23] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-07-17 17:37:23] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }
+[2026-07-17 17:48:36] INFO server.shutdown.started
+  details:
+    {
+      "signal": "SIGTERM"
+    }
+[2026-07-17 17:48:36] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-17 17:48:36] INFO server.shutdown.completed
+  details:
+    {
+      "signal": "SIGTERM"
+    }
+[2026-07-17 17:48:36] INFO server.shutdown.started
+  details:
+    {
+      "signal": "SIGTERM"
+    }
+[2026-07-17 17:48:36] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-17 17:48:36] INFO server.shutdown.completed
+  details:
+    {
+      "signal": "SIGTERM"
+    }
+[2026-07-17 17:48:36] INFO server.shutdown.started
+  details:
+    {
+      "signal": "SIGINT"
+    }
+[2026-07-17 17:48:36] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-17 17:48:36] INFO server.shutdown.completed
+  details:
+    {
+      "signal": "SIGINT"
+    }

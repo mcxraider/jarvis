@@ -14009,3 +14009,26 @@
     {
       "error": "Bot is not running!"
     }
+[2026-07-17 17:37:22] ERROR agent.contract.unverified
+  details:
+    {
+      "error": "fetch failed",
+      "clientOverallMs": 165000,
+      "clientIdleMs": 120000,
+      "telegrafHandlerTimeoutMs": 195000
+    }
+[2026-07-17 17:48:36] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-17 17:48:36] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
+[2026-07-17 17:48:36] ERROR telegram.bot.stop_failed
+  details:
+    {
+      "error": "Bot is not running!"
+    }
