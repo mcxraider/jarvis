@@ -44,6 +44,27 @@ describe('LangGraphAgentClient', () => {
     },
   );
 
+  it('gives explicit constructor timeouts precedence over environment overrides', () => {
+    const originalOverall = process.env.LANGGRAPH_AGENT_TIMEOUT_MS;
+    const originalIdle = process.env.LANGGRAPH_STREAM_IDLE_TIMEOUT_MS;
+    process.env.LANGGRAPH_AGENT_TIMEOUT_MS = '5000';
+    process.env.LANGGRAPH_STREAM_IDLE_TIMEOUT_MS = '4000';
+    try {
+      const client = new LangGraphAgentClient({
+        baseUrl: 'http://localhost:8000',
+        timeoutMs: 2000,
+        streamIdleTimeoutMs: 1000,
+      });
+
+      expect(client.getRuntimeTimeouts()).toEqual({ overallMs: 2000, streamIdleMs: 1000 });
+    } finally {
+      if (originalOverall === undefined) delete process.env.LANGGRAPH_AGENT_TIMEOUT_MS;
+      else process.env.LANGGRAPH_AGENT_TIMEOUT_MS = originalOverall;
+      if (originalIdle === undefined) delete process.env.LANGGRAPH_STREAM_IDLE_TIMEOUT_MS;
+      else process.env.LANGGRAPH_STREAM_IDLE_TIMEOUT_MS = originalIdle;
+    }
+  });
+
   it('posts invoke requests using the Python API payload shape', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
@@ -1143,6 +1164,41 @@ describe('LangGraphAgentClient', () => {
         expect.objectContaining({ status: 'completed', response: 'All done.' }),
       );
       expect(onProgress).toHaveBeenCalledTimes(3);
+    });
+
+    it('warns when a successful streamed turn consumes more than 66% of its budget', async () => {
+      const warnSpy = jest.spyOn(logger, 'warn').mockImplementation();
+      const harness = abortableStreamFetch();
+      global.fetch = harness.fetchMock as any;
+      const client = new LangGraphAgentClient({
+        baseUrl: 'http://localhost:8000',
+        timeoutMs: 100_000,
+        streamIdleTimeoutMs: 90_000,
+      });
+
+      const promise = client.invoke(
+        { message: 'hi', userId: 'u', requestId: 'near-timeout-request' },
+        { requestId: 'near-timeout-request' },
+        jest.fn(),
+      );
+      await jest.advanceTimersByTimeAsync(1);
+      await jest.advanceTimersByTimeAsync(67_000);
+      harness.push({ type: 'final', response: finalPayload });
+      harness.close();
+      await jest.advanceTimersByTimeAsync(1);
+
+      await expect(promise).resolves.toEqual(
+        expect.objectContaining({ status: 'completed', response: 'All done.' }),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        'langgraph.turn.near_timeout',
+        expect.objectContaining({
+          requestId: 'near-timeout-request',
+          path: '/invoke/stream',
+          durationMs: 67_001,
+          timeoutMs: 100_000,
+        }),
+      );
     });
 
     it('enforces the overall deadline even while progress keeps arriving', async () => {

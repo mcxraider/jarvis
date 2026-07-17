@@ -8,6 +8,7 @@ import { PendingClarificationRecord, PendingClarificationStore } from '../pendin
 import { ConversationGateStore } from '../conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
+import { createTerminalReplyStore, TerminalReplyStore } from '../terminal-reply.store';
 
 const CONFIRM_PREFIX = 'confirm:';
 const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
@@ -21,6 +22,7 @@ export class CallbackHandler {
     private readonly agentClient: LangGraphAgentClient,
     private readonly pendingStore: PendingClarificationStore,
     private readonly conversationGate: ConversationGateStore,
+    private readonly terminalReplyStore: TerminalReplyStore = createTerminalReplyStore(),
   ) {
     const runningTtl = Number(process.env.TELEGRAM_GATE_RUNNING_TTL_MS);
     this.runningTtlMs = Number.isFinite(runningTtl) && runningTtl > 0 ? runningTtl : DEFAULT_RUNNING_TTL_MS;
@@ -52,7 +54,8 @@ export class CallbackHandler {
       await ctx.answerCbQuery('This action is not available.');
       return;
     }
-    const requestId = createRequestId('cb');
+    const updateRequestId = (ctx.update as { __requestId?: string } | undefined)?.__requestId;
+    const requestId = updateRequestId || createRequestId('cb');
     const internalUserId = mapTelegramUserId(userId);
     const chatId = ctx.chat?.id;
     const gateKey = buildConversationKey(userId, internalUserId, chatId);
@@ -173,7 +176,9 @@ export class CallbackHandler {
           });
         });
         try {
-          await sendFinalReply(ctx, agentResponse.response, { requestId });
+          if (this.terminalReplyStore.claim(requestId, 'callback_ambiguous')) {
+            await sendFinalReply(ctx, agentResponse.response, { requestId });
+          }
         } catch (error) {
           logger.warn('telegram.callback.confirm.ambiguous_notice_failed', {
             ...logContext,
@@ -241,20 +246,24 @@ export class CallbackHandler {
         let promptMessageId: number | undefined;
         let collapsibleClarificationMessageId: number | undefined;
         if (interruptType === 'confirm') {
-          promptMessageId = await this.sendConfirmReply(
-            ctx,
-            agentResponse.response,
-            agentResponse.threadId,
-            requestId,
-          );
+          if (this.terminalReplyStore.claim(requestId, 'callback_interrupt')) {
+            promptMessageId = await this.sendConfirmReply(
+              ctx,
+              agentResponse.response,
+              agentResponse.threadId,
+              requestId,
+            );
+          }
         } else {
-          const receipt = await sendClarificationReplyWithReceipt(
-            ctx,
-            agentResponse.response,
-            { requestId },
-          );
-          promptMessageId = receipt.messageId;
-          collapsibleClarificationMessageId = receipt.collapsibleMessageId;
+          if (this.terminalReplyStore.claim(requestId, 'callback_interrupt')) {
+            const receipt = await sendClarificationReplyWithReceipt(
+              ctx,
+              agentResponse.response,
+              { requestId },
+            );
+            promptMessageId = receipt.messageId;
+            collapsibleClarificationMessageId = receipt.collapsibleMessageId;
+          }
         }
         if (promptMessageId !== undefined) {
           const attached = await this.pendingStore
@@ -324,7 +333,9 @@ export class CallbackHandler {
           if (buffered) {
             finalResponse += `\n\n---\nYou also sent: "_${buffered.slice(0, 200)}_"\nSend it again if you'd like me to handle it.`;
           }
-          await sendFinalReply(ctx, finalResponse, { requestId });
+          if (this.terminalReplyStore.claim(requestId, 'callback_result')) {
+            await sendFinalReply(ctx, finalResponse, { requestId });
+          }
         }
       }
 
@@ -372,7 +383,9 @@ export class CallbackHandler {
         threadId,
         error: (error as Error).message,
       });
-      await ctx.reply('Something went wrong processing your decision. Please try again.');
+      if (this.terminalReplyStore.claim(requestId, 'callback_error')) {
+        await ctx.reply('Something went wrong processing your decision. Please try again.');
+      }
     }
   }
 

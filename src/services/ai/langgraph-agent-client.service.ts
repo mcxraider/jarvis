@@ -7,11 +7,14 @@
 
 import { LogContext, logger } from '../../utils/logger';
 import {
+  AgentHealthDetail,
+  AgentHealthDetailSchema,
   AgentResponseSchema,
   ProgressFact,
   TelegramIdentityPayload,
   StreamEventSchema,
 } from '../../types/agent.types';
+import { resolveLangGraphClientTimeouts } from '../../config/turn-timeout.config';
 
 export type LangGraphAgentStatus = 'completed' | 'interrupted' | 'failed';
 export type LangGraphDelivery = 'terminal' | 'ambiguous';
@@ -60,16 +63,7 @@ export type LangGraphProgressCallback = (
 // Structured result of the Python /health/detail deep-probe: one entry per
 // downstream dependency (deepseek, todoist) plus the live model name. Surfaced
 // by the Telegram /status card.
-export interface LangGraphDependencyCheck {
-  ok: boolean;
-  detail: string;
-}
-
-export interface LangGraphDependencyHealth {
-  status: 'ok' | 'degraded';
-  model: string;
-  checks: Record<string, LangGraphDependencyCheck>;
-}
+export type LangGraphDependencyHealth = AgentHealthDetail;
 
 export interface TelegramIdentity {
   telegramId: TelegramIdentityPayload['telegram_id'];
@@ -92,12 +86,11 @@ export interface LangGraphAgentClientConfig {
   apiKey?: string;
 }
 
-// Foreground progress remains useful for longer tool/LLM retries; callers can
-// still lower this explicitly for tests or constrained deployments.
-const DEFAULT_TIMEOUT_MS = 150000;
-// Reset whenever the backend produces a stream chunk. The overall timeout remains
-// authoritative even when progress continues to arrive.
-const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90000;
+// Fraction of the overall budget past which a completed turn is worth flagging.
+// Observed latency is p50 8s / p95 28s / p99 57s, so crossing ~109s of a 165s budget
+// is rare and meaningful: it surfaces creeping latency and future ladder inversions
+// before they reach users as a hard abort.
+const NEAR_TIMEOUT_RATIO = 0.66;
 const PROGRESS_CALLBACK_TIMEOUT_MS = 5000;
 const RETRY_DELAYS_MS = [1000, 3000];
 // Health probes are user-facing (/status) and must fail fast — don't inherit the
@@ -110,13 +103,6 @@ const CANCEL_OUTCOMES = new Set<LangGraphCancelOutcome>([
   'already_finished',
   'not_found',
 ]);
-
-function finitePositiveTimeout(value: number, name: string): number {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error(`${name} must be finite and greater than zero`);
-  }
-  return value;
-}
 
 // A completed 4xx response (other than 409) is a pre-admission rejection: the
 // backend has told us that it did not accept this request for execution. A 409
@@ -148,16 +134,17 @@ export class LangGraphAgentClient {
 
     // Strip trailing slashes so we can append paths without double-slash issues.
     this.baseUrl = baseUrl.replace(/\/+$/, '');
-    this.timeoutMs = finitePositiveTimeout(
-      config.timeoutMs ?? Number(process.env.LANGGRAPH_AGENT_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS),
-      'timeoutMs',
-    );
-    this.streamIdleTimeoutMs = finitePositiveTimeout(
-      config.streamIdleTimeoutMs ??
-        Number(process.env.LANGGRAPH_STREAM_IDLE_TIMEOUT_MS ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS),
-      'streamIdleTimeoutMs',
-    );
+    const timeouts = resolveLangGraphClientTimeouts(config);
+    this.timeoutMs = timeouts.overallMs;
+    this.streamIdleTimeoutMs = timeouts.streamIdleMs;
     this.apiKey = config.apiKey || process.env.LANGGRAPH_AGENT_API_KEY;
+  }
+
+  getRuntimeTimeouts(): { overallMs: number; streamIdleMs: number } {
+    return {
+      overallMs: this.timeoutMs,
+      streamIdleMs: this.streamIdleTimeoutMs,
+    };
   }
 
   // Sends a new message to the agent. If a progress callback is provided, uses the
@@ -207,7 +194,7 @@ export class LangGraphAgentClient {
       if (!response.ok) {
         throw new Error(`LangGraph health returned ${response.status}`);
       }
-      return (await response.json()) as LangGraphDependencyHealth;
+      return AgentHealthDetailSchema.parse(await response.json());
     } finally {
       clearTimeout(timeout);
     }
@@ -394,6 +381,7 @@ export class LangGraphAgentClient {
         armIdleTimer,
         controller.signal,
       );
+      const durationMs = Date.now() - startedAt;
       logger.info('langgraph.stream.completed', {
         ...logContext,
         path: streamPath,
@@ -403,8 +391,9 @@ export class LangGraphAgentClient {
         ...this.backendErrorLogFields(finalResponse.errorDetails),
         threadId: finalResponse.threadId,
         requestedThreadId: request.threadId,
-        durationMs: Date.now() - startedAt,
+        durationMs,
       });
+      this.reportNearTimeout(durationMs, streamPath, logContext);
       return finalResponse;
     } catch (error) {
       const failureKind = this.classifyStreamFailure(
@@ -442,6 +431,20 @@ export class LangGraphAgentClient {
       clearTimeout(overallTimer);
       if (idleTimer) clearTimeout(idleTimer);
     }
+  }
+
+  // A turn that succeeded but consumed most of its budget is the early warning for
+  // the failure mode this ladder exists to prevent: the next slightly slower turn
+  // aborts instead. The client owns the budget, so it is the layer that can see this.
+  private reportNearTimeout(durationMs: number, path: string, logContext: LogContext): void {
+    if (durationMs <= NEAR_TIMEOUT_RATIO * this.timeoutMs) return;
+    logger.warn('langgraph.turn.near_timeout', {
+      ...logContext,
+      path,
+      durationMs,
+      timeoutMs: this.timeoutMs,
+      thresholdRatio: NEAR_TIMEOUT_RATIO,
+    });
   }
 
   private classifyStreamFailure(

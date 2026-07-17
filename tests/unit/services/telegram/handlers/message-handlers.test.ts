@@ -175,6 +175,91 @@ describe('MessageHandlers', () => {
     expect(ctx.reply).toHaveBeenCalledWith('processed text', { parse_mode: 'MarkdownV2' });
   });
 
+  it('keeps a 129.7-second turn narrated and sends exactly one terminal clarification', async () => {
+    jest.useFakeTimers();
+    setRichMessagesEnabled(true);
+    try {
+      const settlementRequestId = 'request-long-run';
+      const threadId = 'thread-long-run';
+      const pendingStore = makePendingStore({
+        get: jest.fn().mockResolvedValue({ threadId, requestId: settlementRequestId }),
+      });
+      const messageProcessor = {
+        processTextMessage: jest.fn((
+          _text: string,
+          _userId: number,
+          _logContext: unknown,
+          onProgress: (event: any) => Promise<void>,
+        ) => new Promise((resolve) => {
+          void onProgress({
+            sequence: 1,
+            stage: 'progress',
+            message: 'ignored',
+            fact: { phase: 'request', action: 'started' },
+          });
+          setTimeout(() => void onProgress({
+            sequence: 2,
+            stage: 'progress',
+            message: 'ignored',
+            fact: {
+              phase: 'routing', action: 'completed', domains: ['calendar'], intent: 'read',
+            },
+          }), 30_000);
+          setTimeout(() => void onProgress({
+            sequence: 3,
+            stage: 'progress',
+            message: 'ignored',
+            fact: {
+              phase: 'lookup', action: 'started', domains: ['calendar'], intent: 'read',
+            },
+          }), 60_000);
+          setTimeout(() => void onProgress({
+            sequence: 4,
+            stage: 'progress',
+            message: 'ignored',
+            fact: { phase: 'review', action: 'completed', intent: 'read' },
+          }), 90_000);
+          setTimeout(() => resolve({
+            response: 'Which dates should I prioritize?',
+            interruptType: 'clarify',
+            threadId,
+            settlementRequestId,
+          }), 129_700);
+        })),
+      } as any;
+      const { handlers } = createHandlers({ messageProcessor, pendingStore });
+      const ctx = createContext({ text: 'Plan my leave around my calendar', message_id: 1297 });
+      const draftTimes: number[] = [];
+      ctx.telegram.callApi.mockImplementation(async (method: string) => {
+        if (method === 'sendRichMessageDraft') draftTimes.push(Date.now());
+        return method === 'sendRichMessage' ? { message_id: 701 } : true;
+      });
+
+      const handling = handlers.handleText(ctx);
+      await jest.advanceTimersByTimeAsync(129_700);
+      await handling;
+
+      const methods = ctx.telegram.callApi.mock.calls.map((call: unknown[]) => call[0]);
+      expect(methods.filter((method: string) => method === 'sendRichMessage').length).toBe(1);
+      expect(methods.at(-1)).toBe('sendRichMessage');
+      expect(draftTimes.length).toBeGreaterThanOrEqual(7);
+      expect(draftTimes.slice(1).every((time, index) => time - draftTimes[index] <= 20_000))
+        .toBe(true);
+      expect(ctx.reply).not.toHaveBeenCalledWith(
+        expect.stringContaining('Something went wrong'),
+        expect.anything(),
+      );
+      expect(pendingStore.attachClarificationMessageIdIfMatches).toHaveBeenCalledWith(
+        expect.any(String),
+        { threadId, requestId: settlementRequestId },
+        701,
+      );
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
+  });
+
   it('cleans up progress and sends no response or HITL UI for a suppressed text result', async () => {
     const messageProcessor = {
       processTextMessage: jest.fn().mockResolvedValue({

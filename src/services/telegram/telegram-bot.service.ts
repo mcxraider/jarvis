@@ -13,21 +13,28 @@ import {
   StaticUserAuthorizationStore,
   UserAuthorizationStore,
 } from './user-authorization.store';
+import { createTerminalReplyStore, TerminalReplyStore } from './terminal-reply.store';
+import { resolveTelegrafHandlerTimeoutMs } from '../../config/turn-timeout.config';
 
 export class TelegramBotService {
   public readonly bot: Telegraf<Context>;
   private readonly authorizationStore: UserAuthorizationStore;
+  private readonly handlerTimeoutMs: number;
 
   constructor(
     private readonly config: TelegramConfig,
     private readonly handlers: TelegramHandlers,
     authorizationStore?: UserAuthorizationStore,
+    private readonly terminalReplyStore: TerminalReplyStore = createTerminalReplyStore(),
   ) {
     // Production injects the database-backed store. The static implementation
     // remains as a constructor default for isolated tests and embedded callers.
     this.authorizationStore = authorizationStore ??
       new StaticUserAuthorizationStore(config.allowedUserIds ?? []);
-    this.bot = new Telegraf(config.token);
+    this.handlerTimeoutMs = resolveTelegrafHandlerTimeoutMs(config.handlerTimeoutMs);
+    this.bot = new Telegraf(config.token, {
+      handlerTimeout: this.handlerTimeoutMs,
+    });
 
     // Wire up all command/message/callback handlers onto the Telegraf instance.
     this.handlers.setupHandlers(this.bot);
@@ -36,17 +43,42 @@ export class TelegramBotService {
     logger.info('telegram.bot.initialized');
   }
 
-  // Global error boundary: catches unhandled errors from any Telegraf middleware
-  // and sends a generic "try again" reply so the user isn't left hanging.
+  // Global error boundary. Telegraf's watchdog cannot cancel the handler promise,
+  // so a watchdog expiry is diagnostic only; the still-running handler owns delivery.
   private setupErrorHandling(): void {
     this.bot.catch(async (err: unknown, ctx: Context) => {
       const error = err as Error;
+      const update = ctx.update as {
+        __requestId?: string;
+        __handlerStartedAt?: number;
+      };
+      const requestId = update?.__requestId;
+      const durationMs = typeof update?.__handlerStartedAt === 'number'
+        ? Date.now() - update.__handlerStartedAt
+        : undefined;
+
+      if (this.isHandlerWatchdogTimeout(error)) {
+        logger.error('telegram.handler.watchdog_expired', {
+          requestId,
+          durationMs,
+          handlerTimeoutMs: this.handlerTimeoutMs,
+          error: error.message,
+          userId: ctx.from?.id,
+          chatId: ctx.chat?.id,
+        });
+        return;
+      }
+
       logger.error('telegram.bot.error', {
+        requestId,
+        durationMs,
         error: error.message,
         stack: error.stack,
         userId: ctx.from?.id,
         chatId: ctx.chat?.id,
       });
+
+      if (!this.terminalReplyStore.claim(requestId as string, 'bot_error')) return;
 
       try {
         await ctx.reply('Something went wrong. Please try again.');
@@ -54,9 +86,14 @@ export class TelegramBotService {
         logger.error('telegram.bot.error_reply_failed', {
           originalError: error.message,
           replyError: (replyError as Error).message,
+          requestId,
         });
       }
     });
+  }
+
+  private isHandlerWatchdogTimeout(error: Error): boolean {
+    return error.name === 'TimeoutError' || /Promise timed out after/i.test(error.message);
   }
 
   // Registers the webhook URL with Telegram and syncs bot commands.
@@ -107,6 +144,8 @@ export class TelegramBotService {
   async handleUpdate(update: any): Promise<void> {
     const requestId = update.__requestId || createRequestId('tg');
     const startedAt = Date.now();
+    update.__requestId = requestId;
+    update.__handlerStartedAt = startedAt;
     const senderId = this.extractSenderId(update);
 
     try {
@@ -276,6 +315,7 @@ export class TelegramBotService {
   }
 
   async stop(): Promise<void> {
+    this.terminalReplyStore.stop();
     try {
       this.bot.stop();
       logger.info('telegram.bot.stopped');

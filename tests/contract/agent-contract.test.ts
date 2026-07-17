@@ -11,6 +11,7 @@ import * as path from 'path';
 
 import {
   AgentResponseSchema,
+  AgentHealthDetailSchema,
   TelegramIdentitySchema,
   LangGraphInterruptSchema,
   StreamEventSchema,
@@ -105,6 +106,22 @@ describe('Agent API contract — StreamEventSchema', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.response.thread_id).toBe('thread_abc123');
+    }
+  });
+});
+
+describe('Agent API contract — health detail', () => {
+  it('exposes the non-secret runtime limits used by startup readiness', () => {
+    const result = AgentHealthDetailSchema.safeParse(loadFixture('health-detail.json'));
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.limits).toEqual({
+        run_deadline_seconds: 150,
+        max_agent_turns: 20,
+        deepseek_request_timeout_seconds: 30,
+        model_router_complex_timeout_seconds: 90,
+      });
     }
   });
 });

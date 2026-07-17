@@ -6,7 +6,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { flushLogger, getLoggerStats, logger, shutdownLogger } from './utils/logger';
 import { createWebhookRouter } from './controllers/webhook.controller';
-import { botService, databaseReadiness } from './app';
+import { agentContractReadiness, botService, databaseReadiness } from './app';
 
 const NGROK_URL = process.env.NGROK_URL!;
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
@@ -81,10 +81,10 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 const PORT = process.env.PORT || 3000;
 let server: ReturnType<typeof app.listen> | undefined;
 
-// Database migration readiness is a startup barrier, not merely a health check.
-// Do not accept a webhook on a schema that cannot support generation-safe gates.
+// Database migrations and the live agent timeout contract are startup barriers.
+// Do not accept webhooks with an unsafe schema or an inverted timeout ladder.
 export async function startServer(): Promise<void> {
-  await databaseReadiness;
+  await Promise.all([databaseReadiness, agentContractReadiness]);
   if (SKIP_WEBHOOK_SETUP) {
     logger.info('telegram.webhook.setup_skipped');
   } else {

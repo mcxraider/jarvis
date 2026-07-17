@@ -125,6 +125,12 @@ export async function editMessageTextWithMarkdown(
       parse_mode: 'MarkdownV2',
     });
   } catch (error) {
+    // Message lifecycle errors are unrelated to Markdown and must reach the
+    // caller so it can acknowledge an unchanged edit or recreate a missing one.
+    if (/message is not modified|message to edit not found|message_id_invalid|message not found/i
+      .test(error instanceof Error ? error.message : String(error))) {
+      throw error;
+    }
     logger.warn('telegram.edit_message.markdown_parse_failed', {
       ...logContext,
       chatId,

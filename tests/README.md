@@ -29,23 +29,24 @@ npm run lint
 ### Simulate Telegram From the CLI
 
 With the TypeScript server and Python agent running, inject a Telegram-shaped
-text update at the real webhook entry point. Edit `USER_ARGS` and `PROMPT` at the
-top of the script, then run:
+text update at the real webhook entry point and wait for the correlated model
+response to be accepted by Telegram:
 
 ```bash
-./scripts/run_telegram_e2e.sh
+./tests/e2e/telegram/run_telegram_e2e.sh
 ```
 
-Set `USER_ARGS` to `(--user-1)`, `(--user-2)`, or
-`(--telegram-user-id 123456789)` when testing another configured identity.
-The selected identity follows the normal authorization and per-user integration
-resolution path. If the chat ID is a real chat where the bot is allowed to
-write, the normal reply is delivered there.
+Set `JARVIS_TELEGRAM_E2E_USER_ID` when testing another configured identity and
+`JARVIS_TELEGRAM_E2E_CHAT_ID` when the destination differs from that user. The
+selected identity follows the normal authorization and per-user integration
+resolution path. See `tests/e2e/telegram/README.md` for deployment, local, and
+prompt configuration.
 
 This simulates Telegram's JSON webhook payload from the HTTP ingress onward. It
 does not traverse Telegram's servers: Telegram does not allow a bot or local
-CLI to forge an incoming message from another user. Use a real Telegram account
-for the final network-delivery acceptance test.
+CLI to forge an incoming message from another user. The outbound response does
+use the real Bot API and is correlated through the existing async application
+log before the command reports success.
 
 ### Offline Unit Tests
 

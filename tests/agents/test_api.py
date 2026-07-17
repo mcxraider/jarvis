@@ -453,6 +453,15 @@ class JarvisApiTests(unittest.TestCase):
         self.assertIn("model", body)
         self.assertEqual(body["checks"]["deepseek"], {"ok": True, "detail": "reachable"})
         self.assertEqual(body["checks"]["todoist"], {"ok": True, "detail": "5 project(s)"})
+        self.assertEqual(
+            body["limits"],
+            {
+                "run_deadline_seconds": 150.0,
+                "max_agent_turns": 20,
+                "deepseek_request_timeout_seconds": 30.0,
+                "model_router_complex_timeout_seconds": 90.0,
+            },
+        )
         # The requesting user's id is forwarded so the Todoist token can be resolved.
         todoist.assert_called_once_with(123)
 
