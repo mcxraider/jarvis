@@ -87,7 +87,15 @@ The router is enabled by default:
 
 Set `ROUTER_ENABLED=false` or `TOOL_SELECTOR=static` to expose every registered tool each turn. Set `TOOL_SELECTOR=keyword` to use the static keyword table instead of the LLM router.
 
-The router also labels the intrinsic complexity of the current query as `low`, `medium`, or `high`. Model routing fuses that label with domain breadth and uncertainty: low, certain single-domain requests use V4 Flash/high; medium or multi-domain requests use V4 Pro/high; and high-complexity or domain-uncertain requests use V4 Pro/max. Complexity is assessed independently of query length, mutation risk, and the number of selected domains.
+The router also labels the intrinsic complexity of the current query as `low`, `medium`, or `high`. Model routing fuses that label with domain breadth and uncertainty. Each selected route has a fixed per-attempt timeout; the existing orchestrator retry count and backoff apply independently.
+
+| Route | Model / effort | Timeout setting | Default |
+|-------|----------------|-----------------|---------|
+| Low, certain, single-domain | V4 Flash / high | `MODEL_ROUTER_DEFAULT_TIMEOUT_SECONDS` | `DEEPSEEK_REQUEST_TIMEOUT_SECONDS` (`30.0`) |
+| Medium or multi-domain | V4 Pro / high | `MODEL_ROUTER_MULTI_DOMAIN_TIMEOUT_SECONDS` | `60.0` |
+| High-complexity or uncertain | V4 Pro / max | `MODEL_ROUTER_COMPLEX_TIMEOUT_SECONDS` | `90.0` |
+
+Complexity is assessed independently of query length, mutation risk, and the number of selected domains. Custom model selections without a timeout continue to use `DEEPSEEK_REQUEST_TIMEOUT_SECONDS`.
 
 ## Features
 

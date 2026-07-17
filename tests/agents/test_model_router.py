@@ -52,6 +52,7 @@ class TestModelRouter:
         result = router.select(decision)
         assert result.model == "pro"
         assert result.reasoning_effort == "max"
+        assert result.request_timeout_seconds == 90.0
 
     def test_low_complexity_multi_domain_uses_complex_high(self):
         router = create_default_model_router(
@@ -62,6 +63,7 @@ class TestModelRouter:
         result = router.select(decision)
         assert result.model == "pro"
         assert result.reasoning_effort == "high"
+        assert result.request_timeout_seconds == 60.0
 
     def test_low_complexity_single_domain_uses_default_high(self):
         router = create_default_model_router(
@@ -73,6 +75,7 @@ class TestModelRouter:
         result = router.select(decision)
         assert result.model == "flash"
         assert result.reasoning_effort == "high"
+        assert result.request_timeout_seconds == 30.0
 
     def test_medium_complexity_single_domain_uses_complex_high(self):
         router = create_default_model_router(
@@ -91,6 +94,7 @@ class TestModelRouter:
         result = router.select(decision)
         assert result.model == "pro"
         assert result.reasoning_effort == "high"
+        assert result.request_timeout_seconds == 60.0
 
     @pytest.mark.parametrize(
         ("domains", "uncertain", "candidate_domains"),
@@ -118,6 +122,7 @@ class TestModelRouter:
         result = router.select(decision)
         assert result.model == "pro"
         assert result.reasoning_effort == "max"
+        assert result.request_timeout_seconds == 90.0
 
     def test_empty_domains_uses_default(self):
         router = create_default_model_router(default_model="flash")
@@ -127,6 +132,7 @@ class TestModelRouter:
 
     def test_custom_rules(self):
         custom_selection = ModelSelection(model="custom", reasoning_effort="low")
+        assert custom_selection.request_timeout_seconds is None
         custom_rule = ModelRoutingRule(
             name="always_custom",
             condition=lambda d: True,
