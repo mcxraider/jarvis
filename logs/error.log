@@ -2524,3 +2524,7 @@
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-17 17:13:44"}
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-17 17:13:44"}
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-17 17:13:44"}
+{"clientIdleMs":120000,"clientOverallMs":165000,"error":"fetch failed","level":"error","message":"agent.contract.unverified","telegrafHandlerTimeoutMs":195000,"timestamp":"2026-07-17 17:37:22"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-17 17:48:36"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-17 17:48:36"}
+{"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-17 17:48:36"}
