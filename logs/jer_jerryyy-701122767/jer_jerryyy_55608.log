@@ -1,0 +1,54 @@
+==============================================================================
+Jarvis run
+==============================================================================
+started_at: 2026-07-21T21:33:36+08:00
+request_id: tg_update_564452660
+thread_id: 3a4ffe6f-e907-44bd-b741-3c0433155608
+user_id: telegram:701122767
+telegram_id: 701122767
+identity_username: jer_jerryyy
+telegram_user_id: None
+telegram_username: None
+telegram_first_name: None
+request_source: telegram
+invocation_type: invoke
+model: deepseek-v4-flash
+allow_mutations: True
+max_agent_turns: 20
+resuming: False
+------------------------------------------------------------------------------
+2026-07-21 21:33:36.754 | section              | === Jarvis LangGraph Run ===
+2026-07-21 21:33:36.754 | runtime.start        | Starting graph invocation.
+      request_id: tg_update_564452660
+      model: deepseek-v4-flash
+      allow_mutations: true
+      max_turns: 20
+      thread_id: 3a4ffe6f-e907-44bd-b741-3c0433155608
+      request_source: telegram
+      resuming: false
+2026-07-21 21:33:36.754 | runtime.prompt       | [payload] user_prompt: hello
+2026-07-21 21:33:36.801 | runtime.graph        | Compiled graph.
+      nodes: agent, validate_entities, hitl, tools
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+RUN CRASH
+timestamp: 2026-07-21 21:33:36.840
+error_type: OperationalError
+error: consuming input failed: SSL connection has been closed unexpectedly
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Traceback (most recent call last):
+  File "/Users/jerry/projects/jarvis-mcp/agents/agent_api/app/graph/builder.py", line 713, in run_jarvis_async
+    result = await app.ainvoke(
+             ^^^^^^^^^^^^^^^^^^
+  File "/Users/jerry/projects/jarvis-mcp/venv/lib/python3.11/site-packages/langgraph/pregel/main.py", line 4105, in ainvoke
+    async for chunk in self.astream(
+  File "/Users/jerry/projects/jarvis-mcp/venv/lib/python3.11/site-packages/langgraph/pregel/main.py", line 3368, in astream
+    async with AsyncPregelLoop(
+  File "/Users/jerry/projects/jarvis-mcp/venv/lib/python3.11/site-packages/langgraph/pregel/_loop.py", line 1912, in __aenter__
+    saved = await self.checkpointer.aget_tuple(self.checkpoint_config)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/jerry/projects/jarvis-mcp/venv/lib/python3.11/site-packages/langgraph/checkpoint/postgres/aio.py", line 206, in aget_tuple
+    await cur.execute(
+  File "/Users/jerry/projects/jarvis-mcp/venv/lib/python3.11/site-packages/psycopg/cursor_async.py", line 97, in execute
+    raise ex.with_traceback(None)
+psycopg.OperationalError: consuming input failed: SSL connection has been closed unexpectedly
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

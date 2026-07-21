@@ -14068,3 +14068,114 @@
       "clientIdleMs": 120000,
       "telegrafHandlerTimeoutMs": 195000
     }
+[2026-07-17 20:02:26] WARN whisper.download.unexpected_content_type
+  requestId: tg_update_564452638
+  updateId: 564452638
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1582
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-07-18 15:31:16] WARN whisper.download.unexpected_content_type
+  requestId: tg_update_564452643
+  updateId: 564452643
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1594
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "contentType": "application/octet-stream"
+    }
+[2026-07-18 23:03:42] WARN whisper.download.unexpected_content_type
+  requestId: tg_update_564452644
+  updateId: 564452644
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1597
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-07-19 00:25:30] WARN whisper.download.unexpected_content_type
+  requestId: tg_update_564452645
+  updateId: 564452645
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1600
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "zackam",
+      "telegramFirstName": "Zac",
+      "contentType": "application/octet-stream"
+    }
+[2026-07-20 19:18:15] WARN whisper.download.unexpected_content_type
+  requestId: tg_update_564452648
+  updateId: 564452648
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1607
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-07-20 19:32:35] WARN whisper.download.unexpected_content_type
+  requestId: tg_update_564452649
+  updateId: 564452649
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1610
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
+[2026-07-21 20:08:43] ERROR process.uncaught_exception
+  details:
+    {
+      "error": "Connection terminated unexpectedly"
+    }
+  stack:
+    Error: Connection terminated unexpectedly
+        at Connection.<anonymous> (/Users/jerry/projects/jarvis-mcp/node_modules/pg/lib/client.js:199:73)
+        at Object.onceWrapper (node:events:633:28)
+        at Connection.emit (node:events:519:28)
+        at Connection.emit (node:domain:489:12)
+        at Socket.<anonymous> (/Users/jerry/projects/jarvis-mcp/node_modules/pg/lib/connection.js:63:12)
+        at Socket.emit (node:events:519:28)
+        at Socket.emit (node:domain:489:12)
+        at TCP.<anonymous> (node:net:347:12)
+[2026-07-21 20:09:36] WARN telegram.pending_store.sweep_failed
+  details:
+    {
+      "error": "Failed to connect to database: {:error, :econnrefused}"
+    }
+[2026-07-21 21:32:34] WARN whisper.download.unexpected_content_type
+  requestId: tg_update_564452659
+  updateId: 564452659
+  userId: [REDACTED_ID]
+  chatId: [REDACTED_ID]
+  messageId: 1631
+  messageType: voice
+  details:
+    {
+      "telegramUsername": "jer_jerryyy",
+      "telegramFirstName": "jerry",
+      "contentType": "application/octet-stream"
+    }
