@@ -27,7 +27,7 @@ from agents.agent_api.app.api.schemas import (
     BulkInvokeRequest,
     InvokeRequest,
 )
-from agents.agent_api.app.checkpointing import DEFAULT_CHECKPOINTER, get_async_checkpointer
+from agents.agent_api.app.checkpointing import get_default_checkpointer, get_async_checkpointer
 from agents.agent_api.app.config import settings
 from agents.agent_api.app.errors import require_api_key
 from agents.agent_api.app.middleware import idempotency
@@ -204,7 +204,7 @@ def runtime_checkpointer(http_request: Optional[FastAPIRequest] = None) -> Any:
         return get_async_checkpointer()
     except RuntimeError:
         if settings.checkpoint_backend == "memory":
-            return DEFAULT_CHECKPOINTER
+            return get_default_checkpointer()
         raise
 
 
