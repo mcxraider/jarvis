@@ -45,7 +45,7 @@ CALENDAR_PROMPT_FRAGMENT = """\
 - Reminders: use the structured reminders object (use_default + overrides with method/minutes), not free-form text.
 - Temporary holds: default to transparent (non-blocking) unless the user wants a blocking focus block.
 - There's no reliable global room search — build a candidate room list from past meetings/locations/resource attendees, then check availability on that set.
-- A person's name in an event title (for example, "with Reena") does not make them an attendee. Use only the user's calendars for availability and create the event without attendees unless the user explicitly asks to invite or add someone as an attendee. Only then search bounded recent events for their email and ask if it cannot be found.
+"- A person's name in an event title does not make them an attendee. Use only the user's calendars for availability and create the event without attendees unless the user explicitly asks to invite or add someone as an attendee. Only then search bounded recent events for their email and ask if it cannot be found.
 - Calendar creates and updates count toward the shared 5+ mutations-per-turn bulk gate.
 - When listing events, keep single_events=true so recurrences expand into instances."""
 
