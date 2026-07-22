@@ -158,6 +158,95 @@ def test_concurrent_credential_refresh_happens_once_per_generation() -> None:
     assert credentials.token == "new-token-1"
 
 
+def test_async_refresh_coordinates_with_sync_via_shared_generation() -> None:
+    """Async token refresh bumps coordinator generation, preventing redundant sync refresh."""
+    from datetime import datetime, timedelta, timezone
+    from agents.agent_api.app.tools.google_calendar.client import (
+        _AsyncTokenManager,
+        _CredentialCoordinator,
+    )
+
+    class FakeCredentials:
+        token = "expired-token"
+        expiry = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        refresh_token = "rt"
+        client_id = "cid"
+        client_secret = "cs"
+        valid = False
+        refresh_count = 0
+
+        def refresh(self, _request):
+            self.refresh_count += 1
+            self.token = f"sync-token-{self.refresh_count}"
+
+    creds = FakeCredentials()
+    coordinator = _CredentialCoordinator(creds)
+    token_mgr = _AsyncTokenManager(coordinator)
+
+    assert coordinator.generation == 0
+
+    # Create a sync proxy BEFORE async refresh (simulates concurrent access)
+    proxy = coordinator.proxy()
+
+    async def exercise():
+        with patch("httpx.AsyncClient") as MockClient:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "access_token": "new-token",
+                "expires_in": 3600,
+            }
+            mock_http = AsyncMock()
+            mock_http.post = AsyncMock(return_value=mock_response)
+            mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+            mock_http.__aexit__ = AsyncMock(return_value=False)
+            MockClient.return_value = mock_http
+
+            token = await token_mgr.get_access_token()
+
+        assert token == "new-token"
+        assert creds.token == "new-token"
+        assert coordinator.generation == 1
+
+        # Sync proxy created at generation 0 sees mismatch and skips refresh
+        proxy.refresh(object())
+        assert creds.refresh_count == 0  # sync refresh was skipped
+        assert coordinator.generation == 1  # not incremented again
+
+    asyncio.run(exercise())
+
+
+def test_async_token_manager_skips_refresh_when_sync_already_refreshed() -> None:
+    """If sync refreshes first (making creds valid), async skips the HTTP call."""
+    from datetime import datetime, timedelta, timezone
+    from agents.agent_api.app.tools.google_calendar.client import (
+        _AsyncTokenManager,
+        _CredentialCoordinator,
+    )
+
+    class FakeCredentials:
+        token = "fresh-token"
+        refresh_token = "rt"
+        client_id = "cid"
+        client_secret = "cs"
+
+        @property
+        def valid(self):
+            return True
+
+    creds = FakeCredentials()
+    coordinator = _CredentialCoordinator(creds)
+    token_mgr = _AsyncTokenManager(coordinator)
+
+    async def exercise():
+        with patch("httpx.AsyncClient") as MockClient:
+            token = await token_mgr.get_access_token()
+            MockClient.assert_not_called()
+            assert token == "fresh-token"
+
+    asyncio.run(exercise())
+
+
 def test_lazy_service_retains_credentials_for_per_call_transport() -> None:
     credentials = object()
     service = object()

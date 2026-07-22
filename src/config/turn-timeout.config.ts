@@ -22,7 +22,7 @@ export interface TurnTimeoutOverrides {
 
 export const TURN_TIMEOUT_DEFAULTS: Readonly<TurnTimeoutConfig> = Object.freeze({
   overallMs: 165_000,
-  streamIdleMs: 120_000,
+  streamIdleMs: 155_000,
   telegrafHandlerMs: 195_000,
 });
 

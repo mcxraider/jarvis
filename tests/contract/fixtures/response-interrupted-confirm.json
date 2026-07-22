@@ -10,6 +10,10 @@
     "held_call_id": "held_abc",
     "summary": "Delete task: Buy groceries",
     "tool_name": "delete_todoist_task",
-    "args": {"task_id": "456"}
+    "args": {"task_id": "456"},
+    "held_call_ids": ["held_abc"],
+    "count": 1,
+    "tool_names": ["delete_todoist_task"],
+    "services": ["todoist"]
   }
 }

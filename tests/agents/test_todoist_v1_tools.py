@@ -6,6 +6,7 @@ priority description.
 """
 
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -78,6 +79,23 @@ class TestSchemaRegistration:
             assert "4 = highest urgency" in description
             assert "3 = P2, 2 = P3, 1 = normal/default (P4)" in description
 
+    @pytest.mark.parametrize(
+        ("tool_name", "expected_default"),
+        [
+            ("get_tasks", 50),
+            ("get_tasks_by_filter", 50),
+            ("get_completed_todoist_tasks_by_completion_date", 50),
+            ("get_comments", 10),
+            ("get_labels", 50),
+            ("get_projects", 50),
+        ],
+    )
+    def test_collection_limits_publish_defaults(self, tool_name, expected_default):
+        limit = _schema(tool_name)["function"]["parameters"]["properties"]["limit"]
+
+        assert limit["default"] == expected_default
+        assert limit["minimum"] == 1
+
 
 class TestLayerConsistency:
     """schema names == handler-map names == langchain tool names (no silent drift)."""
@@ -88,6 +106,69 @@ class TestLayerConsistency:
         spec_names = {spec.name for spec in get_todoist_tool_specs(client)}
         lc_names = {t.name for t in build_todoist_langchain_tools(lambda *a, **k: {})}
         assert schema_names == spec_names == lc_names
+
+
+class TestCollectionLimits:
+    @pytest.mark.parametrize(
+        ("method_name", "arguments", "provider_response", "expected_default"),
+        [
+            ("get_tasks", {}, {"results": []}, "50"),
+            ("get_tasks_by_filter", {"query": "today"}, {"results": []}, "50"),
+            (
+                "get_completed_todoist_tasks_by_completion_date",
+                {},
+                {"items": [], "next_cursor": None},
+                "50",
+            ),
+            ("get_comments", {"task_id": "task-1"}, {"results": []}, "10"),
+            ("get_labels", {}, {"results": [], "next_cursor": None}, "50"),
+            ("get_projects", {}, {"results": [], "next_cursor": None}, "50"),
+        ],
+    )
+    @patch.object(TodoistApiClient, "_request")
+    def test_omitted_limits_are_added_to_collection_requests(
+        self,
+        mock_request,
+        method_name,
+        arguments,
+        provider_response,
+        expected_default,
+    ):
+        mock_request.return_value = provider_response
+
+        getattr(TodoistApiClient(api_key="test-key"), method_name)(arguments)
+
+        query = parse_qs(urlparse(mock_request.call_args.args[0]).query)
+        assert query["limit"] == [expected_default]
+
+    @patch.object(TodoistApiClient, "_request")
+    def test_explicit_limit_and_cursor_are_preserved(self, mock_request):
+        mock_request.return_value = {"results": [], "next_cursor": None}
+
+        TodoistApiClient(api_key="test-key").get_tasks(
+            {"limit": 125, "cursor": "opaque-cursor"}
+        )
+
+        query = parse_qs(urlparse(mock_request.call_args.args[0]).query)
+        assert query["limit"] == ["125"]
+        assert query["cursor"] == ["opaque-cursor"]
+
+    @pytest.mark.parametrize("limit", [0, 201, True, "50"])
+    @patch.object(TodoistApiClient, "_request")
+    def test_invalid_standard_limit_fails_before_request(self, mock_request, limit):
+        with pytest.raises(ValueError, match="limit"):
+            TodoistApiClient(api_key="test-key").get_tasks({"limit": limit})
+
+        mock_request.assert_not_called()
+
+    @patch.object(TodoistApiClient, "_request")
+    def test_comment_limit_above_endpoint_maximum_fails_before_request(self, mock_request):
+        with pytest.raises(ValueError, match="between 1 and 10"):
+            TodoistApiClient(api_key="test-key").get_comments(
+                {"task_id": "task-1", "limit": 11}
+            )
+
+        mock_request.assert_not_called()
 
 
 class TestUpdateTaskWrapper:
@@ -246,7 +327,7 @@ class TestGetProjects:
         client = TodoistApiClient(api_key="test-key")
 
         assert client.get_projects({}) == payload
-        assert mock_request.call_args[0][0] == f"{TODOIST_REST_BASE_URL}/projects"
+        assert mock_request.call_args[0][0] == f"{TODOIST_REST_BASE_URL}/projects?limit=50"
 
     @patch.object(TodoistApiClient, "_request")
     def test_search_filters_client_side(self, mock_request):

@@ -31,5 +31,8 @@
   "tests/agents/test_bulk_add.py::TestBulkAddResilience::test_batch_timeout_cancels_slow_requests": true,
   "tests/agents/test_jarvis.py::JarvisGraphTests::test_multiple_tool_calls_in_one_turn_execute_in_parallel": true,
   "tests/agents/test_jarvis.py::JarvisGraphTests::test_unsupported_tool_returns_error": true,
-  "tests/agents/test_bulk_add.py": true
+  "tests/agents/test_bulk_add.py": true,
+  "tests/agents/test_admission.py": true,
+  "tests/agents/test_api.py": true,
+  "tests/agents/test_calendar_parallel.py::test_async_calendar_methods_use_shared_bounded_offloader": true
 }

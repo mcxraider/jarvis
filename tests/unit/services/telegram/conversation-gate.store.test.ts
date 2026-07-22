@@ -387,6 +387,69 @@ describe('MemoryConversationGateStore', () => {
   });
 });
 
+describe('MemoryConversationGateStore — expiry seizure race', () => {
+  let store: MemoryConversationGateStore;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-07-20T00:00:00.000Z'));
+    store = new MemoryConversationGateStore();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('turn B seizes an expired gate from turn A', async () => {
+    await store.tryAcquire('key1', 1000, undefined, 'turn-a');
+    expect(await store.getActiveRequestId('key1')).toBe('turn-a');
+
+    jest.setSystemTime(new Date('2026-07-20T00:00:01.001Z'));
+
+    expect(await store.tryAcquire('key1', 60000, undefined, 'turn-b')).toBe(true);
+    expect(await store.getActiveRequestId('key1')).toBe('turn-b');
+  });
+
+  it('stale owner releaseIfActiveRequestId is rejected after seizure', async () => {
+    await store.tryAcquire('key1', 1000, undefined, 'turn-a');
+    jest.setSystemTime(new Date('2026-07-20T00:00:01.001Z'));
+    await store.tryAcquire('key1', 60000, undefined, 'turn-b');
+
+    const result = await store.releaseIfActiveRequestId('key1', 'turn-a');
+    expect(result).toEqual({ released: false });
+
+    expect(await store.getStatus('key1')).toBe('running');
+    expect(await store.getActiveRequestId('key1')).toBe('turn-b');
+  });
+
+  it('stale owner transitionToWaitingIfActiveRequestId is rejected after seizure', async () => {
+    await store.tryAcquire('key1', 1000, undefined, 'turn-a');
+    jest.setSystemTime(new Date('2026-07-20T00:00:01.001Z'));
+    await store.tryAcquire('key1', 60000, undefined, 'turn-b');
+
+    const transitioned = await store.transitionToWaitingIfActiveRequestId('key1', 'turn-a', 60000);
+    expect(transitioned).toBe(false);
+
+    expect(await store.getStatus('key1')).toBe('running');
+    expect(await store.getActiveRequestId('key1')).toBe('turn-b');
+  });
+
+  it('full race: A acquires, expires, B seizes, A release no-ops, B releases normally', async () => {
+    await store.tryAcquire('key1', 1000, undefined, 'turn-a');
+
+    jest.setSystemTime(new Date('2026-07-20T00:00:01.001Z'));
+    await jest.runOnlyPendingTimersAsync();
+
+    expect(await store.tryAcquire('key1', 60000, undefined, 'turn-b')).toBe(true);
+
+    expect(await store.releaseIfActiveRequestId('key1', 'turn-a')).toEqual({ released: false });
+
+    const result = await store.releaseIfActiveRequestId('key1', 'turn-b');
+    expect(result).toEqual({ released: true, bufferedMessage: undefined });
+    expect(await store.getStatus('key1')).toBe('idle');
+  });
+});
+
 describe('PostgresConversationGateStore expiry ownership', () => {
   afterEach(() => {
     jest.useRealTimers();
@@ -493,17 +556,43 @@ describe('PostgresConversationGateStore expiry ownership', () => {
     expect(onExpiry).not.toHaveBeenCalled();
   });
 
-  it('does not acquire by overwriting an expired non-idle Postgres generation', async () => {
+  it('tryAcquire SQL includes expiry fallback for self-healing after restart', async () => {
+    const store = new PostgresConversationGateStore('postgres://example.invalid/jarvis');
+    const query = jest.fn().mockResolvedValue({ rowCount: 1, rows: [{ gate_key: 'key1' }] });
+    (store as any).pool = { query };
+
+    await expect(store.tryAcquire('key1', 60000, 123, 'request-new')).resolves.toBe(true);
+
+    const sql: string = query.mock.calls[0][0];
+    expect(sql).toContain("status = 'idle'");
+    expect(sql).toContain('expires_at <= NOW()');
+  });
+
+  it('acquires over an expired running row (simulated via rowCount=1)', async () => {
+    const store = new PostgresConversationGateStore('postgres://example.invalid/jarvis');
+    const query = jest.fn().mockResolvedValue({ rowCount: 1, rows: [{ gate_key: 'key1' }] });
+    (store as any).pool = { query };
+
+    const acquired = await store.tryAcquire('key1', 60000, 456, 'request-after-restart');
+    expect(acquired).toBe(true);
+  });
+
+  it('blocks when DB returns no row (active non-expired gate)', async () => {
     const store = new PostgresConversationGateStore('postgres://example.invalid/jarvis');
     const query = jest.fn().mockResolvedValue({ rowCount: 0, rows: [] });
     (store as any).pool = { query };
 
-    await expect(store.tryAcquire('key1', 60000, 123, 'request-new')).resolves.toBe(false);
+    const acquired = await store.tryAcquire('key1', 60000, 456, 'request-blocked');
+    expect(acquired).toBe(false);
+  });
+});
 
-    expect(query).toHaveBeenCalledWith(
-      expect.stringContaining("WHERE public.telegram_conversation_gates.status = 'idle'"),
-      ['key1', 60000, 'request-new'],
-    );
-    expect(query.mock.calls[0][0]).not.toContain('expires_at <= NOW()');
+describe('PostgresConversationGateStore pool config', () => {
+  it('creates pool with bounded size and connection timeout', () => {
+    const store = new PostgresConversationGateStore('postgres://example.invalid/jarvis');
+    const pool = (store as any).pool;
+    expect(pool.options.max).toBe(5);
+    expect(pool.options.connectionTimeoutMillis).toBe(5_000);
+    expect(pool.options.idleTimeoutMillis).toBe(30_000);
   });
 });

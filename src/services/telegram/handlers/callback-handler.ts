@@ -8,7 +8,7 @@ import { PendingClarificationRecord, PendingClarificationStore } from '../pendin
 import { ConversationGateStore } from '../conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
-import { createTerminalReplyStore, TerminalReplyStore } from '../terminal-reply.store';
+import { TerminalReplyStore } from '../terminal-reply.store';
 
 const CONFIRM_PREFIX = 'confirm:';
 const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
@@ -22,7 +22,7 @@ export class CallbackHandler {
     private readonly agentClient: LangGraphAgentClient,
     private readonly pendingStore: PendingClarificationStore,
     private readonly conversationGate: ConversationGateStore,
-    private readonly terminalReplyStore: TerminalReplyStore = createTerminalReplyStore(),
+    private readonly terminalReplyStore: TerminalReplyStore,
   ) {
     const runningTtl = Number(process.env.TELEGRAM_GATE_RUNNING_TTL_MS);
     this.runningTtlMs = Number.isFinite(runningTtl) && runningTtl > 0 ? runningTtl : DEFAULT_RUNNING_TTL_MS;
@@ -120,19 +120,6 @@ export class CallbackHandler {
       const statusEmoji = decision === 'approve' ? '✅' : '❌';
       const statusText = decision === 'approve' ? 'Approved' : 'Declined';
 
-      // Strip the inline keyboard from the original confirm message so it can't be
-      // re-tapped, while leaving its text unchanged.
-      if (ctx.callbackQuery?.message) {
-        try {
-          await ctx.editMessageReplyMarkup(undefined);
-        } catch (markupError) {
-          logger.warn('telegram.callback.editMarkup.failed', {
-            requestId,
-            error: (markupError as Error).message,
-          });
-        }
-      }
-
       // Deliver the decision as its own new message instead of editing the confirm message.
       await sendFinalReply(ctx, `${statusEmoji} ${statusText}`, logContext);
 
@@ -163,6 +150,18 @@ export class CallbackHandler {
           await progress.record(event, signal);
         },
       );
+
+      // Strip the inline keyboard now that the resume succeeded — prevents re-tapping.
+      if (ctx.callbackQuery?.message) {
+        try {
+          await ctx.editMessageReplyMarkup(undefined);
+        } catch (markupError) {
+          logger.warn('telegram.callback.editMarkup.failed', {
+            requestId,
+            error: (markupError as Error).message,
+          });
+        }
+      }
 
       if (agentResponse.delivery === 'ambiguous') {
         // The decision may still be executing remotely. Preserve this running

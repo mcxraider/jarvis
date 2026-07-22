@@ -110,6 +110,9 @@ def test_prompt_includes_both_domains_when_both_active():
     assert prompt.count("ANY delete (even a single delete)") == 1
     assert "`delete_calendar_event`) is system-gated" not in prompt
     assert "Calendar creates and updates count toward the shared 5+ mutations-per-turn bulk gate" in prompt
+    assert "does not make them an attendee" in prompt
+    assert "unless the user explicitly asks to invite or add someone as an attendee" in prompt
+    assert "If the user gives a name without an email" not in prompt
 
 
 def test_prompt_has_no_router_section():

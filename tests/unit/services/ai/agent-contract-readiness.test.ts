@@ -15,7 +15,7 @@ const validHealth = {
 
 const validTimeouts = {
   clientOverallMs: 165_000,
-  clientIdleMs: 120_000,
+  clientIdleMs: 155_000,
   telegrafHandlerTimeoutMs: 195_000,
 };
 
@@ -38,7 +38,8 @@ describe('verifyAgentContract', () => {
   });
 
   it.each([
-    ['complex timeout equals idle timeout', validTimeouts, { model_router_complex_timeout_seconds: 120 }],
+    ['complex timeout equals idle timeout', validTimeouts, { model_router_complex_timeout_seconds: 155 }],
+    ['run deadline equals client idle', { ...validTimeouts, clientIdleMs: 150_000 }, {}],
     ['run deadline equals client overall', validTimeouts, { run_deadline_seconds: 165 }],
     [
       'client overall exceeds Telegraf watchdog',

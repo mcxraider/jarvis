@@ -40,7 +40,20 @@ def create_default_checkpointer(*, run_setup: Optional[bool] = None) -> Any:
 # Schema setup has one owner. The process default is constructed without DDL;
 # FastAPI awaits async setup during lifespan, while direct sync/CLI runs call the
 # guarded sync setup helper below.
-DEFAULT_CHECKPOINTER = create_default_checkpointer(run_setup=False)
+_DEFAULT_CHECKPOINTER: Any = None
+_DEFAULT_CHECKPOINTER_LOCK = threading.Lock()
+
+
+def get_default_checkpointer() -> Any:
+    """Lazy singleton — created on first call so import-time DB outages don't crash."""
+    global _DEFAULT_CHECKPOINTER
+    if _DEFAULT_CHECKPOINTER is None:
+        with _DEFAULT_CHECKPOINTER_LOCK:
+            if _DEFAULT_CHECKPOINTER is None:
+                _DEFAULT_CHECKPOINTER = create_default_checkpointer(run_setup=False)
+    return _DEFAULT_CHECKPOINTER
+
+
 _CHECKPOINT_SETUP_COMPLETE = not (
     settings.checkpoint_backend == "postgres" and settings.run_checkpoint_setup
 )
@@ -181,7 +194,7 @@ async def initialize_async_checkpointer(async_pool: Any = None) -> Any:
 
     try:
         if settings.checkpoint_backend == "memory":
-            checkpointer = DEFAULT_CHECKPOINTER
+            checkpointer = get_default_checkpointer()
         elif settings.checkpoint_backend == "postgres":
             checkpointer = create_async_postgres_checkpointer(async_pool)
             if settings.run_checkpoint_setup and not _CHECKPOINT_SETUP_COMPLETE:
@@ -240,7 +253,7 @@ def ensure_default_checkpointer_setup() -> None:
         return
     with _CHECKPOINT_SETUP_LOCK:
         if not _CHECKPOINT_SETUP_COMPLETE:
-            DEFAULT_CHECKPOINTER.setup()
+            get_default_checkpointer().setup()
             _CHECKPOINT_SETUP_COMPLETE = True
 
 
@@ -263,7 +276,7 @@ __all__ = [
     "create_default_checkpointer",
     "create_postgres_checkpointer",
     "create_redis_checkpointer",
-    "DEFAULT_CHECKPOINTER",
+    "get_default_checkpointer",
     "as_async_checkpointer",
     "ensure_default_checkpointer_setup",
     "get_async_checkpointer",

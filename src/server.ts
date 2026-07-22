@@ -119,7 +119,6 @@ function shutdown(signal: string) {
     botService.stop().finally(async () => {
       logger.info('server.shutdown.completed', { signal });
       try {
-        await flushLogger();
         await shutdownLogger();
       } catch (error) {
         process.stderr.write(`logger.shutdown.failed ${String(error)}\n`);
@@ -146,12 +145,15 @@ process.on('unhandledRejection', (reason) => {
   });
 });
 
-// There is no process supervisor in the development setup: nodemon waits for a file change after a
-// crash. Log synchronous failures and keep serving; revisit the recovery policy if supervision is
-// added, since an uncaught exception can leave arbitrary application state inconsistent.
 process.on('uncaughtException', (error) => {
   logger.error('process.uncaught_exception', {
     error: error.message,
     stack: error.stack,
   });
+  const flush = flushLogger().catch(() => {});
+  const timeout = new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, 3000);
+    t.unref();
+  });
+  Promise.race([flush, timeout]).finally(() => process.exit(1));
 });

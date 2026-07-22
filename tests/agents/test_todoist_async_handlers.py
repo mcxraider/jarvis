@@ -63,7 +63,7 @@ EXPLICIT_COMPLETION_RANGE = {
         ),
         (
             "get_comments",
-            {"task_id": "task-1", "limit": 25, "comment_id": None},
+            {"task_id": "task-1", "limit": 10, "comment_id": None},
             {"results": [{"id": "comment-1"}]},
         ),
         (
@@ -150,6 +150,8 @@ def test_registered_async_handler_matches_sync_request_and_result(
             },
             "later than since",
         ),
+        ("get_tasks", {"limit": 0}, "between 1 and 200"),
+        ("get_comments", {"task_id": "task-1", "limit": 11}, "between 1 and 10"),
     ],
 )
 def test_async_handler_preserves_sync_validation(operation, arguments, message):

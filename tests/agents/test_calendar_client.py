@@ -28,15 +28,19 @@ class TestReadMethods:
     def test_list_calendars(self):
         service = MagicMock()
         service.calendarList().list().execute.return_value = {
-            "items": [{"id": "primary", "summary": "Jerry", "primary": True, "timeZone": "Asia/Taipei"}]
+            "items": [{"id": "primary", "summary": "Jerry", "primary": True, "timeZone": "Asia/Taipei"}],
+            "nextPageToken": "next-calendars",
         }
-        out = _client(service).list_calendars({})
+        out = _client(service).list_calendars({"page_token": "current-calendars"})
         assert out["calendars"][0] == {
             "calendar_id": "primary",
             "summary": "Jerry",
             "primary": True,
             "time_zone": "Asia/Taipei",
         }
+        _, kwargs = service.calendarList().list.call_args
+        assert kwargs == {"maxResults": 50, "pageToken": "current-calendars"}
+        assert out["next_page_token"] == "next-calendars"
 
     def test_list_events_defaults_and_normalizes(self):
         service = MagicMock()
@@ -63,6 +67,7 @@ class TestReadMethods:
         assert kwargs["calendarId"] == "primary"
         assert kwargs["singleEvents"] is True
         assert kwargs["orderBy"] == "startTime"
+        assert kwargs["maxResults"] == 50
         # Normalized shape — verbose Google fields stripped.
         event = out["events"][0]
         assert event == {
@@ -96,8 +101,34 @@ class TestReadMethods:
         assert kwargs["singleEvents"] is True
         assert kwargs["orderBy"] == "startTime"
         assert kwargs["calendarId"] == "primary"
-        assert "maxResults" not in kwargs
+        assert kwargs["maxResults"] == 50
         assert "q" not in kwargs
+
+    def test_list_events_preserves_explicit_limit_and_page_token(self):
+        service = MagicMock()
+        service.events().list().execute.return_value = {"items": []}
+
+        _client(service).list_calendar_events(
+            {
+                "time_min": "2026-07-02T00:00:00+08:00",
+                "time_max": "2026-07-03T00:00:00+08:00",
+                "max_results": 125,
+                "page_token": "opaque-events",
+            }
+        )
+
+        _, kwargs = service.events().list.call_args
+        assert kwargs["maxResults"] == 125
+        assert kwargs["pageToken"] == "opaque-events"
+
+    @pytest.mark.parametrize("max_results", [0, 251, True, "50"])
+    def test_invalid_collection_limit_fails_before_api_call(self, max_results):
+        service = MagicMock()
+
+        with pytest.raises(ValueError, match="max_results"):
+            _client(service).list_calendars({"max_results": max_results})
+
+        service.calendarList().list.assert_not_called()
 
     def test_list_events_without_single_events_omits_orderby(self):
         service = MagicMock()
@@ -299,3 +330,140 @@ class TestThreadSafety:
 
         assert state["max_concurrent"] > 1
         assert all(result["events"] == [] for result in results)
+
+
+class TestAsyncNativeHTTPX:
+    """Verify async methods use httpx directly (no thread pool)."""
+
+    def test_async_list_events_uses_httpx(self, monkeypatch):
+        import asyncio
+        import httpx as _httpx
+
+        raw_event = {
+            "id": "evt-async",
+            "summary": "Async test",
+            "start": {"dateTime": "2026-07-02T09:00:00+08:00"},
+            "end": {"dateTime": "2026-07-02T10:00:00+08:00"},
+            "status": "confirmed",
+        }
+        mock_response = _httpx.Response(
+            200,
+            json={"items": [raw_event], "nextPageToken": None},
+            request=_httpx.Request("GET", "https://example.com"),
+        )
+
+        class FakeAsyncClient:
+            async def get(self, url, **kwargs):
+                return mock_response
+
+        class FakeCreds:
+            token = "fake-token"
+            valid = True
+            expired = False
+            refresh_token = "rt"
+            client_id = "cid"
+            client_secret = "cs"
+
+        import agents.agent_api.app.tools.google_calendar.client as cal_mod
+        monkeypatch.setattr(cal_mod, "_get_calendar_async_http_client", lambda: FakeAsyncClient())
+
+        from agents.agent_api.app.tools.google_calendar.client import (
+            GoogleCalendarClient,
+            _AsyncTokenManager,
+            _CredentialCoordinator,
+        )
+
+        creds = FakeCreds()
+        client = GoogleCalendarClient(service=MagicMock(), credentials=creds)
+        client._async_token_manager = _AsyncTokenManager(_CredentialCoordinator(creds))
+
+        result = asyncio.run(client.async_list_calendar_events({
+            "time_min": "2026-07-02T00:00:00+08:00",
+            "time_max": "2026-07-03T00:00:00+08:00",
+        }))
+
+        assert result["events"][0]["event_id"] == "evt-async"
+        assert result["events"][0]["summary"] == "Async test"
+
+    def test_async_error_classification(self, monkeypatch):
+        import asyncio
+        import httpx as _httpx
+
+        class FakeAsyncClient:
+            async def get(self, url, **kwargs):
+                return _httpx.Response(
+                    404,
+                    json={"error": {"message": "not found"}},
+                    request=_httpx.Request("GET", url),
+                )
+
+        class FakeCreds:
+            token = "fake-token"
+            valid = True
+            expired = False
+            refresh_token = "rt"
+            client_id = "cid"
+            client_secret = "cs"
+
+        import agents.agent_api.app.tools.google_calendar.client as cal_mod
+        monkeypatch.setattr(cal_mod, "_get_calendar_async_http_client", lambda: FakeAsyncClient())
+
+        from agents.agent_api.app.tools.google_calendar.client import (
+            GoogleCalendarClient,
+            _AsyncTokenManager,
+            _CredentialCoordinator,
+        )
+
+        creds = FakeCreds()
+        client = GoogleCalendarClient(service=MagicMock(), credentials=creds)
+        client._async_token_manager = _AsyncTokenManager(_CredentialCoordinator(creds))
+
+        with pytest.raises(GoogleCalendarApiError) as excinfo:
+            asyncio.run(client.async_get_calendar_event({"event_id": "missing"}))
+        assert excinfo.value.kind == "not-found"
+        assert excinfo.value.retryable is False
+
+
+class TestAsyncInfraLifecycle:
+    """Verify _ensure_async_infra race safety and close_calendar_async_http_client."""
+
+    def test_concurrent_ensure_creates_one_token_manager(self):
+        import asyncio
+
+        class FakeCreds:
+            token = "t"
+            valid = True
+            expired = False
+            refresh_token = "rt"
+            client_id = "cid"
+            client_secret = "cs"
+
+        from agents.agent_api.app.tools.google_calendar.client import (
+            GoogleCalendarClient,
+            _AsyncTokenManager,
+        )
+
+        client = GoogleCalendarClient(service=MagicMock(), credentials=FakeCreds())
+
+        async def race():
+            results = await asyncio.gather(*[client._ensure_async_infra() for _ in range(10)])
+            return results
+
+        managers = asyncio.run(race())
+        assert all(m is managers[0] for m in managers)
+
+    def test_close_calendar_async_http_client(self, monkeypatch):
+        import asyncio
+        import agents.agent_api.app.tools.google_calendar.client as cal_mod
+
+        monkeypatch.setattr(cal_mod, "_shared_async_http_client", None)
+        monkeypatch.setattr(cal_mod, "_shared_async_http_client_loop", None)
+
+        async def run():
+            client = cal_mod._get_calendar_async_http_client()
+            assert client is not None
+            assert cal_mod._shared_async_http_client is client
+            await cal_mod.close_calendar_async_http_client()
+            assert cal_mod._shared_async_http_client is None
+
+        asyncio.run(run())

@@ -260,8 +260,8 @@ def load_settings() -> Settings:
         user_timezone=os.getenv("JARVIS_USER_TIMEZONE", "Asia/Singapore"),
         debug_trace=_bool_env("JARVIS_DEBUG", True),
         debug_payloads=_bool_env("JARVIS_DEBUG_PAYLOADS", True),
-        # Raw prompts/outputs are hidden from LangSmith by default. Set
-        # JARVIS_TRACE_PAYLOADS=1 to temporarily capture full payloads for debugging.
+        # Raw prompts/outputs are captured in LangSmith by default. Set
+        # JARVIS_TRACE_PAYLOADS=0 for deployments that must hide full payloads.
         langsmith_hide_payloads=not _bool_env("JARVIS_TRACE_PAYLOADS", True),
         postgres_dsn=postgres_dsn,
         redis_url=os.getenv("JARVIS_REDIS_URL") or os.getenv("REDIS_URL"),
@@ -312,9 +312,9 @@ def load_settings() -> Settings:
 def apply_langsmith_env_defaults(active_settings: Settings) -> None:
     """Set LangSmith payload-privacy env vars before any tracer initializes.
 
-    By default raw inputs (prompts, tool args) and outputs (completions, reasoning
-    content) are hidden from LangSmith while safe metadata/tags are retained.
-    When JARVIS_TRACE_PAYLOADS opts in, payload capture is enabled explicitly.
+    Raw inputs (prompts, tool args) and outputs (completions, reasoning content)
+    are captured by default. JARVIS_TRACE_PAYLOADS=0 enables privacy-preserving
+    tracing that retains safe metadata and tags while hiding full payloads.
     """
 
     if active_settings.langsmith_hide_payloads:

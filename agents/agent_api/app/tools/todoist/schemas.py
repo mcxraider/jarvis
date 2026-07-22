@@ -238,7 +238,13 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
                     "Omit or pass null for the first page. NEVER fabricate a cursor value."
                 ),
             },
-            "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200,
+                "default": 50,
+                "description": "Maximum tasks in this page. Defaults to 50.",
+            },
         },
         "required": [],
         "additionalProperties": False,
@@ -275,7 +281,13 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
                     "Omit or pass null for the first page. NEVER fabricate a cursor value."
                 ),
             },
-            "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200,
+                "default": 50,
+                "description": "Maximum tasks in this page. Defaults to 50.",
+            },
         },
         "required": ["query"],
         "additionalProperties": False,
@@ -323,7 +335,13 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
                     "Omit or pass null for the first page. NEVER fabricate a cursor value."
                 ),
             },
-            "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200,
+                "default": 50,
+                "description": "Maximum completed tasks in this page. Defaults to 50.",
+            },
         },
         "required": [],
         "additionalProperties": False,
@@ -351,7 +369,13 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
                     "Omit or pass null for the first page. NEVER fabricate a cursor value."
                 ),
             },
-            "limit": {"type": "integer", "minimum": 1, "maximum": 10},
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10,
+                "default": 10,
+                "description": "Maximum comments in this page. Defaults to 10.",
+            },
         },
         "required": [],
         "additionalProperties": False,
@@ -397,7 +421,13 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
                     "Omit or pass null for the first page. NEVER fabricate a cursor value."
                 ),
             },
-            "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200,
+                "default": 50,
+                "description": "Maximum labels in this page. Defaults to 50.",
+            },
         },
         "required": [],
         "additionalProperties": False,
@@ -420,7 +450,13 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
                     "Omit or pass null for the first page. NEVER fabricate a cursor value."
                 ),
             },
-            "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200,
+                "default": 50,
+                "description": "Maximum projects in this page. Defaults to 50.",
+            },
         },
         "required": [],
         "additionalProperties": False,

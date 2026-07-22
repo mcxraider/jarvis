@@ -11,6 +11,26 @@ import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 
 const DEFAULT_CANCEL_CLAIM_TTL_MS = 5 * 60 * 1000;
 
+interface CancelState {
+  gateKey: string;
+  internalUserId: string;
+  userId: number | undefined;
+  chatId: number | undefined;
+  gateSnapshot: { status: string; requestId?: string };
+  cancelClaimTtlMs: number;
+  cancelClaimRequestId: string | undefined;
+  cancelClaimed: boolean;
+  pending: any;
+  pendingReadFailed: boolean;
+  pendingClaimedExpired: boolean;
+  cancelOutcome: LangGraphCancelOutcome | undefined;
+  cancellationError: unknown;
+  retainRunningGate: boolean;
+  ownershipChanged: boolean;
+  safeToClearPending: boolean;
+  pendingCleared: boolean;
+}
+
 export class CommandHandlers {
   constructor(
     private readonly activityService: BotActivityService,
@@ -76,114 +96,158 @@ export class CommandHandlers {
     this.activityService.recordActivity('command_cancel');
 
     const gateSnapshot = await this.conversationGate.getSnapshot(gateKey);
-    const status = gateSnapshot.status;
-
     const configuredClaimTtlMs = Number(process.env.TELEGRAM_GATE_RUNNING_TTL_MS);
     const cancelClaimTtlMs = Number.isFinite(configuredClaimTtlMs) && configuredClaimTtlMs > 0
       ? configuredClaimTtlMs
       : DEFAULT_CANCEL_CLAIM_TTL_MS;
+    const status = gateSnapshot.status;
     const cancelClaimRequestId = status === 'idle' || status === 'waiting_for_clarification'
       ? createRequestId('cancel')
       : undefined;
 
-    // Own the exact observed generation before inspecting HITL state. In particular,
-    // a waiting generation must be CAS-transitioned before any pending read so a
-    // concurrent resume cannot start between that read and cleanup.
-    let cancelClaimed = false;
+    const s: CancelState = {
+      gateKey,
+      internalUserId,
+      userId,
+      chatId,
+      gateSnapshot,
+      cancelClaimTtlMs,
+      cancelClaimRequestId,
+      cancelClaimed: false,
+      pending: undefined,
+      pendingReadFailed: false,
+      pendingClaimedExpired: false,
+      cancelOutcome: undefined,
+      cancellationError: undefined,
+      retainRunningGate: false,
+      ownershipChanged: false,
+      safeToClearPending: false,
+      pendingCleared: false,
+    };
+
+    await this.cancelClaimGate(s);
+    await this.cancelFetchPending(s);
+    await this.cancelRequestBackend(s);
+    this.cancelResolveFlags(s);
+    await this.cancelHandleGenerationMismatch(s);
+    await this.cancelReleaseRunningGate(s);
+    await this.cancelClearPending(s);
+    await this.cancelReleaseClaimedGate(s);
+    await this.cancelCollapseUI(ctx, s);
+
+    logger.info('conversation_gate.manual_cancel', {
+      userId,
+      chatId,
+      gateKey,
+      previousStatus: status,
+      cancelOutcome: s.cancelOutcome,
+      gateRetained: s.retainRunningGate,
+      ownershipChanged: s.ownershipChanged,
+    });
+
+    const response = s.cancelOutcome === 'mutation_in_flight'
+      ? "A confirmed change is already being applied, so I can't safely cancel it. I'll keep this conversation locked until it finishes."
+      : s.retainRunningGate
+        ? s.ownershipChanged
+          ? 'The previous request already settled and another request is active, so I left the current conversation untouched.'
+          : "I couldn't confirm cancellation yet. I'm keeping this conversation locked until the current request finishes."
+        : "Conversation cancelled. Let me know what you'd like to do next!";
+    await sendFinalReply(ctx, response, { userId, chatId, gateKey });
+  }
+
+  // --- Cancel sub-steps ---
+
+  private async cancelClaimGate(s: CancelState): Promise<void> {
+    const { gateKey, cancelClaimTtlMs, cancelClaimRequestId, gateSnapshot, chatId } = s;
+    const status = gateSnapshot.status;
     if (status === 'idle' && cancelClaimRequestId) {
-      cancelClaimed = await this.conversationGate
+      s.cancelClaimed = await this.conversationGate
         .tryAcquire(gateKey, cancelClaimTtlMs, chatId, cancelClaimRequestId)
         .catch(() => false);
     } else if (status === 'waiting_for_clarification' && cancelClaimRequestId) {
-      cancelClaimed = await this.conversationGate.transitionToRunning(
+      s.cancelClaimed = await this.conversationGate.transitionToRunning(
         gateKey,
         cancelClaimTtlMs,
         cancelClaimRequestId,
         gateSnapshot.requestId,
       ).catch(() => false);
     }
+  }
 
-    // Fetch the active pending row before any safe release so its UI can be collapsed.
-    // A running gate is released only after the backend confirms that no mutation is
-    // in flight; otherwise another request could race an already-dispatched write.
-    let pending: Awaited<ReturnType<PendingClarificationStore['get']>>;
-    let pendingReadFailed = false;
-    if (status === 'running' || cancelClaimed) {
+  private async cancelFetchPending(s: CancelState): Promise<void> {
+    const { gateKey, gateSnapshot, userId, chatId } = s;
+    const status = gateSnapshot.status;
+    if (status === 'running' || s.cancelClaimed) {
       try {
-        pending = await this.pendingStore.get(gateKey);
+        s.pending = await this.pendingStore.get(gateKey);
       } catch (error) {
-        pendingReadFailed = true;
+        s.pendingReadFailed = true;
         logger.warn('telegram.cancel.pending_read_failed', {
-          userId,
-          chatId,
-          gateKey,
+          userId, chatId, gateKey,
           error: error instanceof Error ? error.message : String(error),
         });
       }
     }
-    let pendingClaimedExpired = false;
-
-    // Normal reads hide expired rows. A failed query is not equivalent to a missing
-    // row: a transient failure restores the waiting generation below and never
-    // deletes its resumable state.
-    if (!pending && !pendingReadFailed && cancelClaimed) {
+    if (!s.pending && !s.pendingReadFailed && s.cancelClaimed) {
       try {
-        pending = await this.pendingStore.expireIfMatches(
+        s.pending = await this.pendingStore.expireIfMatches(
           gateKey,
-          gateSnapshot.requestId === undefined
-            ? undefined
-            : { requestId: gateSnapshot.requestId },
+          gateSnapshot.requestId === undefined ? undefined : { requestId: gateSnapshot.requestId },
         );
-        pendingClaimedExpired = pending !== undefined;
+        s.pendingClaimedExpired = s.pending !== undefined;
       } catch (error) {
-        pendingReadFailed = true;
+        s.pendingReadFailed = true;
         logger.warn('telegram.cancel.pending_expiry_claim_failed', {
-          userId,
-          chatId,
-          gateKey,
+          userId, chatId, gateKey,
           error: error instanceof Error ? error.message : String(error),
         });
       }
     }
-    let cancelOutcome: LangGraphCancelOutcome | undefined;
-    let cancellationError: unknown;
+  }
+
+  private async cancelRequestBackend(s: CancelState): Promise<void> {
+    const { gateKey, gateSnapshot, internalUserId, userId, chatId } = s;
+    if (gateSnapshot.status !== 'running') return;
     const activeRequestId = gateSnapshot.requestId;
-
-    if (status === 'running') {
-      try {
-        if (!activeRequestId || !this.agentClient) {
-          throw new Error('No cancellable backend request is registered for this gate.');
-        }
-        cancelOutcome = await this.agentClient.cancelRun(internalUserId, activeRequestId);
-      } catch (error) {
-        cancellationError = error;
-        logger.warn('telegram.cancel.agent_cancel_failed', {
-          userId,
-          chatId,
-          gateKey,
-          error: error instanceof Error ? error.message : String(error),
-        });
+    try {
+      if (!activeRequestId || !this.agentClient) {
+        throw new Error('No cancellable backend request is registered for this gate.');
       }
+      s.cancelOutcome = await this.agentClient.cancelRun(internalUserId, activeRequestId);
+    } catch (error) {
+      s.cancellationError = error;
+      logger.warn('telegram.cancel.agent_cancel_failed', {
+        userId, chatId, gateKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
+  }
 
-    let retainRunningGate = ((status === 'idle' || status === 'waiting_for_clarification')
-      && !cancelClaimed)
+  private cancelResolveFlags(s: CancelState): void {
+    const status = s.gateSnapshot.status;
+    s.retainRunningGate = ((status === 'idle' || status === 'waiting_for_clarification')
+      && !s.cancelClaimed)
       || (status === 'running'
         && (
-          cancellationError !== undefined
-          || cancelOutcome === 'mutation_in_flight'
-          || cancelOutcome === 'not_found'
-          || cancelOutcome === 'already_finished'
+          s.cancellationError !== undefined
+          || s.cancelOutcome === 'mutation_in_flight'
+          || s.cancelOutcome === 'not_found'
+          || s.cancelOutcome === 'already_finished'
         ));
-    let ownershipChanged = (status === 'idle' || status === 'waiting_for_clarification')
-      && !cancelClaimed;
-    let safeToClearPending = cancelClaimed && !pendingReadFailed;
-    const pendingMatchesObservedGeneration = pending === undefined
-      || (status === 'idle' && gateSnapshot.requestId === undefined)
-      || pending.requestId === gateSnapshot.requestId;
+    s.ownershipChanged = (status === 'idle' || status === 'waiting_for_clarification')
+      && !s.cancelClaimed;
+    s.safeToClearPending = s.cancelClaimed && !s.pendingReadFailed;
+  }
 
-    if (status === 'waiting_for_clarification' && cancelClaimed
-      && (pendingReadFailed || !pendingMatchesObservedGeneration)) {
+  private async cancelHandleGenerationMismatch(s: CancelState): Promise<void> {
+    const { gateKey, gateSnapshot, cancelClaimRequestId, cancelClaimTtlMs } = s;
+    const status = gateSnapshot.status;
+    const pendingMatchesObservedGeneration = s.pending === undefined
+      || (status === 'idle' && gateSnapshot.requestId === undefined)
+      || s.pending.requestId === gateSnapshot.requestId;
+
+    if (status === 'waiting_for_clarification' && s.cancelClaimed
+      && (s.pendingReadFailed || !pendingMatchesObservedGeneration)) {
       const restored = cancelClaimRequestId !== undefined
         ? await this.conversationGate.transitionToWaitingIfActiveRequestId(
             gateKey,
@@ -192,137 +256,113 @@ export class CommandHandlers {
             gateSnapshot.requestId ?? null,
           ).catch(() => false)
         : false;
-      cancelClaimed = false;
-      safeToClearPending = false;
-      retainRunningGate = true;
-      ownershipChanged = !restored;
-    } else if (status === 'idle' && cancelClaimed
-      && (pendingReadFailed || !pendingMatchesObservedGeneration)) {
-      safeToClearPending = false;
-      retainRunningGate = pendingReadFailed;
+      s.cancelClaimed = false;
+      s.safeToClearPending = false;
+      s.retainRunningGate = true;
+      s.ownershipChanged = !restored;
+    } else if (status === 'idle' && s.cancelClaimed
+      && (s.pendingReadFailed || !pendingMatchesObservedGeneration)) {
+      s.safeToClearPending = false;
+      s.retainRunningGate = s.pendingReadFailed;
     }
+  }
 
-    if (status === 'running' && !retainRunningGate && activeRequestId) {
-      const release = await this.conversationGate
-        .releaseIfActiveRequestId(gateKey, activeRequestId)
-        .catch((error) => {
-          logger.warn('telegram.cancel.gate_release_failed', {
-            userId,
-            chatId,
-            gateKey,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          return { released: false };
+  private async cancelReleaseRunningGate(s: CancelState): Promise<void> {
+    const { gateKey, gateSnapshot, userId, chatId } = s;
+    const activeRequestId = gateSnapshot.requestId;
+    if (gateSnapshot.status !== 'running' || s.retainRunningGate || !activeRequestId) return;
+
+    const release = await this.conversationGate
+      .releaseIfActiveRequestId(gateKey, activeRequestId)
+      .catch((error) => {
+        logger.warn('telegram.cancel.gate_release_failed', {
+          userId, chatId, gateKey,
+          error: error instanceof Error ? error.message : String(error),
         });
-      if (!release.released) {
-        const currentSnapshot = await this.conversationGate
-          .getSnapshot(gateKey)
-          .catch(() => ({ status: 'running' as const }));
-        if (currentSnapshot.status === 'idle') {
-          // The owner settled and released itself while the cancel request was in flight.
-          safeToClearPending = true;
-          retainRunningGate = false;
-        } else {
-          ownershipChanged = true;
-          retainRunningGate = true;
-        }
+        return { released: false };
+      });
+    if (!release.released) {
+      const currentSnapshot = await this.conversationGate
+        .getSnapshot(gateKey)
+        .catch(() => ({ status: 'running' as const }));
+      if (currentSnapshot.status === 'idle') {
+        s.safeToClearPending = true;
+        s.retainRunningGate = false;
       } else {
-        safeToClearPending = true;
+        s.ownershipChanged = true;
+        s.retainRunningGate = true;
       }
+    } else {
+      s.safeToClearPending = true;
     }
+  }
 
-    let pendingCleared = pendingClaimedExpired;
-    if (safeToClearPending && pending && !pendingClaimedExpired) {
-      pendingCleared = await this.pendingStore.clearIfMatches(gateKey, pending, 'failed').catch(() => false);
-      if (!pendingCleared) {
-        safeToClearPending = false;
-        retainRunningGate = true;
-        if (status === 'waiting_for_clarification' && cancelClaimed && cancelClaimRequestId) {
+  private async cancelClearPending(s: CancelState): Promise<void> {
+    const { gateKey, gateSnapshot, cancelClaimRequestId, cancelClaimTtlMs } = s;
+    s.pendingCleared = s.pendingClaimedExpired;
+    if (s.safeToClearPending && s.pending && !s.pendingClaimedExpired) {
+      s.pendingCleared = await this.pendingStore.clearIfMatches(gateKey, s.pending, 'failed').catch(() => false);
+      if (!s.pendingCleared) {
+        s.safeToClearPending = false;
+        s.retainRunningGate = true;
+        if (gateSnapshot.status === 'waiting_for_clarification' && s.cancelClaimed && cancelClaimRequestId) {
           const restored = await this.conversationGate.transitionToWaitingIfActiveRequestId(
             gateKey,
             cancelClaimRequestId,
             cancelClaimTtlMs,
             gateSnapshot.requestId ?? null,
           ).catch(() => false);
-          cancelClaimed = false;
-          ownershipChanged = !restored;
+          s.cancelClaimed = false;
+          s.ownershipChanged = !restored;
         }
       }
     }
+  }
 
-    if (cancelClaimed && cancelClaimRequestId && safeToClearPending) {
+  private async cancelReleaseClaimedGate(s: CancelState): Promise<void> {
+    const { gateKey, gateSnapshot, cancelClaimRequestId } = s;
+    const status = gateSnapshot.status;
+    if (s.cancelClaimed && cancelClaimRequestId && s.safeToClearPending) {
       const release = await this.conversationGate
         .releaseIfActiveRequestId(gateKey, cancelClaimRequestId)
         .catch(() => ({ released: false }));
       if (!release.released) {
-        ownershipChanged = true;
-        retainRunningGate = true;
+        s.ownershipChanged = true;
+        s.retainRunningGate = true;
       } else {
-        retainRunningGate = false;
+        s.retainRunningGate = false;
       }
-    } else if (status === 'idle' && cancelClaimed && cancelClaimRequestId) {
-      // Never leak the temporary idle cleanup claim after a failed state read.
+    } else if (status === 'idle' && s.cancelClaimed && cancelClaimRequestId) {
       await this.conversationGate
         .releaseIfActiveRequestId(gateKey, cancelClaimRequestId)
         .catch(() => ({ released: false }));
     }
+  }
 
-    if (pendingCleared && pending && chatId !== undefined) {
-      try {
-        if (
-          pending.interruptType === 'clarify'
-          && pending.clarificationMessageId !== undefined
-          && pending.clarificationMessageId === pending.promptMessageId
-        ) {
-          await collapseClarification(
-            ctx.telegram,
-            chatId,
-            pending.clarificationMessageId,
-            pending.question,
-          );
-        } else if (pending.promptMessageId !== undefined) {
-          await ctx.telegram.deleteMessage(chatId, pending.promptMessageId);
-        } else if (pending.clarificationMessageId !== undefined) {
-          await collapseClarification(
-            ctx.telegram,
-            chatId,
-            pending.clarificationMessageId,
-            pending.question,
-          );
-        }
-      } catch (error) {
-        logger.warn('telegram.cancel.clarification_collapse_failed', {
-          userId,
-          chatId,
-          clarificationMessageId: pending.clarificationMessageId,
-          promptMessageId: pending.promptMessageId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+  private async cancelCollapseUI(ctx: Context, s: CancelState): Promise<void> {
+    const { pending, pendingCleared, chatId, userId } = s;
+    if (!pendingCleared || !pending || chatId === undefined) return;
+    try {
+      if (
+        pending.interruptType === 'clarify'
+        && pending.clarificationMessageId !== undefined
+        && pending.clarificationMessageId === pending.promptMessageId
+      ) {
+        await collapseClarification(ctx.telegram, chatId, pending.clarificationMessageId, pending.question);
+      } else if (pending.promptMessageId !== undefined) {
+        await ctx.telegram.deleteMessage(chatId, pending.promptMessageId);
+      } else if (pending.clarificationMessageId !== undefined) {
+        await collapseClarification(ctx.telegram, chatId, pending.clarificationMessageId, pending.question);
       }
+    } catch (error) {
+      logger.warn('telegram.cancel.clarification_collapse_failed', {
+        userId,
+        chatId,
+        clarificationMessageId: pending.clarificationMessageId,
+        promptMessageId: pending.promptMessageId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
-
-    logger.info('conversation_gate.manual_cancel', {
-      userId,
-      chatId,
-      gateKey,
-      previousStatus: status,
-      cancelOutcome,
-      gateRetained: retainRunningGate,
-      ownershipChanged,
-    });
-
-    const response = cancelOutcome === 'mutation_in_flight'
-      ? "A confirmed change is already being applied, so I can't safely cancel it. I'll keep this conversation locked until it finishes."
-      : retainRunningGate
-        ? ownershipChanged
-          ? 'The previous request already settled and another request is active, so I left the current conversation untouched.'
-          : "I couldn't confirm cancellation yet. I'm keeping this conversation locked until the current request finishes."
-        : "Conversation cancelled. Let me know what you'd like to do next!";
-    await sendFinalReply(
-      ctx,
-      response,
-      { userId, chatId, gateKey },
-    );
   }
 
 }

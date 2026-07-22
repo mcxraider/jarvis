@@ -601,13 +601,14 @@ export class LangGraphAgentClient {
           this.throwIfAborted(signal);
           onChunk();
           buffer += decoder.decode(value, { stream: true });
-          finalResponse = await this.consumeStreamBuffer(
+          const consumed = await this.consumeStreamBuffer(
             buffer,
             reportProgress,
             finalResponse,
             logContext,
           );
-          buffer = this.remainingPartialLine(buffer);
+          finalResponse = consumed.response;
+          buffer = consumed.remainder;
           if (finalResponse) return finalResponse;
         }
         if (done) break;
@@ -704,14 +705,15 @@ export class LangGraphAgentClient {
     }
   }
 
-  // Processes all complete lines in the buffer (everything except the last partial line).
+  // Processes all complete lines in the buffer, returns final response and the trailing partial line.
   private async consumeStreamBuffer(
     buffer: string,
     onProgress: LangGraphProgressCallback,
     finalResponse: LangGraphAgentResponse | undefined,
     logContext: LogContext,
-  ): Promise<LangGraphAgentResponse | undefined> {
+  ): Promise<{ response: LangGraphAgentResponse | undefined; remainder: string }> {
     const lines = buffer.split(/\r?\n/);
+    const remainder = lines[lines.length - 1] || '';
     const completeLines = lines.slice(0, -1);
     let latestFinal = finalResponse;
 
@@ -722,13 +724,7 @@ export class LangGraphAgentClient {
       if (latestFinal) break;
     }
 
-    return latestFinal;
-  }
-
-  // Returns the trailing incomplete line (no terminating newline yet) for the next chunk.
-  private remainingPartialLine(buffer: string): string {
-    const lines = buffer.split(/\r?\n/);
-    return lines[lines.length - 1] || '';
+    return { response: latestFinal, remainder };
   }
 
   // Parses a single NDJSON line into a typed stream event. Dispatches progress events

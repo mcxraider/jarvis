@@ -11,7 +11,7 @@ from typing import Any, Optional
 from langgraph.types import Command
 
 from agents.agent_api.app.checkpointing import (
-    DEFAULT_CHECKPOINTER,
+    get_default_checkpointer,
     as_async_checkpointer,
     ensure_default_checkpointer_setup,
     get_async_checkpointer,
@@ -285,7 +285,7 @@ def create_jarvis_graph(
 
     tracer = tracer or NULL_TRACE
     if checkpointer is _USE_DEFAULT_CHECKPOINTER:
-        checkpointer = DEFAULT_CHECKPOINTER
+        checkpointer = get_default_checkpointer()
     # A production graph is compiled without request objects. Nodes resolve those
     # objects from RunDeps in the invocation config; these values remain as direct-
     # call/Studio fallbacks for compatibility with existing tests and tooling.
@@ -363,7 +363,7 @@ def get_or_compile_graph(checkpointer: Any = _USE_DEFAULT_CHECKPOINTER) -> Any:
     """
 
     if checkpointer is _USE_DEFAULT_CHECKPOINTER:
-        checkpointer = DEFAULT_CHECKPOINTER
+        checkpointer = get_default_checkpointer()
     key = id(checkpointer)
     cached = _compiled_graphs.get(key)
     if cached is not None:
@@ -864,7 +864,7 @@ def run_jarvis(
             "await run_jarvis_async instead."
         )
     if checkpointer is None:
-        checkpointer = DEFAULT_CHECKPOINTER
+        checkpointer = get_default_checkpointer()
         ensure_default_checkpointer_setup()
     checkpointer = as_async_checkpointer(checkpointer)
     global _SYNC_RUNNER

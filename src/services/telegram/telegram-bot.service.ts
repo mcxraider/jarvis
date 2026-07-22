@@ -13,8 +13,9 @@ import {
   StaticUserAuthorizationStore,
   UserAuthorizationStore,
 } from './user-authorization.store';
-import { createTerminalReplyStore, TerminalReplyStore } from './terminal-reply.store';
+import { TerminalReplyStore } from './terminal-reply.store';
 import { resolveTelegrafHandlerTimeoutMs } from '../../config/turn-timeout.config';
+import { TelegramMenuRegistry } from './telegram-menu.registry';
 
 export class TelegramBotService {
   public readonly bot: Telegraf<Context>;
@@ -24,8 +25,9 @@ export class TelegramBotService {
   constructor(
     private readonly config: TelegramConfig,
     private readonly handlers: TelegramHandlers,
+    private readonly terminalReplyStore: TerminalReplyStore,
     authorizationStore?: UserAuthorizationStore,
-    private readonly terminalReplyStore: TerminalReplyStore = createTerminalReplyStore(),
+    private readonly menuRegistry: TelegramMenuRegistry = new TelegramMenuRegistry(),
   ) {
     // Production injects the database-backed store. The static implementation
     // remains as a constructor default for isolated tests and embedded callers.
@@ -326,12 +328,6 @@ export class TelegramBotService {
 
   // Publishes the bot's command menu to Telegram so users see autocomplete hints.
   private async syncCommands(): Promise<void> {
-    await this.bot.telegram.setMyCommands([
-      { command: 'start', description: 'Start Jarvis and show onboarding' },
-      { command: 'new', description: 'Abandon the current step and start a new request' },
-      { command: 'cancel', description: 'Cancel the current operation' },
-      { command: 'help', description: 'Show available commands and supported inputs' },
-      { command: 'status', description: 'Show bot health, uptime, and dependency status' },
-    ]);
+    await this.bot.telegram.setMyCommands(this.menuRegistry.getCommands());
   }
 }

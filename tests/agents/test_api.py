@@ -180,7 +180,7 @@ class JarvisApiTests(unittest.TestCase):
                     self.assertEqual(client.get("/health").status_code, 200)
 
         drain_offloads.assert_awaited_once_with(5.0)
-        close_pool.assert_not_called()
+        close_pool.assert_called_once()
         close_async_pool.assert_not_awaited()
 
     def test_fastapi_lifespan_leaves_resources_open_for_undrained_producers(
@@ -251,7 +251,8 @@ class JarvisApiTests(unittest.TestCase):
         shutdown_logs.assert_not_called()
         close_todoist.assert_not_called()
         close_todoist_async.assert_not_awaited()
-        close_pool.assert_not_called()
+        # Connection pools are still closed on early-exit to prevent orphaned connections.
+        close_pool.assert_called_once()
         close_async_pool.assert_not_awaited()
 
     def test_fastapi_lifespan_cleanup_order_drains_workers_first(self) -> None:
@@ -817,6 +818,9 @@ class JarvisApiTests(unittest.TestCase):
         pool_module.ConnectionPool.assert_called_once_with(
             conninfo="postgresql://jarvis:test@localhost:5432/jarvis",
             kwargs={"autocommit": True, "prepare_threshold": None},
+            check=pool_module.ConnectionPool.check_connection,
+            max_idle=300,
+            max_lifetime=1800,
         )
         return checkpointer
 

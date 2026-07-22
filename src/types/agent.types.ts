@@ -25,6 +25,11 @@ export const LangGraphInterruptSchema = z.object({
   summary: z.string().optional(),
   tool_name: z.string().optional(),
   args: z.record(z.unknown()).optional(),
+  // Batch confirm fields (multi-call confirmation payloads from Python confirm node)
+  held_call_ids: z.array(z.string()).optional(),
+  count: z.number().int().positive().optional(),
+  tool_names: z.array(z.string()).optional(),
+  services: z.array(z.string()).optional(),
 });
 
 // The complete response from /invoke or /resume (or the "final" stream event payload).

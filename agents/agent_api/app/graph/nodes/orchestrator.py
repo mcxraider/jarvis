@@ -1006,7 +1006,7 @@ def create_agent_node(
                 "next": "end",
             }
 
-        messages = copy.deepcopy(state.get("messages", []))
+        messages = list(state.get("messages", []))
         # Narrow the catalogue to the tools this turn should expose. The default
         # selector returns everything; a future query-aware selector returns a
         # relevant subset (see tools/selection.py). Execution still runs against

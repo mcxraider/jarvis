@@ -38,14 +38,14 @@ CALENDAR_PROMPT_FRAGMENT = """\
 - All-day events use start_date/end_date; end is exclusive (a 1-day event on Jul 2 → start_date=2026-07-02, end_date=2026-07-03).
 - calendar_id defaults to "primary" — pass it only when the user names another calendar.
 - Before creating a timed event, call get_freebusy for that slot and warn of conflicts. Do not silently double-book.
-- Keep reads bounded: always pass explicit time_min/time_max, use a small default window (e.g. next 30 days) when the user doesn't state one, and page within that window before widening it.
+- Keep reads bounded: always pass explicit time_min/time_max and use a small default window (e.g. next 30 days) when the user doesn't state one. Collection reads return one page of 50 items by default; pass a returned next_page_token verbatim to page within that window before widening it.
 - For recurring events, don't infer scope from a single occurrence — read the master series/recurrence_id first, then set update_scope to this_instance, entire_series, or this_and_following as appropriate. Recurrence uses RRULE strings (e.g. ["RRULE:FREQ=WEEKLY;BYDAY=TU,TH;COUNT=10"]).
 - On updates, preserve title, attendees, location, meeting link, and notes unless the user asked to change them — don't drop fields silently.
 - Treat deletes and any broad availability/reminder changes as high-impact: restate the exact event(s) and diff before writing, don't just execute.
 - Reminders: use the structured reminders object (use_default + overrides with method/minutes), not free-form text.
 - Temporary holds: default to transparent (non-blocking) unless the user wants a blocking focus block.
 - There's no reliable global room search — build a candidate room list from past meetings/locations/resource attendees, then check availability on that set.
-- Attendees are email addresses. If the user gives a name without an email, check a bounded recent-events search for that contact before asking.
+- A person's name in an event title (for example, "with Reena") does not make them an attendee. Use only the user's calendars for availability and create the event without attendees unless the user explicitly asks to invite or add someone as an attendee. Only then search bounded recent events for their email and ask if it cannot be found.
 - Calendar creates and updates count toward the shared 5+ mutations-per-turn bulk gate.
 - When listing events, keep single_events=true so recurrences expand into instances."""
 
@@ -85,10 +85,18 @@ def build_calendar_langchain_tools(dispatch: DispatchFn) -> List[Any]:
     """Build LangChain tool wrappers that delegate to the shared dispatch pipeline."""
 
     @tool
-    def list_calendars(tool_call_id: Annotated[str, InjectedToolCallId]) -> Dict[str, Any]:
+    def list_calendars(
+        tool_call_id: Annotated[str, InjectedToolCallId],
+        max_results: Optional[int] = None,
+        page_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """List the user's Google Calendars."""
 
-        return dispatch(tool_call_id, "list_calendars", {})
+        return dispatch(
+            tool_call_id,
+            "list_calendars",
+            {"max_results": max_results, "page_token": page_token},
+        )
 
     @tool
     def list_calendar_events(
@@ -97,6 +105,7 @@ def build_calendar_langchain_tools(dispatch: DispatchFn) -> List[Any]:
         tool_call_id: Annotated[str, InjectedToolCallId],
         calendar_id: Optional[str] = None,
         max_results: Optional[int] = None,
+        page_token: Optional[str] = None,
         q: Optional[str] = None,
         single_events: Optional[bool] = None,
     ) -> Dict[str, Any]:
@@ -110,6 +119,7 @@ def build_calendar_langchain_tools(dispatch: DispatchFn) -> List[Any]:
                 "time_max": time_max,
                 "calendar_id": calendar_id,
                 "max_results": max_results,
+                "page_token": page_token,
                 "q": q,
                 "single_events": single_events,
             },

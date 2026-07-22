@@ -47,6 +47,8 @@ jest.mock('telegraf', () => {
   };
 });
 
+import { createTerminalReplyStore } from '../../../../src/services/telegram/terminal-reply.store';
+
 describe('TelegramBotService', () => {
   async function createService() {
     const { TelegramBotService } = await import('../../../../src/services/telegram/telegram-bot.service');
@@ -61,6 +63,7 @@ describe('TelegramBotService', () => {
         secretToken: 'secret',
       },
       handlers,
+      createTerminalReplyStore(),
     );
   }
 
@@ -69,11 +72,9 @@ describe('TelegramBotService', () => {
   });
 
   const EXPECTED_MENU_COMMANDS = [
-    { command: 'start', description: 'Start Jarvis and show onboarding' },
     { command: 'new', description: 'Abandon the current step and start a new request' },
     { command: 'cancel', description: 'Cancel the current operation' },
     { command: 'help', description: 'Show available commands and supported inputs' },
-    { command: 'status', description: 'Show bot health, uptime, and dependency status' },
   ];
 
   it('syncs the full command menu before webhook setup', async () => {
@@ -112,6 +113,30 @@ describe('TelegramBotService', () => {
 
     expect(service.bot.telegram.setMyCommands).toHaveBeenCalledWith(EXPECTED_MENU_COMMANDS);
     expect(service.bot.launch).toHaveBeenCalled();
+  });
+
+  it('syncs commands registered during startup composition', async () => {
+    const { TelegramBotService } = await import('../../../../src/services/telegram/telegram-bot.service');
+    const { TelegramMenuRegistry } = await import('../../../../src/services/telegram/telegram-menu.registry');
+    const menuRegistry = new TelegramMenuRegistry();
+    menuRegistry.register({
+      command: 'schedule_this_week',
+      description: 'Show this week schedule',
+    });
+    const service = new TelegramBotService(
+      { token: 'bot-token', allowedUserIds: [701122767] },
+      { setupHandlers: jest.fn() } as any,
+      createTerminalReplyStore(),
+      undefined,
+      menuRegistry,
+    );
+
+    await service.startPolling();
+
+    expect(service.bot.telegram.setMyCommands).toHaveBeenCalledWith([
+      ...EXPECTED_MENU_COMMANDS,
+      { command: 'schedule_this_week', description: 'Show this week schedule' },
+    ]);
   });
 
   it('handles updates from allowed Telegram users', async () => {
@@ -208,6 +233,7 @@ describe('TelegramBotService', () => {
           handlerTimeoutMs: 50,
         },
         handlers,
+        createTerminalReplyStore(),
       );
       const update = {
         update_id: 1006,

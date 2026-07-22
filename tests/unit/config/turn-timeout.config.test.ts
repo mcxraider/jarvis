@@ -9,12 +9,12 @@ describe('turn timeout configuration', () => {
   it('uses the code-owned ladder defaults when no overrides are present', () => {
     expect(resolveTurnTimeoutConfig({}, {})).toEqual({
       overallMs: 165_000,
-      streamIdleMs: 120_000,
+      streamIdleMs: 155_000,
       telegrafHandlerMs: 195_000,
     });
     expect(TURN_TIMEOUT_DEFAULTS).toEqual({
       overallMs: 165_000,
-      streamIdleMs: 120_000,
+      streamIdleMs: 155_000,
       telegrafHandlerMs: 195_000,
     });
   });
@@ -73,7 +73,7 @@ describe('turn timeout configuration', () => {
   it('lets standalone owners resolve only their part of the ladder', () => {
     expect(resolveLangGraphClientTimeouts({}, {})).toEqual({
       overallMs: 165_000,
-      streamIdleMs: 120_000,
+      streamIdleMs: 155_000,
     });
     expect(resolveTelegrafHandlerTimeoutMs(undefined, {})).toBe(195_000);
   });

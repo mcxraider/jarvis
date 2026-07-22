@@ -14,6 +14,10 @@ logger = logging.getLogger(__name__)
 
 _CLEANUP_ADVISORY_LOCK_ID = 475_271_901
 
+
+def _check_connection(conn: Any) -> None:
+    conn.execute("SELECT 1")
+
 class PostgresIdempotencyStore:
     """Postgres store that lazily connects without changing database schema."""
 
@@ -251,6 +255,12 @@ class PostgresIdempotencyStore:
             self._warn("cleanup", error)
             return 0
 
+    def close(self) -> None:
+        with self._pool_lock:
+            if self._pool is not None and hasattr(self._pool, "close"):
+                self._pool.close()
+            self._pool = None
+
     def _ensure_pool(self) -> Any:
         if self._pool is not None:
             return self._pool
@@ -264,11 +274,27 @@ class PostgresIdempotencyStore:
                 from psycopg_pool import ConnectionPool
 
                 factory = ConnectionPool
-            self._pool = factory(
-                conninfo=self._dsn,
-                kwargs={"autocommit": True, "prepare_threshold": None},
-                open=False,
-            )
+                self._pool = factory(
+                    conninfo=self._dsn,
+                    kwargs={"autocommit": True, "prepare_threshold": None},
+                    open=False,
+                    min_size=2,
+                    max_size=5,
+                    check=ConnectionPool.check_connection,
+                    max_idle=300,
+                    max_lifetime=1800,
+                )
+            else:
+                self._pool = factory(
+                    conninfo=self._dsn,
+                    kwargs={"autocommit": True, "prepare_threshold": None},
+                    open=False,
+                    min_size=2,
+                    max_size=5,
+                    check=_check_connection,
+                    max_idle=300,
+                    max_lifetime=1800,
+                )
             if hasattr(self._pool, "open"):
                 self._pool.open()
             if hasattr(self._pool, "wait"):

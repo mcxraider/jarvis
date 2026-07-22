@@ -23,6 +23,9 @@ def create_postgres_checkpointer(dsn: Optional[str], *, run_setup: bool = False)
     pool = ConnectionPool(
         conninfo=dsn,
         kwargs={"autocommit": True, "prepare_threshold": None},
+        check=ConnectionPool.check_connection,
+        max_idle=300,
+        max_lifetime=1800,
     )
     checkpointer = PostgresSaver(pool)
     if run_setup and hasattr(checkpointer, "setup"):

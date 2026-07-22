@@ -1,6 +1,5 @@
 """Human-in-the-loop (clarification) graph node and its message helpers."""
 
-import copy
 import json
 from typing import Any, Dict, List, Optional
 
@@ -103,8 +102,7 @@ def create_hitl_node(tracer: Optional[TracePrinter] = None):
             if deps is not None and deps.tracer is not None
             else _captured.tracer
         )
-        messages = copy.deepcopy(state.get("messages", []))
-        latest_message = messages[-1] if messages else {}
+        latest_message = (state.get("messages") or [{}])[-1]
         tool_calls = latest_message.get("tool_calls") or []
         ask_user_calls = [tool_call for tool_call in tool_calls if is_ask_user_tool_call(tool_call)]
         if not ask_user_calls:

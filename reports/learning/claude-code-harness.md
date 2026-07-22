@@ -1,7 +1,3 @@
-
-
-
-
 The leak appears genuine in the limited sense that **Claude Code v2.1.88’s TypeScript source was accidentally exposed through a production source map on March 31, 2026**. The archive contained roughly 1,884–1,900 files and about 512,000 lines. However, the mirrors are unofficial, some internal packages were absent, and several community analyses make inferences that Anthropic has not independently confirmed. Treat exact filenames and unreleased feature interpretations as provisional. citeturn220825view0turn220825view4turn873598news89
 
 The useful takeaway is not “Claude Code uses a ReAct loop.” It is the collection of low-level production decisions surrounding that loop.

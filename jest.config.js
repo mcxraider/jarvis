@@ -7,6 +7,6 @@ module.exports = {
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
   moduleFileExtensions: ['ts', 'js', 'json'],
   modulePathIgnorePatterns: ['<rootDir>/.claude/worktrees/'],
-  testMatch: ['**/tests/unit/**/*.test.ts'],
+  testMatch: ['**/tests/unit/**/*.test.ts', '**/tests/contract/**/*.test.ts'],
   testPathIgnorePatterns: ['/node_modules/', '/dist/', '<rootDir>/.claude/worktrees/'],
 };

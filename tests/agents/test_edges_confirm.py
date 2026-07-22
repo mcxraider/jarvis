@@ -101,3 +101,7 @@ class TestRouteAfterConfirm:
     def test_none_defaults_to_decline(self):
         state = {"confirm_decision": None}
         assert route_after_confirm(state) == "decline"
+
+    def test_unexpected_value_defaults_to_decline(self):
+        state = {"confirm_decision": "garbage"}
+        assert route_after_confirm(state) == "decline"
