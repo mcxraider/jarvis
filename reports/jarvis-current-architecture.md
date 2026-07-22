@@ -581,7 +581,7 @@ Both `clarify` (HITL) and `confirm` (approval gate) share the same resume path â
 - **Summarizer model**: `JARVIS_SUMMARIZER_MODEL` env var (defaults to same as `DEEPSEEK_MODEL`)
 - **API**: OpenAI-compatible, `openai` SDK via `DEEPSEEK_BASE_URL`
 - **LangSmith**: `wrap_openai` traces every completion; `@traceable` wraps `create_message` and `execute_tool`
-- **Payload privacy**: inputs/outputs hidden from LangSmith by default (`LANGSMITH_HIDE_INPUTS/OUTPUTS`); opt-in via `JARVIS_TRACE_PAYLOADS`
+- **Payload capture**: inputs/outputs are sent to LangSmith by default; set `JARVIS_TRACE_PAYLOADS=0` to enable `LANGSMITH_HIDE_INPUTS/OUTPUTS`
 - **Retry**: Tenacity, exponential backoff with jitter, retries on 429 / 5xx / timeout / connection (both orchestrator and summarizer)
 - **Token tracking**: `UsageSummary` accumulates prompt / completion / cached / reasoning tokens per run
 - **Request timeout**: `DEEPSEEK_REQUEST_TIMEOUT_SECONDS` (default 30s)

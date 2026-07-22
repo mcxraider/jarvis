@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from langgraph.graph import END, StateGraph
 
-from agents.agent_api.app.checkpointing import DEFAULT_CHECKPOINTER
+from agents.agent_api.app.checkpointing import get_default_checkpointer
 
 _USE_DEFAULT_CHECKPOINTER = object()
 
@@ -49,7 +49,7 @@ def build_graph(
     """Compile a LangGraph app from declarative node specs."""
 
     if checkpointer is _USE_DEFAULT_CHECKPOINTER:
-        checkpointer = DEFAULT_CHECKPOINTER
+        checkpointer = get_default_checkpointer()
     workflow = StateGraph(state_type)
     for spec in node_specs:
         workflow.add_node(spec.name, spec.node)

@@ -29,7 +29,7 @@ import {
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { formatReplyContext } from '../reply-context';
 import { ConversationGateStore } from '../conversation-gate.store';
-import { createTerminalReplyStore, TerminalReplyStore } from '../terminal-reply.store';
+import { TerminalReplyStore } from '../terminal-reply.store';
 
 export class MessageHandlers {
   constructor(
@@ -38,8 +38,8 @@ export class MessageHandlers {
     private readonly activityService: BotActivityService,
     // Attaches the rich clarification block's message id after the processor saves the pause.
     private readonly pendingStore: PendingClarificationStore,
+    private readonly terminalReplyStore: TerminalReplyStore,
     private readonly conversationGate?: ConversationGateStore,
-    private readonly terminalReplyStore: TerminalReplyStore = createTerminalReplyStore(),
   ) {}
 
   // Primary text message handler. Shows a rotating progress indicator while the

@@ -103,7 +103,7 @@ def test_memory_runtime_reuses_default_checkpointer() -> None:
         checkpointing,
         "settings",
         SimpleNamespace(checkpoint_backend="memory", run_checkpoint_setup=False),
-    ), patch.object(checkpointing, "DEFAULT_CHECKPOINTER", memory):
+    ), patch.object(checkpointing, "_DEFAULT_CHECKPOINTER", memory):
         first = asyncio.run(checkpointing.initialize_async_checkpointer())
         second = asyncio.run(checkpointing.initialize_async_checkpointer())
 
@@ -147,7 +147,7 @@ def test_sync_default_setup_runs_once_without_lifespan() -> None:
         SimpleNamespace(checkpoint_backend="postgres", run_checkpoint_setup=True),
     ), patch.object(
         checkpointing,
-        "DEFAULT_CHECKPOINTER",
+        "_DEFAULT_CHECKPOINTER",
         saver,
     ), patch.object(
         checkpointing,

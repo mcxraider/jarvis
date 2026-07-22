@@ -142,6 +142,9 @@ async def lifespan(_app: FastAPI):
             close_todoist_async_http_client,
             close_todoist_http_client,
         )
+        from agents.agent_api.app.tools.google_calendar.client import (
+            close_calendar_async_http_client,
+        )
 
         # Producers can outlive disconnected streaming responses. Drain them before
         # closing shared resources, then attempt every cleanup without allowing a
@@ -195,8 +198,17 @@ async def lifespan(_app: FastAPI):
             cleanup_errors.append(error)
         if not workers_drained or not post_run_drained or not offloads_drained:
             # Neither native producers nor ``to_thread`` work can be force-closed
-            # safely once a mutation may be in flight. Leave every dependent
-            # transport/pool intact rather than closing underneath accepted work.
+            # safely once a mutation may be in flight. Still close connection pools
+            # so connections are not orphaned during worker recycling.
+            if hasattr(DEFAULT_IDEMPOTENCY_STORE, "close"):
+                try:
+                    DEFAULT_IDEMPOTENCY_STORE.close()
+                except BaseException as error:
+                    cleanup_errors.append(error)
+            try:
+                close_pool()
+            except BaseException as error:
+                cleanup_errors.append(error)
             _raise_lifespan_errors(primary_error, cleanup_errors)
         try:
             reset_active_run_registry()
@@ -237,6 +249,15 @@ async def lifespan(_app: FastAPI):
             await close_todoist_async_http_client()
         except BaseException as error:
             cleanup_errors.append(error)
+        try:
+            await close_calendar_async_http_client()
+        except BaseException as error:
+            cleanup_errors.append(error)
+        if hasattr(DEFAULT_IDEMPOTENCY_STORE, "close"):
+            try:
+                DEFAULT_IDEMPOTENCY_STORE.close()
+            except BaseException as error:
+                cleanup_errors.append(error)
         try:
             close_pool()
         except BaseException as error:

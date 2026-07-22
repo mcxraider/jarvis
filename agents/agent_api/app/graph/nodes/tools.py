@@ -1,6 +1,5 @@
 """Tool execution graph node."""
 
-import copy
 from typing import Dict, Optional
 
 from langchain_core.runnables import RunnableConfig
@@ -66,7 +65,7 @@ def create_tools_node(
             raise RuntimeError(
                 "Tools node requires a dispatcher from RunDeps or captured fallbacks."
             )
-        messages = copy.deepcopy(state.get("messages", []))
+        messages = list(state.get("messages", []))
         latest_message = messages[-1] if messages else {}
         tool_calls = latest_message.get("tool_calls") or []
         tool_names = [tool_call_name(call) for call in tool_calls]

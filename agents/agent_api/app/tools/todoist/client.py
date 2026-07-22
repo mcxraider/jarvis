@@ -28,6 +28,10 @@ TODOIST_REST_BASE_URL = settings.todoist_rest_base_url
 TODOIST_COMPLETED_BY_COMPLETION_DATE_URL = (
     f"{TODOIST_REST_BASE_URL}/tasks/completed/by_completion_date"
 )
+DEFAULT_COLLECTION_LIMIT = 50
+DEFAULT_COMMENT_LIMIT = 10
+TODOIST_COLLECTION_LIMIT_MAX = 200
+TODOIST_COMMENT_LIMIT_MAX = 10
 
 # Path segments that look like Todoist resource identifiers (task/section/project
 # IDs are numeric or alphanumeric strings). Collapse them to {id} so traces never
@@ -578,11 +582,21 @@ class TodoistApiClient:
         return self._request(f"{TODOIST_REST_BASE_URL}/tasks/{arguments['task_id']}")
 
     def get_tasks(self, arguments: Dict[str, Any]) -> Any:
+        arguments = _with_collection_limit(
+            arguments,
+            default=DEFAULT_COLLECTION_LIMIT,
+            maximum=TODOIST_COLLECTION_LIMIT_MAX,
+        )
         params = _query_params(_without_none(arguments), comma_join_keys={"ids"})
         suffix = f"?{params}" if params else ""
         return self._request(f"{TODOIST_REST_BASE_URL}/tasks{suffix}")
 
     def get_tasks_by_filter(self, arguments: Dict[str, Any]) -> Any:
+        arguments = _with_collection_limit(
+            arguments,
+            default=DEFAULT_COLLECTION_LIMIT,
+            maximum=TODOIST_COLLECTION_LIMIT_MAX,
+        )
         params = _query_params(_without_none(arguments))
         return self._request(f"{TODOIST_REST_BASE_URL}/tasks/filter?{params}")
 
@@ -602,6 +616,11 @@ class TodoistApiClient:
         return {"success": True, "message": f"Task {arguments['task_id']} deleted permanently"}
 
     def get_completed_todoist_tasks_by_completion_date(self, arguments: Dict[str, Any]) -> Any:
+        arguments = _with_collection_limit(
+            arguments,
+            default=DEFAULT_COLLECTION_LIMIT,
+            maximum=TODOIST_COLLECTION_LIMIT_MAX,
+        )
         arguments = _with_default_completion_date_range(_without_none(arguments))
         params = _query_params(arguments)
         suffix = f"?{params}" if params else ""
@@ -615,10 +634,16 @@ class TodoistApiClient:
         return {"success": True, "message": f"Task {arguments['task_id']} reopened"}
 
     def get_comments(self, arguments: Dict[str, Any]) -> Any:
-        arguments = _without_none(arguments)
+        arguments = dict(arguments)
         comment_id = arguments.pop("comment_id", None)
         if comment_id is not None:
             return self._request(f"{TODOIST_REST_BASE_URL}/comments/{comment_id}")
+        arguments = _with_collection_limit(
+            arguments,
+            default=DEFAULT_COMMENT_LIMIT,
+            maximum=TODOIST_COMMENT_LIMIT_MAX,
+        )
+        arguments = _without_none(arguments)
         if not arguments.get("task_id") and not arguments.get("project_id"):
             raise ValueError("get_comments requires task_id, project_id, or comment_id")
         params = _query_params(arguments)
@@ -633,6 +658,11 @@ class TodoistApiClient:
     def get_labels(self, arguments: Dict[str, Any]) -> Any:
         arguments = dict(arguments)
         search = arguments.pop("search", None)
+        arguments = _with_collection_limit(
+            arguments,
+            default=DEFAULT_COLLECTION_LIMIT,
+            maximum=TODOIST_COLLECTION_LIMIT_MAX,
+        )
         params = _query_params(_without_none(arguments))
         suffix = f"?{params}" if params else ""
         data = self._request(f"{TODOIST_REST_BASE_URL}/labels{suffix}")
@@ -643,6 +673,11 @@ class TodoistApiClient:
     def get_projects(self, arguments: Dict[str, Any]) -> Any:
         arguments = dict(arguments)
         search = arguments.pop("search", None)
+        arguments = _with_collection_limit(
+            arguments,
+            default=DEFAULT_COLLECTION_LIMIT,
+            maximum=TODOIST_COLLECTION_LIMIT_MAX,
+        )
         params = _query_params(_without_none(arguments))
         suffix = f"?{params}" if params else ""
         data = self._request(f"{TODOIST_REST_BASE_URL}/projects{suffix}")
@@ -675,11 +710,21 @@ class TodoistApiClient:
         )
 
     async def async_get_tasks(self, arguments: Dict[str, Any]) -> Any:
+        arguments = _with_collection_limit(
+            arguments,
+            default=DEFAULT_COLLECTION_LIMIT,
+            maximum=TODOIST_COLLECTION_LIMIT_MAX,
+        )
         params = _query_params(_without_none(arguments), comma_join_keys={"ids"})
         suffix = f"?{params}" if params else ""
         return await self.async_request(f"{TODOIST_REST_BASE_URL}/tasks{suffix}")
 
     async def async_get_tasks_by_filter(self, arguments: Dict[str, Any]) -> Any:
+        arguments = _with_collection_limit(
+            arguments,
+            default=DEFAULT_COLLECTION_LIMIT,
+            maximum=TODOIST_COLLECTION_LIMIT_MAX,
+        )
         params = _query_params(_without_none(arguments))
         return await self.async_request(
             f"{TODOIST_REST_BASE_URL}/tasks/filter?{params}"
@@ -716,6 +761,11 @@ class TodoistApiClient:
         self,
         arguments: Dict[str, Any],
     ) -> Any:
+        arguments = _with_collection_limit(
+            arguments,
+            default=DEFAULT_COLLECTION_LIMIT,
+            maximum=TODOIST_COLLECTION_LIMIT_MAX,
+        )
         arguments = _with_default_completion_date_range(_without_none(arguments))
         params = _query_params(arguments)
         suffix = f"?{params}" if params else ""
@@ -735,12 +785,18 @@ class TodoistApiClient:
         return {"success": True, "message": f"Task {task_id} reopened"}
 
     async def async_get_comments(self, arguments: Dict[str, Any]) -> Any:
-        arguments = _without_none(arguments)
+        arguments = dict(arguments)
         comment_id = arguments.pop("comment_id", None)
         if comment_id is not None:
             return await self.async_request(
                 f"{TODOIST_REST_BASE_URL}/comments/{comment_id}"
             )
+        arguments = _with_collection_limit(
+            arguments,
+            default=DEFAULT_COMMENT_LIMIT,
+            maximum=TODOIST_COMMENT_LIMIT_MAX,
+        )
+        arguments = _without_none(arguments)
         if not arguments.get("task_id") and not arguments.get("project_id"):
             raise ValueError("get_comments requires task_id, project_id, or comment_id")
         params = _query_params(arguments)
@@ -759,6 +815,11 @@ class TodoistApiClient:
     async def async_get_labels(self, arguments: Dict[str, Any]) -> Any:
         arguments = dict(arguments)
         search = arguments.pop("search", None)
+        arguments = _with_collection_limit(
+            arguments,
+            default=DEFAULT_COLLECTION_LIMIT,
+            maximum=TODOIST_COLLECTION_LIMIT_MAX,
+        )
         params = _query_params(_without_none(arguments))
         suffix = f"?{params}" if params else ""
         data = await self.async_request(f"{TODOIST_REST_BASE_URL}/labels{suffix}")
@@ -769,6 +830,11 @@ class TodoistApiClient:
     async def async_get_projects(self, arguments: Dict[str, Any]) -> Any:
         arguments = dict(arguments)
         search = arguments.pop("search", None)
+        arguments = _with_collection_limit(
+            arguments,
+            default=DEFAULT_COLLECTION_LIMIT,
+            maximum=TODOIST_COLLECTION_LIMIT_MAX,
+        )
         params = _query_params(_without_none(arguments))
         suffix = f"?{params}" if params else ""
         data = await self.async_request(f"{TODOIST_REST_BASE_URL}/projects{suffix}")
@@ -789,6 +855,26 @@ def _without_none(data: Dict[str, Any]) -> Dict[str, Any]:
     """Drop None values before sending arguments to Todoist."""
 
     return {key: value for key, value in data.items() if value is not None}
+
+
+def _with_collection_limit(
+    arguments: Dict[str, Any],
+    *,
+    default: int,
+    maximum: int,
+) -> Dict[str, Any]:
+    """Return copied arguments with a validated per-page limit."""
+
+    resolved = dict(arguments)
+    limit = resolved.get("limit")
+    if limit is None:
+        limit = default
+    if isinstance(limit, bool) or not isinstance(limit, int):
+        raise ValueError("limit must be an integer")
+    if not 1 <= limit <= maximum:
+        raise ValueError(f"limit must be between 1 and {maximum}")
+    resolved["limit"] = limit
+    return resolved
 
 
 _NULL_CLEARABLE_UPDATE_FIELDS = {

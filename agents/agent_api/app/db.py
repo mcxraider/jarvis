@@ -73,6 +73,9 @@ def get_pool() -> Any:
             max_size=10,
             kwargs={"autocommit": True, "prepare_threshold": None},
             open=False,
+            check=ConnectionPool.check_connection,
+            max_idle=300,
+            max_lifetime=1800,
         )
         try:
             pool.open()
@@ -248,6 +251,9 @@ async def _create_async_pool(dsn: str) -> Any:
         max_size=10,
         kwargs={"autocommit": True, "prepare_threshold": None},
         open=False,
+        check=AsyncConnectionPool.check_connection,
+        max_idle=300,
+        max_lifetime=1800,
     )
     try:
         await pool.open()

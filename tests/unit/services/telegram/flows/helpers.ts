@@ -3,6 +3,7 @@ import { CallbackHandler } from '../../../../../src/services/telegram/handlers/c
 import { MemoryPendingClarificationStore } from '../../../../../src/services/telegram/pending-clarification.store';
 import { MemoryConversationGateStore } from '../../../../../src/services/telegram/conversation-gate.store';
 import { LangGraphAgentResponse } from '../../../../../src/services/ai/langgraph-agent-client.service';
+import { createTerminalReplyStore } from '../../../../../src/services/telegram/terminal-reply.store';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -107,7 +108,7 @@ export function createFlowHarness(agentClient: MockAgentClient): FlowHarness {
   const store = new MemoryPendingClarificationStore();
   const gateStore = new MemoryConversationGateStore();
   const textProcessor = new TextProcessorService(agentClient as any, store, gateStore);
-  const callbackHandler = new CallbackHandler(agentClient as any, store, gateStore);
+  const callbackHandler = new CallbackHandler(agentClient as any, store, gateStore, createTerminalReplyStore());
   let callbackSequence = 0;
 
   return {

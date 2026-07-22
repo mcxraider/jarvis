@@ -71,4 +71,31 @@ describe('verifyDatabaseRuntime', () => {
     );
     expect(end).toHaveBeenCalledTimes(1);
   });
+
+  it('rejects with timeout when queries hang', async () => {
+    jest.useFakeTimers();
+    const query = jest.fn().mockReturnValue(new Promise(() => {}));
+    installPool(query);
+
+    const promise = verifyDatabaseRuntime('postgres://runtime');
+    jest.advanceTimersByTime(15_000);
+
+    await expect(promise).rejects.toThrow('Database readiness check timed out after 15s');
+    jest.useRealTimers();
+  });
+
+  it('passes connectionTimeoutMillis to pool', () => {
+    const query = jest.fn().mockResolvedValue({ rows: [] });
+    installPool(query);
+
+    // Trigger pool creation
+    verifyDatabaseRuntime('postgres://test').catch(() => {});
+
+    expect(Pool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionTimeoutMillis: 10_000,
+        max: 1,
+      }),
+    );
+  });
 });

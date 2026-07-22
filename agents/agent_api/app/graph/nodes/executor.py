@@ -257,6 +257,7 @@ def create_executor_node(
                         batch_deadline,
                     )
                 )
+                deadline_elapsed = False
                 try:
                     done, _pending = await asyncio.wait(
                         {mutation_task},

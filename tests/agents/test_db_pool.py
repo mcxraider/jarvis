@@ -92,6 +92,9 @@ class TestGetPoolSingleton:
             max_size=10,
             kwargs={"autocommit": True, "prepare_threshold": None},
             open=False,
+            check=mock_ctor.check_connection,
+            max_idle=300,
+            max_lifetime=1800,
         )
 
 
@@ -244,6 +247,9 @@ class TestAsyncPool:
             max_size=10,
             kwargs={"autocommit": True, "prepare_threshold": None},
             open=False,
+            check=constructor.check_connection,
+            max_idle=300,
+            max_lifetime=1800,
         )
 
     def test_concurrent_first_open_constructs_once(self):

@@ -32,7 +32,7 @@ thinking metadata.
 import sys
 
 from agents.agent_api.app.checkpointing import (
-    DEFAULT_CHECKPOINTER,
+    get_default_checkpointer,
     InMemorySaver,
     create_default_checkpointer,
     create_postgres_checkpointer,
@@ -166,7 +166,7 @@ __all__ = [
     "NULL_TRACE",
     "TracePrinter",
     # checkpointing
-    "DEFAULT_CHECKPOINTER",
+    "get_default_checkpointer",
     "InMemorySaver",
     "create_default_checkpointer",
     "create_postgres_checkpointer",

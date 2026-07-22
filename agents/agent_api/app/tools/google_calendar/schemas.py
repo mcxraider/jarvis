@@ -81,7 +81,26 @@ def get_calendar_tool_schemas() -> List[Dict[str, Any]]:
     list_calendars = _function(
         "list_calendars",
         "List the user's Google Calendars (id, summary, primary flag, timezone).",
-        {"type": "object", "properties": {}, "additionalProperties": False},
+        {
+            "type": "object",
+            "properties": {
+                "max_results": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 250,
+                    "default": 50,
+                    "description": "Maximum calendars in this page. Defaults to 50.",
+                },
+                "page_token": {
+                    "type": "string",
+                    "description": (
+                        "Opaque next_page_token from a previous response. "
+                        "Never invent this value."
+                    ),
+                },
+            },
+            "additionalProperties": False,
+        },
     )
 
     list_calendar_events = _function(
@@ -93,7 +112,20 @@ def get_calendar_tool_schemas() -> List[Dict[str, Any]]:
                 "time_min": {"type": "string", "description": f"Start of range, {_RFC3339}"},
                 "time_max": {"type": "string", "description": f"End of range, {_RFC3339}"},
                 "calendar_id": {"type": "string", "description": "Defaults to 'primary'."},
-                "max_results": {"type": "integer", "minimum": 1, "maximum": 250},
+                "max_results": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 250,
+                    "default": 50,
+                    "description": "Maximum events in this page. Defaults to 50.",
+                },
+                "page_token": {
+                    "type": "string",
+                    "description": (
+                        "Opaque next_page_token from a previous response. "
+                        "Never invent this value."
+                    ),
+                },
                 "q": {"type": "string", "description": "Free-text search over event fields."},
                 "single_events": {
                     "type": "boolean",

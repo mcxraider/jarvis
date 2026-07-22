@@ -12,6 +12,7 @@ Tracing logs operation + status + attempt only — never request/response bodies
 these objects anyway).
 """
 
+import asyncio
 import copy
 from contextlib import suppress
 import logging
@@ -20,7 +21,8 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-from agents.agent_api.app.async_offload import bounded_to_thread
+import httpx
+
 from agents.agent_api.app.tools.google_calendar.auth import (
     GoogleCalendarApiError,
     load_credentials,
@@ -33,6 +35,8 @@ _MAX_ATTEMPTS = 3
 _HTTP_TIMEOUT_SECONDS = 30.0
 _BASE_DELAY_SECONDS = 0.5
 _MAX_DELAY_SECONDS = 4.0
+DEFAULT_COLLECTION_LIMIT = 50
+CALENDAR_COLLECTION_LIMIT_MAX = 250
 _RETRYABLE_KINDS = {"transient", "rate-limit"}
 _MUTATION_OPERATIONS = {
     "calendar.events.insert",
@@ -73,6 +77,42 @@ _AMBIGUOUS_MUTATION_MESSAGE = (
     "Check the calendar before trying again."
 )
 
+# -- module-level shared async HTTP client (mirrors Todoist pattern) -----------
+
+_shared_async_http_client: Optional[httpx.AsyncClient] = None
+_shared_async_http_client_loop: Optional[asyncio.AbstractEventLoop] = None
+_shared_async_http_client_lock = threading.Lock()
+
+
+def _get_calendar_async_http_client() -> httpx.AsyncClient:
+    global _shared_async_http_client, _shared_async_http_client_loop
+    loop = asyncio.get_running_loop()
+    with _shared_async_http_client_lock:
+        if _shared_async_http_client is not None:
+            if _shared_async_http_client_loop is not loop:
+                raise RuntimeError(
+                    "Calendar async HTTP client belongs to another event loop."
+                )
+            return _shared_async_http_client
+        _shared_async_http_client = httpx.AsyncClient(
+            timeout=_HTTP_TIMEOUT_SECONDS,
+            http2=False,
+        )
+        _shared_async_http_client_loop = loop
+        return _shared_async_http_client
+
+
+async def close_calendar_async_http_client() -> None:
+    """Close the shared async pool. Call from lifespan shutdown."""
+    global _shared_async_http_client, _shared_async_http_client_loop
+    with _shared_async_http_client_lock:
+        client = _shared_async_http_client
+        if client is None:
+            return
+        _shared_async_http_client = None
+        _shared_async_http_client_loop = None
+    await client.aclose()
+
 
 def _normalize_event(event: Any) -> Any:
     """Reduce a raw Google event to the fields the model needs (drops empties)."""
@@ -95,6 +135,21 @@ def _normalize_event(event: Any) -> Any:
         "status": event.get("status"),
     }
     return {key: value for key, value in normalized.items() if value not in (None, [], "")}
+
+
+def _resolve_max_results(arguments: Dict[str, Any]) -> int:
+    """Resolve and validate the per-page size for Calendar collection reads."""
+
+    max_results = arguments.get("max_results")
+    if max_results is None:
+        max_results = DEFAULT_COLLECTION_LIMIT
+    if isinstance(max_results, bool) or not isinstance(max_results, int):
+        raise ValueError("max_results must be an integer")
+    if not 1 <= max_results <= CALENDAR_COLLECTION_LIMIT_MAX:
+        raise ValueError(
+            f"max_results must be between 1 and {CALENDAR_COLLECTION_LIMIT_MAX}"
+        )
+    return max_results
 
 
 def _build_event_body(arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -189,6 +244,55 @@ class _CoordinatedCredentials:
         return getattr(self._coordinator.credentials, name)
 
 
+_CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3"
+_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
+
+
+class _AsyncTokenManager:
+    """Async credential refresh coordinated with the sync path via shared generation."""
+
+    def __init__(self, coordinator: _CredentialCoordinator) -> None:
+        self._coordinator = coordinator
+        self._lock = asyncio.Lock()
+
+    async def get_access_token(self) -> str:
+        creds = self._coordinator.credentials
+        if creds.valid:
+            return creds.token
+        async with self._lock:
+            if creds.valid:
+                return creds.token
+            if not creds.refresh_token:
+                raise GoogleCalendarApiError(
+                    kind="auth",
+                    message="Google Calendar credentials expired with no refresh token.",
+                    reconnect=True,
+                    operation="calendar.auth",
+                )
+            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS) as http:
+                resp = await http.post(_TOKEN_ENDPOINT, data={
+                    "client_id": creds.client_id,
+                    "client_secret": creds.client_secret,
+                    "refresh_token": creds.refresh_token,
+                    "grant_type": "refresh_token",
+                })
+            if resp.status_code != 200:
+                raise GoogleCalendarApiError(
+                    kind="auth",
+                    message="Google Calendar token refresh failed.",
+                    reconnect=True,
+                    operation="calendar.auth",
+                    status_code=resp.status_code,
+                )
+            data = resp.json()
+            from datetime import datetime, timedelta, timezone
+            with self._coordinator.lock:
+                creds.token = data["access_token"]
+                creds.expiry = datetime.now(timezone.utc) + timedelta(seconds=data.get("expires_in", 3600))
+                self._coordinator.generation += 1
+            return creds.token
+
+
 class GoogleCalendarClient:
     """Direct Google Calendar v3 client built on the discovery service."""
 
@@ -215,6 +319,8 @@ class GoogleCalendarClient:
         # own AuthorizedHttp/httplib2 transport in _execute(), so concurrent
         # Calendar calls never share the discovery service's socket state.
         self._lock = threading.Lock()
+        self._async_init_lock = asyncio.Lock()
+        self._async_token_manager: Optional[_AsyncTokenManager] = None
 
     @property
     def tracer(self) -> TracePrinter:
@@ -412,8 +518,11 @@ class GoogleCalendarClient:
     # -- tools --------------------------------------------------------------------
 
     def list_calendars(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        params: Dict[str, Any] = {"maxResults": _resolve_max_results(arguments)}
+        if arguments.get("page_token") is not None:
+            params["pageToken"] = arguments["page_token"]
         result = self._execute(
-            self.service.calendarList().list(),
+            self.service.calendarList().list(**params),
             "calendar.calendars.list",
         )
         items = result.get("items", []) if isinstance(result, dict) else []
@@ -426,7 +535,10 @@ class GoogleCalendarClient:
                     "time_zone": item.get("timeZone"),
                 }
                 for item in items
-            ]
+            ],
+            "next_page_token": (
+                result.get("nextPageToken") if isinstance(result, dict) else None
+            ),
         }
 
     def list_calendar_events(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -443,12 +555,13 @@ class GoogleCalendarClient:
             "timeMin": arguments["time_min"],
             "timeMax": arguments["time_max"],
             "singleEvents": single_events,
+            "maxResults": _resolve_max_results(arguments),
         }
         # orderBy=startTime is only valid when recurring events are expanded.
         if single_events:
             params["orderBy"] = "startTime"
-        if arguments.get("max_results") is not None:
-            params["maxResults"] = arguments["max_results"]
+        if arguments.get("page_token") is not None:
+            params["pageToken"] = arguments["page_token"]
         if arguments.get("q"):
             params["q"] = arguments["q"]
 
@@ -529,43 +642,238 @@ class GoogleCalendarClient:
             }
         }
 
-    # -- async leaf adapters ------------------------------------------------------
+    # -- async infrastructure ------------------------------------------------------
+
+    async def _ensure_async_infra(self) -> _AsyncTokenManager:
+        if self._async_token_manager is not None:
+            return self._async_token_manager
+        async with self._async_init_lock:
+            if self._async_token_manager is not None:
+                return self._async_token_manager
+            # Force credential loading via the sync property (serialized by _lock).
+            _ = self.service
+            self._async_token_manager = _AsyncTokenManager(self._credential_coordinator)
+        return self._async_token_manager
+
+    async def _async_execute(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Optional[Dict[str, Any]] = None,
+        json_body: Optional[Dict[str, Any]] = None,
+        operation: str,
+    ) -> Any:
+        token_mgr = await self._ensure_async_infra()
+        http_client = _get_calendar_async_http_client()
+        mutation = operation in _MUTATION_OPERATIONS
+        max_attempts = 1 if mutation else _MAX_ATTEMPTS
+        last_error: Optional[GoogleCalendarApiError] = None
+
+        for attempt in range(1, max_attempts + 1):
+            self.tracer.event(
+                "calendar.request",
+                "Sending Calendar API request.",
+                operation=operation,
+                attempt=attempt,
+                max_attempts=max_attempts,
+            )
+            try:
+                token = await token_mgr.get_access_token()
+                headers = {"Authorization": f"Bearer {token}"}
+                if method == "GET":
+                    resp = await http_client.get(url, params=params, headers=headers)
+                elif method == "POST":
+                    resp = await http_client.post(url, params=params, json=json_body, headers=headers)
+                elif method == "PATCH":
+                    resp = await http_client.patch(url, params=params, json=json_body, headers=headers)
+                elif method == "DELETE":
+                    resp = await http_client.delete(url, params=params, headers=headers)
+                else:
+                    raise ValueError(f"Unsupported method: {method}")
+
+                if resp.status_code >= 400:
+                    api_error = self._classify_status(resp.status_code, operation, attempt)
+                    if mutation and api_error.retryable:
+                        api_error.message = _AMBIGUOUS_MUTATION_MESSAGE
+                        api_error.retryable = False
+                        api_error.ambiguous_commit = True
+                    self.tracer.event(
+                        "calendar.error",
+                        "Calendar API returned an error.",
+                        operation=operation,
+                        kind=api_error.kind,
+                        status=resp.status_code,
+                        retryable=api_error.retryable,
+                        attempt=attempt,
+                    )
+                    if api_error.retryable and attempt < max_attempts:
+                        last_error = api_error
+                        await asyncio.sleep(min(_MAX_DELAY_SECONDS, _BASE_DELAY_SECONDS * (2 ** (attempt - 1))))
+                        continue
+                    raise api_error
+
+                self.tracer.event(
+                    "calendar.response",
+                    "Received Calendar API response.",
+                    operation=operation,
+                    attempt=attempt,
+                )
+                if resp.status_code == 204 or not resp.content:
+                    return None
+                return resp.json()
+
+            except GoogleCalendarApiError:
+                raise
+            except Exception as error:
+                api_error = GoogleCalendarApiError(
+                    kind="transient",
+                    message=_AMBIGUOUS_MUTATION_MESSAGE if mutation else _ERROR_MESSAGES["transient"],
+                    retryable=not mutation,
+                    attempts=attempt,
+                    operation=operation,
+                    ambiguous_commit=mutation,
+                )
+                self.tracer.event(
+                    "calendar.error",
+                    "Calendar API connection failed.",
+                    operation=operation,
+                    attempt=attempt,
+                    error=type(error).__name__,
+                )
+                if not mutation and attempt < max_attempts:
+                    last_error = api_error
+                    await asyncio.sleep(min(_MAX_DELAY_SECONDS, _BASE_DELAY_SECONDS * (2 ** (attempt - 1))))
+                    continue
+                raise api_error from error
+
+        raise last_error or GoogleCalendarApiError(
+            kind="transient",
+            message=_ERROR_MESSAGES["transient"],
+            retryable=True,
+            operation=operation,
+        )
+
+    def _classify_status(self, status: int, operation: str, attempt: int) -> GoogleCalendarApiError:
+        kind = _STATUS_KIND.get(status)
+        if kind is None:
+            kind = "transient" if status >= 500 else "validation"
+        return GoogleCalendarApiError(
+            kind=kind,
+            message=_ERROR_MESSAGES.get(kind, _ERROR_MESSAGES["transient"]),
+            status_code=status,
+            retryable=kind in _RETRYABLE_KINDS,
+            attempts=attempt,
+            operation=operation,
+            reconnect=(kind == "auth"),
+        )
+
+    # -- async leaf adapters (native httpx, no thread pool) ----------------------
 
     async def async_list_calendars(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        return await bounded_to_thread(self.list_calendars, arguments)
+        params: Dict[str, Any] = {"maxResults": str(_resolve_max_results(arguments))}
+        if arguments.get("page_token") is not None:
+            params["pageToken"] = arguments["page_token"]
+        result = await self._async_execute(
+            "GET", f"{_CALENDAR_API_BASE}/users/me/calendarList",
+            params=params, operation="calendar.calendars.list",
+        )
+        items = result.get("items", []) if isinstance(result, dict) else []
+        return {
+            "calendars": [
+                {
+                    "calendar_id": item.get("id"),
+                    "summary": item.get("summary"),
+                    "primary": item.get("primary", False),
+                    "time_zone": item.get("timeZone"),
+                }
+                for item in items
+            ],
+            "next_page_token": result.get("nextPageToken") if isinstance(result, dict) else None,
+        }
 
-    async def async_list_calendar_events(
-        self,
-        arguments: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        return await bounded_to_thread(self.list_calendar_events, arguments)
+    async def async_list_calendar_events(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        calendar_id = arguments.get("calendar_id") or "primary"
+        single_events = arguments.get("single_events")
+        if single_events is None:
+            single_events = True
+        params: Dict[str, Any] = {
+            "timeMin": arguments["time_min"],
+            "timeMax": arguments["time_max"],
+            "singleEvents": str(single_events).lower(),
+            "maxResults": str(_resolve_max_results(arguments)),
+        }
+        if single_events:
+            params["orderBy"] = "startTime"
+        if arguments.get("page_token") is not None:
+            params["pageToken"] = arguments["page_token"]
+        if arguments.get("q"):
+            params["q"] = arguments["q"]
+        result = await self._async_execute(
+            "GET", f"{_CALENDAR_API_BASE}/calendars/{calendar_id}/events",
+            params=params, operation="calendar.events.list",
+        )
+        items = result.get("items", []) if isinstance(result, dict) else []
+        return {
+            "events": [_normalize_event(event) for event in items],
+            "next_page_token": result.get("nextPageToken") if isinstance(result, dict) else None,
+        }
 
-    async def async_get_calendar_event(
-        self,
-        arguments: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        return await bounded_to_thread(self.get_calendar_event, arguments)
+    async def async_get_calendar_event(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        calendar_id = arguments.get("calendar_id") or "primary"
+        result = await self._async_execute(
+            "GET", f"{_CALENDAR_API_BASE}/calendars/{calendar_id}/events/{arguments['event_id']}",
+            operation="calendar.events.get",
+        )
+        return _normalize_event(result)
 
-    async def async_create_calendar_event(
-        self,
-        arguments: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        return await bounded_to_thread(self.create_calendar_event, arguments)
+    async def async_create_calendar_event(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        calendar_id = arguments.get("calendar_id") or "primary"
+        body = _build_event_body(arguments)
+        result = await self._async_execute(
+            "POST", f"{_CALENDAR_API_BASE}/calendars/{calendar_id}/events",
+            json_body=body, operation="calendar.events.insert",
+        )
+        return _normalize_event(result)
 
-    async def async_update_calendar_event(
-        self,
-        arguments: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        return await bounded_to_thread(self.update_calendar_event, arguments)
+    async def async_update_calendar_event(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        arguments = dict(arguments)
+        calendar_id = arguments.pop("calendar_id", None) or "primary"
+        event_id = arguments.pop("event_id")
+        body = _build_event_body(arguments)
+        result = await self._async_execute(
+            "PATCH", f"{_CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
+            json_body=body, operation="calendar.events.patch",
+        )
+        return _normalize_event(result)
 
-    async def async_delete_calendar_event(
-        self,
-        arguments: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        return await bounded_to_thread(self.delete_calendar_event, arguments)
+    async def async_delete_calendar_event(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        calendar_id = arguments.get("calendar_id") or "primary"
+        event_id = arguments["event_id"]
+        await self._async_execute(
+            "DELETE", f"{_CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
+            operation="calendar.events.delete",
+        )
+        return {"success": True, "message": f"Event {event_id} deleted", "event_id": event_id}
 
     async def async_get_freebusy(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        return await bounded_to_thread(self.get_freebusy, arguments)
+        calendar_ids: List[str] = arguments.get("calendar_ids") or ["primary"]
+        body = {
+            "timeMin": arguments["time_min"],
+            "timeMax": arguments["time_max"],
+            "items": [{"id": cid} for cid in calendar_ids],
+        }
+        result = await self._async_execute(
+            "POST", f"{_CALENDAR_API_BASE}/freeBusy",
+            json_body=body, operation="calendar.freebusy.query",
+        )
+        calendars = result.get("calendars", {}) if isinstance(result, dict) else {}
+        return {
+            "calendars": {
+                calendar_id: {"busy": info.get("busy", [])}
+                for calendar_id, info in calendars.items()
+            },
+        }
 
 
-__all__ = ["GoogleCalendarClient"]
+__all__ = ["GoogleCalendarClient", "close_calendar_async_http_client"]

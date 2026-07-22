@@ -5,8 +5,8 @@ current fixes
 - Audio messages are sent directly to the transcription service (Groq Whisper) without first-layer validation. Long recordings or oversized files could hit API limits, waste quota, or fail silently.
 - Context window management. Strategy for if context window exceeds a certain point due to large tool calls, need a running number of tokens tracker. 
 - PII scrub pipeline
-- improve testing pipeline
 - enahnce user preferences input sections and standardise it. add section for "Random notes/ extra comments."
+
 
 ### Db
 - Setup OAuth process. Can just be code for now, run on my laptop. or rather, a script that i have. 
@@ -19,12 +19,13 @@ current fixes
 
 
 ### Latency
-- async for the agent stuff, is prompt building all async? 
 - User query cache (need versioning for preferences schema etc as it may change or maybe everytime they edit preferences then need to scrub their cache). Do this using a hash(user preferences version  + query) cache
+
 
 ### Reliability
 - if user input is above a certain number of words, need a decomposer, or some form of breakdown router. basically a router for the router. now currently its just V4 flash. 
 - must have a round trip second call validator to check that the tool call resulted in actually deleting or adding to prevent model hallucinations. like after the user approves/ rejects then need to check that the tool call fired/ didnt fire. 
+
 
 ### Safety
 - PII scrub?
@@ -42,8 +43,6 @@ current fixes
 
 
 ### Logging
-- Anonymising users data. need strategy. maybe new logger queue. sent for PII scrubbing. 
-  - So user run finishes: All metadata gets sent to the logger. Logging service is a queue that picks it up, post processes it with all the necesary scrubs, then logs it to the databases. 
 
 
 ### Tooling

@@ -108,7 +108,7 @@ def test_async_runner_executes_inside_the_callers_event_loop() -> None:
             agent_client=_FakeAgent("async answer"),
             todoist_client=_FakeTodoist(),
             tracer=NULL_TRACE,
-            checkpointer=builder.DEFAULT_CHECKPOINTER,
+            checkpointer=builder.get_default_checkpointer(),
         )
         assert result["final_response"] == "async answer"
 
@@ -137,7 +137,7 @@ def test_async_runner_injects_exact_run_control_into_dispatcher_and_deps() -> No
                 agent_client=_FakeAgent("unused"),
                 todoist_client=_FakeTodoist(),
                 tracer=NULL_TRACE,
-                checkpointer=builder.DEFAULT_CHECKPOINTER,
+                checkpointer=builder.get_default_checkpointer(),
                 run_control=control,
             )
         )
@@ -166,7 +166,7 @@ def test_intentional_async_cancellation_is_not_written_as_graph_crash() -> None:
                     agent_client=_FakeAgent("unused"),
                     todoist_client=_FakeTodoist(),
                     tracer=NULL_TRACE,
-                    checkpointer=builder.DEFAULT_CHECKPOINTER,
+                    checkpointer=builder.get_default_checkpointer(),
                     run_control=RunControl(),
                 )
             )
@@ -298,7 +298,7 @@ def test_async_runner_persists_fresh_context_before_graph_entry() -> None:
                 user_prompt="fresh",
                 identity=telegram_identity(123),
                 tracer=NULL_TRACE,
-                checkpointer=builder.DEFAULT_CHECKPOINTER,
+                checkpointer=builder.get_default_checkpointer(),
             )
         )
 
@@ -348,7 +348,7 @@ def test_async_runner_resumes_with_command_and_same_thread() -> None:
                 clarification_reply="approve",
                 identity=telegram_identity(123),
                 tracer=NULL_TRACE,
-                checkpointer=builder.DEFAULT_CHECKPOINTER,
+                checkpointer=builder.get_default_checkpointer(),
             )
         )
 

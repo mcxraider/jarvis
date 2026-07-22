@@ -21,6 +21,7 @@ import { CommandHandlers } from './services/telegram/handlers/command-handlers';
 import { CallbackHandler } from './services/telegram/handlers/callback-handler';
 import { TelegramHandlers } from './services/telegram/handlers/telegram-handlers';
 import { TelegramBotService } from './services/telegram/telegram-bot.service';
+import { TelegramMenuRegistry } from './services/telegram/telegram-menu.registry';
 import { createUserAuthorizationStore } from './services/telegram/user-authorization.store';
 import { setRichMessagesEnabled } from './services/telegram/formatters/telegram-rich';
 import { verifyDatabaseRuntime } from './services/database/database-runtime-readiness';
@@ -138,8 +139,8 @@ const messageHandlers = new MessageHandlers(
   messageProcessor,
   activityService,
   pendingStore,
-  conversationGate,
   terminalReplyStore,
+  conversationGate,
 );
 const commandHandlers = new CommandHandlers(
   activityService,
@@ -156,6 +157,7 @@ const callbackHandler = new CallbackHandler(
 );
 
 const handlers = new TelegramHandlers(commandHandlers, messageHandlers, callbackHandler);
+const telegramMenu = new TelegramMenuRegistry();
 
 // Final assembly: the TelegramBotService owns the Telegraf instance, registers
 // all handlers, and exposes handleUpdate() for the Express webhook route.
@@ -170,8 +172,9 @@ const telegramConfig: TelegramConfig = {
 export const botService = new TelegramBotService(
   telegramConfig,
   handlers,
-  userAuthorizationStore,
   terminalReplyStore,
+  userAuthorizationStore,
+  telegramMenu,
 );
 
 // When a conversation gate times out, notify the user, collapse any active clarification,

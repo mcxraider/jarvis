@@ -326,7 +326,15 @@ export class PostgresConversationGateStore implements ConversationGateStore {
   private onExpiryCallback?: GateExpiryCallback;
 
   constructor(connectionString: string) {
-    this.pool = new Pool({ connectionString });
+    this.pool = new Pool({
+      connectionString,
+      max: 5,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 5_000,
+    });
+    this.pool.on('error', (err) => {
+      logger.warn('telegram.gate_store.pool_error', { error: err.message });
+    });
   }
 
   setOnExpiry(callback: GateExpiryCallback): void {
@@ -348,6 +356,7 @@ export class PostgresConversationGateStore implements ConversationGateStore {
             buffered_message = NULL,
             active_request_id = $3
         WHERE public.telegram_conversation_gates.status = 'idle'
+           OR public.telegram_conversation_gates.expires_at <= NOW()
       RETURNING gate_key
       `,
       [gateKey, ttlMs, requestId ?? null],

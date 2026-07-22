@@ -453,3 +453,65 @@ class TestIdempotencyConfiguration:
         store = create_default_idempotency_store("postgresql://unreachable")
         assert isinstance(store, PostgresIdempotencyStore)
         assert store._pool is None
+
+
+class TestPostgresIdempotencyStorePoolHardening:
+    def test_close_resets_pool_to_none(self):
+        pool = FakePool()
+        pool.close = lambda: None
+        store = PostgresIdempotencyStore(
+            "postgresql://example",
+            pool_factory=lambda **_kwargs: pool,
+        )
+        store.claim("key", "request", 60, 10)
+        assert store._pool is not None
+        store.close()
+        assert store._pool is None
+
+    def test_close_is_safe_when_pool_not_opened(self):
+        store = PostgresIdempotencyStore("postgresql://example")
+        store.close()
+        assert store._pool is None
+
+    def test_fallback_factory_receives_health_check_params(self):
+        """When pool_factory is provided, it still gets check/max_idle/max_lifetime."""
+        received_kwargs = {}
+
+        def capturing_factory(**kwargs):
+            received_kwargs.update(kwargs)
+            return FakePool(**kwargs)
+
+        store = PostgresIdempotencyStore(
+            "postgresql://example", pool_factory=capturing_factory
+        )
+        store.claim("key", "request", 60, 10)
+
+        assert received_kwargs["max_idle"] == 300
+        assert received_kwargs["max_lifetime"] == 1800
+        assert received_kwargs["min_size"] == 2
+        assert received_kwargs["max_size"] == 5
+        assert callable(received_kwargs["check"])
+
+    def test_default_factory_sets_health_check_params(self):
+        """When no pool_factory is provided, the pool gets check/max_idle/max_lifetime."""
+        from unittest.mock import patch as _patch, MagicMock
+
+        mock_pool_cls = MagicMock()
+        mock_pool_cls.check_connection = "check_sentinel"
+        mock_pool = FakePool()
+        mock_pool.close = lambda: None
+        mock_pool_cls.return_value = mock_pool
+
+        store = PostgresIdempotencyStore("postgresql://example")
+        with _patch.dict(
+            "sys.modules",
+            {"psycopg_pool": MagicMock(ConnectionPool=mock_pool_cls)},
+        ):
+            store._ensure_pool()
+        call_kwargs = mock_pool_cls.call_args[1]
+        assert call_kwargs["max_idle"] == 300
+        assert call_kwargs["max_lifetime"] == 1800
+        assert call_kwargs["min_size"] == 2
+        assert call_kwargs["max_size"] == 5
+        assert call_kwargs["check"] == "check_sentinel"
+        store.close()

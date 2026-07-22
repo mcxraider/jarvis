@@ -418,6 +418,27 @@ class TestThrottleIntegration:
             assert delay >= 0.15
 
 
+class TestExecutionErrorHandling:
+    @patch("agents.agent_api.app.graph.nodes.executor.EXECUTOR_BATCH_TIMEOUT_SECONDS", 5.0)
+    def test_exception_in_execute_does_not_crash_with_unbound_local(self):
+        """If _execute_one raises, deadline_elapsed must not be unbound."""
+        held = _make_held_call()
+        dispatcher = MagicMock()
+        dispatcher.allow_mutations = True
+        dispatcher.async_execute_tool = AsyncMock(
+            side_effect=RuntimeError("simulated provider failure")
+        )
+
+        node = create_executor_node(dispatcher)
+        state = _make_state(held, decision="approve")
+        result = _run(node, state)
+
+        assert len(result["messages"]) == 1
+        content = json.loads(result["messages"][0]["content"])
+        assert content["success"] is False
+        assert "Execution error" in content["error"]
+
+
 class TestBatchDeadlineSettlement:
     @patch("agents.agent_api.app.graph.nodes.executor.EXECUTOR_BATCH_TIMEOUT_SECONDS", 0.05)
     def test_timeout_waits_for_current_call_and_does_not_start_later_mutations(self):

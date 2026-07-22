@@ -37,7 +37,7 @@ describe('Agent API contract — AgentResponseSchema', () => {
     }
   });
 
-  it('accepts an interrupted-confirm response', () => {
+  it('accepts an interrupted-confirm response with batch fields', () => {
     const data = loadFixture('response-interrupted-confirm.json');
     const result = AgentResponseSchema.safeParse(data);
     expect(result.success).toBe(true);
@@ -45,6 +45,10 @@ describe('Agent API contract — AgentResponseSchema', () => {
       expect(result.data.status).toBe('interrupted');
       expect(result.data.interrupt?.type).toBe('confirm');
       expect(result.data.interrupt?.tool_name).toBe('delete_todoist_task');
+      expect(result.data.interrupt?.held_call_ids).toEqual(['held_abc']);
+      expect(result.data.interrupt?.count).toBe(1);
+      expect(result.data.interrupt?.tool_names).toEqual(['delete_todoist_task']);
+      expect(result.data.interrupt?.services).toEqual(['todoist']);
     }
   });
 
@@ -151,10 +155,10 @@ describe('Agent API contract — rejection cases', () => {
     expect(result.success).toBe(false);
   });
 
-  it('rejects progress event without message', () => {
+  it('accepts progress event with only stage (legacy format)', () => {
     const data = { type: 'progress', stage: 'thinking' };
     const result = StreamProgressEventSchema.safeParse(data);
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 });
 

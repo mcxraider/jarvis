@@ -215,7 +215,15 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
   private readonly pool: Pool;
 
   constructor(connectionString: string) {
-    this.pool = new Pool({ connectionString });
+    this.pool = new Pool({
+      connectionString,
+      max: 5,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 5_000,
+    });
+    this.pool.on('error', (err) => {
+      logger.warn('telegram.pending_store.pool_error', { error: err.message });
+    });
   }
 
   async get(pendingKey: string): Promise<PendingClarificationRecord | undefined> {

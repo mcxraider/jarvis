@@ -25,6 +25,14 @@ EXPECTED = {
 }
 
 
+def _schema(name):
+    return next(
+        schema
+        for schema in get_calendar_tool_schemas()
+        if schema["function"]["name"] == name
+    )
+
+
 def test_layer_consistency():
     schema_names = {s["function"]["name"] for s in get_calendar_tool_schemas()}
     spec_names = {s.name for s in get_calendar_tool_specs(MagicMock())}
@@ -32,6 +40,14 @@ def test_layer_consistency():
     assert schema_names == EXPECTED
     assert spec_names == EXPECTED
     assert lc_names == EXPECTED
+
+
+def test_collection_schemas_publish_defaults_and_page_tokens():
+    for name in ("list_calendars", "list_calendar_events"):
+        properties = _schema(name)["function"]["parameters"]["properties"]
+        assert properties["max_results"]["default"] == 50
+        assert properties["max_results"]["maximum"] == 250
+        assert "page_token" in properties
 
 
 def test_mutating_flags():
@@ -106,3 +122,42 @@ def test_langchain_tool_routes_through_dispatch():
     assert calls[0][0] == "create_calendar_event"
     assert calls[0][1]["summary"] == "Standup"
     assert calls[0][1]["start_datetime"] == "2026-07-02T14:00:00+08:00"
+
+
+def test_list_langchain_tools_forward_limit_and_page_token():
+    calls = []
+
+    def _dispatch(tool_call_id, name, args):
+        calls.append((name, args))
+        return {"ok": True}
+
+    tools = {tool.name: tool for tool in build_calendar_langchain_tools(_dispatch)}
+    tools["list_calendars"].invoke(
+        {
+            "name": "list_calendars",
+            "type": "tool_call",
+            "id": "call-calendars",
+            "args": {"max_results": 25, "page_token": "cal-token"},
+        }
+    )
+    tools["list_calendar_events"].invoke(
+        {
+            "name": "list_calendar_events",
+            "type": "tool_call",
+            "id": "call-events",
+            "args": {
+                "time_min": "2026-07-02T00:00:00+08:00",
+                "time_max": "2026-07-03T00:00:00+08:00",
+                "max_results": 30,
+                "page_token": "event-token",
+            },
+        }
+    )
+
+    assert calls[0] == (
+        "list_calendars",
+        {"max_results": 25, "page_token": "cal-token"},
+    )
+    assert calls[1][0] == "list_calendar_events"
+    assert calls[1][1]["max_results"] == 30
+    assert calls[1][1]["page_token"] == "event-token"

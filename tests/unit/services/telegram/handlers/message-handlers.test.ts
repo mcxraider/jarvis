@@ -1,6 +1,7 @@
 import { MessageHandlers } from '../../../../../src/services/telegram/handlers/message-handlers';
 import { TELEGRAM_ONBOARDING_MESSAGE } from '../../../../../src/services/telegram/onboarding-message';
 import { setRichMessagesEnabled } from '../../../../../src/services/telegram/formatters/telegram-rich';
+import { createTerminalReplyStore } from '../../../../../src/services/telegram/terminal-reply.store';
 import { logger } from '../../../../../src/utils/logger';
 
 // Minimal PendingClarificationStore mock. `get` defaults to "no pending record".
@@ -60,6 +61,7 @@ describe('MessageHandlers', () => {
       messageProcessor,
       activityService,
       pendingStore,
+      createTerminalReplyStore(),
       options.gateStore,
     );
 
@@ -140,7 +142,7 @@ describe('MessageHandlers', () => {
       processTextMessage: jest.fn().mockResolvedValue({ response: 'processed text' }),
     } as any;
     const activityService = { recordActivity: jest.fn() } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore());
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore(), createTerminalReplyStore());
     const ctx = createContext({ text: 'hello', message_id: 99 });
 
     await handlers.handleText(ctx);
@@ -379,7 +381,7 @@ describe('MessageHandlers', () => {
     const activityService = {
       recordActivity: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore());
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore(), createTerminalReplyStore());
     const ctx = createContext({
       document: {
         file_id: 'file-1',
@@ -437,7 +439,7 @@ describe('MessageHandlers', () => {
       }),
     } as any;
     const activityService = { recordActivity: jest.fn() } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore());
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore(), createTerminalReplyStore());
     const ctx = createContext(message);
 
     if (kind === 'voice') {
@@ -477,6 +479,7 @@ describe('MessageHandlers', () => {
       messageProcessor,
       { recordActivity: jest.fn() } as any,
       makePendingStore(),
+      createTerminalReplyStore(),
     );
     const ctx = createContext({ voice: { file_id: 'voice-1', duration: 3 } });
 
@@ -499,7 +502,7 @@ describe('MessageHandlers', () => {
     const activityService = {
       recordActivity: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore());
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore(), createTerminalReplyStore());
     const ctx = createContext({
       photo: [
         { file_id: 'small', width: 320, height: 240, file_size: 1000 },
@@ -529,7 +532,7 @@ describe('MessageHandlers', () => {
     const activityService = {
       recordActivity: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore());
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore(), createTerminalReplyStore());
     const ctx = createContext({
       sticker: { file_id: 'sticker-1' },
     });
@@ -553,7 +556,7 @@ describe('MessageHandlers', () => {
     const activityService = {
       recordActivity: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore());
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore(), createTerminalReplyStore());
     const ctx = createContext({
       document: {
         file_id: 'file-1',
@@ -583,7 +586,7 @@ describe('MessageHandlers', () => {
     const activityService = {
       recordActivity: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore());
+    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore(), createTerminalReplyStore());
     const ctx = createContext({
       document: {
         file_id: 'file-1',

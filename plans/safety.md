@@ -1,397 +1,437 @@
-# Telegram Ingress and Abuse-Safety Plan
+# Telegram Ingress, Resource-Safety, and Break-Prevention Plan
 
-Status: proposed  
-Last reviewed: 2026-07-16  
-Scope: Telegram webhook ingress, text handling, audio download/transcription, and the Python agent request gate
+Status: audited; safeguards partially implemented
+
+Last reviewed: 2026-07-17
+
+Scope: public HTTP ingress, Telegram dispatch, text and audio processing, the TypeScript-to-Python agent boundary, process lifecycle, and safe rollout
 
 ## Executive summary
 
-Jarvis already has useful safety controls: Telegram user authorization, webhook request-body parsing limits, a 25 MB transcription limit, download and FFmpeg timeouts, accepted audio MIME types, per-conversation serialization, a daily fresh-thread quota, and bounded downstream calls.
+The previous plan was directionally correct, but it had drifted from the implementation and was too narrow for its stated goal of preventing application breakage.
 
-These controls reduce accidental overload, but they do not fully protect the service from an abusive authorized user. The main weaknesses are:
+The repository already has meaningful safeguards: database and timeout-contract startup barriers, Telegram authorization, a durable per-conversation gate, request idempotency and thread ownership in Python, a daily fresh-thread quota, a global Python run-admission limit, bounded provider retries and timeouts, async bounded logging, health checks, container restart policies, and restricted public routes.
 
-1. Text has no explicit application-level maximum length.
-2. Audio is fully downloaded into memory before the 25 MB limit is enforced.
-3. Audio duration is logged but never restricted.
-4. Daily thread quota is charged only after audio transcription, so it does not protect download, FFmpeg, or Groq usage.
-5. There is no per-user ingress rate limit or global transcription concurrency limit.
-6. Downloaded content with an unexpected MIME type is warned about but still processed.
+The highest-risk gaps remain before the Python admission gate:
 
-The first implementation milestone should reject unsafe input before expensive work begins. It should add early metadata validation, streaming byte limits, a duration limit, explicit text limits, and a transcription concurrency cap. A second milestone should introduce atomic per-user text/audio quotas and improve operational visibility.
+1. Audio is completely buffered in memory before the 25 MiB application check.
+2. Audio duration is observed but not restricted.
+3. The Telegram audio pipeline has no global concurrency or queue bound.
+4. Text and composed agent messages have no explicit application-level maximum.
+5. Webhook body size is implicit, and the configured Telegram secret-token header is not validated.
+6. Telegram redelivery can repeat download, conversion, and transcription before Python idempotency takes effect.
+7. The Node process continues after `uncaughtException`, when application state may be inconsistent.
+8. Graceful shutdown does not explicitly drain or cancel detached webhook work.
+9. Some request and transcription content previews are still logged.
 
-## Threat model
+The first delivery milestone should prevent a single request or crash from destabilizing the service: bounded streaming downloads, early metadata rejection, explicit body/text limits, strict webhook authentication, a fail-fast fatal-error policy, and tracked shutdown of in-flight work. The next milestone should bound aggregate audio cost with a semaphore, queue, per-user quotas, and update-level deduplication.
 
-This plan primarily covers accidental misuse and deliberate abuse by an authorized Telegram user. It also covers malformed or forged HTTP requests reaching the webhook endpoint.
+## Audit basis
 
-Representative cases:
+This review traced the current code paths and configuration rather than relying on older reports. Principal sources:
 
-- A user repeatedly sends the largest permitted text message.
-- A user uploads a very long, low-bitrate recording that remains under 25 MB.
-- A Telegram audio object advertises an oversized `file_size`.
-- A download has no trustworthy `Content-Length`, or streams more bytes than advertised.
-- Several authorized users trigger transcription simultaneously.
-- One user submits requests from multiple chats to bypass a per-conversation gate.
-- A non-audio payload is disguised as an audio document.
-- A request is retried or replayed to repeat expensive work.
-
-Out of scope for this plan:
-
-- Prompt injection and unsafe tool authorization.
-- Abuse within Todoist, Calendar, or other downstream provider APIs.
-- Host-level DDoS protection, firewall rules, and reverse-proxy/CDN configuration.
-
-## Controls already in place
-
-### Authorization and webhook ingress
-
-- `TelegramBotService.handleUpdate()` checks the sender against the configured authorization store before Telegraf dispatch.
-- The webhook URL includes a configured secret and mismatches are rejected.
-- Express JSON parsing uses its default body-size limit, approximately 100 KB. This is useful but implicit and should be made explicit.
-- Telegram updates are acknowledged immediately, reducing Telegram redelivery caused by slow processing.
-
-Relevant code:
-
-- `src/services/telegram/telegram-bot.service.ts`
-- `src/controllers/webhook.controller.ts`
 - `src/server.ts`
-
-### Text and conversation execution
-
-- Empty text is rejected.
-- A conversation gate permits only one active request per user/chat.
-- When a text request arrives during an active request, only one buffered message is retained and it is truncated to 4,096 characters.
-- Agent requests have bounded timeouts and retries.
-
-Relevant code:
-
-- `src/services/telegram/processors/text-processor.service.ts`
+- `src/controllers/webhook.controller.ts`
+- `src/app.ts`
+- `src/services/telegram/telegram-bot.service.ts`
+- `src/services/telegram/message-processor.service.ts`
 - `src/services/telegram/conversation-gate.store.ts`
+- `src/services/telegram/processors/text-processor.service.ts`
+- `src/services/telegram/processors/audio-processor.service.ts`
+- `src/services/ai/whisper.service.ts`
 - `src/services/ai/langgraph-agent-client.service.ts`
+- `src/utils/ai/audioConverter.ts`
+- `src/utils/logger.ts` and `src/utils/log-worker.ts`
+- `agents/agent_api/app/api/admission.py`
+- `agents/agent_api/app/api/schemas.py`
+- `agents/agent_api/app/middleware/request_gate.py`
+- `agents/agent_api/app/middleware/rate_limit.py`
+- `Caddyfile`, `docker-compose.yml`, and `scripts/deploy.sh`
+
+This plan covers service availability, resource exhaustion, replay, and failure containment. Prompt injection, tool authorization, destructive-action confirmation, and provider permission boundaries remain separate concerns; see `reports/features/list-of-safety-measures.md`.
+
+## Verified safeguards already in place
+
+### Startup and deployment containment
+
+- Required Node environment variables are checked before service construction.
+- Node does not listen until database runtime readiness and the TypeScript/Python timeout contract both pass.
+- Production exposes only Caddy ports 80 and 443; Node and Python remain private container services.
+- Caddy forwards only `/ping`, `/health`, and `/webhook/*` and returns 404 for other public routes.
+- The agent must be healthy before the web container starts.
+- All three containers use bounded Docker JSON logs and `restart: unless-stopped`.
+- Deployment uses `git pull --ff-only`, validates Compose configuration, rebuilds, and waits for health.
+
+### Telegram authorization and dispatch
+
+- The webhook path contains a configured secret and mismatches return 401.
+- Webhook registration also configures Telegram's `secret_token` header.
+- `TelegramBotService.handleUpdate()` resolves the sender and checks the authorization store before Telegraf dispatch.
+- The webhook acknowledges accepted updates immediately, reducing Telegram retries caused only by slow handler execution.
+- Telegraf has a last-resort handler watchdog, while the agent client has tighter overall and stream-idle deadlines.
+
+Important limitation: registration sends `X-Telegram-Bot-Api-Secret-Token`, but the controller currently validates only the URL path secret.
+
+### Conversation and agent execution
+
+- The conversation gate is durable in production when `TELEGRAM_GATE_STORE=postgres`.
+- It serializes requests by hashed chat-and-user conversation key, has running and waiting TTLs, and uses generation/request IDs to avoid stale completion ownership.
+- One message can be buffered while a request runs; the stored buffer is capped at 4,096 UTF-16 code units.
+- Active request IDs are persisted so `/cancel` can target the correct Python run across Node instances.
+- Pending clarification state is durable, expires, and is bound to the conversation generation.
+- The Python request gate requires the agent API key, enforces thread ownership, and coordinates idempotent requests.
+- Python has a process-wide run-admission semaphore. Production currently configures `JARVIS_MAX_CONCURRENT_RUNS=8`; saturation returns HTTP 429 with `Retry-After`.
+- New Telegram threads consume an atomic daily quota, currently defaulting to 100 per user per Singapore calendar day.
+
+Important limitations:
+
+- The Telegram gate is per conversation, not per user across all chats.
+- Python admission happens after Telegram audio download, optional FFmpeg conversion, and transcription.
+- The fresh-thread quota fails open on transient and unexpected database failures, and it does not charge resumed threads or rejected/pre-agent audio work.
 
 ### Audio processing
 
-- Only supported audio documents are accepted at the Telegram handler.
-- Audio is rejected when its downloaded size exceeds 25 MB.
-- Converted output is checked against the same 25 MB limit.
-- Audio downloads have a 30-second timeout.
-- FFmpeg conversion has a 30-second timeout and kills the child process on expiry.
-- Groq transcription retries, retry delays, and total retry time are bounded.
-- Provider rate-limit and oversized-payload errors are converted into user-safe messages.
+- Audio documents are filtered using an accepted MIME-type list at the handler.
+- Raw and converted buffers are rejected above the configured Whisper service ceiling, which defaults to `25 * 1024 * 1024` bytes.
+- Downloads use a 30-second abort timer.
+- FFmpeg uses a fixed executable and argument array without a shell, has a 30-second timeout, and cleans temporary files in `finally`.
+- Groq request timeout, retry count, retry delay, total retry window, and accepted `Retry-After` are bounded.
+- Provider rate-limit, timeout, and oversized-payload failures are mapped to user-safe responses.
 
-Relevant code:
+Important limitations:
 
-- `src/services/telegram/handlers/message-handlers.ts`
-- `src/services/ai/whisper.service.ts`
-- `src/utils/ai/fileValidation.ts`
-- `src/utils/ai/audioConverter.ts`
-- `src/services/telegram/errors/classified-error.ts`
+- `response.arrayBuffer()` buffers the entire download before the size check.
+- Telegram `file_size`, Telegram duration, and HTTP `Content-Length` do not reject work early.
+- Unexpected downloaded `Content-Type` is warning-only.
+- There is no media signature validation or global audio-pipeline capacity limit.
 
-### Agent quota
+### Logging and health
 
-- The Python request gate requires the agent API key, applies idempotency and thread-ownership rules, and consumes a daily fresh-thread quota.
-- The database default is 100 new threads per user per Singapore calendar day.
+- TypeScript logs use the shared asynchronous worker, with bounded queue/bytes, redaction, best-effort failure behavior, flush, and shutdown support.
+- Telegram file URLs are redacted by value when the complete marker `api.telegram.org/file/bot` reaches the logger.
+- Python run logs use the existing bounded asynchronous logging facilities.
+- `/health` checks database readiness, the private agent, and recent logger-worker health.
 
-Relevant code:
+Important limitations:
 
-- `agents/agent_api/app/middleware/request_gate.py`
-- `agents/agent_api/app/middleware/rate_limit.py`
-- `supabase/migrations/20260708054541_thread_quota_middleware.sql`
+- Several call sites truncate a Telegram file URL before logging it. A truncated value may no longer match URL redaction, so URLs should never be passed to the logger at all.
+- Text message, transcription, and Whisper segment previews are logged. This conflicts with a content-minimizing production logging policy.
+- `/ping` is intentionally liveness-only and does not indicate dependency readiness.
 
-## Findings and risks
+## Corrections to the previous plan
 
-### P0: Audio size is checked too late
+- The conversation gate is no longer merely an in-memory per-process guard in production; it has a PostgreSQL implementation and generation-safe ownership operations.
+- A global admission cap already exists for Python agent runs. The missing cap is specifically the pre-agent Telegram audio pipeline.
+- Telegram's secret-token header is already configured during webhook registration; the missing half is server-side validation.
+- The daily thread quota is atomic, but its documented failure behavior is not uniformly fail-closed: transient and unexpected database errors currently fail open.
+- The 25 MiB check is a provider-upload check, not an ingress memory bound.
+- Update-derived request IDs protect Python execution through idempotency, but do not prevent repeated transcription before the Python boundary.
+- Buffered-message truncation is not a general text-size policy. A first message, reply-composed message, transcription, and direct Python request remain unbounded by schema.
 
-`WhisperService.downloadAudioFile()` calls `response.arrayBuffer()`, creating an in-memory copy of the complete response. `validateFileSize()` runs only after the download returns. An oversized or misleading response can therefore consume memory and bandwidth before rejection.
+## Threat and failure model
 
-The code also does not reject early from Telegram's `file_size` metadata or HTTP `Content-Length`.
+Representative cases:
 
-Impact:
+- An authorized user sends very large or very long inputs repeatedly.
+- A low-bitrate recording stays under the byte ceiling but consumes excessive transcription time and cost.
+- Telegram or an intermediary omits or lies about `file_size` or `Content-Length`.
+- Several users start audio work simultaneously and exhaust memory, CPU, temporary disk, network, or Groq capacity.
+- One user uses several chats to bypass a per-conversation gate.
+- Telegram redelivers an update after the service has already acknowledged or partially processed it.
+- A forged request knows the URL secret but lacks Telegram's secret-token header.
+- FFmpeg, the logger worker, a provider client, or detached webhook work fails during shutdown.
+- An uncaught exception leaves mutated process state and the server continues accepting traffic.
+- A rollout changes limits, schemas, or timeout ordering incompatibly and breaks an otherwise healthy deployment.
 
-- Memory pressure or process termination under concurrent downloads.
-- Wasted bandwidth and time.
-- The advertised 25 MB limit is not an ingress memory limit.
+Out of scope:
 
-### P0: Audio duration is unrestricted
+- Generic volumetric DDoS beyond the reverse proxy or host firewall.
+- Prompt injection, model-content policy, and tool-level authorization.
+- Provider-side outages that cannot be mitigated with bounded retries and honest degradation.
 
-Telegram supplies a duration for voice and audio messages, but the handler only logs it. A low-bitrate recording can stay under 25 MB while representing a very long recording.
+## Prioritized findings
 
-Impact:
+| Priority | Finding | Failure mode | Required outcome |
+|---|---|---|---|
+| P0 | Whole-body audio buffering | OOM, bandwidth exhaustion | Stream with a hard byte ceiling and abort immediately on overflow |
+| P0 | Continue-after-`uncaughtException` policy | Serve from unknown/corrupt state | Stop accepting work, flush best effort, and exit non-zero for supervisor restart |
+| P0 | Implicit webhook body limit and missing header check | Avoidable parser load or forged dispatch | Explicit 413 limit and constant-time validation of both configured secrets |
+| P0 | Detached work not tracked through shutdown | Lost, duplicated, or half-finished turns | Track in-flight updates; drain to a deadline, then cancel and exit |
+| P1 | No audio duration bound | Unbounded cost/latency below byte limit | Reject known excessive duration before `getFileUrl()` |
+| P1 | No global audio capacity bound | Concurrent CPU/memory/provider exhaustion | Bound active pipelines and waiting queue before download |
+| P1 | No explicit text/composed-message limits | Context, storage, and model-cost pressure | Enforce at Telegram, composed-message, transcription, and Python schema boundaries |
+| P1 | Pre-agent replay is not idempotent | Duplicate download/transcription and confusing replies | Atomically claim `update_id` before expensive work and persist terminal state |
+| P1 | Content previews in production logs | Privacy leakage and larger logs | Log lengths, hashes, categories, and IDs only; remove raw content previews |
+| P1 | No per-user ingress quota across chats | Gate bypass and sustained paid-resource use | Atomic identity-level text/audio buckets independent of chat |
+| P2 | MIME is metadata-only and warn-only after download | Invalid data reaches FFmpeg/provider | Enforce allowed types plus bounded magic-byte inspection |
+| P2 | Proxy has no explicit body/rate/time limits | Unnecessary traffic reaches Node | Add route-specific request and connection controls where supported |
+| P2 | Limit parsing is distributed and permissive | Unsafe typo silently selects a fallback | Centralize strict parsing and fail startup on invalid production values |
 
-- Unbounded transcription cost relative to file size.
-- Long-running provider calls and delayed user processing.
-- Increased exposure to concurrent workload exhaustion.
+## Safety policy and initial limits
 
-### P1: Text has no explicit maximum length
+All limits must be centralized, strictly parsed, validated at startup, documented in both environment examples, and logged once without secret values. Production must not accept zero, negative, `NaN`, or unbounded values unless an explicit emergency override is separately enabled and audited.
 
-The Telegram handler, TypeScript text processor, agent client, and Pydantic request schemas do not impose a maximum message length. Ordinary Telegram messages have platform constraints, but internal API callers and forged requests must not be trusted to honor them. Reply context and audio transcription can also increase the final agent payload beyond the incoming Telegram text length.
+Suggested starting policy:
 
-Impact:
-
-- Excessive model input cost and context pressure.
-- Larger checkpoint and idempotency records.
-- Inconsistent behavior between Telegram and direct API callers.
-
-### P1: The daily quota is applied after transcription
-
-Audio is downloaded, optionally converted, and transcribed before the transcribed text enters the Python request gate. The daily fresh-thread quota therefore protects agent execution but not Telegram bandwidth, local conversion, or Groq transcription cost.
-
-Impact:
-
-- An authorized user can consume transcription resources without consuming a thread quota, including requests that never produce usable text.
-
-### P1: No per-user ingress rate limit
-
-The conversation gate is keyed by user and chat. It prevents concurrent work within one conversation but is not a global per-user limiter. A user may use several chats, and many authorized users may submit work concurrently.
-
-Impact:
-
-- Bursts can reach the downloader and transcription provider.
-- The service relies on downstream provider limits rather than controlling its own workload.
-
-### P1: No global transcription concurrency cap
-
-There is no bounded queue or semaphore around audio download, FFmpeg, and transcription.
-
-Impact:
-
-- CPU, memory, temporary-disk, network, and provider resources can all be saturated at once.
-
-### P2: Download MIME validation is warn-only
-
-An unexpected `Content-Type` produces a warning but processing continues. Telegram document MIME metadata is useful but is not proof of the downloaded content type.
-
-Impact:
-
-- Invalid or disguised data reaches format detection, FFmpeg, or the provider.
-
-### P2: Webhook protections are implicit or incomplete
-
-- The JSON body limit relies on the Express default rather than a named configuration.
-- The webhook secret is checked in the URL path. The Telegram `X-Telegram-Bot-Api-Secret-Token` header should also be validated when configured.
-- No route-level IP or request-rate protection exists in the application.
-
-The header check is defense in depth; upstream proxy controls remain the preferred protection against generic HTTP floods.
-
-## Proposed safety policy
-
-All limits should be configurable, validated at startup, and given conservative defaults. Suggested initial defaults:
-
-| Control | Environment variable | Suggested default |
+| Control | Environment variable | Initial default |
 |---|---|---:|
 | Webhook JSON body | `TELEGRAM_WEBHOOK_BODY_LIMIT` | `128kb` |
-| Telegram text characters | `TELEGRAM_MAX_TEXT_CHARS` | `4096` |
-| Agent message characters after context composition | `AGENT_MAX_MESSAGE_CHARS` | `12000` |
-| Audio input bytes | `TELEGRAM_MAX_AUDIO_BYTES` | `26214400` (25 MiB) |
+| Telegram input text | `TELEGRAM_MAX_TEXT_CODEPOINTS` | `4096` |
+| Final composed agent message | `AGENT_MAX_MESSAGE_CODEPOINTS` | `12000` |
+| Audio input bytes | `TELEGRAM_MAX_AUDIO_BYTES` | `25165824` (24 MiB) |
 | Audio duration | `TELEGRAM_MAX_AUDIO_DURATION_SECONDS` | `1200` (20 minutes) |
-| Audio download timeout | `TELEGRAM_AUDIO_DOWNLOAD_TIMEOUT_MS` | `30000` |
+| Audio download deadline | `TELEGRAM_AUDIO_DOWNLOAD_TIMEOUT_MS` | `30000` |
 | Per-user audio starts | `TELEGRAM_AUDIO_RATE_LIMIT` | `5 per 15 minutes` |
 | Per-user text starts | `TELEGRAM_TEXT_RATE_LIMIT` | `30 per minute` |
-| Global concurrent transcriptions | `TELEGRAM_MAX_CONCURRENT_TRANSCRIPTIONS` | `3` |
-| Maximum queued transcriptions | `TELEGRAM_MAX_QUEUED_TRANSCRIPTIONS` | `10` |
+| Active audio pipelines | `TELEGRAM_MAX_ACTIVE_AUDIO_PIPELINES` | `3` |
+| Queued audio pipelines | `TELEGRAM_MAX_QUEUED_AUDIO_PIPELINES` | `10` |
+| Graceful shutdown drain | `SHUTDOWN_DRAIN_TIMEOUT_MS` | `10000` |
 
-These are starting values, not permanent product policy. They should be tuned using observed file sizes, durations, latency, rejection counts, and provider quotas.
+Use a 24 MiB application ceiling initially to leave transport/provider overhead below a nominal 25 MB provider boundary. Confirm the provider's current byte semantics before changing it; the application limit must never exceed the provider limit.
 
 Limit semantics:
 
-- Count Unicode code points consistently rather than raw UTF-16 units where practical.
-- Reject oversized text; do not silently truncate user intent.
-- Reject audio when either size or duration exceeds its limit.
-- Treat missing metadata as unknown, then enforce the limit during streaming.
-- Apply limits before sending progress messages or performing network/provider work when possible.
-- Error messages should state the applicable limit and tell the user how to proceed.
-- Limit failures should not consume agent thread quota, but accepted audio should consume a separate audio-attempt quota before downloading.
+- Count Unicode code points consistently at both language boundaries. Document any unavoidable difference from UTF-16 code units.
+- Reject oversized user intent; do not silently truncate it. The single buffered follow-up may remain capped, but the user must be told if it was not retained in full.
+- Reject audio when either size or duration exceeds policy.
+- Treat missing metadata as unknown, not safe; enforce the byte ceiling while streaming.
+- Acquire quota and capacity before progress UI, `getFile`, download, conversion, or provider work where practical.
+- A duplicate `update_id` must not consume quota twice or repeat expensive work.
+- User errors return actionable 4xx-style messages; capacity errors are retryable; internal failures never expose secrets or stack traces.
+- Authorization fails closed. Paid-resource quotas should fail closed. Any availability-oriented fail-open policy must be explicit, observable, and approved.
 
 ## Implementation plan
 
-### Milestone 1: Bound every individual request
+### Milestone 1: Prevent single-request and process failures
 
-#### 1. Add shared configuration and validation
+#### 1. Centralize and validate safety configuration
 
-- Define text, byte, duration, timeout, and concurrency limits in one configuration module.
-- Parse numeric values strictly and fail startup for invalid or unsafe values.
-- Replace duplicated hard-coded `25 * 1024 * 1024` and timeout values with validated configuration.
-- Document all variables in `.env.sample`.
+- Add one TypeScript safety-config module for body, text, byte, duration, download, concurrency, queue, and shutdown limits.
+- Reuse one canonical audio byte limit in download, conversion, and provider upload validation.
+- Add matching Python settings for message and bulk-request limits.
+- Fail startup in production for invalid values instead of silently falling back.
+- Document values in `.env.sample` and `.env.production.example`.
 
-#### 2. Reject oversized Telegram audio from metadata
+#### 2. Authenticate and bound the webhook explicitly
 
-- Change the voice/audio handler path to pass `file_size` and `duration` into the processor.
-- Do the same for audio documents.
-- Before calling `getFileUrl()`, reject when known `file_size` exceeds the byte limit.
-- Before calling `getFileUrl()`, reject when known `duration` exceeds the duration limit.
-- Use a specific, user-actionable response for size and duration rejection.
-- Do not trust missing metadata; continue to enforce streaming limits below.
+- Configure `express.json({ limit })` exactly once before the router.
+- Remove the redundant route-level parser.
+- Map `entity.too.large` to HTTP 413 without logging the body.
+- Require both the secret URL path and `X-Telegram-Bot-Api-Secret-Token` header when both are configured.
+- Compare secrets with a length-safe constant-time helper.
+- Reject malformed bodies lacking a safe integer `update_id` before detached dispatch.
+- Add the same body ceiling at Caddy or the outermost supported proxy layer.
 
-Suggested user messages:
+#### 3. Reject unsafe audio before network work
 
-- `That audio is too large. Please send a file no larger than 25 MB.`
-- `That recording is too long. Please keep recordings to 20 minutes or less.`
+- Pass `file_size` and duration from voice/audio handlers into the processor.
+- Pass document `file_size`; treat document duration as unknown unless reliable metadata exists.
+- Reject known oversize or over-duration input before `getFileUrl()`.
+- Do not send transcription progress until metadata admission succeeds.
 
-#### 3. Replace whole-body audio download with a bounded stream
+#### 4. Replace whole-body download with a bounded stream
 
-- Check `Content-Length` before reading when it is present and valid.
-- Read `response.body` incrementally.
-- Maintain a byte counter and abort immediately when the limit is exceeded.
-- Keep the existing overall download timeout.
-- Ensure cancellation closes the response stream.
-- Avoid repeated full-buffer copies during concatenation; collect bounded chunks and concatenate once.
-- Map byte-limit errors to the existing payload-too-large classification.
+- Validate a numeric `Content-Length` before reading when present.
+- Read `response.body` incrementally with a cumulative byte counter.
+- Abort and cancel the reader immediately after crossing the ceiling.
+- Keep one overall download deadline and ensure timer/reader cleanup in `finally`.
+- Collect only bounded chunks and concatenate once.
+- Do not log the Telegram file URL, even in truncated form.
+- Preserve a typed size/timeout error so classification remains reliable.
 
-The application must never retain more than the configured input limit plus a small bounded chunk overhead for one download.
+The maximum retained bytes per download must be the configured limit plus one bounded input chunk, not the remote response size.
 
-#### 4. Add explicit text validation at both service boundaries
+#### 5. Enforce text limits at every trust boundary
 
-- Validate Telegram text before starting the progress reporter or acquiring expensive resources.
-- Validate the final composed message after reply context is attached.
-- Add `max_length` to `InvokeRequest.message`, `ResumeRequest.message`, and each entry of `BulkInvokeRequest.messages`.
-- Apply the same schema constraint to transcribed text before invoking the agent.
-- Return HTTP 422 or a consistent application validation error for direct API callers.
+- Validate Telegram text before progress reporting and gate acquisition.
+- Validate the final message after reply context is composed.
+- Validate transcription before showing or sending it to the agent.
+- Add `max_length` to `InvokeRequest.message` and `ResumeRequest.message`.
+- Constrain both item count and per-item length in `BulkInvokeRequest.messages`.
+- Keep direct API validation behavior consistent, normally HTTP 422.
 
-#### 5. Make webhook parsing limits explicit
+#### 6. Make fatal process and shutdown behavior safe
 
-- Configure `express.json({ limit: TELEGRAM_WEBHOOK_BODY_LIMIT })` once at application scope.
-- Remove redundant route-level JSON parsing unless the route needs a stricter limit.
-- Add a specific `entity.too.large` error response, normally HTTP 413.
-- Validate the Telegram secret-token header in addition to the secret URL path.
+- Replace continue-after-`uncaughtException` with a once-only fatal shutdown path.
+- Stop accepting new HTTP connections, stop webhook dispatch, flush logs best effort, and exit non-zero.
+- Track every detached `handleUpdate()` promise in an in-flight set.
+- On SIGTERM/SIGINT, stop accepting new work and wait for in-flight updates up to the drain deadline.
+- After the deadline, abort cancellable network work and exit; never wait forever.
+- Make shutdown idempotent so multiple signals or fatal paths cannot race cleanup.
+- Rely on Docker's restart policy in production and document the different local-development behavior.
 
-### Milestone 2: Bound aggregate work and cost
+### Milestone 2: Bound aggregate work and replay cost
 
-#### 6. Add a global transcription semaphore and bounded queue
+#### 7. Add a global audio semaphore and bounded queue
 
-- Acquire capacity before downloading audio.
-- Limit active audio pipelines, not only provider calls, because downloads and FFmpeg also consume resources.
-- Bound the waiting queue.
-- Reject promptly with a retryable response when the queue is full.
-- Release capacity in `finally` for every success, rejection, timeout, and cancellation path.
-- Consider a lower per-user concurrent limit of one, regardless of chat.
+- Acquire a slot for the whole audio pipeline before `getFileUrl()`.
+- Bound active pipelines, not only Groq calls, because download and FFmpeg also consume resources.
+- Bound queue length and optionally queue wait time.
+- Allow at most one active/queued audio request per resolved user.
+- Release capacity in `finally` on success, rejection, timeout, cancellation, hook failure, and shutdown.
+- Return a retryable busy response when the queue is full.
 
-Suggested busy response:
+#### 8. Add atomic update deduplication before audio work
 
-`Audio processing is busy right now. Please try again in a few minutes.`
+- Claim Telegram `update_id` atomically before quota or expensive processing.
+- Store `processing`, `completed`, and retryable/terminal failure states with expiry.
+- A concurrent duplicate should wait briefly for or reuse the terminal result, not run again.
+- Define stale-claim takeover rules so a crashed worker does not block an update forever.
+- Coordinate the claim with terminal-reply ownership to avoid duplicate user messages.
+- Keep Python idempotency as defense in depth; do not replace it.
 
-#### 7. Add atomic per-user ingress quotas
+#### 9. Add atomic per-user ingress quotas
 
-- Introduce separate quota buckets for text requests and audio attempts.
-- Key limits by resolved application user/Telegram identity, not by chat.
-- Consume the audio-attempt quota before calling Telegram `getFile` or downloading the file.
-- Use a database-backed atomic operation so limits work across multiple service instances.
-- Decide and document fail-open/fail-closed behavior:
-  - Authorization should fail closed.
-  - Audio quota should normally fail closed because it protects paid resources.
-  - Low-cost text quota may fail open on transient database failure if availability is preferred.
-- Preserve idempotency so Telegram redelivery of the same `update_id` does not double-charge quota or repeat transcription.
+- Use separate text-start and audio-attempt buckets.
+- Key by resolved application user/Telegram identity, never chat ID.
+- Consume the audio bucket before Telegram `getFile` or download.
+- Use a database-backed atomic operation so limits hold across Node instances.
+- Do not double-charge a claimed duplicate update.
+- Document and test fail-open/fail-closed behavior. Default paid audio protection to fail closed.
 
-#### 8. Validate actual media content
+#### 10. Validate downloaded media content
 
-- Reject unsupported `Content-Type` values unless they are Telegram's known generic `application/octet-stream` case.
-- Inspect file signatures/magic bytes before FFmpeg/provider upload.
-- Keep FFmpeg isolated to a fixed argument list with no shell execution.
-- Retain temporary-file cleanup in `finally`.
-- Bound FFmpeg stderr retained in memory; store only a capped tail needed for diagnostics.
+- Permit only explicitly accepted `Content-Type` values plus a documented generic binary case.
+- Inspect a small bounded prefix for supported file signatures/container markers.
+- Reject mismatches before FFmpeg or Groq.
+- Retain FFmpeg's fixed argument array and no-shell execution.
+- Bound retained FFmpeg stdout/stderr, preferably to a capped diagnostic tail.
+- Keep temporary-file cleanup in `finally` and use non-guessable per-request paths.
 
-### Milestone 3: Operational hardening
+### Milestone 3: Observability, proxy hardening, and safe rollout
 
-#### 9. Add metrics and safe diagnostics
+#### 11. Make diagnostics content-minimizing
 
-All new TypeScript diagnostics must use the shared async logger. Do not add synchronous file writes or `console.log` paths.
+- Remove `messagePreview`, `transcribedText`, Whisper text/segment previews, usernames, and partial file URLs from routine production logs.
+- Record lengths, stable request IDs, stage, rejection category, status, duration, queue depth, and bounded numeric metadata.
+- If content logging is ever needed locally, require an explicit non-production opt-in and a short retention policy.
+- Continue using the shared async TypeScript logger and Python run-logging facilities. Never add request-path `console.log`, synchronous file writes, or ad-hoc dumps.
+- Flush async logs before tests inspect them.
 
-Record structured, non-sensitive events for:
+Required operational events:
 
-- Text rejected by length.
-- Audio rejected by Telegram metadata size.
-- Audio rejected by metadata duration.
-- Audio rejected by `Content-Length`.
-- Audio stream aborted after crossing the byte limit.
-- Rate-limit rejection by bucket.
-- Transcription queue depth and wait time.
-- Transcription semaphore saturation.
-- Download, conversion, and provider timeouts.
-- MIME/signature rejection.
+- Webhook authentication/body rejection.
+- Text rejection at raw, composed, transcription, and Python boundaries.
+- Audio rejection by metadata, `Content-Length`, stream bytes, MIME, or signature.
+- Duplicate update claim/reuse/stale takeover.
+- Quota rejection by bucket without exposing identity.
+- Audio active count, queue depth, wait time, saturation, and release reason.
+- Download, FFmpeg, provider, agent, and shutdown timeouts.
+- Fatal shutdown cause and whether drain/flush completed.
 
-Do not log complete message text, transcriptions, file URLs, webhook secrets, or audio content. Continue using redaction and bounded previews.
+#### 12. Add edge and deployment controls
 
-#### 10. Add reverse-proxy protections
+- Apply webhook-specific request-rate limiting at Caddy or the deployment edge.
+- Set maximum body size, header size/time, idle time, and upstream timeouts.
+- Restrict direct origin access and keep ports 3000/8000 private.
+- Alert on sustained 401, 413, 429, restart, unhealthy, and 5xx rates.
+- Add disk alerts for Docker/application logs and temporary audio storage.
 
-Where the deployment platform supports them:
+#### 13. Protect releases from breaking the app
 
-- Apply request-rate limiting to the webhook route.
-- Restrict maximum body size before Node receives the body.
-- Set connection, header, and idle timeouts.
-- Restrict direct origin access where feasible.
-- Alert on sustained 401, 413, 429, and 5xx rates.
+- Keep database migrations backward-compatible across at least the current and previous deployable application revision.
+- Deploy schema additions before code that requires them; remove old fields only after the rollback window.
+- Run startup-readiness checks before accepting webhooks.
+- Introduce new limits in observe-only mode where safe, then enforce after reviewing real distributions.
+- Keep a documented feature flag or configuration rollback for new quota/concurrency behavior; do not permit unsafe unlimited production values.
+- Roll back by deploying a known-good commit without rewriting shared history.
 
-## Test plan
+## Verification plan
 
 ### Unit tests
 
-- Text exactly at the limit is accepted; limit plus one is rejected.
-- Reply context causing the composed request to exceed the agent limit is rejected.
-- Transcribed text over the agent limit is rejected before agent invocation.
-- Audio metadata exactly at size/duration limits is accepted.
-- Audio metadata over either limit is rejected before `getFileUrl()`.
-- `Content-Length` over the limit is rejected before consuming the response body.
-- A chunked response is aborted as soon as cumulative bytes exceed the limit.
-- A response exactly at the byte limit succeeds.
-- Download abort and timeout release resources.
-- Semaphore capacity is never exceeded.
-- Queue overflow returns the expected retryable response.
-- Semaphore capacity is released after provider, FFmpeg, hook, and reply failures.
-- Per-user quotas remain effective across different chat IDs.
-- Duplicate Telegram `update_id` does not double-charge audio quota.
-- Unexpected MIME and invalid magic bytes are rejected.
-- New error classification returns specific safe user messages.
+- Secret path/header match, mismatch, missing, unequal-length, and malformed body cases.
+- Body at the limit succeeds; limit plus one returns 413 without bot dispatch.
+- Text at each boundary succeeds; one code point over fails.
+- Reply context and transcription that push the composed request over limit fail before agent invocation.
+- Python invoke, resume, bulk item-count, and bulk item-length boundaries.
+- Audio metadata at limits succeeds; over either limit fails before `getFileUrl()`.
+- Oversized `Content-Length` fails before body consumption.
+- Chunked input aborts as cumulative bytes cross the ceiling; exact-limit input succeeds.
+- Download timeout and cancellation close the reader and release capacity.
+- Semaphore active count and queue length never exceed configuration.
+- Every failure path releases exactly once.
+- Per-user controls hold across different chat IDs.
+- Duplicate `update_id` is claimed and charged once and produces one terminal reply.
+- Unexpected MIME/signature combinations fail before FFmpeg/provider use.
+- Fatal shutdown and repeated signals execute cleanup once.
+- In-flight work drains when timely and is cancelled at the deadline.
+- Production logs contain no raw text, transcription, username, token-bearing URL, secret, or private ID.
 
-### Integration tests
+### Integration and resource tests
 
-- Send an oversized webhook body and assert HTTP 413 without Telegraf dispatch.
-- Exercise Telegram voice, audio, and audio-document paths with known and missing metadata.
-- Verify the Python API rejects oversized invoke, resume, and bulk messages.
-- Run concurrent audio requests and assert configured active and queued limits.
-- Verify atomic quota behavior under concurrent requests.
-- Flush the async logger before assertions that inspect diagnostic events.
+- Exercise voice, audio, and audio-document paths with present, missing, and dishonest metadata.
+- Stream a payload larger than the ceiling and measure bounded resident memory.
+- Run multiple simultaneous audio updates and assert active/queued limits and fair rejection.
+- Simulate Telegram redelivery across two Node workers and assert one expensive pipeline.
+- Kill a worker during download and verify stale-claim recovery and temporary-file cleanup.
+- Send SIGTERM during text, download, FFmpeg, Groq, and agent stages and verify bounded shutdown.
+- Force an uncaught exception in a child test process and verify non-zero exit plus supervisor recovery.
+- Verify the Python API returns 429 under admission saturation and 422 for oversized schemas.
+- Verify `/ping` remains liveness-only and `/health` becomes degraded for database, agent, or logger failure.
 
-### Resource tests
+### Repository validation for each implementation change
 
-- Stream a payload larger than the configured audio limit and verify bounded process memory.
-- Run a deliberately slow download and verify timeout/cancellation.
-- Run a slow or malformed FFmpeg input and verify forced termination and cleanup.
-- Confirm temporary files do not remain after success or failure.
+Run the smallest relevant suites plus:
 
-## Rollout strategy
+```bash
+npm run build
+npm run lint
+npm test -- --runInBand
+python -m pytest tests/agents/test_admission.py tests/agents/test_rate_limit.py tests/agents/test_request_idempotency.py
+git diff --check
+```
 
-1. Ship metrics for current audio size, duration, concurrency, and rejection candidates without logging content.
-2. Review representative production distributions and confirm initial defaults.
-3. Enable metadata size/duration rejection and explicit text validation.
-4. Enable bounded streaming downloads.
-5. Deploy the transcription semaphore with a conservative queue.
-6. Enable per-user quotas in observe-only mode, then enforcement mode.
-7. Tune limits using saturation, rejection, latency, and provider-cost data.
+For migration changes, also run the local database reset/lint and the relevant database integration tests when the Supabase runtime is available. Record skipped checks and why.
 
-Rollout should be reversible through configuration, but unsafe unlimited values should not be permitted in production without an explicit override.
+## Rollout and rollback
+
+1. Ship content-free metrics for current text lengths, audio bytes/durations, concurrency, and duplicate candidates.
+2. Confirm provider limits and select production thresholds from observed percentiles with a safety margin.
+3. Ship strict configuration, webhook header/body validation, fatal shutdown, and in-flight tracking.
+4. Enable early metadata rejection and composed-text validation.
+5. Replace the audio download with bounded streaming and verify memory in staging.
+6. Enable the audio semaphore and queue at conservative values.
+7. Enable update deduplication, then per-user quotas in observe-only mode.
+8. Enforce quotas after confirming identity resolution, retry behavior, and dashboards.
+9. Add proxy controls and alerts, then perform a controlled saturation and restart exercise.
+
+For every step:
+
+- Deploy one independently reversible behavior change at a time.
+- Confirm `/health`, one text turn, one audio turn, cancellation, and a duplicate update before proceeding.
+- Monitor rejection rate, queue wait, p95 latency, memory, restarts, logger drops, and provider errors.
+- Roll back the application on unexpected user-visible failures; do not reverse a migration destructively during the incident.
 
 ## Acceptance criteria
 
-The work is complete when:
+This plan is implemented when all of the following are true:
 
-- No inbound text can reach the agent above the configured composed-message limit.
-- No audio with known oversized metadata reaches `getFileUrl()` or download.
-- No audio stream can allocate or buffer beyond the configured byte ceiling plus bounded overhead.
-- No audio over the configured duration is transcribed when duration metadata is available.
-- Missing or dishonest metadata cannot bypass the streaming byte limit.
-- The number of active and queued audio pipelines is bounded.
-- One user cannot bypass ingress quotas by switching chats.
-- Audio quota is charged before expensive audio work and is idempotent across redelivery.
-- Direct agent API requests enforce the same text policy as Telegram-originated requests.
-- Users receive actionable size, duration, rate-limit, and busy responses.
-- Tests cover boundary values, concurrency, cleanup, retries, and failure paths.
-- Operational logs expose rejections and saturation without exposing message or audio content.
+- No request body, text, composed message, bulk item, or audio stream can exceed its configured in-process ceiling.
+- Known oversized or over-duration audio is rejected before Telegram file lookup or progress UI.
+- Missing or dishonest metadata cannot bypass the streaming byte bound.
+- Active and queued audio pipelines are bounded across the service.
+- Python agent runs remain bounded and return a retryable capacity response.
+- A user cannot bypass ingress quotas by switching chats.
+- A duplicate Telegram update cannot repeat paid audio work, quota charging, mutations, or terminal replies.
+- Webhooks require the configured path secret and Telegram header secret and return explicit 413/401 responses.
+- Fatal process errors stop new work and exit for supervised recovery.
+- Graceful shutdown drains or cancels detached work within a fixed deadline.
+- Production logs and user errors expose no content, credentials, private identifiers, raw provider payloads, or stack traces.
+- Every resource is released in `finally`, including streams, timers, queue slots, FFmpeg processes, temporary files, idempotency claims, and run slots.
+- Boundary, concurrency, replay, crash, shutdown, and rollback behavior is covered by automated tests.
+- A known-good application revision can be redeployed without destructive database rollback.
 
 ## Recommended delivery order
 
-1. Early audio metadata size and duration validation.
-2. Bounded streaming download.
-3. Explicit Telegram and Python text limits.
-4. Global transcription semaphore and bounded queue.
-5. Per-user audio/text ingress quotas with idempotency.
-6. Content verification, webhook defense in depth, and reverse-proxy hardening.
+1. Fatal-error/shutdown containment and explicit webhook authentication/body limits.
+2. Early audio metadata rejection and bounded streaming download.
+3. Explicit Telegram, composed-message, transcription, and Python schema limits.
+4. Removal of content and URL previews from production diagnostics.
+5. Global audio semaphore and bounded queue.
+6. Telegram update deduplication before expensive work.
+7. Atomic per-user audio/text quotas.
+8. MIME/signature verification and proxy hardening.
+9. Saturation, crash-recovery, and rollback exercises.
 
-This order closes the highest-risk memory and cost gaps first while keeping the changes independently testable and deployable.
+This order closes memory-exhaustion and inconsistent-process-state risks first, then bounds cost and concurrency, while keeping each change independently testable and reversible.

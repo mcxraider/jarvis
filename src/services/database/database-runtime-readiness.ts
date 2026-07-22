@@ -18,8 +18,10 @@ export interface DatabaseRuntimeReadiness {
 export async function verifyDatabaseRuntime(
   connectionString: string,
 ): Promise<DatabaseRuntimeReadiness> {
-  const pool = new Pool({ connectionString, max: 1 });
-  try {
+  const TIMEOUT_MS = 15_000;
+  const pool = new Pool({ connectionString, max: 1, connectionTimeoutMillis: 10_000 });
+
+  const work = async (): Promise<DatabaseRuntimeReadiness> => {
     const roleResult = await pool.query<{
       current_user: string;
       inherits_runtime: boolean;
@@ -82,12 +84,24 @@ export async function verifyDatabaseRuntime(
       inheritedRole: 'jarvis_runtime',
       tables: REQUIRED_TABLES,
     };
+  };
+
+  try {
+    return await Promise.race([
+      work(),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error('Database readiness check timed out after 15s')),
+          TIMEOUT_MS,
+        ),
+      ),
+    ]);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
       `Database runtime readiness failed: ${detail}. Apply Supabase migrations and verify JARVIS_POSTGRES_DSN uses jarvis_app.`,
     );
   } finally {
-    await pool.end();
+    await pool.end().catch(() => {});
   }
 }

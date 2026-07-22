@@ -46,6 +46,11 @@ export async function verifyAgentContract(
       `complex model timeout ${complexModelTimeoutMs}ms must be below client idle timeout ${timeouts.clientIdleMs}ms`,
     );
   }
+  if (!(runDeadlineMs < timeouts.clientIdleMs)) {
+    violations.push(
+      `run deadline ${runDeadlineMs}ms must be below client idle timeout ${timeouts.clientIdleMs}ms`,
+    );
+  }
   if (!(runDeadlineMs < timeouts.clientOverallMs)) {
     violations.push(
       `run deadline ${runDeadlineMs}ms must be below client overall timeout ${timeouts.clientOverallMs}ms`,
