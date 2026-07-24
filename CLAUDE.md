@@ -21,24 +21,10 @@ npm test -- --runInBand
 npm run test:integration -- --runInBand
 npm run lint
 
-# Python agent
-uvicorn agents.agent_api.app.main:app --host 127.0.0.1 --port 8000
-# or via LangGraph dev server:
-langgraph dev
-
-# Both servers together
-scripts/start_servers.sh
-
 # Agent CLI (for local testing without Telegram)
-npm run agent
-# or: scripts/run_agent_cli.sh
+python3 agents/agent_api/app/runner.py
 
-# Database (Supabase)
-npm run db:start
-npm run db:stop
-npm run db:reset
-npm run db:lint
-npm run db:migrations
+
 ```
 
 ## Runtime
