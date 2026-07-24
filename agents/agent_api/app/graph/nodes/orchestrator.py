@@ -1162,6 +1162,10 @@ def create_agent_node(
             }
         messages.append(assistant_message)
 
+        _narration_content = assistant_message.get("content") or ""
+        if _narration_content.strip() and assistant_message.get("tool_calls"):
+            run_tracer.narration(_narration_content)
+
         final_response = ""
 
         if not assistant_message.get("tool_calls"):

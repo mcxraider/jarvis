@@ -102,6 +102,12 @@ export const StreamProgressEventSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
+export const StreamNarrationEventSchema = z.object({
+  type: z.literal('narration'),
+  sequence: z.number().optional(),
+  text: z.string(),
+});
+
 export const StreamFinalEventSchema = z.object({
   type: z.literal('final'),
   response: AgentResponseSchema,
@@ -109,6 +115,7 @@ export const StreamFinalEventSchema = z.object({
 
 export const StreamEventSchema = z.discriminatedUnion('type', [
   StreamProgressEventSchema,
+  StreamNarrationEventSchema,
   StreamFinalEventSchema,
 ]);
 
@@ -120,5 +127,6 @@ export type AgentRuntimeLimits = z.infer<typeof AgentRuntimeLimitsSchema>;
 export type AgentHealthDetail = z.infer<typeof AgentHealthDetailSchema>;
 export type ProgressFact = z.infer<typeof ProgressFactSchema>;
 export type StreamProgressEvent = z.infer<typeof StreamProgressEventSchema>;
+export type StreamNarrationEvent = z.infer<typeof StreamNarrationEventSchema>;
 export type StreamFinalEvent = z.infer<typeof StreamFinalEventSchema>;
 export type StreamEvent = z.infer<typeof StreamEventSchema>;

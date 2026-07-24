@@ -17,6 +17,7 @@ import {
 import { normalizeMarkdownTables } from '../formatters/markdown-table-normalizer';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
+import { TelegramNarrationReporter } from '../telegram-narration-reporter';
 import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service';
 import {
   PendingPausePresentation,
@@ -128,6 +129,7 @@ export class MessageHandlers {
   ): Promise<void> {
     const userId = ctx.from?.id;
     const progressReporter = new TelegramProgressReporter(ctx, logContext);
+    const narrationReporter = new TelegramNarrationReporter(ctx, logContext);
     let lastProgressStage = '';
 
     try {
@@ -137,6 +139,10 @@ export class MessageHandlers {
         userId,
         logContext,
         async (event: LangGraphProgressEvent, signal?: AbortSignal) => {
+          if (event.narration) {
+            await narrationReporter.record(event.narration);
+            return;
+          }
           lastProgressStage = event.stage;
           await progressReporter.record(event, signal);
         },
@@ -146,6 +152,7 @@ export class MessageHandlers {
             this.resolvePausePresentation(ctx, presentation, logContext),
         },
       );
+      await narrationReporter.complete();
       await progressReporter.complete(this.completionStatus(lastProgressStage));
       if (result.suppressed) {
         logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
@@ -165,6 +172,7 @@ export class MessageHandlers {
         userId,
         durationMs: Date.now() - startedAt,
       });
+      await narrationReporter.complete();
       await progressReporter.complete('Something went wrong');
       if (this.claimTerminalReply(logContext, 'message_error')) {
         await ctx.reply('Something went wrong processing your message. Please try again.');
