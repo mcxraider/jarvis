@@ -52,6 +52,7 @@ export interface LangGraphProgressEvent {
   stage: string;
   message: string;
   fact?: ProgressFact;
+  narration?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -750,6 +751,16 @@ export class LangGraphAgentClient {
     }
 
     const event = result.data;
+    if (event.type === 'narration') {
+      await onProgress({
+        sequence: event.sequence,
+        stage: 'narration',
+        message: event.text,
+        narration: event.text,
+      });
+      return finalResponse;
+    }
+
     if (event.type === 'progress') {
       await onProgress({
         sequence: event.sequence,

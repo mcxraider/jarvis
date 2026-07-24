@@ -477,15 +477,22 @@ async def stream_agent_run(
             if consumer_closed.is_set() or events.full():
                 return
             sequence += 1
-            event: Dict[str, Any] = {
-                "type": "progress",
-                "sequence": sequence,
-                # Preserve legacy fields for clients that have not adopted facts.
-                "stage": progress.get("stage", "progress"),
-                "message": progress.get("message", "Jarvis is working"),
-            }
-            if isinstance(progress.get("fact"), dict):
-                event["fact"] = progress["fact"]
+            if "narration" in progress:
+                event: Dict[str, Any] = {
+                    "type": "narration",
+                    "sequence": sequence,
+                    "text": progress["narration"],
+                }
+            else:
+                event = {
+                    "type": "progress",
+                    "sequence": sequence,
+                    # Preserve legacy fields for clients that have not adopted facts.
+                    "stage": progress.get("stage", "progress"),
+                    "message": progress.get("message", "Jarvis is working"),
+                }
+                if isinstance(progress.get("fact"), dict):
+                    event["fact"] = progress["fact"]
             events.put_nowait(event)
         finally:
             pending_callbacks.release()
