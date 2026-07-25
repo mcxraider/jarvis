@@ -21,7 +21,7 @@ from agents.agent_api.app.tools.registry_factory import (
 )
 from agents.agent_api.app.tracing import NULL_TRACE
 from agents.agent_api.app.user_context.runtime import ResolvedRuntimeContext
-from tests.agents.runtime_helpers import make_snapshot
+from tests.agents.runtime_helpers import make_preferences, make_snapshot
 
 
 class TestBuildRoleLine:
@@ -132,6 +132,34 @@ class TestRuntimeContextPrompt:
         prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
         assert "Task provider: todoist" in prompt
         assert "Event provider: todoist" in prompt
+        assert "Reminder provider: todoist" in prompt
+        assert "Time-related provider: todoist" in prompt
+
+    def test_communication_and_calendar_preferences_are_selectively_rendered(self):
+        preferences = make_preferences(
+            communication={
+                "tone": "professional",
+                "verbosity": "detailed",
+                "likes": ["tables"],
+                "avoid": ["filler"],
+                "notes": ["Lead with the result"],
+            },
+            fallback_calendar="Personal",
+            onboarding={
+                "future_providers": ["gmail"],
+                "admin_notes": ["never render this internal note"],
+            },
+        )
+        prompt = get_orchestrator_prompt(
+            runtime_context=make_snapshot(preferences=preferences)
+        )
+        assert "Tone: professional" in prompt
+        assert "Answer length: detailed" in prompt
+        assert "Likes: tables" in prompt
+        assert "Avoid: filler" in prompt
+        assert "Fallback calendar: Personal" in prompt
+        assert "gmail" not in prompt
+        assert "never render this internal note" not in prompt
 
     def test_request_date_and_weekday_come_from_one_executor_datetime(self):
         instant = datetime.fromisoformat("2026-07-10T08:30:00+08:00")

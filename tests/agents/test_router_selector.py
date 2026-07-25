@@ -21,7 +21,7 @@ from agents.agent_api.app.tools.selectors import router as router_selector_modul
 from agents.agent_api.app.tools.base import ToolRegistry, ToolSpec
 from agents.agent_api.app.tools.selectors.router import RouterToolSelector
 from agents.agent_api.app.tracing import TracePrinter
-from tests.agents.runtime_helpers import make_snapshot
+from tests.agents.runtime_helpers import make_preferences, make_snapshot
 
 # Tool names here match runtime_helpers._TOOL_NAMES so a snapshot's per-domain
 # tool_names line up with what the registry actually holds.
@@ -182,6 +182,75 @@ class TestRoutingGuardrails:
         result = _names(selector.select_schemas("whats on my cal for this week", _build_registry()))
         assert result == {"ask_user", *_TODOIST_TOOLS}
         assert selector.decision.domains == ["todoist"]
+
+    def test_empty_reminder_decision_uses_reminder_provider(self):
+        preferences = make_preferences(
+            event_provider="google_calendar",
+            reminder_provider="todoist",
+            calendar_usage="default",
+        )
+        selector = _selector(
+            decision=RouterDecision(
+                outcome="conversation",
+                domains=[],
+                uncertain=False,
+                candidate_domains=[],
+                complexity="low",
+                reasoning="test",
+            ),
+            snapshot=make_snapshot(preferences=preferences),
+        )
+        result = _names(
+            selector.select_schemas("remind me to submit this", _build_registry())
+        )
+        assert result == {"ask_user", *_TODOIST_TOOLS}
+        assert selector.decision.domains == ["todoist"]
+
+    def test_empty_time_block_decision_uses_time_related_provider(self):
+        preferences = make_preferences(
+            event_provider="todoist",
+            time_related_provider="google_calendar",
+            calendar_usage="default",
+        )
+        selector = _selector(
+            decision=RouterDecision(
+                outcome="conversation",
+                domains=[],
+                uncertain=False,
+                candidate_domains=[],
+                complexity="low",
+                reasoning="test",
+            ),
+            snapshot=make_snapshot(preferences=preferences),
+        )
+        result = _names(
+            selector.select_schemas("block out focus time tomorrow", _build_registry())
+        )
+        assert result == {"ask_user", *_CALENDAR_TOOLS}
+        assert selector.decision.domains == ["google_calendar"]
+
+    def test_explicit_generic_calendar_uses_explicit_calendar_provider(self):
+        preferences = make_preferences(
+            event_provider="todoist",
+            explicit_calendar_provider="google_calendar",
+            calendar_usage="explicit_only",
+        )
+        selector = _selector(
+            decision=RouterDecision(
+                outcome="conversation",
+                domains=[],
+                uncertain=False,
+                candidate_domains=[],
+                complexity="low",
+                reasoning="test",
+            ),
+            snapshot=make_snapshot(preferences=preferences),
+        )
+        result = _names(
+            selector.select_schemas("put this in my calendar", _build_registry())
+        )
+        assert result == {"ask_user", *_CALENDAR_TOOLS}
+        assert selector.decision.domains == ["google_calendar"]
 
     def test_empty_task_classifier_miss_routes_to_task_provider(self):
         class RecordingTracer:

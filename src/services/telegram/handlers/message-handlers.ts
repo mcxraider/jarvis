@@ -389,6 +389,7 @@ export class MessageHandlers {
     errorMessage: string,
   ): Promise<void> {
     const progressReporter = new TelegramProgressReporter(ctx, logContext);
+    const narrationReporter = new TelegramNarrationReporter(ctx, logContext);
     let lastProgressStage = '';
 
     try {
@@ -397,10 +398,15 @@ export class MessageHandlers {
         progressReporter,
         () => progressReporter.beginAgentPhase(),
         async (event: LangGraphProgressEvent, signal?: AbortSignal) => {
+          if (event.narration) {
+            await narrationReporter.record(event.narration);
+            return;
+          }
           lastProgressStage = event.stage;
           await progressReporter.record(event, signal);
         },
       );
+      await narrationReporter.complete();
       await progressReporter.complete(this.completionStatus(lastProgressStage));
       if (result.suppressed) {
         logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
@@ -420,6 +426,7 @@ export class MessageHandlers {
         userId,
         durationMs: Date.now() - startedAt,
       });
+      await narrationReporter.complete();
       await progressReporter.complete('Something went wrong');
       if (this.claimTerminalReply(logContext, 'audio_error')) {
         await ctx.reply(errorMessage);

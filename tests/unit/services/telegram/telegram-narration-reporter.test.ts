@@ -96,4 +96,19 @@ describe('TelegramNarrationReporter', () => {
     expect(text).toContain('\\[');
     expect(text).toContain('\\(');
   });
+
+  it('trims whitespace before wrapping in italic', async () => {
+    const reporter = new TelegramNarrationReporter(mockCtx);
+    await reporter.record('  hello  ');
+    const [text] = mockCtx.reply.mock.calls[0];
+    expect(text).toBe('_hello_');
+  });
+
+  it('deduplicates trimmed-equivalent text', async () => {
+    const reporter = new TelegramNarrationReporter(mockCtx);
+    await reporter.record('foo');
+    await reporter.record(' foo ');
+    expect(mockCtx.reply).toHaveBeenCalledTimes(1);
+    expect(mockCtx.telegram.editMessageText).not.toHaveBeenCalled();
+  });
 });

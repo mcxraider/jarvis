@@ -12,6 +12,7 @@ from agents.agent_api.app.graph.prompts.orchestrator import (
     get_system_prompt,
 )
 from agents.agent_api.app.user_context.preferences import (
+    AssistantPreferencesV1,
     PreferenceConfigurationError,
     ResolvedUserPreferences,
 )
@@ -87,6 +88,75 @@ class TestResolvedUserPreferences:
         bad = {**self.valid_preferences, "unexpected": {"x": 1}}
         with pytest.raises(PreferenceConfigurationError):
             ResolvedUserPreferences.from_database_row(("user-id", 1, 1, bad))
+
+    def test_v1_defaults_all_routing_categories(self):
+        preferences = AssistantPreferencesV1.model_validate(
+            {
+                "communication": {"tone": "neutral", "verbosity": "balanced"},
+                "routing": {
+                    "task_provider": "todoist",
+                    "event_provider": "todoist",
+                    "calendar_usage": "explicit_only",
+                },
+                "domains": {"todoist": {}, "google_calendar": {}},
+            }
+        )
+        assert preferences.routing.reminder_provider == "todoist"
+        assert preferences.routing.time_related_provider == "todoist"
+        assert preferences.routing.explicit_calendar_provider == "todoist"
+
+    def test_google_calendar_cannot_be_a_task_provider(self):
+        payload = {
+            "communication": {"tone": "neutral", "verbosity": "balanced"},
+            "routing": {
+                "task_provider": "google_calendar",
+                "event_provider": "google_calendar",
+                "calendar_usage": "default",
+            },
+            "domains": {"todoist": {}, "google_calendar": {}},
+        }
+        with pytest.raises(ValueError):
+            AssistantPreferencesV1.model_validate(payload)
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"event_provider": "google_calendar"},
+            {"reminder_provider": "google_calendar"},
+            {"time_related_provider": "google_calendar"},
+        ],
+    )
+    def test_explicit_only_rejects_implicit_google_calendar_defaults(
+        self,
+        overrides,
+    ):
+        payload = {
+            "communication": {"tone": "neutral", "verbosity": "balanced"},
+            "routing": {
+                "task_provider": "todoist",
+                "event_provider": "todoist",
+                "calendar_usage": "explicit_only",
+                **overrides,
+            },
+            "domains": {"todoist": {}, "google_calendar": {}},
+        }
+        with pytest.raises(ValueError, match="explicit_only conflicts"):
+            AssistantPreferencesV1.model_validate(payload)
+
+    def test_explicit_only_allows_explicit_calendar_google_default(self):
+        preferences = AssistantPreferencesV1.model_validate(
+            {
+                "communication": {"tone": "neutral", "verbosity": "balanced"},
+                "routing": {
+                    "task_provider": "todoist",
+                    "event_provider": "todoist",
+                    "calendar_usage": "explicit_only",
+                    "explicit_calendar_provider": "google_calendar",
+                },
+                "domains": {"todoist": {}, "google_calendar": {}},
+            }
+        )
+        assert preferences.routing.explicit_calendar_provider == "google_calendar"
 
 
 class TestUserTimezone:

@@ -46,6 +46,15 @@ _GENERIC_EVENT_PATTERN = re.compile(
     r"\b(?:cal|calendar|schedule|free|busy|availability|available|event|events|meeting|meetings|appointment|appointments)\b",
     re.IGNORECASE,
 )
+_REMINDER_PATTERN = re.compile(r"\b(?:remind|reminder|reminders)\b", re.IGNORECASE)
+_TIME_RELATED_PATTERN = re.compile(
+    r"\b(?:block(?:\s+out)?|focus\s+time|deep\s+work|time\s+block)\b",
+    re.IGNORECASE,
+)
+_EXPLICIT_GENERIC_CALENDAR_PATTERN = re.compile(
+    r"\b(?:put|add|save|create|move)\b.{0,80}\b(?:my|the)\s+calendar\b",
+    re.IGNORECASE,
+)
 _TASK_PATTERN = re.compile(
     r"\b(?:task|tasks|to-?do|todo|project|projects|deadline|deadlines)\b",
     re.IGNORECASE,
@@ -363,7 +372,12 @@ class RouterToolSelector:
         domains = list(original_effective_domains)
         routing = self._snapshot.preferences.routing
         explicit_google_calendar = bool(_EXPLICIT_GOOGLE_CALENDAR_PATTERN.search(query))
+        explicit_generic_calendar = bool(
+            _EXPLICIT_GENERIC_CALENDAR_PATTERN.search(query)
+        )
         generic_event_request = bool(_GENERIC_EVENT_PATTERN.search(query))
+        reminder_request = bool(_REMINDER_PATTERN.search(query))
+        time_related_request = bool(_TIME_RELATED_PATTERN.search(query))
         task_request = bool(_TASK_PATTERN.search(query))
         unsupported_provider_request = bool(_UNSUPPORTED_PROVIDER_PATTERN.search(query))
 
@@ -373,14 +387,23 @@ class RouterToolSelector:
         if (
             routing.calendar_usage == "explicit_only"
             and not explicit_google_calendar
+            and not explicit_generic_calendar
             and not use_candidates
         ):
             domains = [domain for domain in domains if domain != "google_calendar"]
 
+        if not domains and explicit_generic_calendar and not unsupported_provider_request:
+            domains.append(routing.explicit_calendar_provider)
+
+        if not domains and reminder_request and not unsupported_provider_request:
+            domains.append(routing.reminder_provider)
+
+        if not domains and time_related_request and not unsupported_provider_request:
+            domains.append(routing.time_related_provider)
+
         if not domains and generic_event_request and not unsupported_provider_request:
             provider = routing.event_provider
-            if provider != "google_calendar" or explicit_google_calendar:
-                domains.append(provider)
+            domains.append(provider)
 
         if not domains and task_request and not unsupported_provider_request:
             domains.append(routing.task_provider)
@@ -404,7 +427,10 @@ class RouterToolSelector:
             adjusted_effective_domains=domains,
             uncertain=decision.uncertain,
             explicit_google_calendar=explicit_google_calendar,
+            explicit_generic_calendar=explicit_generic_calendar,
             generic_event_request=generic_event_request,
+            reminder_request=reminder_request,
+            time_related_request=time_related_request,
             unsupported_provider_request=unsupported_provider_request,
             task_request=task_request,
         )

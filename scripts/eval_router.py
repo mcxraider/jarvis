@@ -308,7 +308,15 @@ def format_markdown(
         lines.extend(
             [
                 f"## {persona.name}",
-                f"Task provider: {routing.task_provider} - Event provider: {routing.event_provider} - calendar_usage: {routing.calendar_usage} - Active: {active}",
+                (
+                    f"Task provider: {routing.task_provider} - "
+                    f"Event provider: {routing.event_provider} - "
+                    f"Reminder provider: {routing.reminder_provider} - "
+                    f"Time-related provider: {routing.time_related_provider} - "
+                    f"Explicit calendar provider: "
+                    f"{routing.explicit_calendar_provider} - "
+                    f"calendar_usage: {routing.calendar_usage} - Active: {active}"
+                ),
                 "",
             ]
         )

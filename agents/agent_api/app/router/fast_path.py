@@ -33,6 +33,20 @@ _GENERIC_SCHEDULING = re.compile(
     r"availability|available|calendar|event|events)\b",
     re.IGNORECASE,
 )
+_EVENT_ANCHOR = re.compile(
+    r"\b(?:meeting|meetings|appointment|appointments|free|busy|availability|"
+    r"available|calendar|event|events)\b",
+    re.IGNORECASE,
+)
+_REMINDER = re.compile(r"\b(?:remind|reminder|reminders)\b", re.IGNORECASE)
+_TIME_RELATED = re.compile(
+    r"\b(?:block(?:\s+out)?|focus\s+time|deep\s+work|time\s+block)\b",
+    re.IGNORECASE,
+)
+_EXPLICIT_GENERIC_CALENDAR = re.compile(
+    r"\b(?:put|add|save|create|move)\b.{0,80}\b(?:my|the)\s+calendar\b",
+    re.IGNORECASE,
+)
 _UNSUPPORTED_PROVIDER = re.compile(
     r"\b(?:notion|e-?mail|gmail|slack|google\s+docs?|gdocs)\b",
     re.IGNORECASE,
@@ -67,6 +81,8 @@ def fast_path_classify(
         return None
     if _CONVERSATION_ONLY.fullmatch(stripped):
         return _decision(RouterOutcome.CONVERSATION, [], "fast path greeting")
+    if snapshot.preferences.routing.exceptions:
+        return None
     if len(stripped.split()) > 16:
         return None
     if _UNSUPPORTED_PROVIDER.search(stripped) or _COMPLEX_OR_MULTI_STEP.search(stripped):
@@ -77,6 +93,9 @@ def fast_path_classify(
     explicit_calendar = bool(_EXPLICIT_GOOGLE_CALENDAR.search(stripped))
     task_request = bool(_TASK_ANCHOR.search(stripped))
     generic_scheduling = bool(_GENERIC_SCHEDULING.search(stripped))
+    reminder_request = bool(_REMINDER.search(stripped))
+    time_related_request = bool(_TIME_RELATED.search(stripped))
+    explicit_generic_calendar = bool(_EXPLICIT_GENERIC_CALENDAR.search(stripped))
 
     # Cross-domain and generic scheduling requests still need the prompt's live
     # preference rules and complexity classification.
@@ -85,6 +104,10 @@ def fast_path_classify(
     if explicit_calendar and task_request:
         return None
     if explicit_todoist and generic_scheduling:
+        return None
+    if explicit_calendar and "google_calendar" not in active:
+        return None
+    if explicit_todoist and "todoist" not in active:
         return None
 
     if explicit_calendar and "google_calendar" in active:
@@ -99,6 +122,30 @@ def fast_path_classify(
             ["todoist"],
             "fast path explicit todoist",
         )
+    if explicit_generic_calendar:
+        provider = snapshot.preferences.routing.explicit_calendar_provider
+        if provider in active:
+            return _decision(
+                RouterOutcome.ROUTED,
+                [provider],
+                "fast path explicit calendar",
+            )
+    if reminder_request:
+        provider = snapshot.preferences.routing.reminder_provider
+        if provider in active:
+            return _decision(
+                RouterOutcome.ROUTED,
+                [provider],
+                "fast path reminder",
+            )
+    if time_related_request:
+        provider = snapshot.preferences.routing.time_related_provider
+        if provider in active:
+            return _decision(
+                RouterOutcome.ROUTED,
+                [provider],
+                "fast path time related",
+            )
     if task_request and not generic_scheduling:
         task_provider = snapshot.preferences.routing.task_provider
         if task_provider in active:
@@ -106,6 +153,14 @@ def fast_path_classify(
                 RouterOutcome.ROUTED,
                 [task_provider],
                 "fast path simple task",
+            )
+    if generic_scheduling and _EVENT_ANCHOR.search(stripped):
+        provider = snapshot.preferences.routing.event_provider
+        if provider in active:
+            return _decision(
+                RouterOutcome.ROUTED,
+                [provider],
+                "fast path simple event",
             )
     return None
 

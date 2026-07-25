@@ -10,12 +10,14 @@ import pytest
 from agents.agent_api.app.idempotency.store import ClaimState, MemoryIdempotencyStore
 from agents.agent_api.app.graph.run_control import CancelOutcome, RunControl, RunPhase
 from agents.agent_api.app.tools.base import ToolRegistry, ToolSpec
+from agents.agent_api.app.tools.access_policy import ResourceAccessPolicy
 from agents.agent_api.app.tools.todoist.client import TodoistApiError
 from agents.agent_api.app.tools.dispatcher import (
     ToolDispatcher,
     async_execute_tool_calls,
     tool_idempotency_context,
 )
+from agents.agent_api.app.user_context.preferences import AccessPreferences
 
 
 def _call(name: str, call_id: str, arguments: dict | None = None) -> dict:
@@ -57,6 +59,45 @@ def test_native_async_handler_is_used_without_sync_fallback() -> None:
     assert result["success"] is True
     assert result["content"] == {"id": "task-1"}
     assert calls == [{"id": "task-1"}]
+
+
+def test_native_async_result_is_filtered_before_dispatch_result() -> None:
+    async def async_handler(_arguments: dict) -> list[dict]:
+        await asyncio.sleep(0)
+        return [
+            {"id": "visible", "project_id": "public", "content": "Visible"},
+            {"id": "secret", "project_id": "private", "content": "Secret"},
+        ]
+
+    registry = ToolRegistry().register(
+        [
+            ToolSpec(
+                name="get_tasks",
+                openai_schema={"type": "function", "function": {"name": "get_tasks"}},
+                handler=lambda _arguments: [],
+                async_handler=async_handler,
+            )
+        ]
+    )
+    policy = ResourceAccessPolicy(
+        AccessPreferences.model_validate(
+            {
+                "restricted_todoist_projects": [
+                    {"id": "private", "label": "Private"}
+                ]
+            }
+        )
+    )
+    dispatcher = ToolDispatcher(registry, access_policy=policy)
+
+    result = asyncio.run(
+        dispatcher.async_execute_tool_call(_call("get_tasks", "call-filter"))
+    )
+
+    assert result["success"] is True
+    assert result["content"] == [
+        {"id": "visible", "project_id": "public", "content": "Visible"}
+    ]
 
 
 def test_ambiguous_async_mutation_error_is_cached_without_reexecution() -> None:

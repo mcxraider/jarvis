@@ -1,6 +1,7 @@
 import type { Context } from 'telegraf';
 import { logger } from '../../utils/logger';
 import type { LogContext } from '../../utils/logger';
+import { escapeMarkdownV2 } from './formatters/telegram-markdown';
 
 export class TelegramNarrationReporter {
   private messageId?: number;
@@ -13,10 +14,11 @@ export class TelegramNarrationReporter {
   ) {}
 
   async record(text: string): Promise<void> {
-    if (this.completed || !text?.trim() || text === this.lastText) return;
-    this.lastText = text;
+    const trimmed = text?.trim();
+    if (this.completed || !trimmed || trimmed === this.lastText) return;
+    this.lastText = trimmed;
 
-    const formatted = `_${this.escapeMarkdownV2(text)}_`;
+    const formatted = `_${escapeMarkdownV2(trimmed)}_`;
 
     try {
       if (!this.messageId) {
@@ -46,9 +48,5 @@ export class TelegramNarrationReporter {
         logger.warn('narration.delete.failed', { ...this.logContext, error: err.message });
       }
     }
-  }
-
-  private escapeMarkdownV2(text: string): string {
-    return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
   }
 }

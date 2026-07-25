@@ -27,21 +27,45 @@ def make_preferences(
     *,
     task_provider: str = "todoist",
     event_provider: str = "todoist",
-    calendar_usage: str = "explicit_only",
+    calendar_usage: Optional[str] = None,
     category_defaults: Optional[Dict[str, str]] = None,
+    reminder_provider: Optional[str] = None,
+    time_related_provider: Optional[str] = None,
+    explicit_calendar_provider: Optional[str] = None,
+    routing_exceptions: Optional[List[Dict[str, str]]] = None,
+    communication: Optional[Dict[str, object]] = None,
+    fallback_calendar: Optional[str] = None,
+    access: Optional[Dict[str, object]] = None,
+    onboarding: Optional[Dict[str, object]] = None,
 ) -> AssistantPreferencesV1:
+    routing = {
+        "task_provider": task_provider,
+        "event_provider": event_provider,
+        "calendar_usage": calendar_usage
+        or ("default" if event_provider == "google_calendar" else "explicit_only"),
+    }
+    if reminder_provider is not None:
+        routing["reminder_provider"] = reminder_provider
+    if time_related_provider is not None:
+        routing["time_related_provider"] = time_related_provider
+    if explicit_calendar_provider is not None:
+        routing["explicit_calendar_provider"] = explicit_calendar_provider
+    if routing_exceptions is not None:
+        routing["exceptions"] = routing_exceptions
+    calendar = {"event_category_defaults": category_defaults or {}}
+    if fallback_calendar is not None:
+        calendar["fallback_calendar"] = fallback_calendar
     return AssistantPreferencesV1.model_validate(
         {
-            "communication": {"tone": "casual", "verbosity": "concise"},
-            "routing": {
-                "task_provider": task_provider,
-                "event_provider": event_provider,
-                "calendar_usage": calendar_usage,
-            },
+            "communication": communication
+            or {"tone": "casual", "verbosity": "concise"},
+            "routing": routing,
             "domains": {
                 "todoist": {},
-                "google_calendar": {"event_category_defaults": category_defaults or {}},
+                "google_calendar": calendar,
             },
+            **({"access": access} if access is not None else {}),
+            **({"onboarding": onboarding} if onboarding is not None else {}),
         }
     )
 

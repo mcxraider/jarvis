@@ -1,6 +1,7 @@
 # MCP Migration Design Document
 
 **Protocol Version:** MCP 2025-06-18 spec
+**Status:** Reviewed 2026-07-25 — see "Review Verdict & Recommendation" at the end. Spec corrections applied inline.
 
 ## Summary
 
@@ -54,7 +55,7 @@ ToolSelector  → filters schemas per-turn (static / keyword / LLM router)
 
 Each MCP server:
 - Exposes tools via the MCP tool protocol (JSON-RPC over stdio or Streamable HTTP)
-- Owns its own credential handling (passed via `initializationOptions` during MCP init handshake)
+- Owns its own credential handling (passed via a private post-init `set_credentials` message — see Design Decision 2; MCP has no standard stdio credential channel)
 - Declares tool metadata: `name` (identifier), `title` (human-readable display), description, `inputSchema`, `outputSchema` (typed results), and annotations (`readOnlyHint`/`destructiveHint`/`idempotentHint`/`openWorldHint`)
 - Exposes **prompts** (replaces `prompt_fragment`) and **resources** (replaces grounding notes)
 - Validates all inputs at its own boundary (existing Pydantic schemas move into the server)
@@ -68,9 +69,9 @@ The migration uses all three MCP server primitives — not just tools.
 | Primitive | Current Jarvis Feature | MCP Mapping |
 |-----------|----------------------|-------------|
 | **Tools** | `ToolSpec` handlers | `tools/list` + `tools/call` — the core migration |
-| **Resources** | `GROUNDING_NOTE` per domain | `resources/list` with `audience: ["assistant"]` — client auto-injects into context |
-| **Resources** | Entity grounding (project names, calendar IDs) | Subscribable resources — client pre-fetches without a tool call |
-| **Prompts** | `PROMPT_FRAGMENT` per domain | `prompts/get` with domain name — structured messages prepended to system prompt |
+| **Resources** | `GROUNDING_NOTE` per domain | `resources/list` with `audience: ["assistant"]` — *our client code* injects into context (MCP does not auto-inject; this is client-side behavior we own) |
+| **Resources** | Entity grounding (project names, calendar IDs) | Subscribable resources — client pre-fetches without a tool call. Never credentials/secrets. |
+| **Prompts** | `PROMPT_FRAGMENT` per domain | `prompts/get` with domain name — prepended to system prompt. Note: spec defines prompts as *user-controlled* (slash-command-like); using them as system-prompt fragments is a private convention between our client and servers. |
 
 Phase 2 defines which domain context moves to resources vs. prompts vs. stays as tool descriptions.
 
@@ -83,14 +84,16 @@ Phase 2 defines which domain context moves to resources vs. prompts vs. stays as
 **What:** Add an MCP client adapter that presents MCP-discovered tools as the existing `ToolSpec` interface, so the rest of the graph doesn't change yet.
 
 **Files to create:**
-- `agents/agent_api/app/tools/mcp_adapter.py` — wraps `mcp` SDK client, converts MCP tool schemas → `ToolSpec`, routes calls through MCP `call_tool`
+- `agents/agent_api/app/tools/mcp_adapter.py` — thin shim converting MCP tools → `ToolSpec`. Evaluate `langchain-mcp-adapters` (official LangChain package) for the session/transport plumbing before hand-rolling a client layer; we likely only need the `ToolSpec` conversion on top of it.
+
+**Result-shape invariant (safety-critical):** `graph/extractors.py`, `entity_index.py`, `summarize.py`, and `formatting/tool_tree.py` all parse raw tool results. The adapter must unwrap MCP `content`/`structuredContent` envelopes back to the exact shapes these consumers expect, or entity validation (the hallucination guard) silently degrades. Add a contract test asserting unwrapped MCP results are byte-identical to direct-handler results for the same fixture inputs.
 
 **Key decisions:**
 - Transport: **stdio** for co-located servers (simplest, no network). Keeps deployment identical — one container, child processes.
 - Session lifecycle: **one MCP session per (user, domain, conversation)**. Spawn on first tool call for that domain, keep alive for the conversation duration (matches `RuntimeContextSnapshot` lifecycle). Reap stale sessions after conversation timeout.
 - The adapter reads MCP tool annotations to populate `mutating` flag (`readOnlyHint: false` → mutating). Note: annotations are "hints" per spec — trusted here because we own all servers.
 - The adapter reads `outputSchema` from tools to get typed results (improvement over current arbitrary dict returns).
-- Credential injection: pass via `initializationOptions` in the MCP init handshake (not env vars — avoids `/proc/PID/environ` exposure on shared hosts).
+- Credential injection: **correction — `initializationOptions` is an LSP concept and does not exist in MCP.** The MCP `initialize` request carries only `protocolVersion`, `capabilities`, and `clientInfo`. Since we own both sides, use a private extension: the client sends a `set_credentials` tool call (or custom notification) immediately after init, before any real tool call. This is a documented private convention, not spec behavior. Env vars remain rejected (`/proc/PID/environ` exposure); CLI args are worse (`/proc/PID/cmdline` is world-readable). If we later move to Streamable HTTP, switch to the standard `Authorization` header.
 
 **Rollback mechanism:**
 ```python
@@ -139,11 +142,11 @@ async def delete_task(task_id: str) -> dict:
 
 **Naming convention:** `name` = snake_case identifier (matches current tool names). `title` = human-readable ("Get Tasks", "Delete Task").
 
-**Credential passing:** Orchestrator passes credential in `initializationOptions` during MCP session init. Server reads from init params, not env vars.
+**Credential passing:** Orchestrator sends the private `set_credentials` message right after MCP init (see Design Decision 2). Server refuses all other tool calls until credentials are set.
 
 ### Phase 3: Convert Google Calendar to MCP Server
 
-Same pattern. Token rotation: server emits `notifications/resources/updated` when refresh tokens rotate. Client subscribes and persists the new token back to credential store. (Avoids the awkward "callback URL or direct DB write" problem — the MCP notification protocol handles it cleanly.)
+Same pattern. Token rotation: **correction — do not route tokens through MCP resources.** Resources exist to expose context to the LLM/user; a subscribable resource containing an OAuth token puts a secret on the same surface the client injects into model context. Instead, the server owns the refresh flow entirely: it already holds the credential, refreshes when needed, and persists the rotated token to the credential store itself (it gets the store handle in `set_credentials`). No protocol traffic carries secrets after init.
 
 ### Phase 4: Remove Legacy Infrastructure
 
@@ -170,19 +173,23 @@ One MCP session per **(user, domain, conversation)**. This matches `RuntimeConte
 - **Spawn:** on first tool call for that domain in the conversation
 - **Keep alive:** for the conversation duration (3-5 tool calls per turn amortized)
 - **Reap:** after conversation timeout or graceful shutdown signal
-- **Credential rotation mid-session:** Server emits `notifications/resources/updated`. Client persists rotated token.
+- **Credential rotation mid-session:** Server owns refresh and persists rotated tokens directly (see Phase 3). Never expose tokens as MCP resources.
 - **Graceful shutdown:** In-flight `call_tool` gets a JSON-RPC cancel. Server has 5s to clean up before SIGKILL.
+- **Crash recovery:** If the subprocess dies mid-conversation, the adapter respawns it and replays init + `set_credentials` before the next call. A held call approved via HITL whose session died must be re-dispatched through the fresh session — the `canonicalize.py` hash binds the call payload, not the session, so this is safe, but the executor needs an explicit respawn-and-retry path (one attempt, then surface a classified transient error).
 
 ### 2. Credential Isolation
 
-Credentials via `initializationOptions` (not env vars):
-- Avoids `/proc/PID/environ` exposure
-- Supports credential rotation without process restart
+Credentials via a private post-init `set_credentials` message (MCP has no standard stdio credential channel — see Phase 1 correction):
+- Avoids `/proc/PID/environ` exposure (env vars) and `/proc/PID/cmdline` exposure (args)
+- Supports credential rotation without process restart (re-send `set_credentials`)
 - Clean separation: orchestrator owns credential resolution, server owns API calls
+- Explicitly a private extension between our client and our servers; incompatible with third-party MCP clients by design
 
 ### 3. Risk Classification via Annotations
 
-MCP tool annotations replace hardcoded `graph/risk.py` lists:
+Note: `graph/risk.py` already derives `RISKY_TOOLS` from the declarative `tools/metadata.py` registry — it is not hardcoded per tool name today. The migration moves that metadata from one declarative table to MCP annotations; the benefit is co-location with the server, not deleting hardcoded lists.
+
+MCP tool annotations replace the `metadata.py` risk table:
 - `destructiveHint: true` → risky, requires HITL confirmation
 - `readOnlyHint: true` → safe, no confirmation needed
 - `idempotentHint: true` → safe for retry
@@ -195,18 +202,21 @@ Stays at the dispatcher level (MCP client side). The MCP server is a stateless e
 
 ### 5. Error Contract
 
-MCP servers return structured errors inside the `content` text field (with `isError: true`):
+MCP servers return typed errors via `structuredContent` with `isError: true` (`outputSchema`/`structuredContent` are in the 2025-06-18 spec and supported by the Python SDK — no need to stuff JSON into a text field):
 
 ```json
 {
-  "error_class": "rate_limited",
-  "retryable": true,
-  "retry_after_seconds": 30,
-  "message": "Todoist API rate limit exceeded"
+  "isError": true,
+  "structuredContent": {
+    "error_class": "rate_limited",
+    "retryable": true,
+    "retry_after_seconds": 30,
+    "message": "Todoist API rate limit exceeded"
+  }
 }
 ```
 
-The client adapter parses this JSON and maps to `ClassifiedApiError` (retryable / ambiguous / permanent). Protocol-level JSON-RPC errors (unknown tool, invalid args) are treated as permanent/non-retryable.
+The client adapter maps `structuredContent` to `ClassifiedApiError` (retryable / ambiguous / permanent). Protocol-level JSON-RPC errors (unknown tool, invalid args) are treated as permanent/non-retryable.
 
 ### 6. Tool Selection / Router
 
@@ -254,7 +264,7 @@ Unchanged. The router still selects which tool schemas to present to the LLM. It
 | `ToolSpec` + `ToolRegistry` + `DomainAdapter` per domain | One MCP server per domain |
 | `registry_factory.py` wiring | Config: `{domain: server_command, credential_mapping}` |
 | Manual prompt fragment composition | MCP `prompts/get` → auto-injected |
-| Risk classification hardcoded per tool name | MCP annotations (`destructiveHint`) |
+| Risk metadata in central `metadata.py` table | MCP annotations (`destructiveHint`) co-located with each tool |
 | Adding a domain touches 5+ files | One server + one config line |
 
 ---
@@ -292,4 +302,21 @@ Unchanged. The router still selects which tool schemas to present to the LLM. It
 
 3. **MCP sampling?** MCP allows servers to request LLM completions from the client. Could enable autonomous sub-chains within a domain server. Not needed for Phase 1 but interesting for complex multi-step domain operations.
 
-4. **`structuredContent` for errors?** Alternative to JSON-in-text: use MCP's `outputSchema` + `structuredContent` for typed error responses. Evaluate when SDK support stabilizes.
+---
+
+## Review Verdict & Recommendation (2026-07-25)
+
+The phasing (strangler pattern, per-domain `DOMAIN_TRANSPORT` rollback, latency gate) is sound, and the spec corrections above make the design accurate. But the strategic case is thin **right now**:
+
+- The infrastructure being replaced (`base.py` + `domain_adapters.py` + `registry_factory.py`) is ~400 lines of working, tested, in-process code. The replacement adds subprocess lifecycle management, JSON-RPC transport, a private credential extension, a contingent warm-pool design, and known dependency conflicts (sse-starlette vs. the pinned starlette).
+- Every coupling point in the "expensive" list can be fixed in-process in ~1 day: self-registering adapters (decorator), and deriving selector/risk tables from `ToolSpec` metadata the way `metadata.py` already does. That delivers the Phase 5 payoff ("one module + one registration line per domain") with zero new processes.
+- CLAUDE.md explicitly lists MCP child-process infrastructure as out of scope — this repo already walked away from it once.
+
+**When MCP earns its cost:** adopting community servers (GitHub, Drive, Notion) instead of writing clients ourselves, or when a domain needs independent deployment/scaling. Neither applies with two active domains and two users.
+
+**Recommendation:**
+1. Do the in-process decoupling now (~1 day).
+2. Keep this doc as the playbook for when a community server is worth adopting — that is the trigger for Phase 1, built on `langchain-mcp-adapters`.
+3. If proceeding anyway: the Phase 1 latency benchmark stays a hard merge gate.
+
+4. ~~**`structuredContent` for errors?**~~ Resolved: `structuredContent` is stable in the 2025-06-18 spec and the Python SDK. Design Decision 5 now uses it directly.
