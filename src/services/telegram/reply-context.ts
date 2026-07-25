@@ -2,27 +2,32 @@ import { Message } from 'telegraf/typings/core/types/typegram';
 
 const MAX_QUOTE_LEN = 700;
 
+function extractInline(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value == null) return '';
+  if (Array.isArray(value)) return value.map(extractInline).join('');
+  if (typeof value === 'object') {
+    const o = value as Record<string, unknown>;
+    if ('text' in o) return extractInline(o.text);
+    if (typeof o.expression === 'string') return o.expression;
+    return '';
+  }
+  return '';
+}
+
 function extractRichMessageText(richMessage: unknown): string | undefined {
   if (typeof richMessage === 'string') return richMessage;
   if (!richMessage || typeof richMessage !== 'object') return undefined;
 
   const rm = richMessage as Record<string, unknown>;
 
-  // Shape 1: { markdown: "..." } — what we send
   if (typeof rm.markdown === 'string') return rm.markdown;
-  // Shape 2: { text: "..." }
   if (typeof rm.text === 'string') return rm.text;
-  // Shape 3: { blocks: [...] } — what Telegram actually returns
   if (Array.isArray(rm.blocks)) return extractTextFromBlocks(rm.blocks);
 
   return undefined;
 }
 
-/**
- * Recursively extracts text content from Telegram rich_message blocks.
- * Block structure varies but commonly contains `text`, `content`, or nested
- * arrays of inline elements with a `text` field.
- */
 function extractTextFromBlocks(blocks: unknown[]): string | undefined {
   const parts: string[] = [];
 
@@ -30,46 +35,78 @@ function extractTextFromBlocks(blocks: unknown[]): string | undefined {
     if (!block || typeof block !== 'object') continue;
     const b = block as Record<string, unknown>;
 
-    // Direct text field on block
-    if (typeof b.text === 'string') {
-      parts.push(b.text);
+    if (b.type === 'divider') continue;
+
+    if (b.type === 'list' && Array.isArray(b.items)) {
+      for (const item of b.items as Record<string, unknown>[]) {
+        if (!item || typeof item !== 'object') continue;
+        let prefix = typeof item.label === 'string' ? `${item.label} ` : '';
+        if (item.has_checkbox) prefix = (item.is_checked ? '☑ ' : '☐ ') + prefix;
+        const itemText = Array.isArray(item.blocks)
+          ? extractTextFromBlocks(item.blocks) ?? ''
+          : '';
+        parts.push(prefix + itemText);
+      }
       continue;
     }
-    // Content field (string)
+
+    if (b.type === 'details') {
+      const summary = extractInline(b.summary);
+      if (summary) parts.push(summary);
+      if (Array.isArray(b.blocks)) {
+        const nested = extractTextFromBlocks(b.blocks);
+        if (nested) parts.push(nested);
+      }
+      continue;
+    }
+
+    if (b.type === 'table' && Array.isArray(b.cells)) {
+      for (const row of b.cells as unknown[][]) {
+        if (!Array.isArray(row)) continue;
+        const cells = row.map((cell: unknown) => {
+          if (!cell || typeof cell !== 'object') return '';
+          return extractInline((cell as Record<string, unknown>).text);
+        });
+        const rowText = cells.join(' | ').trim();
+        if (rowText) parts.push(rowText);
+      }
+      continue;
+    }
+
+    if (b.type === 'blockquote' && Array.isArray(b.blocks)) {
+      const nested = extractTextFromBlocks(b.blocks);
+      if (nested) parts.push(nested);
+      continue;
+    }
+
+    if (b.type === 'footer') {
+      const footerText = extractInline(b.text);
+      if (footerText) parts.push(footerText);
+      continue;
+    }
+
+    // Generic fallbacks
+    if ('text' in b) {
+      const t = extractInline(b.text);
+      if (t) { parts.push(t); continue; }
+    }
     if (typeof b.content === 'string') {
       parts.push(b.content);
       continue;
     }
-    // Content field (array of inline elements)
     if (Array.isArray(b.content)) {
-      const inlineText = b.content
-        .map((item: unknown) => {
-          if (typeof item === 'string') return item;
-          if (
-            item &&
-            typeof item === 'object' &&
-            typeof (item as Record<string, unknown>).text === 'string'
-          ) {
-            return (item as Record<string, unknown>).text as string;
-          }
-          return '';
-        })
-        .join('');
-      if (inlineText) parts.push(inlineText);
-      continue;
+      const t = extractInline(b.content);
+      if (t) { parts.push(t); continue; }
     }
-    // Data-wrapped text: { type: "...", data: { text: "..." } }
     if (b.data && typeof b.data === 'object' && typeof (b.data as any).text === 'string') {
       parts.push((b.data as any).text);
       continue;
     }
-    // Children array (recursive): { type: "...", children: [...] }
     if (Array.isArray(b.children)) {
       const childText = extractTextFromBlocks(b.children);
       if (childText) parts.push(childText);
       continue;
     }
-    // Nested blocks
     if (Array.isArray(b.blocks)) {
       const nested = extractTextFromBlocks(b.blocks);
       if (nested) parts.push(nested);
