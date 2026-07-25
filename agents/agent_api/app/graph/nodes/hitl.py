@@ -142,7 +142,7 @@ def create_hitl_node(tracer: Optional[TracePrinter] = None):
         reply_text = str(human_reply)
         tracer.event("graph.hitl", "Resumed from user clarification.")
 
-        messages: list = []
+        messages = list(state.get("messages", []))
         messages.append(
             ask_user_tool_message(
                 primary_ask_user_call.get("id", "missing_tool_call_id"),

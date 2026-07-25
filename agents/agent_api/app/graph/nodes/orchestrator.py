@@ -1022,8 +1022,8 @@ def create_agent_node(
             last_question = last_entry.get("question") or ""
             routing_query = (
                 f"{user_prompt} "
-                f"[assistant asked: {last_question}] "
-                f"[user replied: {last_reply}]"
+                f"[You asked: {last_question}] "
+                f"[User replied: {last_reply}]"
             )
         else:
             routing_query = user_prompt

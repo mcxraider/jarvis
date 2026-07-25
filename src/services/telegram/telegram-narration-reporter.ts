@@ -1,7 +1,7 @@
 import type { Context } from 'telegraf';
 import { logger } from '../../utils/logger';
 import type { LogContext } from '../../utils/logger';
-import { escapeMarkdownV2 } from './formatters/telegram-markdown';
+import { toTelegramMarkdownV2 } from './formatters/telegram-markdown';
 
 export class TelegramNarrationReporter {
   private messageId?: number;
@@ -18,7 +18,7 @@ export class TelegramNarrationReporter {
     if (this.completed || !trimmed || trimmed === this.lastText) return;
     this.lastText = trimmed;
 
-    const formatted = `_${escapeMarkdownV2(trimmed)}_`;
+    const formatted = toTelegramMarkdownV2(trimmed);
 
     try {
       if (!this.messageId) {
