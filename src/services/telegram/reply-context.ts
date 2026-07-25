@@ -91,9 +91,9 @@ export function formatReplyContext(
   if (!replied) return undefined;
 
   const raw =
+    ('rich_message' in replied && extractRichMessageText((replied as any).rich_message)) ||
     ('text' in replied && replied.text) ||
     ('caption' in replied && replied.caption) ||
-    ('rich_message' in replied && extractRichMessageText((replied as any).rich_message)) ||
     ('poll' in replied &&
       (replied as any).poll?.question &&
       `[Poll: ${(replied as any).poll.question}]`) ||
