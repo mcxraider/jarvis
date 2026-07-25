@@ -88,6 +88,16 @@ describe('formatReplyContext', () => {
     );
   });
 
+  it('prefers rich_message over partial text when both exist', () => {
+    const replied = asMessage({
+      text: 'What would you like to edit? Here\'s what I can change:',
+      rich_message: { markdown: 'Found it! The task is **"MWTS"**.\n\nWhat would you like to edit? Here\'s what I can change:\n- **Title**\n- **Due date**' },
+      from: { id: 10, is_bot: true, first_name: 'Jarvis' },
+    });
+
+    expect(formatReplyContext(replied, 10)).toContain('Found it!');
+  });
+
   it('extracts rich_message.markdown from bot rich messages', () => {
     const replied = asMessage({
       rich_message: { markdown: 'Which dates would you like?' },
