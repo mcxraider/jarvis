@@ -73,19 +73,7 @@ function extractTextFromBlocks(blocks: unknown[]): string | undefined {
       continue;
     }
 
-    if (b.type === 'blockquote' && Array.isArray(b.blocks)) {
-      const nested = extractTextFromBlocks(b.blocks);
-      if (nested) parts.push(nested);
-      continue;
-    }
-
-    if (b.type === 'footer') {
-      const footerText = extractInline(b.text);
-      if (footerText) parts.push(footerText);
-      continue;
-    }
-
-    // Generic fallbacks
+    // Generic fallbacks (also covers blockquote via b.blocks, footer/heading/paragraph via b.text)
     if ('text' in b) {
       const t = extractInline(b.text);
       if (t) { parts.push(t); continue; }
