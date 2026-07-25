@@ -25,6 +25,7 @@ from langsmith import traceable
 from agents.agent_api.app.config import settings
 from agents.agent_api.app.constants import ALLOW_MUTATIONS
 from agents.agent_api.app.async_offload import bounded_to_thread
+from agents.agent_api.app.tools.access_policy import ResourceAccessPolicy
 from agents.agent_api.app.graph.canonicalize import build_operation_idempotency_key
 from agents.agent_api.app.graph.run_control import RunControl
 from agents.agent_api.app.idempotency.store import ClaimResult, ClaimState, IdempotencyStore
@@ -147,11 +148,13 @@ class ToolDispatcher:
         idempotency_wait_seconds: float = settings.idempotency_wait_seconds,
         idempotency_poll_interval_seconds: float = settings.idempotency_poll_interval_seconds,
         run_control: Optional[RunControl] = None,
+        access_policy: Optional[ResourceAccessPolicy] = None,
     ):
         self.registry = registry
         self.allow_mutations = allow_mutations
         self.tracer = tracer or NULL_TRACE
         self.run_control = run_control
+        self.access_policy = access_policy or ResourceAccessPolicy()
         self.idempotency_store = idempotency_store
         self.idempotency_operation_ttl_seconds = idempotency_operation_ttl_seconds
         self.idempotency_lease_seconds = idempotency_lease_seconds
@@ -234,7 +237,12 @@ class ToolDispatcher:
                 name=tool_name,
                 mutating=tool_name in self._mutating_names,
             )
-            self.tracer.payload("tool.args", tool_name, arguments)
+            self.access_policy.guard(tool_name, arguments)
+            self.tracer.payload(
+                "tool.args",
+                tool_name,
+                self.access_policy.trace_arguments(tool_name, arguments),
+            )
 
             if (
                 tool_name not in self.supported_tools
@@ -388,7 +396,10 @@ class ToolDispatcher:
                 """Settle the provider call and its idempotency claim together."""
 
                 try:
-                    content = await invoke_handler()
+                    content = self.access_policy.filter_result(
+                        tool_name,
+                        await invoke_handler(),
+                    )
                     self.tracer.event(
                         "tool.done",
                         "Tool call completed.",
@@ -642,7 +653,12 @@ class ToolDispatcher:
                 name=tool_name,
                 mutating=tool_name in self._mutating_names,
             )
-            self.tracer.payload("tool.args", tool_name, arguments)
+            self.access_policy.guard(tool_name, arguments)
+            self.tracer.payload(
+                "tool.args",
+                tool_name,
+                self.access_policy.trace_arguments(tool_name, arguments),
+            )
 
             if tool_name not in self.supported_tools:
                 self.tracer.event("tool.error", "Tool is not supported.", name=tool_name)
@@ -734,7 +750,10 @@ class ToolDispatcher:
                             mutation_blocked=True,
                         )
 
-            content = self.supported_tools[tool_name](arguments)
+            content = self.access_policy.filter_result(
+                tool_name,
+                self.supported_tools[tool_name](arguments),
+            )
             self.tracer.event("tool.done", "Tool call completed.", name=tool_name)
             self.tracer.payload("tool.result", tool_name, content)
             result = build_tool_result(tool_call_id, tool_name, success=True, content=content)
@@ -985,8 +1004,8 @@ class ToolDispatcher:
             turn_count=turn_count,
         )
 
-    @staticmethod
     def _rebind_cached_result(
+        self,
         cached: Optional[Dict[str, Any]],
         tool_call_id: str,
         tool_name: str,
@@ -1002,6 +1021,11 @@ class ToolDispatcher:
         result["tool_call_id"] = tool_call_id
         result["tool_name"] = tool_name
         result["idempotency_deduplicated"] = True
+        if result.get("success"):
+            result["content"] = self.access_policy.filter_result(
+                tool_name,
+                result.get("content"),
+            )
         return result
 
     @staticmethod

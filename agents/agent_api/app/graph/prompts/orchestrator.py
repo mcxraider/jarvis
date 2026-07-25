@@ -212,12 +212,43 @@ def _preference_block(runtime_context: RuntimeContextSnapshot) -> str:
     category_defaults = (
         runtime_context.preferences.domains.google_calendar.event_category_defaults
     )
+    communication = runtime_context.preferences.communication
+    fallback_calendar = (
+        runtime_context.preferences.domains.google_calendar.fallback_calendar
+    )
+    response_lines = [
+        "## User response preferences",
+        f"Tone: {communication.tone}",
+        f"Answer length: {communication.verbosity}",
+        (
+            "These preferences affect presentation only. They never override hard "
+            "invariants, tool policy, access controls, or required disclosures."
+        ),
+    ]
+    for label, values in (
+        ("Likes", communication.likes),
+        ("Avoid", communication.avoid),
+        ("Notes", communication.notes),
+    ):
+        if values:
+            response_lines.append(
+                f"{label}: "
+                + "; ".join(" ".join(value.split()) for value in values)
+            )
     routing_lines = [
         "## User routing preferences",
         f"Task provider: {routing.task_provider}",
         f"Event provider: {routing.event_provider}",
+        f"Reminder provider: {routing.reminder_provider}",
+        f"Time-related provider: {routing.time_related_provider}",
+        f"Explicit calendar provider: {routing.explicit_calendar_provider}",
         f"Calendar usage: {routing.calendar_usage}",
     ]
+    for exception in routing.exceptions:
+        routing_lines.append(
+            "Routing exception: "
+            f"{' '.join(exception.when.split())} → {exception.provider}"
+        )
     if category_defaults:
         routing_lines.append(
             "Calendar category defaults: "
@@ -225,6 +256,13 @@ def _preference_block(runtime_context: RuntimeContextSnapshot) -> str:
                 f"{category} → {calendar}"
                 for category, calendar in sorted(category_defaults.items())
             )
+        )
+    if fallback_calendar:
+        routing_lines.append(f"Fallback calendar: {fallback_calendar}")
+    if runtime_context.preferences.access.has_restrictions():
+        routing_lines.append(
+            "Resource access restrictions are active and enforced by the tool layer. "
+            "Do not ask to bypass them."
         )
     domain_lines = ["## Domain availability"]
     for domain in runtime_context.domains:
@@ -240,7 +278,7 @@ def _preference_block(runtime_context: RuntimeContextSnapshot) -> str:
                 "because it needs reauthentication",
             )
             domain_lines.append(f"- {display_name} is unavailable {reason}")
-    return "\n".join([*routing_lines, "", *domain_lines])
+    return "\n".join([*response_lines, "", *routing_lines, "", *domain_lines])
 
 
 def _tools_line(

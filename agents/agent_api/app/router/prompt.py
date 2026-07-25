@@ -130,9 +130,19 @@ def _routing_rules(snapshot: RuntimeContextSnapshot) -> List[str]:
     routing = snapshot.preferences.routing
     rules: List[str] = [
         f"1. Route tasks, to-dos, and projects to `{routing.task_provider}`.",
-        f"2. Route events, schedules, availability, free-time, and busy-time requests to `{routing.event_provider}`.",
+        f"2. Route clear events and meetings to `{routing.event_provider}`.",
+        f"3. Route reminders to `{routing.reminder_provider}`.",
+        f"4. Route ambiguous time blocks and general time-related requests to `{routing.time_related_provider}`.",
+        f"5. Route explicit generic requests such as `put this in my calendar` to `{routing.explicit_calendar_provider}`.",
     ]
-    next_index = 3
+    next_index = 6
+    for exception in routing.exceptions:
+        when = " ".join(exception.when.split())
+        rules.append(
+            f"{next_index}. Routing exception: when the request matches `{when}`, "
+            f"route it to `{exception.provider}`."
+        )
+        next_index += 1
     if routing.event_provider == "todoist":
         rules.append(
             f"{next_index}. Treat Todoist as able to answer scheduled-item, event, availability, "
@@ -141,9 +151,9 @@ def _routing_rules(snapshot: RuntimeContextSnapshot) -> List[str]:
         next_index += 1
     if routing.calendar_usage == "explicit_only":
         rules.append(
-            f"{next_index}. `google_calendar` is explicit-only: route to it only when the user says "
-            "`google calendar`, `google cal`, `gcal`, or `google_calendar`. Generic words like "
-            "`calendar`, `schedule`, `free`, or `busy` do NOT trigger `google_calendar`."
+            f"{next_index}. `google_calendar` is explicit-only: route to it only for a named "
+            "Google Calendar request or an explicit generic-calendar request whose configured "
+            "provider is `google_calendar`. Generic scheduling language alone does not activate it."
         )
         next_index += 1
     rules.append(
@@ -171,6 +181,28 @@ def _routing_rules(snapshot: RuntimeContextSnapshot) -> List[str]:
     return rules
 
 
+def _calendar_allocation_lines(snapshot: RuntimeContextSnapshot) -> List[str]:
+    calendar = snapshot.preferences.domains.google_calendar
+    lines = [
+        "Use these values only after a request routes to Google Calendar; they do "
+        "not override the provider routing rules above."
+    ]
+    if calendar.event_category_defaults:
+        lines.extend(
+            f"- {category}: {calendar_name}"
+            for category, calendar_name in sorted(
+                calendar.event_category_defaults.items()
+            )
+        )
+    else:
+        lines.append("- No category-specific calendar defaults.")
+    if calendar.fallback_calendar:
+        lines.append(f"- Fallback calendar: {calendar.fallback_calendar}")
+    else:
+        lines.append("- No fallback calendar configured.")
+    return lines
+
+
 def _few_shot_examples(snapshot: RuntimeContextSnapshot) -> List[str]:
     """Concrete input/output pairs anchoring the classification pattern.
 
@@ -183,6 +215,9 @@ def _few_shot_examples(snapshot: RuntimeContextSnapshot) -> List[str]:
     routing = snapshot.preferences.routing
     task_provider = routing.task_provider
     event_provider = routing.event_provider
+    reminder_provider = routing.reminder_provider
+    time_related_provider = routing.time_related_provider
+    explicit_calendar_provider = routing.explicit_calendar_provider
     examples = [
         f'User: "what tasks do I have today?" -> '
         f'{{"outcome": "routed", "domains": ["{task_provider}"], "uncertain": false, '
@@ -190,6 +225,15 @@ def _few_shot_examples(snapshot: RuntimeContextSnapshot) -> List[str]:
         f'User: "what\'s on my schedule this week?" -> '
         f'{{"outcome": "routed", "domains": ["{event_provider}"], "uncertain": false, '
         f'"candidate_domains": [], "complexity": "low", "reasoning": "schedule query"}}',
+        f'User: "remind me to call Mum tomorrow" -> '
+        f'{{"outcome": "routed", "domains": ["{reminder_provider}"], "uncertain": false, '
+        f'"candidate_domains": [], "complexity": "low", "reasoning": "reminder request"}}',
+        f'User: "block Friday afternoon for studying" -> '
+        f'{{"outcome": "routed", "domains": ["{time_related_provider}"], "uncertain": false, '
+        f'"candidate_domains": [], "complexity": "low", "reasoning": "time block request"}}',
+        f'User: "put lunch in my calendar" -> '
+        f'{{"outcome": "routed", "domains": ["{explicit_calendar_provider}"], "uncertain": false, '
+        f'"candidate_domains": [], "complexity": "low", "reasoning": "explicit calendar request"}}',
         'User: "hello!" -> '
         '{"outcome": "conversation", "domains": [], "uncertain": false, '
         '"candidate_domains": [], "complexity": "low", "reasoning": "greeting"}',
@@ -239,6 +283,9 @@ def build_router_system_prompt(snapshot: RuntimeContextSnapshot) -> str:
             "",
             "## Routing rules",
             *_routing_rules(snapshot),
+            "",
+            "## Google Calendar allocation",
+            *_calendar_allocation_lines(snapshot),
             "",
             "## Query complexity",
             "Classify the intrinsic reasoning and workflow difficulty of the current user query:",

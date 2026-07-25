@@ -74,6 +74,9 @@ def test_router_eval_loads_fixtures_and_formats_markdown_without_api_call(tmp_pa
     assert results[0].raw_response["domains"] == ["google_calendar"]
     assert results[0].adjusted_response["domains"] == ["todoist"]
     assert "# Router evaluation - 2026-07-07T14:33:12Z" in markdown
+    assert "Reminder provider: todoist" in markdown
+    assert "Time-related provider: todoist" in markdown
+    assert "Explicit calendar provider: todoist" in markdown
     assert "**Model:** fake-router - **Users:** 1 - **Queries:** 1 - **Pairs:** 1" in markdown
     assert "**Prompt (system):**" in markdown
     assert "**Prompt (user):**" in markdown

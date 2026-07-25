@@ -65,6 +65,7 @@ from agents.agent_api.app.run_logging import (
     open_run_log,
 )
 from agents.agent_api.app.tools.base import ToolRegistry
+from agents.agent_api.app.tools.access_policy import ResourceAccessPolicy
 from agents.agent_api.app.tools.dispatcher import ToolDispatcher
 from agents.agent_api.app.tools.registry_factory import (
     apply_registered_tools,
@@ -615,9 +616,16 @@ async def run_jarvis_async(
         agent_client = _retarget_tracer(agent_client, tracer)
     run_usage = UsageSummary()
     offline_tool_names: Optional[list] = None
+    access_policy = (
+        ResourceAccessPolicy.from_preferences(runtime_context.snapshot.preferences.access)
+        if runtime_context is not None
+        else ResourceAccessPolicy()
+    )
     if runtime_context is not None:
         registry, run_clients, tool_names_by_provider = build_runtime_registry(
-            runtime_context, tracer
+            runtime_context,
+            tracer,
+            access_policy=access_policy,
         )
         apply_registered_tools(runtime_context, registry, tool_names_by_provider)
         if not resuming:
@@ -647,6 +655,7 @@ async def run_jarvis_async(
         idempotency_lease_seconds=settings.idempotency_lease_seconds,
         idempotency_wait_seconds=settings.idempotency_wait_seconds,
         idempotency_poll_interval_seconds=settings.idempotency_poll_interval_seconds,
+        access_policy=access_policy,
     )
     if tool_selector is None:
         tool_selector = _resolve_tool_selector(

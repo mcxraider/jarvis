@@ -99,10 +99,10 @@ class TestFastPath:
         assert decision.candidate_domains == []
         assert decision.complexity == "low"
 
-    def test_uses_live_task_provider_preference(self):
+    def test_tasks_always_use_todoist(self):
         snapshot = make_snapshot(
             preferences=make_preferences(
-                task_provider="google_calendar",
+                task_provider="todoist",
                 event_provider="todoist",
             )
         )
@@ -110,7 +110,21 @@ class TestFastPath:
         decision = fast_path_classify("show my tasks", snapshot)
 
         assert decision is not None
-        assert decision.domains == ["google_calendar"]
+        assert decision.domains == ["todoist"]
+
+    def test_routing_exceptions_disable_the_deterministic_fast_path(self):
+        snapshot = make_snapshot(
+            preferences=make_preferences(
+                routing_exceptions=[
+                    {
+                        "when": "requests about the launch project",
+                        "provider": "google_calendar",
+                    }
+                ]
+            )
+        )
+
+        assert fast_path_classify("show my tasks", snapshot) is None
 
     @pytest.mark.parametrize(
         "query",

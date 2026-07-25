@@ -150,7 +150,10 @@ class TestRouterSystemPrompt:
         prefs = make_preferences(task_provider="todoist", event_provider="google_calendar")
         prompt = build_router_system_prompt(make_snapshot(preferences=prefs))
         assert "Route tasks, to-dos, and projects to `todoist`" in prompt
-        assert "Route events, schedules, availability, free-time, and busy-time requests to `google_calendar`" in prompt
+        assert "Route clear events and meetings to `google_calendar`" in prompt
+        assert "Route reminders to `todoist`" in prompt
+        assert "Route ambiguous time blocks" in prompt
+        assert "explicit generic requests" in prompt
 
     def test_event_provider_todoist_gets_generic_calendar_note(self):
         prefs = make_preferences(event_provider="todoist")
@@ -161,8 +164,30 @@ class TestRouterSystemPrompt:
     def test_explicit_only_rule_is_present_by_default(self):
         prompt = build_router_system_prompt(make_snapshot())
         assert "`google_calendar` is explicit-only" in prompt
-        assert "`google calendar`, `google cal`, `gcal`, or `google_calendar`" in prompt
-        assert "do NOT trigger `google_calendar`" in prompt
+        assert "Generic scheduling language alone does not activate it" in prompt
+
+    def test_routing_exceptions_are_bounded_operational_rules(self):
+        prefs = make_preferences(
+            routing_exceptions=[
+                {"when": "social dinner requests", "provider": "todoist"}
+            ]
+        )
+        prompt = build_router_system_prompt(make_snapshot(preferences=prefs))
+        assert "Routing exception: when the request matches `social dinner requests`" in prompt
+
+    def test_calendar_category_and_fallback_allocation_are_included(self):
+        prefs = make_preferences(
+            event_provider="google_calendar",
+            calendar_usage="default",
+            category_defaults={"work": "Work calendar"},
+            fallback_calendar="Personal calendar",
+        )
+        prompt = build_router_system_prompt(make_snapshot(preferences=prefs))
+
+        assert "## Google Calendar allocation" in prompt
+        assert "- work: Work calendar" in prompt
+        assert "- Fallback calendar: Personal calendar" in prompt
+        assert "not override the provider routing rules" in prompt
 
     def test_few_shot_examples_section_is_present(self):
         prompt = build_router_system_prompt(make_snapshot())

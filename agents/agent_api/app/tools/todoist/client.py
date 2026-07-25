@@ -15,7 +15,7 @@ import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import httpx
 from langsmith import traceable
@@ -57,6 +57,26 @@ def todoist_endpoint_template(url: str) -> str:
         for segment in path.split("/")
     ]
     return "/".join(segments)
+
+
+def _todoist_trace_inputs(inputs: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep provider traces useful without recording IDs, payloads, or secrets."""
+
+    return {
+        "method": inputs.get("method", "GET"),
+        "endpoint": todoist_endpoint_template(str(inputs.get("url", ""))),
+        "has_payload": inputs.get("payload") is not None,
+    }
+
+
+def _todoist_trace_outputs(output: Any) -> Dict[str, Any]:
+    """Never copy provider response content into LangSmith traces."""
+
+    return {
+        "has_result": output is not None,
+        "result_type": type(output).__name__,
+    }
+
 
 TODOIST_HTTP_ERROR_KIND_BY_STATUS = {
     400: "validation",
@@ -256,11 +276,13 @@ class TodoistApiClient:
         tracer: Optional[TracePrinter] = None,
         http_client: Optional[httpx.Client] = None,
         async_http_client: Optional[httpx.AsyncClient] = None,
+        response_filter: Optional[Callable[[str, Any], Any]] = None,
     ):
         self.api_key = api_key
         self._tracer = tracer or NULL_TRACE
         self._http_client = http_client
         self._async_http_client = async_http_client
+        self._response_filter = response_filter
 
     @property
     def tracer(self) -> TracePrinter:
@@ -271,9 +293,36 @@ class TodoistApiClient:
         clone._tracer = tracer
         return clone
 
+    def with_response_filter(
+        self,
+        response_filter: Callable[[str, Any], Any],
+    ) -> "TodoistApiClient":
+        """Return a request-local clone that sanitizes responses before tracing."""
+
+        clone = copy.copy(self)
+        clone._response_filter = response_filter
+        return clone
+
+    def _filter_response(self, url: str, parsed: Any) -> Any:
+        if self._response_filter is None:
+            return parsed
+        return self._response_filter(url, parsed)
+
+    def _authorize_task_mutation(self, task_id: Any) -> None:
+        """Fail closed on project restrictions before mutating a task by id."""
+
+        if self._response_filter is not None:
+            self._request(f"{TODOIST_REST_BASE_URL}/tasks/{task_id}")
+
+    async def _async_authorize_task_mutation(self, task_id: Any) -> None:
+        if self._response_filter is not None:
+            await self.async_request(f"{TODOIST_REST_BASE_URL}/tasks/{task_id}")
+
     @traceable(
         name="todoist_api_request",
         run_type="tool",
+        process_inputs=_todoist_trace_inputs,
+        process_outputs=_todoist_trace_outputs,
     )
     def _request(
         self,
@@ -410,8 +459,9 @@ class TodoistApiClient:
                     method,
                     attempt,
                 ) from error
-            self.tracer.payload("todoist.payload", "response", parsed)
-            return parsed
+            filtered = self._filter_response(url, parsed)
+            self.tracer.payload("todoist.payload", "response", filtered)
+            return filtered
 
         raise TodoistApiError(
             kind="transient",
@@ -422,7 +472,12 @@ class TodoistApiClient:
             attempts=max_attempts,
         )
 
-    @traceable(name="todoist_api_async_request", run_type="tool")
+    @traceable(
+        name="todoist_api_async_request",
+        run_type="tool",
+        process_inputs=_todoist_trace_inputs,
+        process_outputs=_todoist_trace_outputs,
+    )
     async def async_request(
         self,
         url: str,
@@ -561,8 +616,9 @@ class TodoistApiClient:
                     method,
                     attempt,
                 ) from error
-            self.tracer.payload("todoist.payload", "response", parsed)
-            return parsed
+            filtered = self._filter_response(url, parsed)
+            self.tracer.payload("todoist.payload", "response", filtered)
+            return filtered
 
         raise TodoistApiError(
             kind="transient",
@@ -603,15 +659,18 @@ class TodoistApiClient:
     def update_todoist_task(self, arguments: Dict[str, Any]) -> Any:
         arguments = dict(arguments)
         task_id = arguments.pop("task_id")
+        self._authorize_task_mutation(task_id)
         payload = _sanitize_update_payload(arguments)
         _validate_duration_pair(payload)
         return self._request(f"{TODOIST_REST_BASE_URL}/tasks/{task_id}", "POST", payload)
 
     def complete_task(self, arguments: Dict[str, Any]) -> Any:
+        self._authorize_task_mutation(arguments["task_id"])
         self._request(f"{TODOIST_REST_BASE_URL}/tasks/{arguments['task_id']}/close", "POST")
         return {"success": True, "message": f"Task {arguments['task_id']} marked as completed"}
 
     def delete_todoist_task(self, arguments: Dict[str, Any]) -> Any:
+        self._authorize_task_mutation(arguments["task_id"])
         self._request(f"{TODOIST_REST_BASE_URL}/tasks/{arguments['task_id']}", "DELETE")
         return {"success": True, "message": f"Task {arguments['task_id']} deleted permanently"}
 
@@ -630,6 +689,7 @@ class TodoistApiClient:
         return {"items": data.get("items", []), "next_cursor": data.get("next_cursor")}
 
     def uncomplete_task(self, arguments: Dict[str, Any]) -> Any:
+        self._authorize_task_mutation(arguments["task_id"])
         self._request(f"{TODOIST_REST_BASE_URL}/tasks/{arguments['task_id']}/reopen", "POST")
         return {"success": True, "message": f"Task {arguments['task_id']} reopened"}
 
@@ -653,6 +713,8 @@ class TodoistApiClient:
     def add_comment(self, arguments: Dict[str, Any]) -> Any:
         payload = _without_none(arguments)
         _validate_comment_target(payload)
+        if payload.get("task_id") is not None:
+            self._authorize_task_mutation(payload["task_id"])
         return self._request(f"{TODOIST_REST_BASE_URL}/comments", "POST", payload)
 
     def get_labels(self, arguments: Dict[str, Any]) -> Any:
@@ -733,6 +795,7 @@ class TodoistApiClient:
     async def async_update_todoist_task(self, arguments: Dict[str, Any]) -> Any:
         arguments = dict(arguments)
         task_id = arguments.pop("task_id")
+        await self._async_authorize_task_mutation(task_id)
         payload = _sanitize_update_payload(arguments)
         _validate_duration_pair(payload)
         return await self.async_request(
@@ -743,6 +806,7 @@ class TodoistApiClient:
 
     async def async_complete_task(self, arguments: Dict[str, Any]) -> Any:
         task_id = arguments["task_id"]
+        await self._async_authorize_task_mutation(task_id)
         await self.async_request(
             f"{TODOIST_REST_BASE_URL}/tasks/{task_id}/close",
             "POST",
@@ -751,6 +815,7 @@ class TodoistApiClient:
 
     async def async_delete_todoist_task(self, arguments: Dict[str, Any]) -> Any:
         task_id = arguments["task_id"]
+        await self._async_authorize_task_mutation(task_id)
         await self.async_request(
             f"{TODOIST_REST_BASE_URL}/tasks/{task_id}",
             "DELETE",
@@ -778,6 +843,7 @@ class TodoistApiClient:
 
     async def async_uncomplete_task(self, arguments: Dict[str, Any]) -> Any:
         task_id = arguments["task_id"]
+        await self._async_authorize_task_mutation(task_id)
         await self.async_request(
             f"{TODOIST_REST_BASE_URL}/tasks/{task_id}/reopen",
             "POST",
@@ -806,6 +872,8 @@ class TodoistApiClient:
     async def async_add_comment(self, arguments: Dict[str, Any]) -> Any:
         payload = _without_none(arguments)
         _validate_comment_target(payload)
+        if payload.get("task_id") is not None:
+            await self._async_authorize_task_mutation(payload["task_id"])
         return await self.async_request(
             f"{TODOIST_REST_BASE_URL}/comments",
             "POST",
