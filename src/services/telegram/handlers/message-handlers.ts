@@ -68,6 +68,20 @@ export class MessageHandlers {
         textPreview: 'text' in replied ? (replied as any).text?.slice(0, 200) : undefined,
         hasRichMessage: 'rich_message' in replied,
         richMessageKeys: 'rich_message' in replied ? Object.keys((replied as any).rich_message ?? {}) : undefined,
+        // Full block structure so we can see the exact schema extractTextFromBlocks must handle.
+        // Raw JSON (raised cap) plus a compact summary that survives even if the JSON truncates —
+        // important for large blocks like tables, which are the case that currently fails.
+        richMessageBlocks:
+          'rich_message' in replied
+            ? JSON.stringify((replied as any).rich_message?.blocks)?.slice(0, 8000)
+            : undefined,
+        blockCount: Array.isArray((replied as any).rich_message?.blocks)
+          ? (replied as any).rich_message.blocks.length
+          : undefined,
+        blockTypes: Array.isArray((replied as any).rich_message?.blocks)
+          ? (replied as any).rich_message.blocks.map((b: any) => b?.type ?? Object.keys(b ?? {}))
+          : undefined,
+        extractedReplyContext: replyContext?.slice(0, 300),
         hasQuote: 'quote' in (ctx.message as any),
         quoteText: (ctx.message as any).quote?.text?.slice(0, 200),
       });
