@@ -18,19 +18,19 @@ Users often encounter useful messages in other Telegram chats that they want Jar
 
 ### Detection
 
-Forwarded messages are identified by `message.forward_origin` (Bot API 7+; `forward_date` as legacy fallback). Detection must happen in **every media handler**, not just text, because Telegraf routes by media type — a forwarded photo with a caption lands in `handlePhoto`, never `handleText`:
+Forwarded messages are identified by `message.forward_origin` (Bot API 7+; `forward_date` as legacy fallback). Detection is a **single `bot.use` middleware** registered in `TelegramHandlers.setupHandlers()` *before* all command and message handlers, calling `MessageHandlers.maybeBufferForward(ctx)`; when it returns `true` the update is consumed and `next()` is never called. One interception point instead of per-handler hooks, and it closes two routing holes: a forwarded message whose text starts with `/cancel` would otherwise match `bot.command` and *execute the command*, and forwarded media types without dedicated handlers (video, contact, poll) would fall to `handleUnknown` with a misleading generic reply.
 
-| Handler | Forward behavior |
-|---------|-----------------|
-| `handleText` | Buffer `text` |
-| `handlePhoto` / `handleDocument` (non-audio) | Buffer `caption` if present as `"[photo] <caption>"` / `"[file: name] <caption>"`; otherwise reject: "I can only buffer forwards with text" |
-| `handleVoice` / `handleAudio` / `handleSticker` / `handleVideoNote` / `handleAnimation` | Reject forwards with the same message (transcribing forwarded voice notes is out of scope for now) |
+| Forwarded content | Behavior |
+|-------------------|----------|
+| Text | Buffer `text` |
+| Photo / document with caption | Buffer as `"[photo] <caption>"` / `"[file: name] <caption>"` |
+| Captioned audio/video/GIF | Reject — buffering only the caption would silently drop the media the user wanted acted on |
+| No text or caption, part of an album (`media_group_id`) | Consume **silently** — an album delivers one update per item with the caption on a single item; rejecting each sibling would spam the chat |
+| No text or caption otherwise | Reject: "I can only buffer forwarded text, or photos and files with captions." |
 
-Implement as a single early check `maybeBufferForward(ctx): Promise<boolean>` on `MessageHandlers`, called at the top of each handler; returns `true` if the message was consumed (buffered or rejected as a forward), so the handler returns immediately.
+**Ordering guarantees:** running at the middleware layer means a forward can never be misinterpreted as a clarification answer while the gate is `waiting_for_clarification` (forwards are material, typed text is dialogue), and never executes as a command. Authorization is enforced upstream in `TelegramBotService.handleUpdate` before Telegraf dispatch, so only authorized users reach the buffer. `callback_query` and `edited_message` updates have no `ctx.message` and pass through untouched.
 
-**Ordering constraint (critical):** the forward check runs *before* the normal text flow, which means it also runs before a forward could be misinterpreted as a clarification answer. If the conversation gate is `waiting_for_clarification` and the user forwards a message, it is buffered — it does **not** resume the pending HITL interrupt. This is the intended semantic: forwards are material, typed text is dialogue.
-
-Auth is unaffected: forwards pass through the existing `TelegramBotService` auth middleware like any other message.
+**Burst serialization:** webhook updates are processed concurrently, and multi-selecting N messages to forward delivers N near-simultaneous updates. Confirmation updates are serialized per conversation key via a promise chain (`confirmationChains`), and the confirmation text reads the live count at execution time — so a burst of 5 forwards produces exactly one reply (later turns edit it), not 5.
 
 #### Sender-name extraction
 
@@ -89,7 +89,7 @@ Implementation: `MemoryForwardBufferStore` with a `Map<string, BufferEntry>` whe
 Buffer clears when:
 
 - `/send_forward` dispatch is handed to the processor (normal path)
-- `/new` fires (fresh start — matches its existing "abandon everything" semantic)
+- `/new` **takes effect** (fresh start — matches its existing "abandon everything" semantic). When `/new` is refused because a request is still running ("try /new again in a moment"), the buffer is kept: a refused command must not silently cost the user their forwards.
 - TTL expires (lazy)
 
 Buffer does **not** clear when:
@@ -136,12 +136,13 @@ Works for me, but we need to update the timeline doc.
 | File | Change |
 |------|--------|
 | `src/services/telegram/forward-buffer.store.ts` | New — store + `formatForwardContext()` + sender-name extraction |
-| `src/services/telegram/handlers/message-handlers.ts` | `maybeBufferForward()` early-return in each media handler; `handleSendForward()` |
-| `src/services/telegram/handlers/telegram-handlers.ts` | Register `/send_forward` command |
+| `src/services/telegram/handlers/message-handlers.ts` | `maybeBufferForward()` (middleware entry point), confirmation chain, `handleSendForward()`, `/new` buffer clearing |
+| `src/services/telegram/handlers/telegram-handlers.ts` | Forward-interception `bot.use` middleware (before all handlers) + register `/send_forward` command |
 | `src/services/telegram/handlers/command-handlers.ts` | Add `/send_forward` to `/help` text |
 | `src/services/telegram/telegram-menu.registry.ts` | Add to `DEFAULT_TELEGRAM_MENU_COMMANDS` |
 | `src/app.ts` | Instantiate `MemoryForwardBufferStore`, inject into `MessageHandlers` |
-| `/new` path (`handleNew`) | Call `forwardBuffer.clear(gateKey)` |
+
+Known accepted race (`ponytail`-style ceiling): a forward arriving between `/send_forward`'s peek and clear is silently dropped; closing it needs per-key locking across two handlers for a microsecond window. The confirmation chain skips rendering when the count reads 0, so no stale "1 message buffered" appears after dispatch.
 
 No changes to `conversation-gate.store.ts` (the original plan hooked buffer-clear into gate release; dropped — see Lifecycle).
 

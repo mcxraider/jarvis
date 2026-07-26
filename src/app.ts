@@ -27,6 +27,7 @@ import { setRichMessagesEnabled } from './services/telegram/formatters/telegram-
 import { verifyDatabaseRuntime } from './services/database/database-runtime-readiness';
 import { verifyAgentContract } from './services/ai/agent-contract-readiness';
 import { createTerminalReplyStore } from './services/telegram/terminal-reply.store';
+import { MemoryForwardBufferStore } from './services/telegram/forward-buffer.store';
 import { resolveTurnTimeoutConfig } from './config/turn-timeout.config';
 
 // --- Environment validation ---
@@ -118,6 +119,10 @@ const pendingStore = createPendingClarificationStore();
 const conversationGate = createConversationGateStore();
 const terminalReplyStore = createTerminalReplyStore();
 
+// Forward buffer accumulates messages the user forwards to the bot until dispatched
+// via /send_forward. Memory-only by design: short-lived working material.
+const forwardBuffer = new MemoryForwardBufferStore();
+
 // Telegram infrastructure: file downloads, activity metrics, and health reporting.
 const fileService = new FileService(BOT_TOKEN, bot.telegram);
 const activityService = new BotActivityService();
@@ -141,6 +146,7 @@ const messageHandlers = new MessageHandlers(
   pendingStore,
   terminalReplyStore,
   conversationGate,
+  forwardBuffer,
 );
 const commandHandlers = new CommandHandlers(
   activityService,

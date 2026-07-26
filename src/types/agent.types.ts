@@ -37,6 +37,7 @@ export const AgentResponseSchema = z.object({
   status: z.enum(['completed', 'interrupted', 'failed']),
   thread_id: z.string(),
   response: z.string(),
+  reasoning_content: z.string().nullish(),
   interrupt: LangGraphInterruptSchema.nullish(),
   tool_results: z.array(z.record(z.unknown())).nullish(),
   error: z.string().nullish(),

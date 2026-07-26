@@ -175,8 +175,10 @@ def create_hitl_node(tracer: Optional[TracePrinter] = None):
         messages.append({
             "role": "user",
             "content": (
-                f"[Clarification received — see the ask_user tool response above. "
-                f"Continue working on the original request: \"{original_prompt}\"]"
+                f"[Clarification result]\n"
+                f"Original request: \"{original_prompt}\"\n"
+                f"Question asked by you: \"{payload.get('question')}\"\n"
+                f"User response: \"{reply_text}\""
             ),
         })
 

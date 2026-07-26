@@ -86,6 +86,7 @@ export class AudioProcessorService {
 
         return {
           response: result.response,
+          reasoningContent: result.reasoningContent,
           delivery: result.delivery,
           suppressed: result.suppressed,
           interruptType: result.interruptType,
@@ -184,6 +185,7 @@ export class AudioProcessorService {
 
         return {
           response: result.response,
+          reasoningContent: result.reasoningContent,
           delivery: result.delivery,
           suppressed: result.suppressed,
           interruptType: result.interruptType,

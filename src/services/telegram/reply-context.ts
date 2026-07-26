@@ -105,14 +105,18 @@ function extractTextFromBlocks(blocks: unknown[]): string | undefined {
   return result || undefined;
 }
 
+export interface ReplyContextData {
+  role: 'assistant' | 'user';
+  message: string;
+}
+
 /**
- * Formats useful text from the Telegram message being replied to for inclusion
- * in a fresh agent request.
+ * Extracts structured reply context from the Telegram message being replied to.
  */
 export function formatReplyContext(
   replied: Message | undefined,
   botId: number | undefined,
-): string | undefined {
+): ReplyContextData | undefined {
   if (!replied) return undefined;
 
   const raw =
@@ -135,9 +139,9 @@ export function formatReplyContext(
   const quote = raw.length > MAX_QUOTE_LEN ? `${raw.slice(0, MAX_QUOTE_LEN)}…` : raw;
   const fromBot =
     replied.from?.is_bot === true || (botId !== undefined && replied.from?.id === botId);
-  const who = fromBot
-    ? 'your earlier message'
-    : `an earlier message from ${replied.from?.first_name ?? 'the user'}`;
 
-  return `[In reply to ${who}: "${quote}"]`;
+  return {
+    role: fromBot ? 'assistant' : 'user',
+    message: quote,
+  };
 }

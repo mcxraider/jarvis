@@ -39,6 +39,7 @@ export interface LangGraphAgentResponse {
   delivery: LangGraphDelivery;
   threadId: string;
   response: string;
+  reasoningContent?: string;
   interrupt?: import('../../types/agent.types').LangGraphInterrupt;
   toolResults: Record<string, unknown>[];
   error?: string;
@@ -78,6 +79,7 @@ export interface LangGraphAgentRequest {
   telegramIdentity?: TelegramIdentity;
   requestId?: string;
   threadId?: string;
+  replyContext?: { role: 'assistant' | 'user'; message: string };
 }
 
 export interface LangGraphAgentClientConfig {
@@ -843,6 +845,7 @@ export class LangGraphAgentClient {
         : undefined,
       request_id: request.requestId,
       thread_id: request.threadId,
+      reply_context: request.replyContext,
     };
   }
 
@@ -851,6 +854,7 @@ export class LangGraphAgentClient {
     status?: string;
     thread_id?: string;
     response?: string;
+    reasoning_content?: string | null;
     interrupt?: import('../../types/agent.types').LangGraphInterrupt | null;
     tool_results?: Record<string, unknown>[] | null;
     error?: string | null;
@@ -862,6 +866,7 @@ export class LangGraphAgentClient {
       delivery: 'terminal',
       threadId: body.thread_id || '',
       response: body.response || 'Jarvis could not complete that request.',
+      reasoningContent: body.reasoning_content ?? undefined,
       interrupt: body.interrupt ?? undefined,
       toolResults: body.tool_results || [],
       error: body.error ?? undefined,

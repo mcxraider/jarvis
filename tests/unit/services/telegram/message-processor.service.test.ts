@@ -47,7 +47,7 @@ describe('MessageProcessorService', () => {
 
   it('forwards reply context to the text processor', async () => {
     const textProcessor = (service as any).textProcessor;
-    const replyContext = '[In reply to your earlier message: "Created task: Buy milk"]';
+    const replyContext = { role: 'assistant' as const, message: 'Created task: Buy milk' };
 
     await service.processTextMessage(
       'add a due date',

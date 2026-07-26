@@ -392,6 +392,7 @@ def build_initial_state(
     timezone: Optional[str] = None,
     user_name: Optional[str] = None,
     runtime_context: Optional[RuntimeContextSnapshot] = None,
+    reply_context: Optional[dict] = None,
     registered_tools: Optional[list] = None,
 ) -> JarvisState:
     """Create a fresh state object for one Jarvis run."""
@@ -404,6 +405,7 @@ def build_initial_state(
             user_name=user_name,
             runtime_context=runtime_context,
             registered_tools=registered_tools,
+            reply_context=reply_context,
         ),
         "user_prompt": user_prompt,
         "user_id": user_id,
@@ -525,6 +527,7 @@ async def run_jarvis_async(
     tool_selector: Optional[ToolSelector] = None,
     idempotency_store: Optional[IdempotencyStore] = None,
     run_control: Optional[RunControl] = None,
+    reply_context: Optional[dict] = None,
 ) -> JarvisState:
     """Run the full Jarvis graph natively on the caller's event loop.
 
@@ -741,6 +744,7 @@ async def run_jarvis_async(
                         else None
                     ),
                     registered_tools=offline_tool_names,
+                    reply_context=reply_context,
                 ),
                 config,
             )

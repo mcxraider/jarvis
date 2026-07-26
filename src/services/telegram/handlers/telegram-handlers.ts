@@ -17,6 +17,15 @@ export class TelegramHandlers {
 
   // Wires all handler groups onto the Telegraf bot instance. Called once at startup.
   setupHandlers(bot: Telegraf<Context>): void {
+    // Forward interception must run before EVERY handler, commands included: a
+    // forwarded message whose text starts with "/cancel" must be buffered, not
+    // executed as the command. Authorization is enforced upstream in
+    // TelegramBotService.handleUpdate before Telegraf dispatch, so only
+    // authorized users ever reach this middleware.
+    bot.use(async (ctx, next) => {
+      if (await this.messageHandlers.maybeBufferForward(ctx)) return;
+      return next();
+    });
     this.setupCommandHandlers(bot);
     this.setupCallbackHandlers(bot);
     this.setupMessageHandlers(bot);
@@ -28,6 +37,7 @@ export class TelegramHandlers {
     bot.command('status', this.commandHandlers.handleStatus.bind(this.commandHandlers));
     bot.command('cancel', this.commandHandlers.handleCancel.bind(this.commandHandlers));
     bot.command('new', this.messageHandlers.handleNew.bind(this.messageHandlers));
+    bot.command('send_forward', this.messageHandlers.handleSendForward.bind(this.messageHandlers));
   }
 
   // Inline keyboard button presses (e.g. Approve/Decline on confirm interrupts).

@@ -6,15 +6,16 @@ function asMessage(message: Record<string, unknown>): Message {
 }
 
 describe('formatReplyContext', () => {
-  it('labels bot-authored text as an earlier assistant message', () => {
+  it('labels bot-authored text as assistant role', () => {
     const replied = asMessage({
       text: 'Created task: Buy milk',
       from: { id: 10, is_bot: true, first_name: 'Jarvis' },
     });
 
-    expect(formatReplyContext(replied, 10)).toBe(
-      '[In reply to your earlier message: "Created task: Buy milk"]',
-    );
+    expect(formatReplyContext(replied, 10)).toEqual({
+      role: 'assistant',
+      message: 'Created task: Buy milk',
+    });
   });
 
   it('recognizes the configured bot id even when is_bot is absent', () => {
@@ -23,20 +24,22 @@ describe('formatReplyContext', () => {
       from: { id: 10, first_name: 'Jarvis' },
     });
 
-    expect(formatReplyContext(replied, 10)).toBe(
-      '[In reply to your earlier message: "Which task?"]',
-    );
+    expect(formatReplyContext(replied, 10)).toEqual({
+      role: 'assistant',
+      message: 'Which task?',
+    });
   });
 
-  it('labels user-authored text with the sender first name', () => {
+  it('labels user-authored text as user role', () => {
     const replied = asMessage({
       text: 'Buy milk',
       from: { id: 22, is_bot: false, first_name: 'Alex' },
     });
 
-    expect(formatReplyContext(replied, 10)).toBe(
-      '[In reply to an earlier message from Alex: "Buy milk"]',
-    );
+    expect(formatReplyContext(replied, 10)).toEqual({
+      role: 'user',
+      message: 'Buy milk',
+    });
   });
 
   it('falls back to a photo caption', () => {
@@ -46,9 +49,10 @@ describe('formatReplyContext', () => {
       from: { id: 22, is_bot: false, first_name: 'Alex' },
     });
 
-    expect(formatReplyContext(replied, 10)).toBe(
-      '[In reply to an earlier message from Alex: "Receipt from lunch"]',
-    );
+    expect(formatReplyContext(replied, 10)).toEqual({
+      role: 'user',
+      message: 'Receipt from lunch',
+    });
   });
 
   it.each([
@@ -60,12 +64,13 @@ describe('formatReplyContext', () => {
     expect(formatReplyContext(replied, 10)).toBeUndefined();
   });
 
-  it('uses a generic user label when sender metadata is unavailable', () => {
+  it('uses user role when sender metadata is unavailable', () => {
     const replied = asMessage({ text: 'Earlier context' });
 
-    expect(formatReplyContext(replied, undefined)).toBe(
-      '[In reply to an earlier message from the user: "Earlier context"]',
-    );
+    expect(formatReplyContext(replied, undefined)).toEqual({
+      role: 'user',
+      message: 'Earlier context',
+    });
   });
 
   it('truncates quoted text beyond 700 characters and appends an ellipsis', () => {
@@ -74,18 +79,20 @@ describe('formatReplyContext', () => {
       from: { id: 22, first_name: 'Alex' },
     });
 
-    expect(formatReplyContext(replied, 10)).toBe(
-      `[In reply to an earlier message from Alex: "${'a'.repeat(700)}…"]`,
-    );
+    expect(formatReplyContext(replied, 10)).toEqual({
+      role: 'user',
+      message: `${'a'.repeat(700)}…`,
+    });
   });
 
   it('does not truncate text at exactly 700 characters', () => {
     const text = 'a'.repeat(700);
     const replied = asMessage({ text, from: { id: 22, first_name: 'Alex' } });
 
-    expect(formatReplyContext(replied, 10)).toBe(
-      `[In reply to an earlier message from Alex: "${text}"]`,
-    );
+    expect(formatReplyContext(replied, 10)).toEqual({
+      role: 'user',
+      message: text,
+    });
   });
 
   it('prefers rich_message over partial text when both exist', () => {
@@ -95,7 +102,7 @@ describe('formatReplyContext', () => {
       from: { id: 10, is_bot: true, first_name: 'Jarvis' },
     });
 
-    expect(formatReplyContext(replied, 10)).toContain('Found it!');
+    expect(formatReplyContext(replied, 10)!.message).toContain('Found it!');
   });
 
   it('extracts rich_message.markdown from bot rich messages', () => {
@@ -104,9 +111,10 @@ describe('formatReplyContext', () => {
       from: { id: 10, is_bot: true, first_name: 'Jarvis' },
     });
 
-    expect(formatReplyContext(replied, 10)).toBe(
-      '[In reply to your earlier message: "Which dates would you like?"]',
-    );
+    expect(formatReplyContext(replied, 10)).toEqual({
+      role: 'assistant',
+      message: 'Which dates would you like?',
+    });
   });
 
   it('extracts rich_message when it is a plain string', () => {
@@ -115,9 +123,10 @@ describe('formatReplyContext', () => {
       from: { id: 10, is_bot: true, first_name: 'Jarvis' },
     });
 
-    expect(formatReplyContext(replied, 10)).toBe(
-      '[In reply to your earlier message: "Which dates would you like?"]',
-    );
+    expect(formatReplyContext(replied, 10)).toEqual({
+      role: 'assistant',
+      message: 'Which dates would you like?',
+    });
   });
 
   it('extracts rich_message.text as fallback', () => {
@@ -126,9 +135,10 @@ describe('formatReplyContext', () => {
       from: { id: 10, is_bot: true, first_name: 'Jarvis' },
     });
 
-    expect(formatReplyContext(replied, 10)).toBe(
-      '[In reply to your earlier message: "Which dates would you like?"]',
-    );
+    expect(formatReplyContext(replied, 10)).toEqual({
+      role: 'assistant',
+      message: 'Which dates would you like?',
+    });
   });
 
   it('extracts rich_message.blocks with text fields', () => {
@@ -142,9 +152,10 @@ describe('formatReplyContext', () => {
       from: { id: 10, is_bot: true, first_name: 'Jarvis' },
     });
 
-    expect(formatReplyContext(replied, 10)).toBe(
-      '[In reply to your earlier message: "Which dates would you like?\nI can help schedule it."]',
-    );
+    expect(formatReplyContext(replied, 10)).toEqual({
+      role: 'assistant',
+      message: 'Which dates would you like?\nI can help schedule it.',
+    });
   });
 
   it('extracts rich_message.blocks with content arrays (inline elements)', () => {
@@ -158,9 +169,10 @@ describe('formatReplyContext', () => {
       from: { id: 10, is_bot: true, first_name: 'Jarvis' },
     });
 
-    expect(formatReplyContext(replied, 10)).toBe(
-      '[In reply to your earlier message: "Hello world\nSimple string content"]',
-    );
+    expect(formatReplyContext(replied, 10)).toEqual({
+      role: 'assistant',
+      message: 'Hello world\nSimple string content',
+    });
   });
 
   it('returns undefined for rich_message.blocks with no extractable text', () => {
@@ -191,10 +203,10 @@ describe('formatReplyContext', () => {
     });
 
     const result = formatReplyContext(replied, 10)!;
-    expect(result).toContain('Options:');
-    expect(result).toContain('• Title');
-    expect(result).toContain('• Due date');
-    expect(result).toContain('• Priority');
+    expect(result.message).toContain('Options:');
+    expect(result.message).toContain('• Title');
+    expect(result.message).toContain('• Due date');
+    expect(result.message).toContain('• Priority');
   });
 
   it('extracts ordered list items', () => {
@@ -212,8 +224,8 @@ describe('formatReplyContext', () => {
     });
 
     const result = formatReplyContext(replied, 10)!;
-    expect(result).toContain('1. First');
-    expect(result).toContain('2. Second');
+    expect(result.message).toContain('1. First');
+    expect(result.message).toContain('2. Second');
   });
 
   it('extracts task-list with checkbox state', () => {
@@ -231,10 +243,10 @@ describe('formatReplyContext', () => {
     });
 
     const result = formatReplyContext(replied, 10)!;
-    expect(result).toContain('☑');
-    expect(result).toContain('Done');
-    expect(result).toContain('☐');
-    expect(result).toContain('Pending');
+    expect(result.message).toContain('☑');
+    expect(result.message).toContain('Done');
+    expect(result.message).toContain('☐');
+    expect(result.message).toContain('Pending');
   });
 
   it('extracts paragraph + divider + paragraph + lists (real log dump)', () => {
@@ -257,11 +269,11 @@ describe('formatReplyContext', () => {
     });
 
     const result = formatReplyContext(replied, 10)!;
-    expect(result).toContain('Above the divider.');
-    expect(result).toContain('Below the divider.');
-    expect(result).toContain('• Item A');
-    expect(result).toContain('• Item B');
-    expect(result).toContain('• Item C');
+    expect(result.message).toContain('Above the divider.');
+    expect(result.message).toContain('Below the divider.');
+    expect(result.message).toContain('• Item A');
+    expect(result.message).toContain('• Item B');
+    expect(result.message).toContain('• Item C');
   });
 
   it('extracts heading + details with nested list', () => {
@@ -284,9 +296,9 @@ describe('formatReplyContext', () => {
     });
 
     const result = formatReplyContext(replied, 10)!;
-    expect(result).toContain('Edit options');
-    expect(result).toContain('Details heading');
-    expect(result).toContain('• Nested item');
+    expect(result.message).toContain('Edit options');
+    expect(result.message).toContain('Details heading');
+    expect(result.message).toContain('• Nested item');
   });
 
   it('extracts table cells', () => {
@@ -304,8 +316,8 @@ describe('formatReplyContext', () => {
     });
 
     const result = formatReplyContext(replied, 10)!;
-    expect(result).toContain('Name | Value');
-    expect(result).toContain('Priority | P1');
+    expect(result.message).toContain('Name | Value');
+    expect(result.message).toContain('Priority | P1');
   });
 
   it('handles inline array text (bold/italic inline runs)', () => {
@@ -320,7 +332,7 @@ describe('formatReplyContext', () => {
     });
 
     const result = formatReplyContext(replied, 10)!;
-    expect(result).toContain('List item with italic');
+    expect(result.message).toContain('List item with italic');
   });
 
   it('handles inline object text (bare bold wrapper)', () => {
@@ -335,7 +347,7 @@ describe('formatReplyContext', () => {
     });
 
     const result = formatReplyContext(replied, 10)!;
-    expect(result).toContain('Hello world');
+    expect(result.message).toContain('Hello world');
   });
 
   it('handles deeply nested inline runs', () => {
@@ -350,7 +362,7 @@ describe('formatReplyContext', () => {
     });
 
     const result = formatReplyContext(replied, 10)!;
-    expect(result).toContain('deep');
+    expect(result.message).toContain('deep');
   });
 
   it('extracts blockquote blocks', () => {
@@ -365,7 +377,7 @@ describe('formatReplyContext', () => {
     });
 
     const result = formatReplyContext(replied, 10)!;
-    expect(result).toContain('Quoted text');
+    expect(result.message).toContain('Quoted text');
   });
 
   it('extracts footer blocks', () => {
@@ -380,8 +392,8 @@ describe('formatReplyContext', () => {
     });
 
     const result = formatReplyContext(replied, 10)!;
-    expect(result).toContain('Main content');
-    expect(result).toContain('Footnote here');
+    expect(result.message).toContain('Main content');
+    expect(result.message).toContain('Footnote here');
   });
 
   it('handles mathematical_expression inline and ignores anchor', () => {
@@ -396,7 +408,7 @@ describe('formatReplyContext', () => {
     });
 
     const result = formatReplyContext(replied, 10)!;
-    expect(result).toContain('E=mc²');
+    expect(result.message).toContain('E=mc²');
   });
 
   it('handles table cells with array/object text', () => {
@@ -414,8 +426,8 @@ describe('formatReplyContext', () => {
     });
 
     const result = formatReplyContext(replied, 10)!;
-    expect(result).toContain('42 ms');
-    expect(result).toContain('ready');
+    expect(result.message).toContain('42 ms');
+    expect(result.message).toContain('ready');
   });
 
   it('extracts full nested syntax mega-message', () => {
@@ -437,12 +449,12 @@ describe('formatReplyContext', () => {
 
     const result = formatReplyContext(replied, 10)!;
     expect(result).toBeDefined();
-    expect(result).toContain('Task Summary');
-    expect(result).toContain('Here are your tasks.');
-    expect(result).toContain('Important note');
-    expect(result).toContain('Buy milk');
-    expect(result).toContain('Status | Done');
-    expect(result).toContain('Last updated today');
+    expect(result.message).toContain('Task Summary');
+    expect(result.message).toContain('Here are your tasks.');
+    expect(result.message).toContain('Important note');
+    expect(result.message).toContain('Buy milk');
+    expect(result.message).toContain('Status | Done');
+    expect(result.message).toContain('Last updated today');
   });
 
   it('extracts poll question as fallback', () => {
@@ -451,9 +463,10 @@ describe('formatReplyContext', () => {
       from: { id: 22, first_name: 'Alex' },
     });
 
-    expect(formatReplyContext(replied, 10)).toBe(
-      '[In reply to an earlier message from Alex: "[Poll: Where should we eat?]"]',
-    );
+    expect(formatReplyContext(replied, 10)).toEqual({
+      role: 'user',
+      message: '[Poll: Where should we eat?]',
+    });
   });
 
   it('extracts sticker emoji as fallback', () => {
@@ -462,9 +475,10 @@ describe('formatReplyContext', () => {
       from: { id: 10, is_bot: true, first_name: 'Jarvis' },
     });
 
-    expect(formatReplyContext(replied, 10)).toBe(
-      '[In reply to your earlier message: "[Sticker: 👍]"]',
-    );
+    expect(formatReplyContext(replied, 10)).toEqual({
+      role: 'assistant',
+      message: '[Sticker: 👍]',
+    });
   });
 
   it('extracts contact name as fallback', () => {
@@ -473,9 +487,10 @@ describe('formatReplyContext', () => {
       from: { id: 22, first_name: 'Alex' },
     });
 
-    expect(formatReplyContext(replied, 10)).toBe(
-      '[In reply to an earlier message from Alex: "[Contact: John]"]',
-    );
+    expect(formatReplyContext(replied, 10)).toEqual({
+      role: 'user',
+      message: '[Contact: John]',
+    });
   });
 
   it('extracts location as fallback', () => {
@@ -484,8 +499,9 @@ describe('formatReplyContext', () => {
       from: { id: 22, first_name: 'Alex' },
     });
 
-    expect(formatReplyContext(replied, 10)).toBe(
-      '[In reply to an earlier message from Alex: "[Shared location]"]',
-    );
+    expect(formatReplyContext(replied, 10)).toEqual({
+      role: 'user',
+      message: '[Shared location]',
+    });
   });
 });

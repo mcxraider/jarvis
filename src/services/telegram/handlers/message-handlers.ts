@@ -31,6 +31,11 @@ import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { formatReplyContext } from '../reply-context';
 import { ConversationGateStore } from '../conversation-gate.store';
 import { TerminalReplyStore } from '../terminal-reply.store';
+import {
+  extractForwardOrigin,
+  formatForwardContext,
+  ForwardBufferStore,
+} from '../forward-buffer.store';
 
 export class MessageHandlers {
   constructor(
@@ -41,7 +46,210 @@ export class MessageHandlers {
     private readonly pendingStore: PendingClarificationStore,
     private readonly terminalReplyStore: TerminalReplyStore,
     private readonly conversationGate?: ConversationGateStore,
+    private readonly forwardBuffer?: ForwardBufferStore,
   ) {}
+
+  // Serializes confirmation updates per conversation. Webhook updates are processed
+  // concurrently, and multi-selecting N messages to forward delivers N near-simultaneous
+  // updates — without serialization each one would race on the missing confirmation id
+  // and post its own reply.
+  private readonly confirmationChains = new Map<string, Promise<void>>();
+
+  // Consumes forwarded messages before any command or message handler runs (installed
+  // as a bot.use middleware). Returns true when the message was a forward (buffered or
+  // rejected) and the pipeline must stop. Intercepting at the middleware layer means a
+  // forward can never be misread as a clarification answer, and a forwarded message
+  // whose text happens to start with a /command can never execute that command.
+  async maybeBufferForward(ctx: Context): Promise<boolean> {
+    if (!this.forwardBuffer || !ctx.message) return false;
+    const message = ctx.message as unknown as Record<string, unknown>;
+    const origin = extractForwardOrigin(message);
+    if (!origin) return false;
+
+    const logContext = this.createLogContext(ctx, 'forward');
+    let text: string | undefined;
+    if (typeof message.text === 'string') {
+      text = message.text;
+    } else if (typeof message.caption === 'string' && ('photo' in message || 'document' in message)) {
+      // Only photos and files carry their captions into the buffer. Captioned audio,
+      // video, and GIF forwards are rejected below: buffering just the caption would
+      // silently drop the media the user actually wanted acted on.
+      const prefix = 'photo' in message
+        ? '[photo] '
+        : `[file: ${(message.document as { file_name?: string })?.file_name ?? 'unnamed'}] `;
+      text = prefix + message.caption;
+    }
+
+    if (!text || !text.trim()) {
+      // Forwarding an album delivers one update per item but the caption usually sits
+      // on a single item — rejecting every captionless sibling would spam the chat.
+      if (typeof message.media_group_id === 'string') {
+        logger.info('telegram.forward.rejected', {
+          ...logContext,
+          reason: 'no_text',
+          mediaGroup: true,
+        });
+        return true;
+      }
+      logger.info('telegram.forward.rejected', { ...logContext, reason: 'no_text' });
+      await ctx.reply(
+        'I can only buffer forwarded text, or photos and files with captions.',
+      );
+      return true;
+    }
+
+    const gateKey = this.gateKey(ctx);
+    const result = this.forwardBuffer.push(gateKey, {
+      senderName: origin.senderName,
+      chatTitle: origin.chatTitle,
+      forwardedAt: origin.forwardedAt,
+      receivedAt: new Date(),
+      text,
+    });
+
+    if (!result.ok) {
+      logger.info('telegram.forward.rejected', { ...logContext, reason: result.reason });
+      await ctx.reply(
+        result.reason === 'buffer_full'
+          ? `Buffer is full (${this.forwardBuffer.count(gateKey)} messages). Send /send_forward <instruction> to dispatch, or /new to clear.`
+          : 'That forward is too long for me to buffer.',
+      );
+      return true;
+    }
+
+    logger.info('telegram.forward.buffered', {
+      ...logContext,
+      count: result.count,
+      textLength: text.length,
+      hasChatTitle: Boolean(origin.chatTitle),
+    });
+
+    // Chain rather than call directly: concurrent forwards each await their turn, so
+    // exactly one reply is created and later turns edit it. updateForwardConfirmation
+    // never rejects (all failures are caught), so the chain cannot poison.
+    const prev = this.confirmationChains.get(gateKey) ?? Promise.resolve();
+    const next = prev.then(() => this.updateForwardConfirmation(ctx, gateKey, logContext));
+    this.confirmationChains.set(gateKey, next);
+    await next;
+    if (this.confirmationChains.get(gateKey) === next) {
+      this.confirmationChains.delete(gateKey);
+    }
+    return true;
+  }
+
+  // Single running confirmation, edited in place as the count grows — forwarding ten
+  // messages must not produce ten bot replies. Falls back to a fresh reply if the edit
+  // fails (e.g. the user deleted the confirmation). Reads the live count at execution
+  // time so coalesced turns in the chain display the final number.
+  private async updateForwardConfirmation(
+    ctx: Context,
+    gateKey: string,
+    logContext: LogContext,
+  ): Promise<void> {
+    if (!this.forwardBuffer) return;
+    const count = this.forwardBuffer.count(gateKey);
+    // Buffer dispatched or cleared while this turn waited in the chain — nothing to show.
+    if (count === 0) return;
+    const text = `📥 ${count} message${count === 1 ? '' : 's'} buffered. Send /send_forward <instruction> when ready.`;
+    const existingId = this.forwardBuffer.getConfirmationMessageId(gateKey);
+    if (existingId !== undefined && ctx.chat) {
+      try {
+        await ctx.telegram.editMessageText(ctx.chat.id, existingId, undefined, text);
+        return;
+      } catch (error) {
+        logger.warn('telegram.forward.confirmation_edit_failed', {
+          ...logContext,
+          confirmationMessageId: existingId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    try {
+      const sent = await ctx.reply(text);
+      this.forwardBuffer.setConfirmationMessageId(gateKey, sent.message_id);
+    } catch (error) {
+      logger.warn('telegram.forward.confirmation_send_failed', {
+        ...logContext,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // /send_forward <instruction> — dispatch all buffered forwards as structured context
+  // for <instruction> through the normal fresh-text pipeline.
+  async handleSendForward(ctx: Context): Promise<void> {
+    if (!ctx.message || !('text' in ctx.message) || !this.forwardBuffer) return;
+
+    const logContext = this.createLogContext(ctx, 'text');
+    const startedAt = Date.now();
+    const instruction = ctx.message.text.replace(/^\/send_forward(?:@\w+)?\s*/i, '').trim();
+    const gateKey = this.gateKey(ctx);
+    const messages = this.forwardBuffer.peek(gateKey);
+
+    logger.info('telegram.command.send_forward', {
+      ...logContext,
+      bufferedCount: messages.length,
+      hasInstruction: instruction.length > 0,
+    });
+
+    if (messages.length === 0) {
+      await ctx.reply(
+        'No forwarded messages buffered. Forward some messages first, then /send_forward <instruction>.',
+      );
+      return;
+    }
+    if (!instruction) {
+      await ctx.reply(
+        `You have ${messages.length} buffered message${messages.length === 1 ? '' : 's'}. ` +
+          'Tell me what to do with them, e.g. /send_forward summarize these.',
+      );
+      return;
+    }
+
+    // Keep the buffer intact if the previous request is still running — the processor
+    // would reject the dispatch anyway, and draining first would lose the forwards.
+    // The processor still owns final arbitration; this pre-check only closes the
+    // common "user is impatient" path.
+    const gateStatus = await this.conversationGate
+      ?.getSnapshot(gateKey)
+      .then((s) => s.status)
+      .catch(() => undefined);
+    if (gateStatus === 'running') {
+      await ctx.reply(
+        "I'm still finishing your previous request — /send_forward again in a moment, or /cancel.",
+      );
+      return;
+    }
+
+    const combined = formatForwardContext(messages, instruction);
+    const confirmationId = this.forwardBuffer.getConfirmationMessageId(gateKey);
+    this.forwardBuffer.clear(gateKey);
+    logger.info('telegram.forward.dispatched', {
+      ...logContext,
+      count: messages.length,
+      totalChars: combined.length,
+    });
+
+    if (confirmationId !== undefined && ctx.chat) {
+      await ctx.telegram
+        .editMessageText(
+          ctx.chat.id,
+          confirmationId,
+          undefined,
+          `📤 Sent ${messages.length} forwarded message${messages.length === 1 ? '' : 's'}.`,
+        )
+        .catch(() => undefined);
+    }
+
+    // forceFresh: dispatching a batch of forwards is semantically a new request; it
+    // abandons any pending clarification the same way /new does.
+    await this.runFreshText(ctx, combined, logContext, startedAt, { forceFresh: true });
+  }
+
+  private gateKey(ctx: Context): string {
+    const userId = ctx.from?.id;
+    return buildConversationKey(userId, mapTelegramUserId(userId), ctx.chat?.id);
+  }
 
   // Primary text message handler. Shows a rotating progress indicator while the
   // LangGraph agent processes the request, then delivers the final response.
@@ -81,7 +289,7 @@ export class MessageHandlers {
         blockTypes: Array.isArray((replied as any).rich_message?.blocks)
           ? (replied as any).rich_message.blocks.map((b: any) => b?.type ?? Object.keys(b ?? {}))
           : undefined,
-        extractedReplyContext: replyContext?.slice(0, 300),
+        extractedReplyContext: replyContext?.message?.slice(0, 300),
         hasQuote: 'quote' in (ctx.message as any),
         quoteText: (ctx.message as any).quote?.text?.slice(0, 200),
       });
@@ -125,6 +333,8 @@ export class MessageHandlers {
       const pending = await this.pendingStore.get(gateKey).catch(() => undefined);
       const outcome = await this.messageProcessor.abandonConversation(userId, logContext);
       if (outcome === 'running') {
+        // /new did not take effect — keep the forward buffer too, so "try again in a
+        // moment" doesn't silently cost the user their accumulated forwards.
         await sendFinalReply(
           ctx,
           "I'm still finishing your previous request — try /new again in a moment, or /cancel.",
@@ -132,6 +342,8 @@ export class MessageHandlers {
         );
         return;
       }
+      // /new means "abandon everything", including any accumulated forwards.
+      this.forwardBuffer?.clear(gateKey);
       if (outcome === 'abandoned') {
         await this.cleanupPendingPrompt(ctx, pending, logContext);
       }
@@ -143,6 +355,8 @@ export class MessageHandlers {
       return;
     }
 
+    // Explicitly starting a new request abandons accumulated forwards along with it.
+    this.forwardBuffer?.clear(this.gateKey(ctx));
     await this.runFreshText(ctx, remainder, logContext, startedAt, { forceFresh: true });
   }
 
@@ -153,7 +367,7 @@ export class MessageHandlers {
     text: string,
     logContext: LogContext,
     startedAt: number,
-    options?: { forceFresh?: boolean; replyContext?: string },
+    options?: { forceFresh?: boolean; replyContext?: import('../reply-context').ReplyContextData },
   ): Promise<void> {
     const userId = ctx.from?.id;
     const progressReporter = new TelegramProgressReporter(ctx, logContext);
@@ -225,8 +439,9 @@ export class MessageHandlers {
     await this.processAudioFile(ctx, ctx.message.audio, 'audio');
   }
 
-  // Photo handler: images are not supported. Reject with a helpful message, mirroring
-  // the sticker/GIF/video-note handlers, so only text and audio reach the agent.
+  // Photo handler: images are not supported (forwarded photos with captions are
+  // consumed by the forward middleware before reaching here). Reject with a helpful
+  // message, mirroring the sticker/GIF/video-note handlers.
   async handlePhoto(ctx: Context): Promise<void> {
     if (!ctx.message || !('photo' in ctx.message)) return;
     await this.rejectUnsupportedMedia(

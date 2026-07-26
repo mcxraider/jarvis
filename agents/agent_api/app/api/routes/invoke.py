@@ -140,6 +140,7 @@ def parse_error_details(error: str) -> Optional[Dict[str, Any]]:
 def to_response(result: JarvisState) -> AgentResponse:
     thread_id = str(result.get("thread_id") or "")
     tool_results = result.get("tool_results", [])
+    reasoning = result.get("reasoning_content") or None
 
     if result.get("interrupted"):
         interrupt = result.get("interrupt_payload", {})
@@ -154,6 +155,7 @@ def to_response(result: JarvisState) -> AgentResponse:
             status="interrupted",
             thread_id=thread_id,
             response=question,
+            reasoning_content=reasoning,
             interrupt=interrupt,
             tool_results=tool_results,
         )
@@ -177,6 +179,7 @@ def to_response(result: JarvisState) -> AgentResponse:
         status="completed",
         thread_id=thread_id,
         response=str(result.get("final_response") or ""),
+        reasoning_content=reasoning,
         tool_results=tool_results,
     )
 
@@ -574,6 +577,10 @@ async def invoke(
 
     run_control = RunControl()
 
+    reply_ctx = (
+        request.reply_context.model_dump() if request.reply_context else None
+    )
+
     async def run_with_tracer(tracer: UserProgressTracePrinter) -> Any:
         return await _call_runner(
             run_jarvis,
@@ -587,6 +594,7 @@ async def invoke(
             request_id=request.request_id,
             run_control=run_control,
             checkpointer=runtime_checkpointer(http_request),
+            reply_context=reply_ctx,
         )
 
     return await run_agent_request(
@@ -619,6 +627,9 @@ async def invoke_stream(
         return stream_final_response(ctx.cached_response)
 
     run_control = RunControl()
+    reply_ctx = (
+        request.reply_context.model_dump() if request.reply_context else None
+    )
 
     async def run_with_tracer(tracer: UserProgressTracePrinter) -> Any:
         return await _call_runner(
@@ -633,6 +644,7 @@ async def invoke_stream(
             request_id=request.request_id,
             run_control=run_control,
             checkpointer=runtime_checkpointer(http_request),
+            reply_context=reply_ctx,
         )
 
     return await stream_agent_run(

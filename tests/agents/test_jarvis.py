@@ -624,8 +624,8 @@ class JarvisGraphTests(unittest.TestCase):
         messages = jarvis.build_initial_messages("Show me today's tasks")
 
         self.assertEqual(messages[1]["role"], "user")
-        self.assertIn("Current request date and time:", messages[1]["content"])
-        self.assertIn("User request:\nShow me today's tasks", messages[1]["content"])
+        self.assertIn("Current datetime:", messages[1]["content"])
+        self.assertIn("Current user message:\nShow me today's tasks", messages[1]["content"])
 
     def run_graph_with_fakes(
         self,
@@ -777,8 +777,8 @@ class JarvisGraphTests(unittest.TestCase):
             [result["final_response"] for result in results],
             ["First done.", "Second done."],
         )
-        self.assertIn("User request:\nfirst prompt", agent_client.calls[0][1]["content"])
-        self.assertIn("User request:\nsecond prompt", agent_client.calls[1][1]["content"])
+        self.assertIn("Current user message:\nfirst prompt", agent_client.calls[0][1]["content"])
+        self.assertIn("Current user message:\nsecond prompt", agent_client.calls[1][1]["content"])
 
     def test_load_user_prompts_from_text_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1017,7 +1017,7 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(result["messages"][3]["tool_call_id"], "call_ask")
         self.assertEqual(result["messages"][3]["name"], jarvis.ASK_USER_TOOL_NAME)
         self.assertEqual(json.loads(result["messages"][3]["content"])["user_reply"], "the dentist task")
-        self.assertIn("Clarification received", result["messages"][4]["content"])
+        self.assertIn("Clarification result", result["messages"][4]["content"])
         self.assertEqual(len(agent_client.calls), 2)
         second_call_roles = [message.get("role") for message in agent_client.calls[1]]
         self.assertEqual(second_call_roles, ["system", "user", "assistant", "tool", "user"])

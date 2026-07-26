@@ -85,7 +85,7 @@ describe('TextProcessorService', () => {
       resume: jest.fn(),
     };
     const service = createService(agentClient);
-    const replyContext = '[In reply to your earlier message: "Created task: Buy milk"]';
+    const replyContext = { role: 'assistant' as const, message: 'Created task: Buy milk' };
 
     await service.processTextMessage(
       ' \n add a due date of tomorrow \t ',
@@ -97,7 +97,8 @@ describe('TextProcessorService', () => {
 
     expect(agentClient.invoke).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: `${replyContext}\n\nadd a due date of tomorrow`,
+        message: 'add a due date of tomorrow',
+        replyContext: { role: 'assistant', message: 'Created task: Buy milk' },
       }),
       expect.any(Object),
     );
@@ -299,7 +300,7 @@ describe('TextProcessorService', () => {
       42,
       { chatId: 100, messageId: 11 },
       undefined,
-      { replyContext: '[In reply to your earlier message: "Which task should I update?"]' },
+      { replyContext: { role: 'assistant' as const, message: 'Which task should I update?' } },
     );
 
     expect(agentClient.resume).toHaveBeenCalledWith(
@@ -988,6 +989,58 @@ describe('TextProcessorService', () => {
 
       expect(result.resolvedPendingPause).toBeFalsy();
       expect(result.consumedClarificationMessageId).toBeUndefined();
+    });
+  });
+
+  describe('reasoning_content propagation', () => {
+    it('propagates reasoningContent from agent response to result', async () => {
+      process.env.TELEGRAM_USER_MAP = '701122767:jerry';
+      const agentClient = {
+        invoke: jest.fn().mockResolvedValue({
+          status: 'completed',
+          delivery: 'terminal',
+          threadId: 'thread-r',
+          response: 'Answer.',
+          reasoningContent: 'I thought about it.',
+          toolResults: [],
+        }),
+        resume: jest.fn(),
+      };
+      const service = createService(agentClient);
+
+      const result = await service.processTextMessage('hello', 701122767, {
+        requestId: 'tg_r',
+        chatId: 100,
+        messageId: 1,
+        telegramUsername: 'jerry',
+      });
+
+      expect(result.reasoningContent).toBe('I thought about it.');
+      expect(result.response).toBe('Answer.');
+    });
+
+    it('leaves reasoningContent undefined when agent omits it', async () => {
+      process.env.TELEGRAM_USER_MAP = '701122767:jerry';
+      const agentClient = {
+        invoke: jest.fn().mockResolvedValue({
+          status: 'completed',
+          delivery: 'terminal',
+          threadId: 'thread-r',
+          response: 'Answer.',
+          toolResults: [],
+        }),
+        resume: jest.fn(),
+      };
+      const service = createService(agentClient);
+
+      const result = await service.processTextMessage('hello', 701122767, {
+        requestId: 'tg_r',
+        chatId: 100,
+        messageId: 1,
+        telegramUsername: 'jerry',
+      });
+
+      expect(result.reasoningContent).toBeUndefined();
     });
   });
 });
