@@ -142,8 +142,8 @@ describe('CommandHandlers', () => {
     const pendingStore = new MemoryPendingClarificationStore();
     const gateKey = buildConversationKey(123, 'telegram:123', 456);
     const now = Date.now();
-    await gateStore.tryAcquire(gateKey, 60000);
-    await gateStore.transitionToWaiting(gateKey, 60000);
+    await gateStore.tryAcquire(gateKey, 60000, undefined, 'request-waiting');
+    await gateStore.transitionToWaitingIfActiveRequestId(gateKey, 'request-waiting', 60000);
     await pendingStore.save({
       pendingKey: gateKey,
       threadId: 'thread-1',
@@ -151,6 +151,7 @@ describe('CommandHandlers', () => {
       telegramUserId: 123,
       chatId: 456,
       userId: 'telegram:123',
+      requestId: 'request-waiting',
       interruptType: 'clarify',
       clarificationMessageId: 11,
       status: 'pending',
@@ -181,6 +182,283 @@ describe('CommandHandlers', () => {
     expect(await pendingStore.get(gateKey)).toBeUndefined();
   });
 
+  it('does not release or clear a newer waiting generation after a same-status ABA', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    const now = Date.now();
+    await gateStore.tryAcquire(gateKey, 60000, undefined, 'request-old');
+    await gateStore.transitionToWaitingIfActiveRequestId(gateKey, 'request-old', 60000);
+    await pendingStore.save({
+      pendingKey: gateKey,
+      threadId: 'thread-old',
+      question: 'Old question?',
+      telegramUserId: 123,
+      userId: 'telegram:123',
+      requestId: 'request-old',
+      interruptType: 'clarify',
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + 60000,
+    });
+    const transitionToRunning = gateStore.transitionToRunning.bind(gateStore);
+    gateStore.transitionToRunning = jest.fn().mockImplementation(async (
+      key,
+      ttlMs,
+      requestId,
+      expectedWaitingRequestId,
+    ) => {
+      await gateStore.releaseIfWaitingRequestId(key, 'request-old');
+      await gateStore.tryAcquire(key, 60000, undefined, 'request-new');
+      await gateStore.transitionToWaitingIfActiveRequestId(key, 'request-new', 60000);
+      await pendingStore.save({
+        pendingKey: gateKey,
+        threadId: 'thread-new',
+        question: 'New question?',
+        telegramUserId: 123,
+        userId: 'telegram:123',
+        requestId: 'request-new',
+        interruptType: 'clarify',
+        status: 'pending',
+        createdAt: now + 1,
+        updatedAt: now + 1,
+        expiresAt: now + 60000,
+      });
+      return transitionToRunning(key, ttlMs, requestId, expectedWaitingRequestId);
+    });
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      pendingStore,
+    );
+
+    await handlers.handleCancel(createContext());
+
+    expect(await gateStore.getStatus(gateKey)).toBe('waiting_for_clarification');
+    expect(await gateStore.getRequestId(gateKey)).toBe('request-new');
+    expect((await pendingStore.get(gateKey))?.requestId).toBe('request-new');
+  });
+
+  it('deletes a stored confirmation prompt when cancelling its waiting generation', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    const now = Date.now();
+    await gateStore.tryAcquire(gateKey, 60000, undefined, 'request-confirm');
+    await gateStore.transitionToWaitingIfActiveRequestId(gateKey, 'request-confirm', 60000);
+    await pendingStore.save({
+      pendingKey: gateKey,
+      threadId: 'thread-confirm',
+      question: 'Delete the task?',
+      telegramUserId: 123,
+      userId: 'telegram:123',
+      requestId: 'request-confirm',
+      interruptType: 'confirm',
+      promptMessageId: 77,
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + 60000,
+    });
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      pendingStore,
+    );
+    const ctx = createContext();
+    ctx.telegram.deleteMessage = jest.fn().mockResolvedValue(true);
+
+    await handlers.handleCancel(ctx);
+
+    expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
+    expect(await pendingStore.get(gateKey)).toBeUndefined();
+  });
+
+  it('releases a waiting gate and cleans its prompt after the pending read TTL elapses', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    const now = Date.now();
+    await gateStore.tryAcquire(gateKey, 60000, undefined, 'request-expired');
+    await gateStore.transitionToWaitingIfActiveRequestId(gateKey, 'request-expired', 60000);
+    await pendingStore.save({
+      pendingKey: gateKey,
+      threadId: 'thread-expired',
+      question: 'Delete the task?',
+      telegramUserId: 123,
+      chatId: 456,
+      userId: 'telegram:123',
+      requestId: 'request-expired',
+      interruptType: 'confirm',
+      promptMessageId: 77,
+      status: 'pending',
+      createdAt: now - 60000,
+      updatedAt: now - 60000,
+      expiresAt: now - 1,
+    });
+    const expireIfMatches = jest.spyOn(pendingStore, 'expireIfMatches');
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      pendingStore,
+    );
+    const ctx = createContext();
+    ctx.telegram.deleteMessage = jest.fn().mockResolvedValue(true);
+
+    await handlers.handleCancel(ctx);
+
+    expect(expireIfMatches).toHaveBeenCalledWith(gateKey, { requestId: 'request-expired' });
+    expect(await gateStore.getStatus(gateKey)).toBe('idle');
+    expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
+  });
+
+  it('claims the exact waiting generation before reading and clearing its pending row', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    const now = Date.now();
+    await gateStore.tryAcquire(gateKey, 60000, undefined, 'request-waiting');
+    await gateStore.transitionToWaitingIfActiveRequestId(gateKey, 'request-waiting', 60000);
+    await pendingStore.save({
+      pendingKey: gateKey,
+      threadId: 'thread-waiting',
+      question: 'Continue?',
+      telegramUserId: 123,
+      userId: 'telegram:123',
+      requestId: 'request-waiting',
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + 60000,
+    });
+    const events: string[] = [];
+    const transitionToRunning = gateStore.transitionToRunning.bind(gateStore);
+    jest.spyOn(gateStore, 'transitionToRunning').mockImplementation(async (...args) => {
+      const transitioned = await transitionToRunning(...args);
+      events.push(`claim:${transitioned}`);
+      return transitioned;
+    });
+    const get = pendingStore.get.bind(pendingStore);
+    jest.spyOn(pendingStore, 'get').mockImplementation(async (key) => {
+      events.push(`read:${(await gateStore.getSnapshot(gateKey)).status}`);
+      return get(key);
+    });
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      pendingStore,
+    );
+
+    await handlers.handleCancel(createContext());
+
+    expect(events.slice(0, 2)).toEqual(['claim:true', 'read:running']);
+    expect(await gateStore.getStatus(gateKey)).toBe('idle');
+    expect(await pendingStore.get(gateKey)).toBeUndefined();
+  });
+
+  it('restores a waiting generation without clearing it when the pending read fails', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    const now = Date.now();
+    await gateStore.tryAcquire(gateKey, 60000, undefined, 'request-waiting');
+    await gateStore.transitionToWaitingIfActiveRequestId(gateKey, 'request-waiting', 60000);
+    await pendingStore.save({
+      pendingKey: gateKey,
+      threadId: 'thread-waiting',
+      question: 'Continue?',
+      telegramUserId: 123,
+      userId: 'telegram:123',
+      requestId: 'request-waiting',
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + 60000,
+    });
+    const get = pendingStore.get.bind(pendingStore);
+    jest.spyOn(pendingStore, 'get')
+      .mockRejectedValueOnce(new Error('temporary database failure'))
+      .mockImplementation(get);
+    const clearIfMatches = jest.spyOn(pendingStore, 'clearIfMatches');
+    const expireIfMatches = jest.spyOn(pendingStore, 'expireIfMatches');
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      pendingStore,
+    );
+
+    await handlers.handleCancel(createContext());
+
+    expect(await gateStore.getSnapshot(gateKey)).toEqual({
+      status: 'waiting_for_clarification',
+      requestId: 'request-waiting',
+    });
+    expect((await pendingStore.get(gateKey))?.requestId).toBe('request-waiting');
+    expect(clearIfMatches).not.toHaveBeenCalled();
+    expect(expireIfMatches).not.toHaveBeenCalled();
+  });
+
+  it('uses the initial waiting snapshot token when the generation changes before pending lookup', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    const now = Date.now();
+    await gateStore.tryAcquire(gateKey, 60000, undefined, 'request-old');
+    await gateStore.transitionToWaitingIfActiveRequestId(gateKey, 'request-old', 60000);
+    await pendingStore.save({
+      pendingKey: gateKey,
+      threadId: 'thread-old',
+      question: 'Old question?',
+      telegramUserId: 123,
+      userId: 'telegram:123',
+      requestId: 'request-old',
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + 60000,
+    });
+    const getSnapshot = gateStore.getSnapshot.bind(gateStore);
+    gateStore.getSnapshot = jest.fn().mockImplementationOnce(async (key) => {
+      const oldSnapshot = await getSnapshot(key);
+      await gateStore.releaseIfWaitingRequestId(key, 'request-old');
+      await gateStore.tryAcquire(key, 60000, undefined, 'request-new');
+      await gateStore.transitionToWaitingIfActiveRequestId(key, 'request-new', 60000);
+      await pendingStore.save({
+        pendingKey: gateKey,
+        threadId: 'thread-new',
+        question: 'New question?',
+        telegramUserId: 123,
+        userId: 'telegram:123',
+        requestId: 'request-new',
+        status: 'pending',
+        createdAt: now + 1,
+        updatedAt: now + 1,
+        expiresAt: now + 60000,
+      });
+      return oldSnapshot;
+    });
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      pendingStore,
+    );
+
+    await handlers.handleCancel(createContext());
+
+    expect(await getSnapshot(gateKey)).toEqual({
+      status: 'waiting_for_clarification',
+      requestId: 'request-new',
+    });
+    expect((await pendingStore.get(gateKey))?.requestId).toBe('request-new');
+  });
+
   it('clears a leftover pending clarification on /cancel even when the gate is idle', async () => {
     const activityService = createActivityService();
     const statusService = { getFormattedStatus: jest.fn() } as any;
@@ -203,6 +481,7 @@ describe('CommandHandlers', () => {
       expiresAt: now + 60000,
     });
     const handlers = new CommandHandlers(activityService, statusService, gateStore, pendingStore);
+    const release = jest.spyOn(gateStore, 'release');
     const ctx = {
       from: { id: 123, username: 'tester' },
       chat: { id: 456 },
@@ -213,6 +492,309 @@ describe('CommandHandlers', () => {
     await handlers.handleCancel(ctx);
 
     expect(await pendingStore.get(gateKey)).toBeUndefined();
+    expect(release).not.toHaveBeenCalled();
+  });
+
+  it('claims an expired pending prompt in the idle-before-expiry-timer gap', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    const now = Date.now();
+    await pendingStore.save({
+      pendingKey: gateKey,
+      threadId: 'thread-expired',
+      question: 'Choose a project',
+      telegramUserId: 123,
+      chatId: 456,
+      userId: 'telegram:123',
+      requestId: 'request-expired',
+      interruptType: 'clarify',
+      clarificationMessageId: 88,
+      promptMessageId: 88,
+      status: 'pending',
+      createdAt: now - 60000,
+      updatedAt: now - 60000,
+      expiresAt: now - 1,
+    });
+    jest.spyOn(gateStore, 'getSnapshot').mockResolvedValueOnce({
+      status: 'idle',
+      requestId: 'request-expired',
+    });
+    const expireIfMatches = jest.spyOn(pendingStore, 'expireIfMatches');
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      pendingStore,
+    );
+    const ctx = createContext();
+
+    await handlers.handleCancel(ctx);
+
+    expect(expireIfMatches).toHaveBeenCalledWith(gateKey, { requestId: 'request-expired' });
+    expect(ctx.telegram.callApi).toHaveBeenCalledWith('editMessageText', {
+      chat_id: 456,
+      message_id: 88,
+      rich_message: {
+        markdown: '<details><summary>Clarification</summary>\n\nChoose a project\n\n</details>',
+      },
+    });
+    expect(await gateStore.getStatus(gateKey)).toBe('idle');
+  });
+
+  it('does not clear a pending row created after an initial idle cancel snapshot', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    const now = Date.now();
+    const originalTryAcquire = gateStore.tryAcquire.bind(gateStore);
+    gateStore.tryAcquire = jest.fn().mockImplementationOnce(async (key, ttlMs, chatId, _requestId) => {
+      await originalTryAcquire(key, ttlMs, chatId, 'request-new');
+      await gateStore.transitionToWaitingIfActiveRequestId(key, 'request-new', 60000);
+      await pendingStore.save({
+        pendingKey: key,
+        threadId: 'thread-new',
+        question: 'New question?',
+        telegramUserId: 123,
+        userId: 'telegram:123',
+        requestId: 'request-new',
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: now + 60000,
+      });
+      return false;
+    });
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      pendingStore,
+    );
+    const ctx = createContext();
+
+    await handlers.handleCancel(ctx);
+
+    expect(await gateStore.getSnapshot(gateKey)).toEqual({
+      status: 'waiting_for_clarification',
+      requestId: 'request-new',
+    });
+    expect((await pendingStore.get(gateKey))?.requestId).toBe('request-new');
+    expect(ctx.reply.mock.calls[0][0]).toContain('another request is active');
+  });
+
+  it('awaits backend cancellation before releasing a running gate', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    await gateStore.tryAcquire(gateKey, 60000);
+    await gateStore.setActiveRequestId(gateKey, 'request-1');
+    let resolveCancel!: (outcome: 'cancelled') => void;
+    const cancelRun = jest.fn().mockReturnValue(
+      new Promise<'cancelled'>((resolve) => { resolveCancel = resolve; }),
+    );
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      new MemoryPendingClarificationStore(),
+      { cancelRun } as any,
+    );
+    const ctx = createContext();
+
+    const cancelling = handlers.handleCancel(ctx);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(await gateStore.getStatus(gateKey)).toBe('running');
+
+    resolveCancel('cancelled');
+    await cancelling;
+
+    expect(cancelRun).toHaveBeenCalledWith('telegram:123', 'request-1');
+    expect(await gateStore.getStatus(gateKey)).toBe('idle');
+    expect(ctx.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Conversation cancelled'),
+      { parse_mode: 'MarkdownV2' },
+    );
+  });
+
+  it('does not release a newer request when a delayed cancellation settles', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    await gateStore.tryAcquire(gateKey, 60000);
+    await gateStore.setActiveRequestId(gateKey, 'request-1');
+    let resolveCancel!: (outcome: 'cancelled') => void;
+    const cancelRun = jest.fn().mockReturnValue(
+      new Promise<'cancelled'>((resolve) => { resolveCancel = resolve; }),
+    );
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      new MemoryPendingClarificationStore(),
+      { cancelRun } as any,
+    );
+    const ctx = createContext();
+
+    const cancelling = handlers.handleCancel(ctx);
+    while (cancelRun.mock.calls.length === 0) {
+      await Promise.resolve();
+    }
+
+    expect(await gateStore.releaseIfActiveRequestId(gateKey, 'request-1')).toEqual({
+      released: true,
+      bufferedMessage: undefined,
+    });
+    expect(await gateStore.tryAcquire(gateKey, 60000)).toBe(true);
+    await gateStore.setActiveRequestId(gateKey, 'request-2');
+
+    resolveCancel('cancelled');
+    await cancelling;
+
+    expect(await gateStore.getStatus(gateKey)).toBe('running');
+    expect(await gateStore.getActiveRequestId(gateKey)).toBe('request-2');
+    expect(ctx.reply.mock.calls[0][0]).toContain('another request is active');
+  });
+
+  it('retains a running gate while a confirmed mutation is in flight', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    await gateStore.tryAcquire(gateKey, 60000);
+    await gateStore.setActiveRequestId(gateKey, 'request-1');
+    const cancelRun = jest.fn().mockResolvedValue('mutation_in_flight');
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      new MemoryPendingClarificationStore(),
+      { cancelRun } as any,
+    );
+    const ctx = createContext();
+
+    await handlers.handleCancel(ctx);
+
+    expect(await gateStore.getStatus(gateKey)).toBe('running');
+    expect(await gateStore.getActiveRequestId(gateKey)).toBe('request-1');
+    expect(ctx.reply.mock.calls[0][0]).toContain("can't safely cancel");
+  });
+
+  it('retains a running gate when the backend cannot confirm the request exists', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    await gateStore.tryAcquire(gateKey, 60000, undefined, 'request-1');
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      new MemoryPendingClarificationStore(),
+      { cancelRun: jest.fn().mockResolvedValue('not_found') } as any,
+    );
+    const ctx = createContext();
+
+    await handlers.handleCancel(ctx);
+
+    expect(await gateStore.getActiveRequestId(gateKey)).toBe('request-1');
+    expect(ctx.reply.mock.calls[0][0]).toContain("couldn't confirm cancellation");
+  });
+
+  it('retains a running gate when the backend has finished before Telegram settlement', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    await gateStore.tryAcquire(gateKey, 60000, undefined, 'request-1');
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      new MemoryPendingClarificationStore(),
+      { cancelRun: jest.fn().mockResolvedValue('already_finished') } as any,
+    );
+
+    await handlers.handleCancel(createContext());
+
+    expect(await gateStore.getActiveRequestId(gateKey)).toBe('request-1');
+    expect(await gateStore.getStatus(gateKey)).toBe('running');
+  });
+
+  it('does not clear a newer pending row created after the owned gate is released', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    await gateStore.tryAcquire(gateKey, 60000, undefined, 'request-old');
+    const now = Date.now();
+    const oldPending = {
+      pendingKey: gateKey,
+      threadId: 'thread-old',
+      question: 'Old question?',
+      telegramUserId: 123,
+      userId: 'telegram:123',
+      requestId: 'request-old',
+      interruptType: 'clarify' as const,
+      status: 'pending' as const,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + 60000,
+    };
+    await pendingStore.save(oldPending);
+    const clearIfMatches = pendingStore.clearIfMatches.bind(pendingStore);
+    pendingStore.clearIfMatches = jest.fn().mockImplementation(async (...args: any[]) => {
+      await pendingStore.save({
+        ...oldPending,
+        threadId: 'thread-new',
+        requestId: 'request-new',
+        question: 'New question?',
+      });
+      return clearIfMatches(...(args as Parameters<typeof clearIfMatches>));
+    });
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      pendingStore,
+      { cancelRun: jest.fn().mockResolvedValue('cancelled') } as any,
+    );
+
+    await handlers.handleCancel(createContext());
+
+    expect((await pendingStore.get(gateKey))?.requestId).toBe('request-new');
+  });
+
+  it('retains a running gate when backend cancellation fails', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    await gateStore.tryAcquire(gateKey, 60000);
+    await gateStore.setActiveRequestId(gateKey, 'request-1');
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      new MemoryPendingClarificationStore(),
+      { cancelRun: jest.fn().mockRejectedValue(new Error('network unavailable')) } as any,
+    );
+    const ctx = createContext();
+
+    await handlers.handleCancel(ctx);
+
+    expect(await gateStore.getStatus(gateKey)).toBe('running');
+    expect(ctx.reply.mock.calls[0][0]).toContain("couldn't confirm cancellation");
+  });
+
+  it('retains a running gate when no active backend request id is available', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    await gateStore.tryAcquire(gateKey, 60000);
+    const cancelRun = jest.fn();
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      new MemoryPendingClarificationStore(),
+      { cancelRun } as any,
+    );
+    const ctx = createContext();
+
+    await handlers.handleCancel(ctx);
+
+    expect(cancelRun).not.toHaveBeenCalled();
+    expect(await gateStore.getStatus(gateKey)).toBe('running');
   });
 
   it('sends the /cancel confirmation through the rich-message path when enabled', async () => {
@@ -230,7 +812,7 @@ describe('CommandHandlers', () => {
     expect(ctx.telegram.callApi).toHaveBeenCalledWith('sendRichMessage', {
       chat_id: 456,
       rich_message: {
-        markdown: "Conversation cancelled. Let me know what you you'd like to do next!",
+        markdown: "Conversation cancelled. Let me know what you'd like to do next!",
       },
     });
     expect(ctx.reply).not.toHaveBeenCalled();

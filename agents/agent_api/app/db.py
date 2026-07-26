@@ -1,8 +1,14 @@
-"""Lazy shared Postgres connection pool for Jarvis user-data queries."""
+"""Lazy shared Postgres connection pools for Jarvis database access.
 
+The synchronous pool remains available for existing request preparation and
+telemetry paths.  Native async graph/checkpoint paths use the process-wide
+``AsyncConnectionPool`` opened by the FastAPI lifespan.
+"""
+
+import asyncio
 import logging
 import threading
-from typing import Any
+from typing import Any, Optional
 
 from agents.agent_api.app.config import settings
 
@@ -10,6 +16,10 @@ logger = logging.getLogger(__name__)
 
 _pool: Any = None
 _pool_lock = threading.Lock()
+_async_pool: Optional[Any] = None
+_async_pool_loop: Optional[asyncio.AbstractEventLoop] = None
+_async_pool_open_task: Optional[asyncio.Task[Any]] = None
+_async_pool_state_lock = threading.Lock()
 
 _REQUIRED_RUNTIME_TABLES = (
     "users",
@@ -63,6 +73,9 @@ def get_pool() -> Any:
             max_size=10,
             kwargs={"autocommit": True, "prepare_threshold": None},
             open=False,
+            check=ConnectionPool.check_connection,
+            max_idle=300,
+            max_lifetime=1800,
         )
         try:
             pool.open()
@@ -179,3 +192,135 @@ def close_pool() -> None:
             logger.warning("Pool close error.", extra={"error": type(exc).__name__})
         finally:
             _pool = None
+
+
+async def open_async_pool() -> Any:
+    """Open and return the shared async pool, or ``None`` without a DSN.
+
+    Construction is completed before publishing the singleton.  A failed open
+    therefore cannot leave a partially initialized pool visible to later calls.
+    FastAPI calls this once during lifespan startup before synchronous database
+    readiness checks.
+    """
+
+    global _async_pool, _async_pool_loop, _async_pool_open_task
+    loop = asyncio.get_running_loop()
+    dsn = settings.postgres_dsn
+    if not dsn:
+        return None
+
+    with _async_pool_state_lock:
+        if _async_pool is not None:
+            if _async_pool_loop is not loop:
+                raise RuntimeError("Async DB pool belongs to a different event loop.")
+            return _async_pool
+        task = _async_pool_open_task
+        if task is None:
+            task = loop.create_task(_create_async_pool(dsn))
+            _async_pool_open_task = task
+        elif task.get_loop() is not loop:
+            raise RuntimeError("Async DB pool startup is already owned by another loop.")
+
+    try:
+        pool = await asyncio.shield(task)
+    except BaseException:
+        if task.done():
+            with _async_pool_state_lock:
+                if _async_pool_open_task is task:
+                    _async_pool_open_task = None
+        raise
+    with _async_pool_state_lock:
+        if _async_pool_open_task is task:
+            _async_pool = pool
+            _async_pool_loop = loop
+            _async_pool_open_task = None
+            return pool
+        if _async_pool is pool and _async_pool_loop is loop:
+            return pool
+    raise RuntimeError("Async DB pool startup was invalidated before publication.")
+
+
+async def _create_async_pool(dsn: str) -> Any:
+    """Construct a ready pool and clean up every partially-open failure."""
+
+    from psycopg_pool import AsyncConnectionPool
+
+    pool = AsyncConnectionPool(
+        conninfo=dsn,
+        min_size=2,
+        max_size=10,
+        kwargs={"autocommit": True, "prepare_threshold": None},
+        open=False,
+        check=AsyncConnectionPool.check_connection,
+        max_idle=300,
+        max_lifetime=1800,
+    )
+    try:
+        await pool.open()
+        await pool.wait(timeout=5.0)
+    except BaseException as open_error:
+        try:
+            await pool.close()
+        except BaseException as close_error:
+            raise BaseExceptionGroup(
+                "Async DB pool startup and rollback both failed.",
+                [open_error, close_error],
+            )
+        raise
+    return pool
+
+
+def get_async_pool() -> Any:
+    """Return the opened async pool or raise when startup has not opened it."""
+
+    with _async_pool_state_lock:
+        pool = _async_pool
+        owner_loop = _async_pool_loop
+    if pool is None:
+        raise RuntimeError(
+            "Async DB pool is not open. Call open_async_pool() during lifespan startup."
+        )
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is not None and owner_loop is not loop:
+        raise RuntimeError("Async DB pool belongs to a different event loop.")
+    return pool
+
+
+async def close_async_pool() -> None:
+    """Clear and close the shared async pool; safe to call repeatedly."""
+
+    global _async_pool, _async_pool_loop, _async_pool_open_task
+    loop = asyncio.get_running_loop()
+    with _async_pool_state_lock:
+        if _async_pool is not None and _async_pool_loop is not loop:
+            raise RuntimeError("Async DB pool must be closed by its owning event loop.")
+        if (
+            _async_pool_open_task is not None
+            and _async_pool_open_task.get_loop() is not loop
+        ):
+            raise RuntimeError("Async DB pool startup belongs to a different event loop.")
+        pool = _async_pool
+        _async_pool = None
+        _async_pool_loop = None
+        open_task = _async_pool_open_task
+        _async_pool_open_task = None
+    if open_task is not None:
+        if not open_task.done():
+            open_task.cancel()
+        try:
+            pending_pool = await open_task
+        except asyncio.CancelledError:
+            pass
+        except BaseException:
+            # A normally awaited startup clears this task before propagating its
+            # error. Reaching it here means shutdown owned the in-flight task, so
+            # surface its rollback failure to the lifespan aggregator.
+            raise
+        else:
+            if pool is None:
+                pool = pending_pool
+    if pool is not None:
+        await pool.close()

@@ -18,8 +18,10 @@ export interface DatabaseRuntimeReadiness {
 export async function verifyDatabaseRuntime(
   connectionString: string,
 ): Promise<DatabaseRuntimeReadiness> {
-  const pool = new Pool({ connectionString, max: 1 });
-  try {
+  const TIMEOUT_MS = 15_000;
+  const pool = new Pool({ connectionString, max: 1, connectionTimeoutMillis: 10_000 });
+
+  const work = async (): Promise<DatabaseRuntimeReadiness> => {
     const roleResult = await pool.query<{
       current_user: string;
       inherits_runtime: boolean;
@@ -62,8 +64,19 @@ export async function verifyDatabaseRuntime(
       LEFT JOIN public.user_preferences ON public.user_preferences.user_id = public.users.id
       LIMIT 0
     `);
-    await pool.query('SELECT 1 FROM public.telegram_pending_clarifications LIMIT 0');
-    await pool.query('SELECT 1 FROM public.telegram_conversation_gates LIMIT 0');
+    // Select every migration-gated runtime column explicitly. A bare SELECT 1 only
+    // proves the table exists and lets a partially migrated deployment start before
+    // its first real Telegram request fails.
+    await pool.query(`
+      SELECT pending_key, request_id, clarification_message_id, prompt_message_id
+      FROM public.telegram_pending_clarifications
+      LIMIT 0
+    `);
+    await pool.query(`
+      SELECT gate_key, active_request_id
+      FROM public.telegram_conversation_gates
+      LIMIT 0
+    `);
     await pool.query('SELECT 1 FROM public.rate_limits LIMIT 0');
 
     return {
@@ -71,12 +84,24 @@ export async function verifyDatabaseRuntime(
       inheritedRole: 'jarvis_runtime',
       tables: REQUIRED_TABLES,
     };
+  };
+
+  try {
+    return await Promise.race([
+      work(),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error('Database readiness check timed out after 15s')),
+          TIMEOUT_MS,
+        ),
+      ),
+    ]);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
       `Database runtime readiness failed: ${detail}. Apply Supabase migrations and verify JARVIS_POSTGRES_DSN uses jarvis_app.`,
     );
   } finally {
-    await pool.end();
+    await pool.end().catch(() => {});
   }
 }

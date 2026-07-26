@@ -8,7 +8,7 @@ Concrete selectors live in ``selectors/`` — each file is one strategy.
 Use ``get_selector(name)`` to instantiate by name (config-driven swap).
 """
 
-from typing import Any, Dict, List, Protocol, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 from agents.agent_api.app.tools.base import ToolRegistry
 
@@ -21,7 +21,22 @@ class ToolSelector(Protocol):
     return the OpenAI/DeepSeek function schemas to expose for this turn.
     """
 
-    def select_schemas(self, query: str, registry: ToolRegistry) -> List[Dict[str, Any]]:
+    def select_schemas(
+        self,
+        query: str,
+        registry: ToolRegistry,
+        active_domains: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        ...
+
+    async def async_select_schemas(
+        self,
+        query: str,
+        registry: ToolRegistry,
+        active_domains: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Async selection path used by the production graph runtime."""
+
         ...
 
 
@@ -31,6 +46,8 @@ def get_selector(name: str = "keyword", **kwargs: Any) -> ToolSelector:
     Supported names:
       - "static"  — pass-through, exposes all tools (StaticToolSelector)
       - "keyword" — keyword matching with fallback (KeywordToolSelector)
+      - "router"  — LLM domain classifier (RouterToolSelector); requires
+        ``router_client`` and ``snapshot`` kwargs (see run_jarvis wiring).
 
     Additional kwargs are forwarded to the selector constructor.
     """
@@ -41,6 +58,15 @@ def get_selector(name: str = "keyword", **kwargs: Any) -> ToolSelector:
         "static": StaticToolSelector,
         "keyword": KeywordToolSelector,
     }
+    # Imported lazily and only on demand: the router selector pulls in the router
+    # client, which reuses the orchestrator's usage helpers — and the orchestrator
+    # imports this module. Eager import here would create a load-order cycle
+    # (DEFAULT_TOOL_SELECTOR below calls get_selector at module init). By the time
+    # anything requests "router" at runtime, every module is fully loaded.
+    if name == "router":
+        from agents.agent_api.app.tools.selectors.router import RouterToolSelector
+
+        registry["router"] = RouterToolSelector
     cls = registry.get(name)
     if cls is None:
         available = ", ".join(sorted(registry.keys()))

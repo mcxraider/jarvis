@@ -20,12 +20,18 @@ are correctly treated as unseen.
 import json
 from typing import Any, Dict, List, Optional
 
+from langchain_core.runnables import RunnableConfig
+from pydantic import ValidationError
+
 from agents.agent_api.app.graph.entity_index import SeenEntityIndex
 from agents.agent_api.app.graph.nodes.hitl import deferred_tool_message
 from agents.agent_api.app.graph.risk import partition_tool_calls
+from agents.agent_api.app.graph.run_deps import RunDeps, deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.base import tool_call_name
+from agents.agent_api.app.tools.dispatcher import build_tool_result, tool_result_to_message
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
+from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 
 def _unverified_message(
@@ -65,12 +71,39 @@ def _unverified_message(
     }
 
 
+def _out_of_route_message(tool_call: Dict[str, Any], allowed: List[str]) -> Dict[str, Any]:
+    """Synthetic tool result for a call outside the selected per-turn tool set."""
+
+    name = tool_call_name(tool_call)
+    call_id = tool_call.get("id", "missing_tool_call_id")
+    result = build_tool_result(
+        call_id,
+        name,
+        success=False,
+        error=(
+            f"Tool '{name}' was not selected for this turn. "
+            f"Allowed tools: {', '.join(allowed) if allowed else 'none'}."
+        ),
+    )
+    result["out_of_route_tool"] = True
+    return tool_result_to_message(result)
+
+
 def create_validate_entities_node(tracer: Optional[TracePrinter] = None):
     """Create the node that blocks mutations on unverified prior-read entity IDs."""
 
-    tracer = tracer or NULL_TRACE
+    _captured = RunDeps(tracer=tracer or NULL_TRACE)
 
-    def validate_entities_node(state: JarvisState) -> JarvisState:
+    async def validate_entities_node(
+        state: JarvisState,
+        config: RunnableConfig | None = None,
+    ) -> JarvisState:
+        deps = deps_from_config(config)
+        tracer = (
+            deps.tracer
+            if deps is not None and deps.tracer is not None
+            else _captured.tracer
+        )
         state_messages = state.get("messages", [])
         latest_message = state_messages[-1] if state_messages else {}
         tool_calls = latest_message.get("tool_calls") or []
@@ -79,12 +112,77 @@ def create_validate_entities_node(tracer: Optional[TracePrinter] = None):
         if not tool_calls:
             return {"next": "agent"}
 
+        selected_tool_names = state.get("selected_tool_names") or []
+        if selected_tool_names:
+            allowed = set(selected_tool_names)
+            out_of_route = [
+                call for call in tool_calls if tool_call_name(call) not in allowed
+            ]
+            # Self-healing: if out-of-route tools belong to a pinned domain
+            # (active_domains from the original request), expand the route.
+            if out_of_route:
+                active_domains = state.get("active_domains") or []
+                if active_domains:
+                    raw_context = state.get("runtime_context")
+                    snapshot = None
+                    if raw_context:
+                        try:
+                            snapshot = RuntimeContextSnapshot.model_validate(raw_context)
+                        except ValidationError:
+                            pass
+                    if snapshot:
+                        pinned_tool_names = set()
+                        for domain in snapshot.domains:
+                            if domain.provider in active_domains:
+                                pinned_tool_names.update(domain.tool_names)
+                        expanded = [
+                            call for call in out_of_route
+                            if tool_call_name(call) in pinned_tool_names
+                        ]
+                        if expanded:
+                            tracer.event(
+                                "graph.tools.route_expansion",
+                                "Allowed out-of-route tools from pinned active_domains.",
+                                expanded_tools=sorted({tool_call_name(c) for c in expanded}),
+                                active_domains=active_domains,
+                            )
+                            out_of_route = [
+                                call for call in out_of_route
+                                if tool_call_name(call) not in pinned_tool_names
+                            ]
+            if out_of_route:
+                messages = list(state_messages)
+                synthetic = []
+                out_of_route_ids = {
+                    call.get("id", "missing_tool_call_id") for call in out_of_route
+                }
+                for call in tool_calls:
+                    call_id = call.get("id", "missing_tool_call_id")
+                    if call_id in out_of_route_ids:
+                        synthetic.append(_out_of_route_message(call, selected_tool_names))
+                    else:
+                        synthetic.append(
+                            deferred_tool_message(
+                                call,
+                                "Deferred — a sibling call used a tool outside the selected route; retry with selected tools only.",
+                            )
+                        )
+                tracer.event(
+                    "graph.tools.rejected",
+                    "Rejected tool calls outside the selected route.",
+                    requested=sorted({tool_call_name(call) for call in tool_calls}),
+                    allowed=selected_tool_names,
+                    rejected=sorted({tool_call_name(call) for call in out_of_route}),
+                    next="agent",
+                )
+                return {"messages": messages + synthetic, "next": "agent"}
+
         index = SeenEntityIndex(state.get("tool_results", []))
         violations = index.violations(tool_calls)
 
         if not violations:
-            risky, _safe = partition_tool_calls(tool_calls, state)
-            next_node = "confirm" if risky else "tools"
+            risky, _safe = partition_tool_calls(tool_calls)
+            next_node = "prepare_confirm" if risky else "tools"
             tracer.event(
                 "graph.validate",
                 "All entity references verified.",

@@ -34,20 +34,28 @@ export class AudioConverter {
     return new Promise((resolve) => {
       // CHANGED: Use the path from the installer package
       const ffmpeg = spawn(ffmpegInstaller.path, ['-version']);
-
-      ffmpeg.on('error', () => {
-        resolve(false);
-      });
-
-      ffmpeg.on('close', (code) => {
-        resolve(code === 0);
-      });
-
-      // Timeout after 5 seconds
-      setTimeout(() => {
+      let settled = false;
+      const timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
         ffmpeg.kill();
         resolve(false);
       }, 5000);
+
+      const finish = (available: boolean): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        resolve(available);
+      };
+
+      ffmpeg.once('error', () => {
+        finish(false);
+      });
+
+      ffmpeg.once('close', (code) => {
+        finish(code === 0);
+      });
     });
   }
 
@@ -165,6 +173,15 @@ export class AudioConverter {
       const ffmpeg = spawn(ffmpegInstaller.path, ffmpegArgs);
 
       let stderr = '';
+      let settled = false;
+      let timeoutId: NodeJS.Timeout | undefined;
+
+      const finish = (callback: () => void): void => {
+        if (settled) return;
+        settled = true;
+        if (timeoutId) clearTimeout(timeoutId);
+        callback();
+      };
 
       // Capture stderr for error information
       ffmpeg.stderr.on('data', (data) => {
@@ -172,7 +189,10 @@ export class AudioConverter {
       });
 
       // Handle conversion completion
-      ffmpeg.on('close', async (code) => {
+      ffmpeg.once('close', async (code) => {
+        if (settled) return;
+        settled = true;
+        if (timeoutId) clearTimeout(timeoutId);
         if (code === 0) {
           try {
             // Read the converted file
@@ -190,12 +210,14 @@ export class AudioConverter {
       });
 
       // Handle ffmpeg process errors
-      ffmpeg.on('error', (error) => {
-        reject(new Error(`FFmpeg process error: ${error.message}`));
+      ffmpeg.once('error', (error) => {
+        finish(() => reject(new Error(`FFmpeg process error: ${error.message}`)));
       });
 
       // Set conversion timeout
-      const timeoutId = setTimeout(() => {
+      timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
         logger.warn('audio.conversion.ffmpeg_timeout', {
           ...logContext,
           userId,
@@ -204,11 +226,6 @@ export class AudioConverter {
         ffmpeg.kill('SIGKILL');
         reject(new Error('Audio conversion timed out after 30 seconds'));
       }, CONVERSION_TIMEOUT_MS);
-
-      // Clear timeout when process completes
-      ffmpeg.on('close', () => {
-        clearTimeout(timeoutId);
-      });
     });
   }
 

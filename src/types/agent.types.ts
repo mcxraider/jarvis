@@ -25,6 +25,11 @@ export const LangGraphInterruptSchema = z.object({
   summary: z.string().optional(),
   tool_name: z.string().optional(),
   args: z.record(z.unknown()).optional(),
+  // Batch confirm fields (multi-call confirmation payloads from Python confirm node)
+  held_call_ids: z.array(z.string()).optional(),
+  count: z.number().int().positive().optional(),
+  tool_names: z.array(z.string()).optional(),
+  services: z.array(z.string()).optional(),
 });
 
 // The complete response from /invoke or /resume (or the "final" stream event payload).
@@ -32,9 +37,58 @@ export const AgentResponseSchema = z.object({
   status: z.enum(['completed', 'interrupted', 'failed']),
   thread_id: z.string(),
   response: z.string(),
+  reasoning_content: z.string().nullish(),
   interrupt: LangGraphInterruptSchema.nullish(),
   tool_results: z.array(z.record(z.unknown())).nullish(),
   error: z.string().nullish(),
+  error_details: z.record(z.unknown()).nullish(),
+});
+
+export const AgentDependencyCheckSchema = z.object({
+  ok: z.boolean(),
+  detail: z.string(),
+});
+
+export const AgentRuntimeLimitsSchema = z.object({
+  run_deadline_seconds: z.number().positive(),
+  max_agent_turns: z.number().int().positive(),
+  deepseek_request_timeout_seconds: z.number().positive(),
+  model_router_complex_timeout_seconds: z.number().positive(),
+});
+
+export const AgentHealthDetailSchema = z.object({
+  status: z.enum(['ok', 'degraded']),
+  model: z.string(),
+  checks: z.record(AgentDependencyCheckSchema),
+  // Optional so /status remains compatible with a backend during a rolling upgrade.
+  // Startup readiness separately requires this block before accepting webhooks.
+  limits: AgentRuntimeLimitsSchema.optional(),
+});
+
+export const ProgressDomainSchema = z.enum(['todoist', 'calendar', 'gmail', 'notion']);
+export const ProgressFactSchema = z.object({
+  phase: z.enum([
+    'request',
+    'routing',
+    'lookup',
+    'review',
+    'preparing_change',
+    'awaiting_confirmation',
+    'applying_change',
+    'finalizing',
+    'retrying',
+    'failed',
+  ]),
+  action: z.enum(['started', 'completed', 'waiting', 'retrying', 'failed']),
+  domains: z.array(ProgressDomainSchema).nullish(),
+  intent: z.enum(['read', 'mutation', 'clarify', 'confirm']).optional(),
+  retry: z
+    .object({
+      target: z.enum(['domain', 'model', 'router']).optional(),
+      domain: ProgressDomainSchema.optional(),
+      reason: z.enum(['temporary_connection', 'rate_limited', 'service_unavailable', 'timeout']),
+    })
+    .optional(),
 });
 
 // Streaming protocol: each line of the NDJSON stream is either a progress event
@@ -42,8 +96,17 @@ export const AgentResponseSchema = z.object({
 export const StreamProgressEventSchema = z.object({
   type: z.literal('progress'),
   sequence: z.number().optional(),
-  stage: z.string(),
-  message: z.string(),
+  // Legacy fields remain accepted while clients migrate to fact-based progress.
+  stage: z.string().optional(),
+  message: z.string().optional(),
+  fact: ProgressFactSchema.optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export const StreamNarrationEventSchema = z.object({
+  type: z.literal('narration'),
+  sequence: z.number().optional(),
+  text: z.string(),
 });
 
 export const StreamFinalEventSchema = z.object({
@@ -53,12 +116,18 @@ export const StreamFinalEventSchema = z.object({
 
 export const StreamEventSchema = z.discriminatedUnion('type', [
   StreamProgressEventSchema,
+  StreamNarrationEventSchema,
   StreamFinalEventSchema,
 ]);
 
 export type LangGraphInterrupt = z.infer<typeof LangGraphInterruptSchema>;
 export type TelegramIdentityPayload = z.infer<typeof TelegramIdentitySchema>;
 export type AgentResponse = z.infer<typeof AgentResponseSchema>;
+export type AgentDependencyCheck = z.infer<typeof AgentDependencyCheckSchema>;
+export type AgentRuntimeLimits = z.infer<typeof AgentRuntimeLimitsSchema>;
+export type AgentHealthDetail = z.infer<typeof AgentHealthDetailSchema>;
+export type ProgressFact = z.infer<typeof ProgressFactSchema>;
 export type StreamProgressEvent = z.infer<typeof StreamProgressEventSchema>;
+export type StreamNarrationEvent = z.infer<typeof StreamNarrationEventSchema>;
 export type StreamFinalEvent = z.infer<typeof StreamFinalEventSchema>;
 export type StreamEvent = z.infer<typeof StreamEventSchema>;

@@ -14,11 +14,6 @@ Periodically, maybe twice a day, send user recaps of what has been done so far (
 ## Reminder feature ❌
 Start of the day remind user what he has on that day. Requires 7.1 Scheduled Jobs.
 
-## Project Management Tools ❌
-**Status (2026-06-24):** Not started. No project CRUD tools exposed to the agent.
-
-Add tools for creating, listing, archiving, and managing Todoist projects. Currently the agent can only operate on tasks within existing projects but cannot create or modify projects themselves.
-
 ## Twilio Call Integration for Urgent Reminders ❌
 **Status (2026-06-29):** Not started. No Twilio integration or voice call infrastructure.
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from agents.agent_api.app.async_offload import bounded_to_thread
 from agents.agent_api.app.credentials import IntegrationCredential
 from agents.agent_api.app.db import get_pool
 from agents.agent_api.app.tools.domain_adapters import DOMAIN_ADAPTERS
@@ -211,8 +212,42 @@ def load_thread_runtime_context(
             return ResolvedRuntimeContext(snapshot=snapshot, credentials=credentials)
 
 
+async def resolve_runtime_context_async(
+    inbound_identity: TelegramIdentity,
+) -> ResolvedRuntimeContext:
+    """Resolve a fresh runtime context without blocking the event loop."""
+
+    return await bounded_to_thread(resolve_runtime_context, inbound_identity)
+
+
+async def store_thread_context_async(
+    thread_id: str,
+    user_prompt: str,
+    snapshot: RuntimeContextSnapshot,
+) -> None:
+    """Durably store a thread snapshot off-loop before graph execution."""
+
+    await bounded_to_thread(store_thread_context, thread_id, user_prompt, snapshot)
+
+
+async def load_thread_runtime_context_async(
+    thread_id: str,
+    inbound_identity: TelegramIdentity,
+) -> ResolvedRuntimeContext:
+    """Load and rehydrate a resume snapshot without blocking the event loop."""
+
+    return await bounded_to_thread(
+        load_thread_runtime_context,
+        thread_id,
+        inbound_identity,
+    )
+
+
 __all__ = [
     "load_thread_runtime_context",
+    "load_thread_runtime_context_async",
     "resolve_runtime_context",
+    "resolve_runtime_context_async",
     "store_thread_context",
+    "store_thread_context_async",
 ]

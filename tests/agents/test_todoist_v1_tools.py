@@ -6,6 +6,7 @@ priority description.
 """
 
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -15,6 +16,7 @@ from agents.agent_api.app.tools.todoist.schemas import (
     get_todoist_tool_schemas,
 )
 from agents.agent_api.app.tools.todoist.tools import (
+    TODOIST_PROMPT_FRAGMENT,
     build_todoist_langchain_tools,
     get_todoist_tool_specs,
 )
@@ -66,6 +68,34 @@ class TestSchemaRegistration:
         assert "highest urgency" in desc
         assert "1 normal, 2 low" not in desc
 
+    def test_priority_prompt_matches_add_and_update_schema(self):
+        expected = "4 = urgent/P1, 3 = high/P2, 2 = medium/P3, 1 = normal/P4 (default)"
+
+        assert expected in TODOIST_PROMPT_FRAGMENT
+        for tool_name in ("add_todoist_task", "update_todoist_task"):
+            description = _schema(tool_name)["function"]["parameters"]["properties"][
+                "priority"
+            ]["description"]
+            assert "4 = highest urgency" in description
+            assert "3 = P2, 2 = P3, 1 = normal/default (P4)" in description
+
+    @pytest.mark.parametrize(
+        ("tool_name", "expected_default"),
+        [
+            ("get_tasks", 50),
+            ("get_tasks_by_filter", 50),
+            ("get_completed_todoist_tasks_by_completion_date", 50),
+            ("get_comments", 10),
+            ("get_labels", 50),
+            ("get_projects", 50),
+        ],
+    )
+    def test_collection_limits_publish_defaults(self, tool_name, expected_default):
+        limit = _schema(tool_name)["function"]["parameters"]["properties"]["limit"]
+
+        assert limit["default"] == expected_default
+        assert limit["minimum"] == 1
+
 
 class TestLayerConsistency:
     """schema names == handler-map names == langchain tool names (no silent drift)."""
@@ -76,6 +106,128 @@ class TestLayerConsistency:
         spec_names = {spec.name for spec in get_todoist_tool_specs(client)}
         lc_names = {t.name for t in build_todoist_langchain_tools(lambda *a, **k: {})}
         assert schema_names == spec_names == lc_names
+
+
+class TestCollectionLimits:
+    @pytest.mark.parametrize(
+        ("method_name", "arguments", "provider_response", "expected_default"),
+        [
+            ("get_tasks", {}, {"results": []}, "50"),
+            ("get_tasks_by_filter", {"query": "today"}, {"results": []}, "50"),
+            (
+                "get_completed_todoist_tasks_by_completion_date",
+                {},
+                {"items": [], "next_cursor": None},
+                "50",
+            ),
+            ("get_comments", {"task_id": "task-1"}, {"results": []}, "10"),
+            ("get_labels", {}, {"results": [], "next_cursor": None}, "50"),
+            ("get_projects", {}, {"results": [], "next_cursor": None}, "50"),
+        ],
+    )
+    @patch.object(TodoistApiClient, "_request")
+    def test_omitted_limits_are_added_to_collection_requests(
+        self,
+        mock_request,
+        method_name,
+        arguments,
+        provider_response,
+        expected_default,
+    ):
+        mock_request.return_value = provider_response
+
+        getattr(TodoistApiClient(api_key="test-key"), method_name)(arguments)
+
+        query = parse_qs(urlparse(mock_request.call_args.args[0]).query)
+        assert query["limit"] == [expected_default]
+
+    @patch.object(TodoistApiClient, "_request")
+    def test_explicit_limit_and_cursor_are_preserved(self, mock_request):
+        mock_request.return_value = {"results": [], "next_cursor": None}
+
+        TodoistApiClient(api_key="test-key").get_tasks(
+            {"limit": 125, "cursor": "opaque-cursor"}
+        )
+
+        query = parse_qs(urlparse(mock_request.call_args.args[0]).query)
+        assert query["limit"] == ["125"]
+        assert query["cursor"] == ["opaque-cursor"]
+
+    @pytest.mark.parametrize("limit", [0, 201, True, "50"])
+    @patch.object(TodoistApiClient, "_request")
+    def test_invalid_standard_limit_fails_before_request(self, mock_request, limit):
+        with pytest.raises(ValueError, match="limit"):
+            TodoistApiClient(api_key="test-key").get_tasks({"limit": limit})
+
+        mock_request.assert_not_called()
+
+    @patch.object(TodoistApiClient, "_request")
+    def test_comment_limit_above_endpoint_maximum_fails_before_request(self, mock_request):
+        with pytest.raises(ValueError, match="between 1 and 10"):
+            TodoistApiClient(api_key="test-key").get_comments(
+                {"task_id": "task-1", "limit": 11}
+            )
+
+        mock_request.assert_not_called()
+
+
+class TestUpdateTaskWrapper:
+    @staticmethod
+    def _invoke(arguments):
+        calls = []
+
+        def dispatch(*args):
+            calls.append(args)
+            return {"success": True}
+
+        tool = next(
+            tool
+            for tool in build_todoist_langchain_tools(dispatch)
+            if tool.name == "update_todoist_task"
+        )
+        tool.invoke(
+            {
+                "args": arguments,
+                "name": "update_todoist_task",
+                "type": "tool_call",
+                "id": "call-update",
+            }
+        )
+        return calls[-1][2]
+
+    def test_priority_only_omits_optional_defaults(self):
+        assert self._invoke({"task_id": "task-1", "priority": 4}) == {
+            "task_id": "task-1",
+            "priority": 4,
+        }
+
+    def test_priority_and_duration_update_passes_only_supplied(self):
+        # Mirrors the real failing request ("... 1130 to 2pm p1"): must not raise and
+        # must forward exactly the supplied fields, leaving clearable fields
+        # (assignee_id/deadline_date) out so they are not wiped.
+        assert self._invoke(
+            {
+                "task_id": "task-1",
+                "priority": 4,
+                "duration": 150,
+                "duration_unit": "minute",
+            }
+        ) == {
+            "task_id": "task-1",
+            "priority": 4,
+            "duration": 150,
+            "duration_unit": "minute",
+        }
+
+    def test_explicit_null_is_preserved(self):
+        assert self._invoke({"task_id": "task-1", "assignee_id": None}) == {
+            "task_id": "task-1",
+            "assignee_id": None,
+        }
+
+    def test_explicit_null_labels_is_rejected(self):
+        with pytest.raises(ValueError, match="labels"):
+            self._invoke({"task_id": "task-1", "labels": None})
 
 
 class TestUncompleteTask:
@@ -175,7 +327,7 @@ class TestGetProjects:
         client = TodoistApiClient(api_key="test-key")
 
         assert client.get_projects({}) == payload
-        assert mock_request.call_args[0][0] == f"{TODOIST_REST_BASE_URL}/projects"
+        assert mock_request.call_args[0][0] == f"{TODOIST_REST_BASE_URL}/projects?limit=50"
 
     @patch.object(TodoistApiClient, "_request")
     def test_search_filters_client_side(self, mock_request):

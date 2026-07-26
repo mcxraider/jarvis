@@ -7,22 +7,88 @@ offline/DI runs), so the prompt's capability claims always match the live
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
-from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
+from agents.agent_api.app.graph.prompts.orchestrator import (
+    _current_user_datetime,
+    _user_timezone,
+    get_system_prompt,
+)
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 USER_PROMPTS: List[str] = [
+    "check my calendar and the fact that i have 14 days of leave, figure out the maximum amount of time that i can go overseas for, including weekends, optimise for public holidays."
+    # --- Date-range regression prompts (verify year-inclusive filter dates) ---
+    # "Show me what's on my plate for this week and next week.",
+    # "What tasks do I have due next week?",
+    # "Give me a summary of everything due between now and end of next week.",
+
+    # "pull my events from my govtech google calendar and then update lunch with grandparents on todoist to p3 task."
+    
+    # "Find the plans i have with feebee in the next 2 weeks, put them into google calendar events, then add to todoist a new dinner with feebee church frien ds next saturday."
+    
+    # "Find all my Todoist tasks and Google Calendar events involving Zac next week. Move anything after 6pm to the earliest free afternoon slot that same week, and mark the related Todoist tasks as P2.",
+
+    # "Find all my plans with Feebee, Zac, and church friends across Todoist and Google Calendar for the next 3 weeks. If any Todoist-only plans have a clear date/time, create matching Google Calendar events. If any Calendar events don’t have Todoist prep tasks, add one 2 hours before. Avoid duplicates.",
+    
+    # "I want to host dinner next Saturday or Sunday evening with Feebee, Zac, and church friends. Check my calendar and Todoist for conflicts, choose the least busy evening, create the Google Calendar event, then add Todoist tasks to book a place, message everyone, and buy a gift if there is already a birthday-related task nearby.",
+    
+    # "Clean up next week: find all Todoist tasks that look like meetings, dinners, calls, or appointments. For anything with a specific time but no matching Google Calendar event, create one. For anything with no time, schedule it into my earliest free slot, but don’t schedule social plans before 6pm.",
+    
+    # "Find the latest dinner/lunch/meetup plans involving grandparents, Feebee, or Zac. If any are overdue Todoist tasks, reschedule them to the next available weekend slot. If any conflict with existing Google Calendar events, move them to the nearest free evening and update both Todoist and Calendar consistently.",
+    
+    # "Plan my Friday: look at Todoist and Google Calendar, move any flexible tasks to free gaps, keep fixed calendar events untouched, add a 30-minute buffer before every travel/social event, and create one final Todoist task called ‘Friday plan confirmed’ after everything is organized.",
+    
+    # "Check when I’m free next Monday to Wednesday after work, schedule a 1-hour gym session on the least busy day, then add a Todoist task 30 minutes before it to pack gym clothes.",
+    
+    # "I think I have two lunch plans with grandparents somewhere in Todoist or Google Calendar. Find the latest one, cancel the older duplicate, and make sure the remaining one is marked important.",
+    
+    # "Find everything overdue in Todoist that looks like a social plan, move them to this weekend if I’m free, and put the confirmed ones into Google Calendar.",
+    
+    # "For every event this week that includes dinner in todoist, create a Google calendar reminder 2 hours before it, unless one already exists.",
+    
+    # "Add dinner with Feebee and church friends next Saturday evening, but only if I don’t already have plans with Feebee that day. If I do, combine them into one calendar event and update the Todoist task title accordingly.",
+
+    # "Whats on my google cal tmr"
+    # """### Created tasks
+
+    # | Time | Task | Details |
+    # |------|------|---------|
+    # | **5:30–6:00 PM** | 🎒 **Pack gym clothes** | Reminder to prepare before heading out |
+    # | **6:00–7:00 PM** | 🏋️ **Gym session** | 1-hour workout (duration set) |
+    # delete these tasks"""
+
+    
+    # """"
+    # ## Google Calendar — 9 feebee plans created
+    # | Date | Time | Event |
+    # |---|---|---|
+    # | Jul 12 (Sun) | All day | bring feebee to church |
+    # | Jul 12 (Sun) | 12:00–13:00 | Lunch with feebee |
+    # | Jul 14 (Tue) | 19:00–21:00 | meet feebee for dinner |
+    # | Jul 17 (Fri) | 09:00–21:00 | WFH w feebee ⚠️ |
+    # | Jul 18 (Sat) | 15:00–15:30 | pick up feebee |
+    # | Jul 18 (Sat) | 16:00–18:00 | go feebee church |
+    # | Jul 25 (Sat) | 19:00–21:00 | car picnic with feebee |
+    # | Aug 1 (Sat) | 19:00–20:00 | talk with feebee |
+    # | Aug 5 (Wed) | 18:00–20:30 | Spiderman brand new day with feebee | 
+
+    # add these from my google calendar.
+    # """
+    
     # "help me find out what projects i have in todoist, ill ask u to add a task to a one after that"
-    # "set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of priority based on when im most free"
+    # "set a dinner appointment with zac anytime during dinner next week at earliest available date. propose 3 dates and rank them in order of priority"
+    # rity based on when im most free"
     # "check phoebe google calendar and my calendar tell me when good day to have dinner with her next week"
+    # "i have an AG retreat from 4-6 sept add it in, p1 whole day event."
     # "when am i free next week?"
     # "delete my dinner with zac in my cal monday 8pm"
     # "meeting zac at night on friday, add it in" # always add it in first, then check for conflicts and report back if conflict else end.
     # "i alr did romans 7 in the train this morning uhm but not romans 8 yet, shift romans 8 to tonight"
     # "Go through my tasks, check everything that does not have a time, that is also not a birthday. Tell me first and then I will ask you to make edits",
     # "put in my cal",
-    # "can u add 24 tasks  today each one titled 'hehehehehehehehehe'",
+    # "can u add 24 tasks  today e
+    # ach one titled 'hehehehehehehehehe'",
     # "whats on my cal for this week?"
     # "how many tasks do i have today"
     # "delete all my hehehe tasks today"
@@ -243,18 +309,33 @@ USER_PROMPTS: List[str] = [
 USER_PROMPT = USER_PROMPTS[0] if USER_PROMPTS else ""
 
 
-def build_user_prompt_with_request_datetime(user_prompt: str) -> str:
-    """Add the current request timestamp to the user message content."""
+def build_user_prompt_with_request_datetime(
+    user_prompt: str,
+    timezone: Optional[str] = None,
+    request_datetime: Optional[datetime] = None,
+    reply_context: Optional[dict] = None,
+) -> str:
+    """Add one timezone-resolved request timestamp to the user message content."""
 
-    return "\n".join(
-        [
-            "Request context:",
-            f"Current request date and time: {datetime.now().astimezone().isoformat(timespec='seconds')}",
+    current = request_datetime or _current_user_datetime(_user_timezone(timezone))
+
+    lines = [
+        f"Current datetime: {current.isoformat(timespec='seconds')}",
+        f"Current day: {current:%A}",
+        "",
+    ]
+    if reply_context:
+        lines += [
+            "Reply context:",
+            f"- Replied-to role: {reply_context['role']}",
+            f"- Replied-to message: {reply_context['message']}",
             "",
-            "User request:",
-            user_prompt,
         ]
-    )
+    lines += [
+        "Current user message:",
+        user_prompt,
+    ]
+    return "\n".join(lines)
 
 
 def build_initial_messages(
@@ -263,8 +344,15 @@ def build_initial_messages(
     user_name: Optional[str] = None,
     runtime_context: Optional[RuntimeContextSnapshot] = None,
     registered_tools: Optional[List[str]] = None,
+    relevant_domains: Optional[Set[str]] = None,
+    reply_context: Optional[dict] = None,
 ) -> List[Dict[str, Any]]:
-    """Create the raw message list used by the DeepSeek API."""
+    """Create the raw message list used by the DeepSeek API.
+
+    ``relevant_domains`` (from the query router) is forwarded to the system
+    prompt to slim the per-domain fragments; ``None`` keeps every active domain
+    (today's behavior).
+    """
 
     return [
         {
@@ -274,9 +362,17 @@ def build_initial_messages(
                 user_name=user_name,
                 runtime_context=runtime_context,
                 registered_tools=registered_tools,
+                relevant_domains=relevant_domains,
             ),
         },
-        {"role": "user", "content": build_user_prompt_with_request_datetime(user_prompt)},
+        {
+            "role": "user",
+            "content": build_user_prompt_with_request_datetime(
+                user_prompt,
+                timezone=(runtime_context.timezone if runtime_context is not None else timezone),
+                reply_context=reply_context,
+            ),
+        },
     ]
 
 

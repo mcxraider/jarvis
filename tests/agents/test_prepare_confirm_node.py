@@ -1,5 +1,6 @@
 """Tests for the prepare_confirm node."""
 
+import asyncio
 import json
 
 import pytest
@@ -49,7 +50,7 @@ class TestPrepareConfirmNode:
         calls = [_make_tool_call("delete_todoist_task", "c1", {"task_id": "99"})]
         state = _make_state(calls)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         held_calls = result["held_calls"]
         assert len(held_calls) == 1
         assert held_calls[0]["tool_name"] == "delete_todoist_task"
@@ -65,7 +66,7 @@ class TestPrepareConfirmNode:
         ]
         state = _make_state(calls)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         # All risky calls held, safe calls deferred
         assert len(result["held_calls"]) == 1
         messages = result["messages"]
@@ -83,7 +84,7 @@ class TestPrepareConfirmNode:
         ]
         state = _make_state(calls)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         held_calls = result["held_calls"]
         assert len(held_calls) == 2
         assert held_calls[0]["origin_tool_call_id"] == "c1"
@@ -96,23 +97,27 @@ class TestPrepareConfirmNode:
         calls = [_make_tool_call("get_todoist_tasks", "c1")]
         state = _make_state(calls)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result.get("error")
         assert result["next"] == "end"
 
     def test_empty_tool_calls_errors(self):
         state = _make_state([])
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result.get("error")
 
     def test_enriches_update_with_task_content_from_prior_results(self):
+        # Batch must contain >= BULK_THRESHOLD mutations to trigger bulk gate.
         calls = [
             _make_tool_call(
                 "update_todoist_task",
                 "c1",
                 {"task_id": "task_1", "due_string": "tomorrow 9am"},
-            )
+            ),
+        ] + [
+            _make_tool_call("add_todoist_task", f"c_pad_{i}", {"content": f"pad {i}"})
+            for i in range(BULK_THRESHOLD - 1)
         ]
         prior_messages = [
             _make_tool_result(
@@ -125,17 +130,12 @@ class TestPrepareConfirmNode:
                 }
             )
         ]
-        prior_mutations = [
-            {"tool_name": "add_todoist_task"}
-            for _ in range(BULK_THRESHOLD)
-        ]
         state = _make_state(
             calls,
-            tool_results=prior_mutations,
             prior_messages=prior_messages,
         )
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result["held_calls"][0]["context"] == {
             "task_content": "Submit expense report"
         }
@@ -150,7 +150,7 @@ class TestPrepareConfirmNode:
         ]
         state = _make_state(calls, prior_messages=prior_messages)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result["held_calls"][0]["context"] == {
             "task_content": "Cancel duplicate reminder"
         }
@@ -172,7 +172,7 @@ class TestPrepareConfirmNode:
         ]
         state = _make_state(calls, prior_messages=prior_messages)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result["held_calls"][0]["context"] == {"event_summary": "Team sync"}
 
     def test_enriches_calendar_delete_from_single_event_result(self):
@@ -187,18 +187,22 @@ class TestPrepareConfirmNode:
         ]
         state = _make_state(calls, prior_messages=prior_messages)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result["held_calls"][0]["context"] == {
             "event_summary": "Dentist appointment"
         }
 
     def test_enriches_calendar_update_with_event_summary_from_prior_results(self):
+        # Batch must contain >= BULK_THRESHOLD mutations to trigger bulk gate.
         calls = [
             _make_tool_call(
                 "update_calendar_event",
                 "c1",
                 {"event_id": "evt_1", "location": "Room 4"},
-            )
+            ),
+        ] + [
+            _make_tool_call("create_calendar_event", f"c_pad_{i}", {"summary": f"pad {i}"})
+            for i in range(BULK_THRESHOLD - 1)
         ]
         prior_messages = [
             _make_tool_result(
@@ -206,18 +210,12 @@ class TestPrepareConfirmNode:
                 tool_name="list_calendar_events",
             )
         ]
-        # update_calendar_event is not always-risky; it only gates once the turn
-        # crosses the bulk mutation threshold.
-        prior_mutations = [
-            {"tool_name": "update_calendar_event"} for _ in range(BULK_THRESHOLD)
-        ]
         state = _make_state(
             calls,
-            tool_results=prior_mutations,
             prior_messages=prior_messages,
         )
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         assert result["held_calls"][0]["context"] == {"event_summary": "Team sync"}
 
     def test_calendar_delete_without_prior_read_has_no_context(self):
@@ -226,34 +224,40 @@ class TestPrepareConfirmNode:
         ]
         state = _make_state(calls)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
         assert "context" not in result["held_calls"][0]
 
     def test_call_index_uses_full_array_position_not_subset(self):
         """Risky calls get call_index from their full-array position, not subset position."""
+        # Batch has >= BULK_THRESHOLD mutations so add_todoist_task becomes risky
+        # via the bulk gate (delete is always-risky regardless).
         calls = [
             _make_tool_call("get_tasks_by_filter", "c0", {"filter": "today"}),
             _make_tool_call("add_todoist_task", "c1", {"content": "new task"}),
             _make_tool_call("delete_todoist_task", "c2", {"task_id": "t1"}),
+        ] + [
+            _make_tool_call("add_todoist_task", f"c_pad_{i}", {"content": f"pad {i}"})
+            for i in range(BULK_THRESHOLD - 1)
         ]
-        # Prior mutations push add_todoist_task over bulk threshold → risky
-        prior_mutations = [
-            {"tool_name": "add_todoist_task"} for _ in range(BULK_THRESHOLD)
-        ]
-        state = _make_state(calls, tool_results=prior_mutations)
+        state = _make_state(calls)
         node = create_prepare_confirm_node()
-        result = node(state)
+        result = asyncio.run(node(state))
 
-        # risky = [c1(add, full idx=1), c2(delete, full idx=2)]; safe = [c0(read)]
-        assert len(result["held_calls"]) == 2
+        # All mutations are risky (bulk gate + delete); only read is safe.
+        # The focal calls are c1 (idx=1) and c2 (idx=2) in the full array.
+        held_names = [h["tool_name"] for h in result["held_calls"]]
+        assert "add_todoist_task" in held_names
+        assert "delete_todoist_task" in held_names
 
-        held_add = result["held_calls"][0]
+        # Find the specific focal calls by origin id
+        held_by_id = {h["origin_tool_call_id"]: h for h in result["held_calls"]}
+        held_add = held_by_id["c1"]
         assert held_add["tool_name"] == "add_todoist_task"
         assert held_add["idempotency_key"] == build_operation_idempotency_key(
             "add_todoist_task", {"content": "new task"}, "thread_test", 3, call_index=1,
         )
 
-        held_delete = result["held_calls"][1]
+        held_delete = held_by_id["c2"]
         assert held_delete["tool_name"] == "delete_todoist_task"
         assert held_delete["idempotency_key"] == build_operation_idempotency_key(
             "delete_todoist_task", {"task_id": "t1"}, "thread_test", 3, call_index=2,

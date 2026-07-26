@@ -2,6 +2,7 @@ import express from 'express';
 import request from 'supertest';
 import { createWebhookRouter } from '../../src/controllers/webhook.controller';
 import { MessageHandlers } from '../../src/services/telegram/handlers/message-handlers';
+import { MemoryPendingClarificationStore } from '../../src/services/telegram/pending-clarification.store';
 import { createTestRunLogger } from '../helpers/test-run-logger';
 
 const logger = createTestRunLogger('integration-webhook-pipeline');
@@ -34,6 +35,7 @@ describe('Webhook pipeline integration', () => {
       {} as any,
       messageProcessor,
       { recordActivity: jest.fn() } as any,
+      new MemoryPendingClarificationStore(),
     );
     const botService = {
       handleUpdate: jest.fn(async (update: any) => {
@@ -74,7 +76,10 @@ describe('Webhook pipeline integration', () => {
       123456,
       expect.objectContaining({ messageType: 'text' }),
       expect.any(Function),
-      undefined,
+      expect.objectContaining({
+        onPendingPauseAccepted: expect.any(Function),
+        replyContext: undefined,
+      }),
     );
     expect(reply).toHaveBeenCalledWith('Mocked Jarvis reply', { parse_mode: 'MarkdownV2' });
   });

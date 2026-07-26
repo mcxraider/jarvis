@@ -40,7 +40,7 @@ Proactive agent workflows that run without waiting for a Telegram message. Uses 
 
 ## 7.2 Calendar Integration ❌
 
-**Status (2026-06-24):** Not started. `agents/agent_api/app/tools/calendar/__init__.py` contains only a placeholder comment. No real calendar tool or API integration.
+**Status (2026-06-24):** Not started. `agents/agent_api/app/tools/google_calendar/__init__.py` contains only a placeholder comment. No real calendar tool or API integration.
 
 **Original problem:** "Put in my cal" currently has no calendar tool and routes ambiguously.
 

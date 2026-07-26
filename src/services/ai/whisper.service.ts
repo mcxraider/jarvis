@@ -9,6 +9,9 @@ import { LogContext, logger, truncateForLog } from '../../utils/logger';
 import { AudioMimeTypes } from '../../utils/constants';
 import { validateFileSize } from '../../utils/ai/fileValidation';
 import { AudioConverter } from '../../utils/ai/audioConverter';
+import { GroqTranscriptionError, GroqTranscriptionErrorCategory } from './groq-transcription-error';
+
+export { GroqTranscriptionError } from './groq-transcription-error';
 
 const WHISPER_CONSTANTS = {
   DEFAULT_MAX_FILE_SIZE_BYTES: 25 * 1024 * 1024, // Groq's hard limit
@@ -20,6 +23,12 @@ const WHISPER_CONSTANTS = {
     'Telegram voice note to Jarvis, a personal assistant for tasks, events, reminders, and scheduling. Preserve task titles, dates, times, names, and app names accurately.',
   MAX_PROMPT_TOKENS: 224, // Groq's prompt token limit
   MAX_LOG_TEXT_LENGTH: 100,
+  DEFAULT_REQUEST_TIMEOUT_MS: 12_000,
+  DEFAULT_MAX_RETRY_ATTEMPTS: 2,
+  DEFAULT_RETRY_MAX_DELAY_MS: 2_000,
+  DEFAULT_RETRY_TOTAL_TIMEOUT_MS: 20_000,
+  DEFAULT_MAX_RETRY_AFTER_MS: 5_000,
+  RETRY_BASE_DELAY_MS: 250,
 } as const;
 
 // Quality thresholds for monitoring (warn-only, not rejecting). These flag segments
@@ -55,7 +64,7 @@ const FORMAT_REJECTION_PATTERNS = [
   /not a supported format/i,
 ] as const;
 
-interface WhisperConfig {
+export interface WhisperConfig {
   apiKey: string;
   maxFileSizeBytes?: number;
   model?: string;
@@ -65,6 +74,13 @@ interface WhisperConfig {
   prompt?: string;
   qualityMonitoringEnabled?: boolean;
   qualityThresholds?: Partial<QualityThresholds>;
+  requestTimeoutMs?: number;
+  maxRetryAttempts?: number;
+  retryMaxDelayMs?: number;
+  retryTotalTimeoutMs?: number;
+  maxRetryAfterMs?: number;
+  retrySleep?: (delayMs: number) => Promise<void>;
+  retryRandom?: () => number;
 }
 
 interface QualityThresholds {
@@ -88,7 +104,11 @@ interface QualityFlag {
   segmentId?: number;
   start?: number;
   end?: number;
-  reason: 'low_avg_logprob' | 'high_no_speech_prob' | 'low_compression_ratio' | 'high_compression_ratio';
+  reason:
+    | 'low_avg_logprob'
+    | 'high_no_speech_prob'
+    | 'low_compression_ratio'
+    | 'high_compression_ratio';
   value: number;
   threshold: number;
 }
@@ -111,6 +131,19 @@ interface ParsedTranscription {
   detectedLanguage?: string;
 }
 
+interface TranscriptionAttemptBudget {
+  attempts: number;
+  deadlineMs: number;
+}
+
+interface GroqErrorShape extends Error {
+  status?: number;
+  headers?: Headers;
+  requestID?: string | null;
+  type?: string;
+  code?: string | null;
+}
+
 interface TranscriptionResult {
   text: string;
   fileUrl: string;
@@ -122,9 +155,27 @@ interface TranscriptionResult {
 
 export class WhisperService {
   private readonly openai: OpenAI;
-  private readonly config: Required<Omit<WhisperConfig, 'language' | 'qualityThresholds'>>;
+  private readonly config: Required<
+    Pick<
+      WhisperConfig,
+      | 'apiKey'
+      | 'maxFileSizeBytes'
+      | 'model'
+      | 'responseFormat'
+      | 'enforceEnglishOnly'
+      | 'prompt'
+      | 'qualityMonitoringEnabled'
+    >
+  >;
   private readonly language: string;
   private readonly qualityThresholds: QualityThresholds;
+  private readonly requestTimeoutMs: number;
+  private readonly maxRetryAttempts: number;
+  private readonly retryMaxDelayMs: number;
+  private readonly retryTotalTimeoutMs: number;
+  private readonly maxRetryAfterMs: number;
+  private readonly retrySleep: (delayMs: number) => Promise<void>;
+  private readonly retryRandom: () => number;
 
   constructor(config?: Partial<WhisperConfig>) {
     const apiKey = config?.apiKey || process.env.GROQ_API_KEY;
@@ -138,7 +189,45 @@ export class WhisperService {
     this.openai = new OpenAI({
       apiKey,
       baseURL: 'https://api.groq.com/openai/v1',
+      maxRetries: 0,
     });
+
+    this.requestTimeoutMs = this.resolvePositiveNumber(
+      config?.requestTimeoutMs,
+      'GROQ_TRANSCRIPTION_REQUEST_TIMEOUT_SECONDS',
+      WHISPER_CONSTANTS.DEFAULT_REQUEST_TIMEOUT_MS,
+      1_000,
+    );
+    const maxRetryAttempts = this.resolvePositiveNumber(
+      config?.maxRetryAttempts,
+      'GROQ_TRANSCRIPTION_MAX_RETRY_ATTEMPTS',
+      WHISPER_CONSTANTS.DEFAULT_MAX_RETRY_ATTEMPTS,
+    );
+    if (!Number.isInteger(maxRetryAttempts)) {
+      throw new Error('GROQ_TRANSCRIPTION_MAX_RETRY_ATTEMPTS must be a positive integer.');
+    }
+    this.maxRetryAttempts = maxRetryAttempts;
+    this.retryMaxDelayMs = this.resolvePositiveNumber(
+      config?.retryMaxDelayMs,
+      'GROQ_TRANSCRIPTION_RETRY_MAX_DELAY_SECONDS',
+      WHISPER_CONSTANTS.DEFAULT_RETRY_MAX_DELAY_MS,
+      1_000,
+    );
+    this.retryTotalTimeoutMs = this.resolvePositiveNumber(
+      config?.retryTotalTimeoutMs,
+      'GROQ_TRANSCRIPTION_RETRY_TOTAL_TIMEOUT_SECONDS',
+      WHISPER_CONSTANTS.DEFAULT_RETRY_TOTAL_TIMEOUT_MS,
+      1_000,
+    );
+    this.maxRetryAfterMs = this.resolvePositiveNumber(
+      config?.maxRetryAfterMs,
+      'GROQ_TRANSCRIPTION_MAX_RETRY_AFTER_SECONDS',
+      WHISPER_CONSTANTS.DEFAULT_MAX_RETRY_AFTER_MS,
+      1_000,
+    );
+    this.retrySleep =
+      config?.retrySleep || ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
+    this.retryRandom = config?.retryRandom || Math.random;
 
     // Set default configuration with provided overrides
     // Always enforce English-only transcription unless explicitly disabled
@@ -173,6 +262,12 @@ export class WhisperService {
       promptLength: this.config.prompt.length,
       qualityMonitoringEnabled: this.config.qualityMonitoringEnabled,
       qualityThresholds: this.qualityThresholds,
+      requestTimeoutMs: this.requestTimeoutMs,
+      maxRetryAttempts: this.maxRetryAttempts,
+      retryMaxDelayMs: this.retryMaxDelayMs,
+      retryTotalTimeoutMs: this.retryTotalTimeoutMs,
+      maxRetryAfterMs: this.maxRetryAfterMs,
+      sdkMaxRetries: 0,
     });
   }
 
@@ -184,6 +279,10 @@ export class WhisperService {
     logContext: LogContext = {},
   ): Promise<TranscriptionResult> {
     const startTime = Date.now();
+    const attemptBudget: TranscriptionAttemptBudget = {
+      attempts: 0,
+      deadlineMs: startTime + this.retryTotalTimeoutMs,
+    };
 
     logger.info('whisper.transcription.started', {
       ...logContext,
@@ -228,7 +327,14 @@ export class WhisperService {
 
         try {
           const audioFile = this.createAudioFile(processedBuffer, fileExtension);
-          const transcription = await this.performTranscription(audioFile, processedBuffer.length, fileExtension, userId, logContext);
+          const transcription = await this.performTranscription(
+            audioFile,
+            processedBuffer.length,
+            fileExtension,
+            attemptBudget,
+            userId,
+            logContext,
+          );
           return this.buildTranscriptionResult({
             transcription,
             fileUrl,
@@ -247,10 +353,19 @@ export class WhisperService {
             userId,
             originalFormat: originalExtension || 'unknown',
             normalizedFormat: normalizedExtension,
-            error: directTranscriptionError.message,
+            ...(directTranscriptionError instanceof GroqTranscriptionError
+              ? {
+                  errorCategory: directTranscriptionError.category,
+                  status: directTranscriptionError.status,
+                  providerRequestId: directTranscriptionError.providerRequestId,
+                }
+              : { error: directTranscriptionError.message }),
           });
 
           if (!this.isFormatRejectionError(directTranscriptionError)) {
+            throw directTranscriptionError;
+          }
+          if (attemptBudget.attempts >= this.maxRetryAttempts) {
             throw directTranscriptionError;
           }
         }
@@ -336,7 +451,14 @@ export class WhisperService {
       const audioFile = this.createAudioFile(processedBuffer, fileExtension);
 
       // Perform transcription
-      const transcription = await this.performTranscription(audioFile, processedBuffer.length, fileExtension, userId, logContext);
+      const transcription = await this.performTranscription(
+        audioFile,
+        processedBuffer.length,
+        fileExtension,
+        attemptBudget,
+        userId,
+        logContext,
+      );
 
       return this.buildTranscriptionResult({
         transcription,
@@ -352,15 +474,26 @@ export class WhisperService {
     } catch (error) {
       const processingTimeMs = Date.now() - startTime;
 
+      const transcriptionError = error instanceof GroqTranscriptionError ? error : undefined;
       logger.error('whisper.transcription.failed', {
         ...logContext,
         userId,
         fileUrl: this.sanitizeUrlForLogging(fileUrl),
-        error: (error as Error).message,
+        ...(transcriptionError
+          ? {
+              errorCategory: transcriptionError.category,
+              status: transcriptionError.status,
+              attempts: transcriptionError.attempts,
+              providerRequestId: transcriptionError.providerRequestId,
+            }
+          : { error: (error as Error).message }),
         processingTimeMs,
       });
 
-      throw new Error(`Transcription failed: ${(error as Error).message}`);
+      if (error instanceof GroqTranscriptionError) throw error;
+      const wrapped = new Error(`Transcription failed: ${(error as Error).message}`);
+      Object.defineProperty(wrapped, 'cause', { value: error, configurable: true });
+      throw wrapped;
     }
   }
 
@@ -415,12 +548,17 @@ export class WhisperService {
     if (this.config.qualityMonitoringEnabled) {
       result.quality = this.evaluateTranscriptionQuality(options.transcription.segments);
       if (result.quality.flaggedSegments > 0) {
-        this.logQualityFlags(result.quality, options.transcription.segments, options.logContext, options.userId);
+        this.logQualityFlags(
+          result.quality,
+          options.transcription.segments,
+          options.logContext,
+          options.userId,
+        );
       }
     }
 
     // Add conversion information to logs if conversion was performed
-    const logData: any = {
+    const logData: Record<string, unknown> = {
       ...options.logContext,
       userId: options.userId,
       textPreview: truncateForLog(result.text, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH),
@@ -507,72 +645,239 @@ export class WhisperService {
     audioFile: File,
     fileSizeBytes: number,
     fileExtension: string,
+    budget: TranscriptionAttemptBudget,
     userId?: number,
     logContext: LogContext = {},
   ): Promise<ParsedTranscription> {
-    const apiStart = Date.now();
+    while (budget.attempts < this.maxRetryAttempts) {
+      const remainingMs = budget.deadlineMs - Date.now();
+      if (remainingMs <= 0) {
+        throw this.createGroqError(
+          new Error('Groq transcription retry deadline exceeded'),
+          budget.attempts,
+          'timeout',
+        );
+      }
+      budget.attempts += 1;
+      const attempt = budget.attempts;
+      const apiStart = Date.now();
+      const timeoutMs = Math.max(1, Math.min(this.requestTimeoutMs, remainingMs));
 
-    logger.info('whisper.api.request', {
-      ...logContext,
-      userId,
-      model: this.config.model,
-      language: this.language,
-      responseFormat: this.config.responseFormat,
-      promptLength: this.config.prompt.length,
-      fileSizeBytes,
-      fileExtension,
-      temperature: 0,
-    });
-
-    try {
-      const transcription = await this.openai.audio.transcriptions.create({
-        file: audioFile,
+      logger.info('whisper.api.request', {
+        ...logContext,
+        userId,
         model: this.config.model,
         language: this.language,
-        response_format: this.config.responseFormat,
-        prompt: this.config.prompt,
-        timestamp_granularities: ['segment'],
+        responseFormat: this.config.responseFormat,
+        promptLength: this.config.prompt.length,
+        fileSizeBytes,
+        fileExtension,
         temperature: 0,
+        attempt,
+        timeoutMs,
       });
 
-      const parsedTranscription = this.parseTranscriptionResponse(transcription);
+      try {
+        const request = this.openai.audio.transcriptions.create(
+          {
+            file: audioFile,
+            model: this.config.model,
+            language: this.language,
+            response_format: this.config.responseFormat,
+            prompt: this.config.prompt,
+            timestamp_granularities: ['segment'],
+            temperature: 0,
+          },
+          { timeout: timeoutMs, maxRetries: 0 },
+        );
+        const {
+          data: transcription,
+          response,
+          request_id: requestId,
+        } = await request.withResponse();
 
-      logger.info('whisper.api.response', {
-        ...logContext,
-        userId,
-        detectedLanguage: parsedTranscription.detectedLanguage,
-        segmentCount: parsedTranscription.segments.length,
-        textLength: parsedTranscription.text.length,
-        durationMs: Date.now() - apiStart,
-      });
+        const parsedTranscription = this.parseTranscriptionResponse(transcription);
 
-      // Validate English content if enforcement is enabled
-      if (this.config.enforceEnglishOnly && parsedTranscription.text) {
-        this.validateEnglishContent(parsedTranscription.text, logContext);
-      }
+        logger.info('whisper.api.response', {
+          ...logContext,
+          userId,
+          attempt,
+          providerRequestId: requestId || undefined,
+          status: response.status,
+          detectedLanguage: parsedTranscription.detectedLanguage,
+          segmentCount: parsedTranscription.segments.length,
+          textLength: parsedTranscription.text.length,
+          durationMs: Date.now() - apiStart,
+          ...this.rateLimitLogFields(response.headers),
+        });
 
-      return parsedTranscription;
-    } catch (error) {
-      logger.error('whisper.api.failed', {
-        ...logContext,
-        userId,
-        model: this.config.model,
-        error: (error as Error).message,
-        durationMs: Date.now() - apiStart,
-      });
-
-      if (error instanceof Error) {
-        // Handle specific OpenAI API errors
-        if (error.message.includes('Invalid file format')) {
-          throw new Error('Unsupported audio format. Please use a supported audio file format.');
+        if (this.config.enforceEnglishOnly && parsedTranscription.text) {
+          this.validateEnglishContent(parsedTranscription.text, logContext);
         }
-        if (error.message.includes('File too large')) {
-          throw new Error('Audio file is too large for processing.');
+
+        return parsedTranscription;
+      } catch (error) {
+        const groqError = this.createGroqError(error, attempt);
+        const delayMs = this.retryDelayMs(groqError, attempt);
+        const remainingAfterAttemptMs = budget.deadlineMs - Date.now();
+        const canRetry =
+          groqError.retryable &&
+          attempt < this.maxRetryAttempts &&
+          delayMs <= remainingAfterAttemptMs;
+
+        logger.warn('whisper.api.attempt_failed', {
+          ...logContext,
+          userId,
+          model: this.config.model,
+          attempt,
+          category: groqError.category,
+          retryable: groqError.retryable,
+          willRetry: canRetry,
+          status: groqError.status,
+          providerRequestId: groqError.providerRequestId,
+          providerErrorType: groqError.providerErrorType,
+          retryAfterSeconds: groqError.retryAfterSeconds,
+          durationMs: Date.now() - apiStart,
+          ...this.rateLimitLogFields(this.errorHeaders(error)),
+        });
+
+        if (!canRetry) {
+          logger.error('whisper.api.failed', {
+            ...logContext,
+            userId,
+            model: this.config.model,
+            attempts: attempt,
+            category: groqError.category,
+            status: groqError.status,
+            providerRequestId: groqError.providerRequestId,
+            totalBudgetMs: this.retryTotalTimeoutMs,
+          });
+          throw groqError;
+        }
+
+        logger.warn('whisper.api.retry_scheduled', {
+          ...logContext,
+          userId,
+          attempt,
+          nextAttempt: attempt + 1,
+          category: groqError.category,
+          status: groqError.status,
+          delayMs,
+          remainingBudgetMs: remainingAfterAttemptMs,
+        });
+        if (delayMs > 0) {
+          await this.retrySleep(delayMs);
         }
       }
-
-      throw new Error(`OpenAI API error: ${(error as Error).message}`);
     }
+
+    throw this.createGroqError(new Error('Groq transcription attempts exhausted'), budget.attempts);
+  }
+
+  private createGroqError(
+    value: unknown,
+    attempts: number,
+    forcedCategory?: GroqTranscriptionErrorCategory,
+  ): GroqTranscriptionError {
+    if (value instanceof GroqTranscriptionError) return value;
+    const error: GroqErrorShape =
+      value instanceof Error ? (value as GroqErrorShape) : new Error(String(value));
+    const status = typeof error.status === 'number' ? error.status : undefined;
+    const message = error.message || 'Groq transcription failed';
+    let category: GroqTranscriptionErrorCategory = forcedCategory || 'unknown';
+
+    if (!forcedCategory) {
+      if (status === 429) category = 'rate_limit';
+      else if (status === 401) category = 'authentication';
+      else if (status === 403) category = 'permission';
+      else if (status === 413) category = 'payload_too_large';
+      else if (status === 499 || error.name === 'APIUserAbortError') category = 'cancelled';
+      else if (status === 498 || (status !== undefined && status >= 500)) category = 'server';
+      else if (error.name.includes('Timeout') || /timed? ?out|deadline exceeded/i.test(message))
+        category = 'timeout';
+      else if (error.name.includes('Connection') || /ECONN|network|fetch failed/i.test(message))
+        category = 'connection';
+      else if (
+        /invalid file format|unsupported audio format|unsupported file format|file too large/i.test(
+          message,
+        )
+      ) {
+        category = /file too large/i.test(message) ? 'payload_too_large' : 'invalid_audio';
+      }
+    }
+
+    const retryable =
+      category === 'rate_limit' ||
+      category === 'timeout' ||
+      category === 'connection' ||
+      category === 'server';
+    const headers = this.errorHeaders(error);
+    const retryAfterSeconds = this.parseRetryAfter(headers?.get('retry-after'));
+
+    return new GroqTranscriptionError({
+      category,
+      message,
+      retryable,
+      status,
+      providerRequestId: error.requestID || headers?.get('x-request-id') || undefined,
+      providerErrorType: error.type || error.code || undefined,
+      attempts,
+      retryAfterSeconds,
+      cause: value,
+    });
+  }
+
+  private retryDelayMs(error: GroqTranscriptionError, attempt: number): number {
+    if (error.category === 'rate_limit' && error.retryAfterSeconds !== undefined) {
+      const requestedMs = error.retryAfterSeconds * 1_000;
+      if (requestedMs <= 0 || requestedMs > this.maxRetryAfterMs) return Number.POSITIVE_INFINITY;
+      return requestedMs;
+    }
+    const capMs = Math.min(
+      this.retryMaxDelayMs,
+      WHISPER_CONSTANTS.RETRY_BASE_DELAY_MS * 2 ** Math.max(0, attempt - 1),
+    );
+    return Math.floor(Math.max(0, Math.min(1, this.retryRandom())) * capMs);
+  }
+
+  private errorHeaders(value: unknown): Headers | undefined {
+    const headers = (value as GroqErrorShape | undefined)?.headers;
+    return headers && typeof headers.get === 'function' ? headers : undefined;
+  }
+
+  private parseRetryAfter(value: string | null | undefined): number | undefined {
+    if (!value) return undefined;
+    const seconds = Number(value);
+    return Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined;
+  }
+
+  private rateLimitLogFields(headers?: Headers): Record<string, string | undefined> {
+    if (!headers) return {};
+    return {
+      rateLimitLimitRequests: headers.get('x-ratelimit-limit-requests') || undefined,
+      rateLimitRemainingRequests: headers.get('x-ratelimit-remaining-requests') || undefined,
+      rateLimitResetRequests: headers.get('x-ratelimit-reset-requests') || undefined,
+      rateLimitLimitTokens: headers.get('x-ratelimit-limit-tokens') || undefined,
+      rateLimitRemainingTokens: headers.get('x-ratelimit-remaining-tokens') || undefined,
+      rateLimitResetTokens: headers.get('x-ratelimit-reset-tokens') || undefined,
+    };
+  }
+
+  private resolvePositiveNumber(
+    configured: number | undefined,
+    envName: string,
+    fallback: number,
+    envMultiplier = 1,
+  ): number {
+    const raw =
+      configured ??
+      (process.env[envName] === undefined
+        ? fallback
+        : Number(process.env[envName]) * envMultiplier);
+    if (!Number.isFinite(raw) || raw <= 0) {
+      throw new Error(`${envName} must be a positive finite number.`);
+    }
+    return raw;
   }
 
   private parseTranscriptionResponse(transcription: unknown): ParsedTranscription {
@@ -669,12 +974,13 @@ export class WhisperService {
     }
 
     return {
-      flaggedSegments: new Set(flags.map((flag) => `${flag.segmentId ?? ''}:${flag.start ?? ''}:${flag.end ?? ''}`)).size,
+      flaggedSegments: new Set(
+        flags.map((flag) => `${flag.segmentId ?? ''}:${flag.start ?? ''}:${flag.end ?? ''}`),
+      ).size,
       totalSegments: segments.length,
       flags,
       worstValues: {
-        minAvgLogprob:
-          values.avgLogprobs.length > 0 ? Math.min(...values.avgLogprobs) : undefined,
+        minAvgLogprob: values.avgLogprobs.length > 0 ? Math.min(...values.avgLogprobs) : undefined,
         maxNoSpeechProb:
           values.noSpeechProbs.length > 0 ? Math.max(...values.noSpeechProbs) : undefined,
         minCompressionRatio:
@@ -809,7 +1115,7 @@ export class WhisperService {
 
   private isValidAudioMimeType(mimeType: string): boolean {
     const normalizedMimeType = mimeType.split(';')[0].toLowerCase(); // Remove charset if present
-    return AudioMimeTypes.includes(normalizedMimeType as any);
+    return AudioMimeTypes.includes(normalizedMimeType as (typeof AudioMimeTypes)[number]);
   }
 
   // Truncates long URLs for safe logging (Telegram CDN URLs contain bot tokens).
@@ -832,6 +1138,11 @@ export class WhisperService {
       prompt: this.config.prompt,
       qualityMonitoringEnabled: this.config.qualityMonitoringEnabled,
       qualityThresholds: this.qualityThresholds,
+      requestTimeoutMs: this.requestTimeoutMs,
+      maxRetryAttempts: this.maxRetryAttempts,
+      retryMaxDelayMs: this.retryMaxDelayMs,
+      retryTotalTimeoutMs: this.retryTotalTimeoutMs,
+      maxRetryAfterMs: this.maxRetryAfterMs,
     };
   }
 }

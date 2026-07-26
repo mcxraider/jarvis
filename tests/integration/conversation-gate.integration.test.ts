@@ -169,25 +169,26 @@ describe('Conversation Gating — Integration', () => {
     });
   });
 
-  describe('fail-open behavior', () => {
-    it('gate store throwing on getStatus → message processed normally', async () => {
+  describe('fail-closed behavior', () => {
+    it('gate store throwing on getSnapshot blocks the message without invoking the agent', async () => {
       const agentClient = {
         invoke: jest.fn().mockResolvedValue({ status: 'completed', threadId: 't1', response: 'OK.', toolResults: [] }),
         resume: jest.fn(),
       };
       const pendingStore = new MemoryPendingClarificationStore();
       const gateStore = new MemoryConversationGateStore();
-      gateStore.getStatus = jest.fn().mockRejectedValue(new Error('store down'));
-      gateStore.tryAcquire = jest.fn().mockResolvedValue(true);
+      gateStore.getSnapshot = jest.fn().mockRejectedValue(new Error('store down'));
 
       const textProcessor = new TextProcessorService(agentClient as any, pendingStore, gateStore);
       const result = await textProcessor.processTextMessage('hello', 42, LOG);
-      expect(result.response).toBe('OK.');
+      expect(result.blocked).toBe(true);
+      expect(result.response).toMatch(/still working/i);
+      expect(agentClient.invoke).not.toHaveBeenCalled();
     });
   });
 
   describe('inconsistency detection', () => {
-    it('gate=waiting + no pending record → auto-recovers to idle and invokes fresh', async () => {
+    it('gate=waiting + no pending record suppresses the message and preserves the gate', async () => {
       const agentClient = {
         invoke: jest.fn().mockResolvedValue({ status: 'completed', threadId: 't1', response: 'Fresh.', toolResults: [] }),
         resume: jest.fn(),
@@ -201,9 +202,12 @@ describe('Conversation Gating — Integration', () => {
 
       const textProcessor = new TextProcessorService(agentClient as any, pendingStore, gateStore);
       const result = await textProcessor.processTextMessage('hello', 42, LOG);
-      expect(result.response).toBe('Fresh.');
-      expect(agentClient.invoke).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ response: '', suppressed: true });
+      expect(await gateStore.getStatus(key)).toBe('waiting_for_clarification');
+      expect(agentClient.invoke).not.toHaveBeenCalled();
       expect(agentClient.resume).not.toHaveBeenCalled();
+
+      await gateStore.release(key);
     });
   });
 });

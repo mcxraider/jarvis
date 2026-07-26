@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter
 
+from agents.agent_api.app.config import settings
 from agents.agent_api.app.constants import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 
 logger = logging.getLogger(__name__)
@@ -120,9 +121,25 @@ def health_detail(telegram_user_id: Optional[int] = None) -> Dict[str, Any]:
             except Exception as exc:  # noqa: BLE001 - timeout or probe crash
                 checks[name] = {"ok": False, "detail": _error_detail(exc)}
 
+    from agents.agent_api.app.run_logging import get_log_writer_stats, log_writer_healthy
+
+    stats = get_log_writer_stats()
+    checks["log_writer"] = {
+        "ok": log_writer_healthy(),
+        "detail": f"accepted={stats.events_accepted} dropped={stats.events_dropped} writes={stats.writes_completed} failed={stats.writes_failed}",
+    }
+
     overall_ok = all(check.get("ok") for check in checks.values())
     return {
         "status": "ok" if overall_ok else "degraded",
         "model": DEEPSEEK_MODEL,
         "checks": checks,
+        "limits": {
+            "run_deadline_seconds": settings.run_deadline_seconds,
+            "max_agent_turns": settings.max_agent_turns,
+            "deepseek_request_timeout_seconds": settings.deepseek_request_timeout_seconds,
+            "model_router_complex_timeout_seconds": (
+                settings.model_router_complex_timeout_seconds
+            ),
+        },
     }

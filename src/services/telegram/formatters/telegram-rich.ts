@@ -119,20 +119,26 @@ export async function sendFinalReply(
   }
 }
 
-/**
- * Sends a clarification as one expanded rich details block and returns its message id.
- * Plain-mode and rich-send fallback messages deliberately return undefined because they
- * cannot later be collapsed with a rich-message edit.
- */
-export async function sendClarificationReply(
+export interface ClarificationReplyReceipt {
+  /** Any Telegram message id, used to remove a prompt that loses ownership after delivery. */
+  messageId?: number;
+  /** Present only for a rich details block that can later be collapsed. */
+  collapsibleMessageId?: number;
+}
+
+/** Sends a clarification and reports both deletion and rich-collapse capabilities. */
+export async function sendClarificationReplyWithReceipt(
   ctx: Context,
   question: string,
   logContext: object = {},
-): Promise<number | undefined> {
+): Promise<ClarificationReplyReceipt> {
   if (richEnabled && ctx.chat) {
     try {
       const message = await sendRichMessage(ctx, renderClarificationBlock(question, true));
-      return message.message_id;
+      return {
+        messageId: message.message_id,
+        collapsibleMessageId: message.message_id,
+      };
     } catch (error) {
       logger.warn('telegram.rich.fallback', {
         ...logContext,
@@ -142,8 +148,21 @@ export async function sendClarificationReply(
     }
   }
 
-  await replyWithMarkdown(ctx.reply.bind(ctx), question, logContext);
-  return undefined;
+  const message = await replyWithMarkdown(ctx.reply.bind(ctx), question, logContext);
+  return { messageId: message.message_id };
+}
+
+/**
+ * Sends a clarification as one expanded rich details block and returns its collapsible id.
+ * Plain-mode and rich-send fallback messages return undefined for backwards compatibility.
+ */
+export async function sendClarificationReply(
+  ctx: Context,
+  question: string,
+  logContext: object = {},
+): Promise<number | undefined> {
+  const receipt = await sendClarificationReplyWithReceipt(ctx, question, logContext);
+  return receipt.collapsibleMessageId;
 }
 
 /** Collapses a previously sent rich clarification block. */
@@ -216,10 +235,11 @@ export async function sendRichDraft(
   markdown: string,
 ): Promise<void> {
   if (!ctx.chat) throw new Error('missing chat for rich draft');
+  const normalizedMarkdown = normalizeMarkdownTables(markdown);
   await rawCallApi(ctx, 'sendRichMessageDraft', {
     chat_id: ctx.chat.id,
     draft_id: draftId,
-    rich_message: { markdown },
+    rich_message: { markdown: normalizedMarkdown },
   });
 }
 
@@ -232,9 +252,10 @@ export async function sendRichMessage(
   markdown: string,
 ): Promise<Message> {
   if (!ctx.chat) throw new Error('missing chat for rich message');
+  const normalizedMarkdown = normalizeMarkdownTables(markdown);
   const message = await rawCallApi(ctx, 'sendRichMessage', {
     chat_id: ctx.chat.id,
-    rich_message: { markdown },
+    rich_message: { markdown: normalizedMarkdown },
   });
   return message as Message;
 }

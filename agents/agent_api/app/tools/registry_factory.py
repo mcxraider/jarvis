@@ -14,8 +14,9 @@ Two ways to build the registry:
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from agents.agent_api.app.tools.access_policy import ResourceAccessPolicy
 from agents.agent_api.app.tools.base import ToolRegistry
-from agents.agent_api.app.tools.calendar.tools import (
+from agents.agent_api.app.tools.google_calendar.tools import (
     build_calendar_langchain_tools,
     get_calendar_tool_specs,
 )
@@ -59,6 +60,7 @@ def build_registry_from_clients(
 def build_runtime_registry(
     runtime_context: ResolvedRuntimeContext,
     tracer: TracePrinter,
+    access_policy: Optional[ResourceAccessPolicy] = None,
 ) -> Tuple[ToolRegistry, List[Any], Dict[str, List[str]]]:
     """Build tools by intersecting runtime adapters with active connections.
 
@@ -82,7 +84,20 @@ def build_runtime_registry(
         if domain is None or domain.status != "active" or credential is None:
             continue
 
-        client = adapter.build_client(credential, tracer)
+        client_tracer = (
+            access_policy.provider_tracer(tracer)
+            if access_policy is not None
+            else tracer
+        )
+        client = adapter.build_client(credential, client_tracer)
+        if (
+            access_policy is not None
+            and provider == "todoist"
+            and access_policy.has_restrictions
+        ):
+            client = client.with_response_filter(
+                access_policy.filter_todoist_provider_response
+            )
         specs = adapter.get_tool_specs(client)
         registry.register(specs, langchain_builder=adapter.langchain_builder)
         tool_names_by_provider[provider] = [spec.name for spec in specs]

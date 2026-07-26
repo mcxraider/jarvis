@@ -5,8 +5,13 @@ independent of terminal trace settings (JARVIS_DEBUG), so CLI and
 Telegram/API runs alike leave a persistent, human-readable record on disk.
 """
 
+import concurrent.futures
+import logging
 import os
 import re
+import threading
+import time
+import traceback
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +30,162 @@ _TRUEY = {"1", "true", "yes", "on"}
 _FALSEY = {"0", "false", "no", "off"}
 _CLI_LOG_NAME = "jer_jerryyy"
 _CLI_TELEGRAM_USER_ID = 701122767
+MAX_BUFFER_EVENTS = 500
+MAX_BUFFER_BYTES = 2 * 1024 * 1024
+MAX_LOG_DIR_MB = 100
+MAX_LOG_AGE_DAYS = 14
+FLUSH_INTERVAL_EVENTS = 50
+BACKPRESSURE_THRESHOLD = 5
+MAX_PAYLOAD_BYTES = 64_000
+MAX_STRING_LENGTH = 8_000
+
+logger = logging.getLogger(__name__)
+_log_writer_pool = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1,
+    thread_name_prefix="run-log-writer",
+)
+_pending_futures: set[concurrent.futures.Future[None]] = set()
+_pending_futures_lock = threading.Lock()
+
+
+@dataclass
+class LogWriterStats:
+    events_accepted: int = 0
+    events_dropped: int = 0
+    events_truncated: int = 0
+    bytes_accepted: int = 0
+    bytes_dropped: int = 0
+    writes_completed: int = 0
+    writes_failed: int = 0
+    last_write_time: float | None = None
+    pending_futures: int = 0
+    partial_flushes: int = 0
+    backpressure_events: int = 0
+
+
+_writer_stats = LogWriterStats()
+_writer_stats_lock = threading.Lock()
+_last_backpressure_warning: float = 0.0
+_BACKPRESSURE_RATE_LIMIT_SECONDS = 60.0
+
+_CLEANUP_DEBOUNCE_SECONDS = 3600
+_last_cleanup_time: float = 0.0
+_cleanup_lock = threading.Lock()
+
+
+def cleanup_old_logs(
+    base_dir: Path,
+    max_age_days: int = MAX_LOG_AGE_DAYS,
+    max_total_mb: int = MAX_LOG_DIR_MB,
+) -> int:
+    """Delete old/oversized run-log files. Returns count of files deleted."""
+    if not base_dir.exists():
+        return 0
+
+    now = time.time()
+    active_cutoff = now - 3600
+    age_cutoff = now - (max_age_days * 86400)
+    max_total_bytes = max_total_mb * 1024 * 1024
+
+    deleted = 0
+    remaining: list[tuple[float, int, Path]] = []
+
+    for file in base_dir.rglob("*.log"):
+        if not file.is_file():
+            continue
+        try:
+            stat = file.stat()
+        except OSError:
+            continue
+        if stat.st_mtime >= active_cutoff:
+            remaining.append((stat.st_mtime, stat.st_size, file))
+            continue
+        if stat.st_mtime < age_cutoff:
+            try:
+                file.unlink()
+                deleted += 1
+            except OSError:
+                pass
+        else:
+            remaining.append((stat.st_mtime, stat.st_size, file))
+
+    total_size = sum(size for _, size, _ in remaining)
+    if total_size > max_total_bytes:
+        remaining.sort(key=lambda entry: entry[0])
+        for mtime, size, file in remaining:
+            if total_size <= max_total_bytes:
+                break
+            if mtime >= active_cutoff:
+                continue
+            try:
+                file.unlink()
+                total_size -= size
+                deleted += 1
+            except OSError:
+                pass
+
+    return deleted
+
+
+def _schedule_log_cleanup() -> None:
+    """Submit cleanup to the writer pool with an hourly debounce."""
+    global _last_cleanup_time
+    now = time.time()
+    with _cleanup_lock:
+        if now - _last_cleanup_time < _CLEANUP_DEBOUNCE_SECONDS:
+            return
+        _last_cleanup_time = now
+
+    def _do_cleanup() -> None:
+        try:
+            deleted = cleanup_old_logs(LOG_DIR)
+            if deleted > 0:
+                logger.info("Log cleanup completed.", extra={"files_deleted": deleted})
+        except Exception:
+            logger.exception("Log cleanup failed.")
+
+    _submit_log_write(_do_cleanup)
+
+
+def get_log_writer_stats() -> LogWriterStats:
+    """Return a snapshot of writer statistics."""
+    with _writer_stats_lock:
+        with _pending_futures_lock:
+            _writer_stats.pending_futures = len(_pending_futures)
+        return LogWriterStats(
+            events_accepted=_writer_stats.events_accepted,
+            events_dropped=_writer_stats.events_dropped,
+            events_truncated=_writer_stats.events_truncated,
+            bytes_accepted=_writer_stats.bytes_accepted,
+            bytes_dropped=_writer_stats.bytes_dropped,
+            writes_completed=_writer_stats.writes_completed,
+            writes_failed=_writer_stats.writes_failed,
+            last_write_time=_writer_stats.last_write_time,
+            pending_futures=_writer_stats.pending_futures,
+            partial_flushes=_writer_stats.partial_flushes,
+            backpressure_events=_writer_stats.backpressure_events,
+        )
+
+
+def log_writer_healthy() -> bool:
+    """Return False if the writer thread appears stalled or dead."""
+    with _writer_stats_lock:
+        with _pending_futures_lock:
+            pending = len(_pending_futures)
+        if pending == 0:
+            return True
+        if _writer_stats.last_write_time is None:
+            return pending == 0
+        stale = (time.monotonic() - _writer_stats.last_write_time) > 30.0
+        return not stale
+
+
+def reset_writer_stats() -> None:
+    """Reset stats for test isolation."""
+    global _writer_stats, _last_backpressure_warning
+    with _writer_stats_lock:
+        _writer_stats = LogWriterStats()
+    _last_backpressure_warning = 0.0
 
 
 @dataclass(frozen=True)
@@ -121,31 +282,142 @@ def open_run_log(thread_id: str, identity: Optional[RunLogIdentity] = None) -> O
 
     if not run_file_log_enabled():
         return None
-    return RunFileLog(build_run_log_path(thread_id, identity=identity))
+    background = not (
+        (identity is not None and identity.request_source == "cli")
+        or "PYTEST_CURRENT_TEST" in os.environ
+    )
+    _schedule_log_cleanup()
+    return RunFileLog(build_run_log_path(thread_id, identity=identity), background=background)
+
+
+def flush_run_logs() -> None:
+    """Block until all run-log writes submitted so far have completed."""
+
+    try:
+        _submit_log_write(lambda: None).result()
+    except RuntimeError:
+        return
+
+
+def shutdown_run_logs(timeout: float = 5.0) -> None:
+    """Drain pending run-log writes up to timeout, then stop accepting new work."""
+
+    global _log_writer_pool
+    try:
+        sentinel = _submit_log_write(lambda: None)
+        sentinel.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        logger.warning("Timed out draining run-log writes.", extra={"timeout": timeout})
+    except RuntimeError:
+        pass
+    _log_writer_pool.shutdown(wait=False, cancel_futures=False)
+
+
+def reset_log_writer() -> None:
+    """Replace the run-log executor with a fresh instance for test isolation."""
+
+    global _log_writer_pool, _last_cleanup_time
+    _log_writer_pool.shutdown(wait=False, cancel_futures=True)
+    with _pending_futures_lock:
+        _pending_futures.clear()
+    _log_writer_pool = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1,
+        thread_name_prefix="run-log-writer",
+    )
+    with _cleanup_lock:
+        _last_cleanup_time = 0.0
+    reset_writer_stats()
+
+
+def _check_writer_backpressure() -> None:
+    """Emit a rate-limited warning when the write queue is backed up."""
+    global _last_backpressure_warning
+    with _pending_futures_lock:
+        depth = len(_pending_futures)
+    if depth <= BACKPRESSURE_THRESHOLD:
+        return
+    now = time.monotonic()
+    if now - _last_backpressure_warning < _BACKPRESSURE_RATE_LIMIT_SECONDS:
+        return
+    _last_backpressure_warning = now
+    with _writer_stats_lock:
+        _writer_stats.backpressure_events += 1
+    logger.warning(
+        "run_log.writer.backpressure",
+        extra={"queue_depth": depth},
+    )
+
+
+def _submit_log_write(fn: Callable[[], None]) -> concurrent.futures.Future[None]:
+    _check_writer_backpressure()
+
+    def _run_safely() -> None:
+        try:
+            fn()
+        except Exception:
+            logger.exception("Run-log background write failed.")
+
+    future = _log_writer_pool.submit(_run_safely)
+    with _pending_futures_lock:
+        _pending_futures.add(future)
+
+    def _discard(done: concurrent.futures.Future[None]) -> None:
+        with _pending_futures_lock:
+            _pending_futures.discard(done)
+
+    future.add_done_callback(_discard)
+    return future
 
 
 class RunFileLog:
     """Appends readable, timestamped lines to one per-run log file."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, background: bool = True):
         self.path = path
+        self._background = background
+        self._buffer: list[str] = []
+        self._buffer_bytes = 0
+        self._buffer_events = 0
+        self._total_events = 0
+        self._events_dropped = 0
+        self._partial_flushed = False
+        self._partial_flush_count = 0
+        self._drop_warned = False
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def write_header(self, **fields: Any) -> None:
         lines = ["=" * 78, "Jarvis run", "=" * 78]
         lines.extend(f"{key}: {value}" for key, value in fields.items())
         lines.append("-" * 78)
-        self._append("\n".join(lines))
+        self._append("\n".join(lines), preserve=True)
 
     def write_footer(self, **fields: Any) -> None:
+        if self._events_dropped > 0:
+            fields = {**fields, "events_dropped": self._events_dropped}
+        if self._partial_flush_count > 0:
+            fields = {**fields, "partial_flushes": self._partial_flush_count}
+        with _writer_stats_lock:
+            bp = _writer_stats.backpressure_events
+        if bp > 0:
+            fields = {**fields, "writer_backpressure_events": bp}
         lines = ["-" * 78, "Run finished"]
         lines.extend(f"{key}: {value}" for key, value in fields.items())
         lines.append("=" * 78)
-        self._append("\n".join(lines))
+        self._append("\n".join(lines), preserve=True)
+        content = self._snapshot_buffer()
+        if self._background:
+            _submit_log_write(lambda: self._flush_to_disk(content))
+        else:
+            self._flush_to_disk(content)
+        self._buffer.clear()
+        self._buffer_bytes = 0
 
     def write_line(self, stage: str, message: str, extra: str = "") -> None:
         timestamp = format_singapore_log_timestamp()
-        self._append(f"{timestamp} | {stage:<20} | {message}{extra}")
+        self._append(
+            f"{timestamp} | {stage:<20} | {message}{extra}",
+            preserve=_is_high_value_event(stage, message),
+        )
 
     def write_messages_dump(self, label: str, messages: List[Dict[str, Any]]) -> None:
         """Write a full messages array as indented JSON, clearly demarcated.
@@ -155,20 +427,121 @@ class RunFileLog:
         """
         import json as _json
 
+        payload = _json.dumps(messages, indent=2, ensure_ascii=False, default=str)
         separator = "~" * 78
         lines = [
             separator,
             f"MESSAGES DUMP: {label}",
             f"message_count: {len(messages)}",
             separator,
-            _json.dumps(messages, indent=2, ensure_ascii=False, default=str),
+            payload,
             separator,
         ]
         self._append("\n".join(lines))
 
-    def _append(self, text: str) -> None:
-        with open(self.path, "a", encoding="utf-8") as handle:
-            handle.write(text + "\n")
+    def write_crash(self, exc: BaseException) -> None:
+        """Synchronously persist a partial run log when graph execution crashes."""
+
+        # Drain any in-flight partial flush so we don't interleave on the file.
+        try:
+            _submit_log_write(lambda: None).result(timeout=2.0)
+        except (concurrent.futures.TimeoutError, RuntimeError, Exception):
+            pass
+
+        timestamp = format_singapore_log_timestamp()
+        separator = "!" * 78
+        lines = [
+            separator,
+            "RUN CRASH",
+            f"timestamp: {timestamp}",
+            f"error_type: {type(exc).__name__}",
+            f"error: {exc}",
+            separator,
+            "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).rstrip(),
+            separator,
+        ]
+        self._append("\n".join(lines), preserve=True)
+        self._flush_to_disk(self._snapshot_buffer())
+
+    def _append(self, text: str, *, preserve: bool = False) -> None:
+        entry = text + "\n"
+        entry_bytes = len(entry.encode("utf-8"))
+        if entry_bytes > MAX_PAYLOAD_BYTES:
+            original_bytes = entry_bytes
+            entry = text[:MAX_PAYLOAD_BYTES] + f" [truncated, original_bytes={original_bytes}]\n"
+            entry_bytes = len(entry.encode("utf-8"))
+            with _writer_stats_lock:
+                _writer_stats.events_truncated += 1
+        would_exceed_events = self._buffer_events >= MAX_BUFFER_EVENTS
+        would_exceed_bytes = self._buffer_bytes + entry_bytes > MAX_BUFFER_BYTES
+        if not preserve and (would_exceed_events or would_exceed_bytes):
+            self._events_dropped += 1
+            with _writer_stats_lock:
+                _writer_stats.events_dropped += 1
+                _writer_stats.bytes_dropped += entry_bytes
+            if not self._drop_warned:
+                self._drop_warned = True
+                reason = "byte cap" if would_exceed_bytes else "event cap"
+                logger.warning(
+                    "run_log.events_dropped",
+                    extra={"path": str(self.path), "reason": reason},
+                )
+            return
+        self._buffer.append(entry)
+        self._buffer_events += 1
+        self._buffer_bytes += entry_bytes
+        self._total_events += 1
+        with _writer_stats_lock:
+            _writer_stats.events_accepted += 1
+            _writer_stats.bytes_accepted += entry_bytes
+        if (
+            self._background
+            and self._buffer_events >= FLUSH_INTERVAL_EVENTS
+            and self._buffer_events % FLUSH_INTERVAL_EVENTS == 0
+        ):
+            snapshot = list(self._buffer)
+            self._buffer.clear()
+            self._buffer_bytes = 0
+            self._buffer_events = 0
+            self._partial_flushed = True
+            self._partial_flush_count += 1
+            _submit_log_write(lambda: self._flush_partial(snapshot))
+
+    def _snapshot_buffer(self) -> str:
+        return "".join(self._buffer)
+
+    def _flush_partial(self, lines: list[str]) -> None:
+        try:
+            with open(self.path, "a", encoding="utf-8") as handle:
+                handle.writelines(lines)
+            with _writer_stats_lock:
+                _writer_stats.partial_flushes += 1
+                _writer_stats.writes_completed += 1
+                _writer_stats.last_write_time = time.monotonic()
+        except Exception:
+            with _writer_stats_lock:
+                _writer_stats.writes_failed += 1
+            logger.warning("Run-log partial flush failed.", extra={"path": str(self.path)})
+            raise
+
+    def _flush_to_disk(self, content: Optional[str] = None) -> None:
+        payload = self._snapshot_buffer() if content is None else content
+        try:
+            with open(self.path, "a", encoding="utf-8") as handle:
+                handle.write(payload)
+            with _writer_stats_lock:
+                _writer_stats.writes_completed += 1
+                _writer_stats.last_write_time = time.monotonic()
+        except Exception:
+            with _writer_stats_lock:
+                _writer_stats.writes_failed += 1
+            logger.warning("Run-log flush failed.", extra={"path": str(self.path)})
+            raise
+
+
+def _is_high_value_event(stage: str, message: str) -> bool:
+    text = f"{stage} {message}".lower()
+    return any(marker in text for marker in ("error", "exception", "crash", "failed", "fallback"))
 
 
 class FileLoggingTracer:
@@ -194,7 +567,7 @@ class FileLoggingTracer:
 
     def payload(self, stage: str, label: str, value: Any, limit: int = 900) -> None:
         self._tracer.payload(stage, label, value, limit=limit)
-        readable = _format_payload_readable(value)
+        readable = _format_payload_readable(value, limit=limit)
         self.run_log.write_line(stage, f"[payload] {label}:{readable}")
 
     def _preview_fn(self) -> PreviewFn:
@@ -298,7 +671,7 @@ def _format_dict_readable(data: Dict[str, Any]) -> str:
     return "\n".join(lines) if lines else f"{_INDENT}(empty)"
 
 
-def _format_payload_readable(value: Any) -> str:
+def _format_payload_readable(value: Any, limit: int = 900) -> str:
     """Convert a payload value to a human-readable multi-line format.
 
     Used by FileLoggingTracer for per-run file logs. Strips null/empty fields
@@ -323,28 +696,45 @@ def _format_payload_readable(value: Any) -> str:
         text = _json.dumps(value, ensure_ascii=False, default=str)
         if len(text) <= 120:
             return " " + text
-        return "\n" + _INDENT + text[:500] + ("..." if len(text) > 500 else "")
+        if limit <= 0 or len(text) <= limit:
+            return "\n" + _INDENT + text
+        return "\n" + _INDENT + text[:limit] + "..."
 
     if isinstance(value, str):
         if len(value) <= 120:
             return " " + value
-        return "\n" + _INDENT + value[:500] + "..."
+        if limit <= 0 or len(value) <= limit:
+            return "\n" + _INDENT + value
+        return "\n" + _INDENT + value[:limit] + "..."
 
     text = str(value)
-    if len(text) > 900:
-        return " " + text[:897] + "..."
+    if limit > 0 and len(text) > limit:
+        return " " + text[:limit] + "..."
     return " " + text
 
 
 __all__ = [
+    "FLUSH_INTERVAL_EVENTS",
+    "LogWriterStats",
+    "MAX_BUFFER_BYTES",
+    "MAX_BUFFER_EVENTS",
+    "MAX_LOG_AGE_DAYS",
+    "MAX_LOG_DIR_MB",
     "RunFileLog",
     "RunLogIdentity",
     "FileLoggingTracer",
     "build_run_log_path",
+    "cleanup_old_logs",
+    "flush_run_logs",
     "format_singapore_log_iso",
     "format_singapore_log_timestamp",
+    "get_log_writer_stats",
+    "log_writer_healthy",
     "open_run_log",
+    "reset_log_writer",
+    "reset_writer_stats",
     "run_file_log_enabled",
+    "shutdown_run_logs",
     "to_singapore_time",
     "LOG_DIR",
 ]

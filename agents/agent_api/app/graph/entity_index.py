@@ -11,7 +11,7 @@ a per-``entity_type`` extractor here and adding ``EntityRef``s in ``tools/metada
 
 from typing import Any, Dict, List, Set, Tuple
 
-from agents.agent_api.app.graph.extractors import extract_task_items
+from agents.agent_api.app.graph.extractors import extract_event_items, extract_task_items
 from agents.agent_api.app.tools.base import parse_tool_call_arguments, tool_call_name
 from agents.agent_api.app.tools.metadata import entity_requirements
 
@@ -28,6 +28,10 @@ class SeenEntityIndex:
                 task_id = task.get("id")
                 if task_id:
                     self._seen.add(("task", str(task_id)))
+            for event in extract_event_items(result.get("content")):
+                event_id = event.get("event_id")
+                if event_id:
+                    self._seen.add(("event", str(event_id)))
 
     def has(self, entity_type: str, entity_id: str) -> bool:
         """Whether ``entity_id`` of ``entity_type`` was surfaced by a prior read."""

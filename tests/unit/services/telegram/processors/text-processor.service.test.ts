@@ -62,7 +62,6 @@ describe('TextProcessorService', () => {
           username: 'jerry',
         },
         requestId: 'tg_test',
-        threadId: 'tg_tg_test',
       },
       {
         requestId: 'tg_test',
@@ -70,7 +69,6 @@ describe('TextProcessorService', () => {
         messageId: 42,
         telegramUsername: 'jerry',
         telegramFirstName: 'Jerry',
-        threadId: 'tg_tg_test',
       },
     );
     expect(agentClient.resume).not.toHaveBeenCalled();
@@ -87,7 +85,7 @@ describe('TextProcessorService', () => {
       resume: jest.fn(),
     };
     const service = createService(agentClient);
-    const replyContext = '[In reply to your earlier message: "Created task: Buy milk"]';
+    const replyContext = { role: 'assistant' as const, message: 'Created task: Buy milk' };
 
     await service.processTextMessage(
       ' \n add a due date of tomorrow \t ',
@@ -99,7 +97,8 @@ describe('TextProcessorService', () => {
 
     expect(agentClient.invoke).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: `${replyContext}\n\nadd a due date of tomorrow`,
+        message: 'add a due date of tomorrow',
+        replyContext: { role: 'assistant', message: 'Created task: Buy milk' },
       }),
       expect.any(Object),
     );
@@ -126,7 +125,7 @@ describe('TextProcessorService', () => {
     expect(agentClient.resume).not.toHaveBeenCalled();
   });
 
-  it('builds a fresh thread id per invocation based on requestId', async () => {
+  it('omits thread id for fresh invocations so the agent creates a new thread', async () => {
     const agentClient = {
       invoke: jest.fn().mockResolvedValue({
         status: 'completed',
@@ -142,11 +141,10 @@ describe('TextProcessorService', () => {
     await service.processTextMessage('add eggs', 701122767, { requestId: 'req_2', chatId: 555, messageId: 43 });
 
     const threadIds = agentClient.invoke.mock.calls.map(([request]: [any]) => request.threadId);
-    expect(threadIds).toEqual(['tg_req_1', 'tg_req_2']);
-    expect(threadIds[0]).not.toBe(threadIds[1]);
+    expect(threadIds).toEqual([undefined, undefined]);
   });
 
-  it('generates a UUID-based thread id when requestId is absent', async () => {
+  it('omits thread id for fresh invocations when requestId is absent', async () => {
     const agentClient = {
       invoke: jest.fn().mockResolvedValue({
         status: 'completed',
@@ -162,9 +160,7 @@ describe('TextProcessorService', () => {
     await service.processTextMessage('add milk', 701122768, { chatId: 555, messageId: 43 });
 
     const threadIds = agentClient.invoke.mock.calls.map(([request]: [any]) => request.threadId);
-    expect(threadIds[0]).toMatch(/^tg_/);
-    expect(threadIds[1]).toMatch(/^tg_/);
-    expect(threadIds[0]).not.toBe(threadIds[1]);
+    expect(threadIds).toEqual([undefined, undefined]);
   });
 
   it('does not create a new thread id while a graph run has not completed', async () => {
@@ -218,8 +214,8 @@ describe('TextProcessorService', () => {
     });
 
     expect(interruptedAgentClient.invoke).toHaveBeenCalledWith(
-      expect.objectContaining({ threadId: expect.stringMatching(/^tg_/) }),
-      expect.objectContaining({ threadId: expect.stringMatching(/^tg_/) }),
+      expect.not.objectContaining({ threadId: expect.any(String) }),
+      expect.not.objectContaining({ threadId: expect.any(String) }),
     );
     expect(interruptedAgentClient.resume).toHaveBeenCalledWith(
       expect.objectContaining({ threadId: 'thread-hitl' }),
@@ -266,7 +262,7 @@ describe('TextProcessorService', () => {
           telegramId: 42,
           username: 'tester',
         },
-        requestId: undefined,
+        requestId: 'tg_test',
         threadId: 'thread-hitl',
       },
       {
@@ -274,6 +270,7 @@ describe('TextProcessorService', () => {
         messageId: 11,
         telegramUsername: 'tester',
         telegramFirstName: 'Test',
+        requestId: 'tg_test',
         threadId: 'thread-hitl',
       },
     );
@@ -303,7 +300,7 @@ describe('TextProcessorService', () => {
       42,
       { chatId: 100, messageId: 11 },
       undefined,
-      { replyContext: '[In reply to your earlier message: "Which task should I update?"]' },
+      { replyContext: { role: 'assistant' as const, message: 'Which task should I update?' } },
     );
 
     expect(agentClient.resume).toHaveBeenCalledWith(
@@ -573,7 +570,7 @@ describe('TextProcessorService', () => {
     expect(agentClient.resume).toHaveBeenCalledTimes(1);
   });
 
-  it('starts a new invoke when a pending clarification has expired', async () => {
+  it('retains a waiting gate while its expired pending row is transiently missing', async () => {
     process.env.TELEGRAM_PENDING_TTL_MS = '1';
     const agentClient = {
       invoke: jest
@@ -599,10 +596,10 @@ describe('TextProcessorService', () => {
     await new Promise((resolve) => setTimeout(resolve, 5));
     await expect(
       service.processTextMessage('the dentist task', 42, { chatId: 100, messageId: 11 }),
-    ).resolves.toHaveProperty('response', 'Started a new request.');
+    ).resolves.toMatchObject({ response: '', suppressed: true });
 
     expect(agentClient.resume).not.toHaveBeenCalled();
-    expect(agentClient.invoke).toHaveBeenCalledTimes(2);
+    expect(agentClient.invoke).toHaveBeenCalledTimes(1);
   });
 
   it('appends buffered message to response when gate has a buffered message', async () => {
@@ -676,6 +673,7 @@ describe('TextProcessorService', () => {
     const pending = await store.get(gateKey);
     expect(pending).not.toBeNull();
     expect(pending!.threadId).toBe('thread-clarify');
+    expect(pending!.requestId).toBeDefined();
 
     const resultPromise = service.processTextMessage('the dentist task', 42, { chatId: 100, messageId: 11 });
     const result = await resultPromise;
@@ -684,7 +682,10 @@ describe('TextProcessorService', () => {
     const pendingAfter = await store.get(gateKey);
     expect(pendingAfter).not.toBeNull();
     expect(pendingAfter!.threadId).toBe('thread-clarify');
-    expect(await gateStore.getStatus(gateKey)).toBe('waiting_for_clarification');
+    expect(await gateStore.getSnapshot(gateKey)).toEqual({
+      status: 'waiting_for_clarification',
+      requestId: pending!.requestId,
+    });
   });
 
   it('resumes a pre-reserved pending clarification without invoking a fresh thread', async () => {
@@ -709,7 +710,12 @@ describe('TextProcessorService', () => {
 
     await service.processTextMessage('update task', 42, { chatId: 100, messageId: 10 });
     const gateKey = buildConversationKey(42, 'telegram:42', 100);
-    await gateStore.transitionToRunning(gateKey, 60000);
+    await gateStore.transitionToRunning(
+      gateKey,
+      60000,
+      'tg_test',
+      await gateStore.getRequestId(gateKey),
+    );
 
     const result = await service.processTextMessage(
       'the dentist task',
@@ -752,7 +758,12 @@ describe('TextProcessorService', () => {
 
     await service.processTextMessage('update task', 42, { chatId: 100, messageId: 10 });
     const gateKey = buildConversationKey(42, 'telegram:42', 100);
-    await gateStore.transitionToRunning(gateKey, 60000);
+    await gateStore.transitionToRunning(
+      gateKey,
+      60000,
+      'tg_test',
+      await gateStore.getRequestId(gateKey),
+    );
 
     const result = await service.processTextMessage(
       'the dentist task',
@@ -764,6 +775,7 @@ describe('TextProcessorService', () => {
 
     expect(result.response).toBe('What time?');
     expect(result.interruptType).toBe('clarify');
+    expect(result.settlementRequestId).toBe('tg_test');
     const pending = await store.get(gateKey);
     expect(pending?.threadId).toBe('thread-second');
     expect(pending?.question).toBe('What time?');
@@ -787,7 +799,12 @@ describe('TextProcessorService', () => {
 
     await service.processTextMessage('update task', 42, { chatId: 100, messageId: 10 });
     const gateKey = buildConversationKey(42, 'telegram:42', 100);
-    await gateStore.transitionToRunning(gateKey, 60000);
+    await gateStore.transitionToRunning(
+      gateKey,
+      60000,
+      'tg_test',
+      await gateStore.getRequestId(gateKey),
+    );
 
     const result = await service.processTextMessage(
       'the dentist task',
@@ -812,8 +829,8 @@ describe('TextProcessorService', () => {
       clarificationMessageId = 321,
     ) {
       const gateKey = buildConversationKey(42, 'telegram:42', 100);
-      await gateStore.tryAcquire(gateKey, 60000);
-      await gateStore.transitionToWaiting(gateKey, 60000);
+      await gateStore.tryAcquire(gateKey, 60000, undefined, 'pending-owner');
+      await gateStore.transitionToWaitingIfActiveRequestId(gateKey, 'pending-owner', 60000);
       const now = Date.now();
       await store.save({
         pendingKey: gateKey,
@@ -822,7 +839,9 @@ describe('TextProcessorService', () => {
         telegramUserId: 42,
         chatId: 100,
         userId: 'telegram:42',
+        requestId: 'pending-owner',
         interruptType,
+        promptMessageId: clarificationMessageId,
         clarificationMessageId: interruptType === 'clarify' ? clarificationMessageId : undefined,
         status: 'pending',
         createdAt: now,
@@ -881,6 +900,7 @@ describe('TextProcessorService', () => {
         agentClient.resume.mock.invocationCallOrder[0],
       );
       expect(result.consumedClarificationMessageId).toBeUndefined();
+      expect(result.consumedPromptMessageId).toBeUndefined();
       expect(result.resolvedPendingPause).toBe(true);
     });
 
@@ -917,6 +937,8 @@ describe('TextProcessorService', () => {
       const result = await service.processTextMessage('yes', 42, { chatId: 100, messageId: 11 });
 
       expect(result.consumedClarificationMessageId).toBeUndefined();
+      expect(result.consumedInterruptType).toBe('confirm');
+      expect(result.consumedPromptMessageId).toBe(321);
       expect(result.resolvedPendingPause).toBe(true);
     });
 
@@ -947,6 +969,8 @@ describe('TextProcessorService', () => {
       const result = await service.processTextMessage('start over', 42, { chatId: 100, messageId: 12 }, undefined, { forceFresh: true });
 
       expect(result.consumedClarificationMessageId).toBe(654);
+      expect(result.consumedInterruptType).toBe('clarify');
+      expect(result.consumedPromptMessageId).toBe(654);
       expect(result.resolvedPendingPause).toBe(true);
       expect(agentClient.invoke).toHaveBeenCalledTimes(1);
     });
@@ -965,6 +989,58 @@ describe('TextProcessorService', () => {
 
       expect(result.resolvedPendingPause).toBeFalsy();
       expect(result.consumedClarificationMessageId).toBeUndefined();
+    });
+  });
+
+  describe('reasoning_content propagation', () => {
+    it('propagates reasoningContent from agent response to result', async () => {
+      process.env.TELEGRAM_USER_MAP = '701122767:jerry';
+      const agentClient = {
+        invoke: jest.fn().mockResolvedValue({
+          status: 'completed',
+          delivery: 'terminal',
+          threadId: 'thread-r',
+          response: 'Answer.',
+          reasoningContent: 'I thought about it.',
+          toolResults: [],
+        }),
+        resume: jest.fn(),
+      };
+      const service = createService(agentClient);
+
+      const result = await service.processTextMessage('hello', 701122767, {
+        requestId: 'tg_r',
+        chatId: 100,
+        messageId: 1,
+        telegramUsername: 'jerry',
+      });
+
+      expect(result.reasoningContent).toBe('I thought about it.');
+      expect(result.response).toBe('Answer.');
+    });
+
+    it('leaves reasoningContent undefined when agent omits it', async () => {
+      process.env.TELEGRAM_USER_MAP = '701122767:jerry';
+      const agentClient = {
+        invoke: jest.fn().mockResolvedValue({
+          status: 'completed',
+          delivery: 'terminal',
+          threadId: 'thread-r',
+          response: 'Answer.',
+          toolResults: [],
+        }),
+        resume: jest.fn(),
+      };
+      const service = createService(agentClient);
+
+      const result = await service.processTextMessage('hello', 701122767, {
+        requestId: 'tg_r',
+        chatId: 100,
+        messageId: 1,
+        telegramUsername: 'jerry',
+      });
+
+      expect(result.reasoningContent).toBeUndefined();
     });
   });
 });

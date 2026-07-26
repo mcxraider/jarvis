@@ -1,5 +1,7 @@
 """Tests for KeywordToolSelector."""
 
+import asyncio
+
 import pytest
 
 from agents.agent_api.app.tools.base import ToolRegistry, ToolSpec
@@ -249,3 +251,29 @@ class TestFactory:
 
         with pytest.raises(ValueError, match="Unknown tool selector"):
             get_selector("nonexistent")
+
+
+class TestAsyncSelectorCompatibility:
+    def test_keyword_async_result_matches_sync_result(self):
+        registry = _build_registry()
+        selector = KeywordToolSelector(allow_mutations=True)
+
+        sync_result = selector.select_schemas("show my tasks", registry)
+        async_result = asyncio.run(
+            selector.async_select_schemas("show my tasks", registry)
+        )
+
+        assert async_result == sync_result
+
+    def test_static_async_result_matches_sync_result(self):
+        from agents.agent_api.app.tools.selectors.static import StaticToolSelector
+
+        registry = _build_registry()
+        selector = StaticToolSelector()
+
+        sync_result = selector.select_schemas("anything", registry)
+        async_result = asyncio.run(
+            selector.async_select_schemas("anything", registry)
+        )
+
+        assert async_result == sync_result

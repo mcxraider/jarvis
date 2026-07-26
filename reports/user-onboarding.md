@@ -34,49 +34,20 @@ How much detail should Jarvis normally provide?
 
 ### Personal communication preferences
 
-- Phrases, formatting, or habits you like:
-- Things Jarvis should avoid:
-- Other communication notes:
+- Phrases, formatting, or habits you like (up to 10 short items):
+- Things Jarvis should avoid (up to 10 short items):
+- Other communication notes (up to 10 short items):
 
 ## 3. What Todoist should manage
 
-Choose Todoist's overall role:
-
-- [ ] Tasks, to-dos, and reminders only — calendar events, meetings, and general scheduling belong in Google Calendar
-- [ ] Tasks and scheduling — Todoist may also manage events, meetings, and other time-related items
-
-For extra precision, mark every request type that should go to Todoist by default:
-
-- [ ] Tasks
-- [ ] To-dos
-- [ ] Reminders
-- [ ] Events
-- [ ] Meetings
-- [ ] Other time-related items
-
-Examples or exceptions:
+Todoist always manages tasks, to-dos, and projects. The exact routing questions
+below determine whether it also receives reminders, events, or other time-related
+requests.
 
 ## 4. What Google Calendar should manage
 
-Choose Google Calendar's overall role:
-
-- [ ] Default calendar and scheduling service — use it for events, meetings, and other time-related items unless another rule overrides it
-- [ ] Explicit use only — use Google Calendar only when I explicitly say “Calendar,” name a calendar, or clearly ask Jarvis to use it
-
-Should Google Calendar manage each of these by default?
-
-- Events:
-	- [ ] Yes
-	- [ ] No
-	- Notes:
-- Meetings:
-	- [ ] Yes
-	- [ ] No
-	- Notes:
-- Other time-related items:
-	- [ ] Yes
-	- [ ] No
-	- Notes:
+Google Calendar manages events, meetings, and availability only when the exact
+routing rules below select it. It does not manage tasks.
 
 ## 5. Exact routing defaults
 
@@ -86,8 +57,7 @@ These choices decide which service receives each kind of request.
 
 When you ask Jarvis to create a task, where should it go?
 
-- [ ] Todoist
-- [ ] Google Calendar
+- Todoist (fixed)
 
 ### Events
 
@@ -129,7 +99,17 @@ Choose the final rule for Google Calendar:
 - [ ] Default — Jarvis may choose Google Calendar automatically according to the routing answers above
 - [ ] Explicit only — Jarvis must not use Google Calendar unless I explicitly request it
 
-If Explicit only conflicts with an earlier answer, the explicit-only rule wins.
+Profiles with Explicit only and an implicit Google Calendar default are rejected.
+Your administrator will ask you to correct the conflict before saving. The
+explicit-calendar choice above may still be Google Calendar.
+
+### Routing exceptions
+
+Add up to 10 exceptions. Each exception must say when it applies and which
+provider should receive the request.
+
+- When:
+	- Provider (`Todoist` or `Google Calendar`):
 
 ## 6. Google Calendar category defaults
 
@@ -138,8 +118,7 @@ Tell Jarvis which calendar to use for each category. Enter the exact calendar na
 - Personal:
 - Work:
 - Social:
-- Classes:
-- Lectures:
+- School:
 - Other category:
 - Other category:
 
@@ -162,7 +141,8 @@ Which services may you want in the future? These choices record interest only an
 
 ## 8. Review with examples
 
-For each request, write where you expect Jarvis to store it.
+For each request, write where you expect Jarvis to store it. These become
+onboarding acceptance tests; they are not saved as runtime prompt instructions.
 
 - “Add submit assignment to my tasks for Friday.”
 	- Expected service(s) or calendar(s):
@@ -177,7 +157,14 @@ For each request, write where you expect Jarvis to store it.
 - Your own example:
 	- Expected service(s) or calendar(s):
 
+## 9. Resource restrictions and administrative notes
 
-Specific information, calendars, projects, or accounts Jarvis must not access:
+Specific Google calendars and Todoist projects Jarvis must not access (up to 50
+of each):
 
-Additional onboarding notes:
+List restricted Google calendars and Todoist projects by their exact displayed
+name. Your administrator will resolve each one to its provider ID. Restrictions
+prevent model/log exposure and writes, but a provider's mixed list response may
+still contain the record before Jarvis filters it.
+
+Additional onboarding notes (administrator-only; not sent to runtime models):

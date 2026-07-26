@@ -12,6 +12,14 @@ git push origin "$(git branch --show-current)"
 
 Prefer these aliases and this push form when the entire worktree is confirmed as the intended scope. Use explicit paths when unrelated changes are present.
 
+## Logging and Debugging
+
+Every new logging, trace, diagnostic, and debugger-style output path must follow the current async logger for the layer it touches.
+
+- TypeScript: use the shared async `logger` from `src/utils/logger.ts`, which queues work to `src/utils/log-worker.ts`. Do not use `console.log`, direct Winston transports, synchronous file writes, ad-hoc debug files, or any request-path logging sink.
+- Python: use the existing async run logging facilities in `agents/agent_api/app/run_logging.py`, including `RunFileLog`, `FileLoggingTracer`, `open_run_log`, `flush_run_logs`, and `shutdown_run_logs`. Do not add direct `open()`, `write()`, `json.dumps()` dump paths, or synchronous debugger output in graph/API request execution.
+- New diagnostics must be non-blocking for request/graph execution, bounded under backpressure, redacted, best-effort on failure, and wired into existing flush/shutdown behavior. Tests that inspect async logs must flush first.
+
 ## 1. Confirm the scope
 
 - Run `git status -sb` and inspect both staged and unstaged diffs.

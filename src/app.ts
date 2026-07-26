@@ -4,7 +4,7 @@
 
 import 'dotenv/config';
 import { Telegraf, Context } from 'telegraf';
-import { logger } from './utils/logger';
+import { createRequestId, logger } from './utils/logger';
 import { TelegramConfig } from './types/telegram.types';
 import { LangGraphAgentClient } from './services/ai/langgraph-agent-client.service';
 import { WhisperService } from './services/ai/whisper.service';
@@ -21,9 +21,14 @@ import { CommandHandlers } from './services/telegram/handlers/command-handlers';
 import { CallbackHandler } from './services/telegram/handlers/callback-handler';
 import { TelegramHandlers } from './services/telegram/handlers/telegram-handlers';
 import { TelegramBotService } from './services/telegram/telegram-bot.service';
+import { TelegramMenuRegistry } from './services/telegram/telegram-menu.registry';
 import { createUserAuthorizationStore } from './services/telegram/user-authorization.store';
 import { setRichMessagesEnabled } from './services/telegram/formatters/telegram-rich';
 import { verifyDatabaseRuntime } from './services/database/database-runtime-readiness';
+import { verifyAgentContract } from './services/ai/agent-contract-readiness';
+import { createTerminalReplyStore } from './services/telegram/terminal-reply.store';
+import { MemoryForwardBufferStore } from './services/telegram/forward-buffer.store';
+import { resolveTurnTimeoutConfig } from './config/turn-timeout.config';
 
 // --- Environment validation ---
 // All of these must be set before the app can start. A missing variable
@@ -54,6 +59,7 @@ logger.info('app.startup.validation_completed', {
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 const NGROK_URL = process.env.NGROK_URL!;
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
+const turnTimeoutConfig = resolveTurnTimeoutConfig();
 
 // Rich messages use Telegram Bot API 10.1's sendRichMessage/sendRichMessageDraft
 // for animated progress indicators. Falls back to MarkdownV2 if disabled or on error.
@@ -83,7 +89,21 @@ export const databaseReadiness = verifyDatabaseRuntime(runtimeDsn).then((result)
 
 // AI services: the LangGraph agent client talks to the Python FastAPI backend,
 // and WhisperService handles Groq-hosted audio transcription.
-const agentClient = new LangGraphAgentClient();
+const agentClient = new LangGraphAgentClient({
+  timeoutMs: turnTimeoutConfig.overallMs,
+  streamIdleTimeoutMs: turnTimeoutConfig.streamIdleMs,
+});
+const agentTimeouts = agentClient.getRuntimeTimeouts();
+export const agentContractReadiness = verifyAgentContract(agentClient, {
+  clientOverallMs: agentTimeouts.overallMs,
+  clientIdleMs: agentTimeouts.streamIdleMs,
+  telegrafHandlerTimeoutMs: turnTimeoutConfig.telegrafHandlerMs,
+}).catch((error) => {
+  logger.error('agent.contract.not_ready', {
+    error: error instanceof Error ? error.message : String(error),
+  });
+  throw error;
+});
 const whisperService = new WhisperService({
   enforceEnglishOnly: true,
   language: 'en',
@@ -97,6 +117,11 @@ const pendingStore = createPendingClarificationStore();
 // Conversation gate serializes access to the agent — prevents concurrent invocations
 // from rapid messages, and coordinates resume paths (text reply vs callback button).
 const conversationGate = createConversationGateStore();
+const terminalReplyStore = createTerminalReplyStore();
+
+// Forward buffer accumulates messages the user forwards to the bot until dispatched
+// via /send_forward. Memory-only by design: short-lived working material.
+const forwardBuffer = new MemoryForwardBufferStore();
 
 // Telegram infrastructure: file downloads, activity metrics, and health reporting.
 const fileService = new FileService(BOT_TOKEN, bot.telegram);
@@ -114,11 +139,31 @@ const audioProcessor = new AudioProcessorService(whisperService, textProcessor);
 const messageProcessor = new MessageProcessorService(textProcessor, audioProcessor, conversationGate, pendingStore);
 
 // Telegram handlers: commands (/help, /status, /cancel), message types, and inline callbacks.
-const messageHandlers = new MessageHandlers(fileService, messageProcessor, activityService, pendingStore);
-const commandHandlers = new CommandHandlers(activityService, statusService, conversationGate, pendingStore);
-const callbackHandler = new CallbackHandler(agentClient, pendingStore, conversationGate);
+const messageHandlers = new MessageHandlers(
+  fileService,
+  messageProcessor,
+  activityService,
+  pendingStore,
+  terminalReplyStore,
+  conversationGate,
+  forwardBuffer,
+);
+const commandHandlers = new CommandHandlers(
+  activityService,
+  statusService,
+  conversationGate,
+  pendingStore,
+  agentClient,
+);
+const callbackHandler = new CallbackHandler(
+  agentClient,
+  pendingStore,
+  conversationGate,
+  terminalReplyStore,
+);
 
 const handlers = new TelegramHandlers(commandHandlers, messageHandlers, callbackHandler);
+const telegramMenu = new TelegramMenuRegistry();
 
 // Final assembly: the TelegramBotService owns the Telegraf instance, registers
 // all handlers, and exposes handleUpdate() for the Express webhook route.
@@ -127,37 +172,77 @@ const telegramConfig: TelegramConfig = {
   webhookUrl: NGROK_URL,
   secretToken: TELEGRAM_SECRET_TOKEN,
   richMessages: RICH_MESSAGES_ENABLED,
+  handlerTimeoutMs: turnTimeoutConfig.telegrafHandlerMs,
 };
 
 export const botService = new TelegramBotService(
   telegramConfig,
   handlers,
+  terminalReplyStore,
   userAuthorizationStore,
+  telegramMenu,
 );
 
 // When a conversation gate times out, notify the user, collapse any active clarification,
 // and mark the matching pending clarification 'expired' (gateKey === pendingKey). Resumption is
 // already blocked by the store's expires_at filter; this keeps the persisted status accurate and the
-// chat clean. Read the record before clearing so we still have its clarification message id.
-conversationGate.setOnExpiry((gateKey, chatId) => {
-  botService
-    .sendRichMessage(chatId, '⏱ Request timed out. Send a new message to try again.', { chatId, gateKey })
-    .catch(() => {});
-  pendingStore
-    .get(gateKey)
-    .then(async (pending) => {
-      if (pending?.clarificationMessageId !== undefined) {
-        await botService.collapseClarification(
-          chatId,
-          pending.clarificationMessageId,
-          pending.question,
+// chat clean. The atomic expiry claim bypasses the normal read TTL so prompt metadata remains
+// available even when the pending row and gate reach their deadline at the same instant.
+conversationGate.setOnExpiry((gateKey, chatId, requestId) => {
+  void (async () => {
+    const cleanupRequestId = createRequestId('expiry');
+    const cleanupClaimed = await conversationGate
+      .tryAcquire(gateKey, 30_000, chatId, cleanupRequestId)
+      .catch(() => false);
+    try {
+      // Exact matching remains safe when a newer request won the gate. An
+      // unscoped claim is needed only for running HITL resumes whose pending
+      // prompt still carries the prior waiting generation, and is permitted
+      // only while this callback owns the cleanup generation.
+      let pending = await pendingStore.expireIfMatches(gateKey, { requestId });
+      if (!pending && cleanupClaimed) {
+        pending = await pendingStore.expireIfMatches(gateKey);
+      }
+
+      const pendingChatId = pending?.chatId === undefined ? undefined : Number(pending.chatId);
+      const targetChatId = chatId ?? (Number.isFinite(pendingChatId) ? pendingChatId : undefined);
+      if (targetChatId === undefined) return;
+
+      if (
+        pending?.interruptType === 'clarify'
+        && pending.clarificationMessageId !== undefined
+        && pending.clarificationMessageId === pending.promptMessageId
+      ) {
+        await botService.collapseClarification(targetChatId, pending.clarificationMessageId, pending.question);
+      } else if (pending?.promptMessageId !== undefined) {
+        await botService.deleteMessage(targetChatId, pending.promptMessageId);
+      } else if (pending?.clarificationMessageId !== undefined) {
+        await botService.collapseClarification(targetChatId, pending.clarificationMessageId, pending.question);
+      }
+
+      // If a newer request already owns the gate, cleaning the old exact prompt
+      // is safe but an old timeout notice would be misleading and out of order.
+      if (cleanupClaimed) {
+        await botService.sendRichMessage(
+          targetChatId,
+          '⏱ Request timed out. Send a new message to try again.',
+          { chatId: targetChatId, gateKey, requestId },
         );
       }
-    })
-    .catch(() => {})
-    .finally(() => {
-      pendingStore.clear(gateKey, 'expired').catch(() => {});
+    } finally {
+      if (cleanupClaimed) {
+        await conversationGate
+          .releaseIfActiveRequestId(gateKey, cleanupRequestId)
+          .catch(() => ({ released: false }));
+      }
+    }
+  })().catch((error) => {
+    logger.warn('telegram.gate_expiry.cleanup_failed', {
+      gateKey,
+      requestId,
+      error: error instanceof Error ? error.message : String(error),
     });
+  });
 });
 
 // Periodic safety net: in-process gate timers are lost on restart, so sweep any pending
@@ -177,4 +262,7 @@ logger.info('app.services.initialized', {
   langGraphAgentConfigured: true,
   audioTranscriptionConfigured: true,
   telegramPendingStoreConfigured: true,
+  telegramHandlerTimeoutMs: turnTimeoutConfig.telegrafHandlerMs,
+  langGraphClientOverallTimeoutMs: agentTimeouts.overallMs,
+  langGraphClientIdleTimeoutMs: agentTimeouts.streamIdleMs,
 });
