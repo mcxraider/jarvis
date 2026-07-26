@@ -44,6 +44,9 @@ def _todoist_error_handler(arguments):
         operation="todoist.get_tasks",
         method="GET",
         attempts=3,
+        provider_message="labels must be an array of labels",
+        provider_code=42,
+        provider_tag="BAD_REQUEST",
     )
 
 
@@ -263,6 +266,12 @@ class TestErrorHandling:
         assert result["classified_error"]["status_code"] == 503
         assert result["classified_error"]["method"] == "GET"
         assert result["classified_error"]["operation"] == "todoist.get_tasks"
+        assert (
+            result["classified_error"]["provider_message"]
+            == "labels must be an array of labels"
+        )
+        assert result["classified_error"]["provider_code"] == 42
+        assert result["classified_error"]["provider_tag"] == "BAD_REQUEST"
 
     def test_generic_exception_produces_error_result(self, dispatcher):
         """RuntimeError is caught and the error field contains the message."""

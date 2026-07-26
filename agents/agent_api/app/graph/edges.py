@@ -33,7 +33,10 @@ def route_after_agent(state: JarvisState) -> str:
 def route_after_confirm(state: JarvisState) -> str:
     """Route from the confirm node based on the user's decision."""
 
-    return state.get("confirm_decision") or "decline"
+    decision = state.get("confirm_decision")
+    if decision == "approve":
+        return "approve"
+    return "decline"
 
 
 def route_after_tools(state: JarvisState) -> str:

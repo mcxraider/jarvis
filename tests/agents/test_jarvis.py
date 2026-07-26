@@ -1,16 +1,16 @@
 import copy
-import email.message
 import io
 import json
 import sys
 import tempfile
 import threading
-import urllib.error
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+import httpx
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -36,6 +36,7 @@ class FakeDeepSeekAgentClient:
         self,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
+        **kwargs,
     ) -> Dict[str, Any]:
         self.calls.append(copy.deepcopy(messages))
         self.tool_calls.append(copy.deepcopy(tools))
@@ -161,38 +162,15 @@ class FailingTodoistClient(FakeTodoistClient):
         )
 
 
-class FakeUrlopenResponse:
-    """Minimal context-manager response for urllib.request.urlopen tests."""
-
-    def __init__(self, status: int, body: bytes):
-        self.status = status
-        self.body = body
-
-    def __enter__(self) -> "FakeUrlopenResponse":
-        return self
-
-    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
-        return None
-
-    def read(self) -> bytes:
-        return self.body
-
-
-def http_error(
+def http_response(
     status: int,
     body: str = "raw provider body",
     retry_after: str = "",
-) -> urllib.error.HTTPError:
-    headers = email.message.Message()
+) -> httpx.Response:
+    headers = {}
     if retry_after:
         headers["Retry-After"] = retry_after
-    return urllib.error.HTTPError(
-        url="https://api.todoist.com/api/v1/tasks",
-        code=status,
-        msg="error",
-        hdrs=headers,
-        fp=io.BytesIO(body.encode("utf-8")),
-    )
+    return httpx.Response(status, headers=headers, text=body)
 
 
 def fake_tool_call(call_id: str, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -213,52 +191,46 @@ class TodoistApiClientRetryTests(unittest.TestCase):
         )
 
     def request_client(self) -> jarvis.TodoistApiClient:
-        return jarvis.TodoistApiClient(api_key="todoist-test-key", tracer=jarvis.NULL_TRACE)
+        return jarvis.TodoistApiClient(
+            api_key="todoist-test-key",
+            tracer=jarvis.NULL_TRACE,
+            http_client=Mock(spec=httpx.Client),
+        )
 
     def test_rate_limit_retries_with_retry_after_then_succeeds(self) -> None:
         client = self.request_client()
-        effects = [
-            http_error(429, body="quota exceeded", retry_after="2"),
-            FakeUrlopenResponse(200, b'{"id": "task-1"}'),
+        client._http_client.request.side_effect = [
+            http_response(429, body="quota exceeded", retry_after="2"),
+            http_response(200, '{"id": "task-1"}'),
         ]
 
         with (
             patch.object(todoist_client_module, "settings", self.settings),
             patch.object(todoist_client_module.random, "uniform", return_value=0),
             patch.object(todoist_client_module.time, "sleep") as sleep,
-            patch.object(
-                todoist_client_module.urllib.request,
-                "urlopen",
-                side_effect=effects,
-            ) as urlopen,
         ):
             result = client._request("https://api.todoist.com/api/v1/tasks")
 
         self.assertEqual(result, {"id": "task-1"})
-        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(client._http_client.request.call_count, 2)
         sleep.assert_called_once_with(2.0)
 
     def test_transient_server_error_retries_then_succeeds(self) -> None:
         client = self.request_client()
-        effects = [
-            http_error(503, body="service unavailable"),
-            FakeUrlopenResponse(200, b'{"items": []}'),
+        client._http_client.request.side_effect = [
+            http_response(503, body="service unavailable"),
+            http_response(200, '{"items": []}'),
         ]
 
         with (
             patch.object(todoist_client_module, "settings", self.settings),
             patch.object(todoist_client_module.random, "uniform", return_value=0),
             patch.object(todoist_client_module.time, "sleep") as sleep,
-            patch.object(
-                todoist_client_module.urllib.request,
-                "urlopen",
-                side_effect=effects,
-            ) as urlopen,
         ):
             result = client._request("https://api.todoist.com/api/v1/tasks")
 
         self.assertEqual(result, {"items": []})
-        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(client._http_client.request.call_count, 2)
         sleep.assert_called_once_with(0.1)
 
     def test_retry_after_past_budget_does_not_retry(self) -> None:
@@ -269,21 +241,17 @@ class TodoistApiClientRetryTests(unittest.TestCase):
                 "todoist_retry_total_timeout_seconds": 1.0,
             }
         )
+        client._http_client.request.return_value = http_response(
+            429, retry_after="5"
+        )
 
-        with (
-            patch.object(todoist_client_module, "settings", bounded_settings),
-            patch.object(
-                todoist_client_module.urllib.request,
-                "urlopen",
-                side_effect=http_error(429, retry_after="5"),
-            ) as urlopen,
-        ):
+        with patch.object(todoist_client_module, "settings", bounded_settings):
             with self.assertRaises(jarvis.TodoistApiError) as raised:
                 client._request("https://api.todoist.com/api/v1/tasks")
 
         self.assertEqual(raised.exception.kind, "rate-limit")
         self.assertEqual(raised.exception.retry_after_seconds, 5.0)
-        self.assertEqual(urlopen.call_count, 1)
+        self.assertEqual(client._http_client.request.call_count, 1)
 
     def test_non_retryable_http_statuses_are_classified_without_retry(self) -> None:
         cases = {
@@ -298,52 +266,70 @@ class TodoistApiClientRetryTests(unittest.TestCase):
         for status, kind in cases.items():
             with self.subTest(status=status):
                 client = self.request_client()
-                with (
-                    patch.object(todoist_client_module, "settings", self.settings),
-                    patch.object(
-                        todoist_client_module.urllib.request,
-                        "urlopen",
-                        side_effect=http_error(status, "private details"),
-                    ) as urlopen,
-                ):
+                client._http_client.request.return_value = http_response(
+                    status, "private details"
+                )
+                with patch.object(todoist_client_module, "settings", self.settings):
                     with self.assertRaises(jarvis.TodoistApiError) as raised:
                         client._request("https://api.todoist.com/api/v1/tasks")
 
                 self.assertEqual(raised.exception.kind, kind)
                 self.assertFalse(raised.exception.retryable)
                 self.assertEqual(raised.exception.status_code, status)
-                self.assertEqual(urlopen.call_count, 1)
+                self.assertEqual(client._http_client.request.call_count, 1)
                 self.assertNotIn("private details", str(raised.exception))
 
+    def test_provider_validation_details_are_safely_exposed(self) -> None:
+        body = json.dumps(
+            {
+                "error": "labels must be an array of labels",
+                "error_code": 42,
+                "error_tag": "BAD_REQUEST",
+                "error_extra": {"event_id": "private-event-id"},
+            }
+        )
+        client = self.request_client()
+        client._http_client.request.return_value = http_response(400, body)
+        with patch.object(todoist_client_module, "settings", self.settings):
+            with self.assertRaises(jarvis.TodoistApiError) as raised:
+                client._request("https://api.todoist.com/api/v1/tasks/task-1", "POST", {})
+
+        error = raised.exception
+        self.assertEqual(error.provider_message, "labels must be an array of labels")
+        self.assertEqual(error.provider_code, 42)
+        self.assertEqual(error.provider_tag, "BAD_REQUEST")
+        self.assertIn("labels must be an array of labels", str(error))
+        self.assertNotIn("private-event-id", str(error.to_classifier_payload()))
+
     def test_missing_api_key_is_auth_without_network_call(self) -> None:
-        client = jarvis.TodoistApiClient(api_key="", tracer=jarvis.NULL_TRACE)
+        http_client = Mock(spec=httpx.Client)
+        client = jarvis.TodoistApiClient(
+            api_key="",
+            tracer=jarvis.NULL_TRACE,
+            http_client=http_client,
+        )
         client.api_key = ""
 
-        with patch.object(todoist_client_module.urllib.request, "urlopen") as urlopen:
-            with self.assertRaises(jarvis.TodoistApiError) as raised:
-                client._request("https://api.todoist.com/api/v1/tasks")
+        with self.assertRaises(jarvis.TodoistApiError) as raised:
+            client._request("https://api.todoist.com/api/v1/tasks")
 
         self.assertEqual(raised.exception.kind, "auth")
         self.assertFalse(raised.exception.retryable)
-        urlopen.assert_not_called()
+        http_client.request.assert_not_called()
 
     def test_url_error_retries_then_raises_transient(self) -> None:
         client = self.request_client()
-        effects = [
-            urllib.error.URLError("temporary failure"),
-            urllib.error.URLError("temporary failure"),
-            urllib.error.URLError("temporary failure"),
+        request = httpx.Request("GET", "https://api.todoist.com/api/v1/tasks")
+        client._http_client.request.side_effect = [
+            httpx.ConnectError("temporary failure", request=request),
+            httpx.ConnectError("temporary failure", request=request),
+            httpx.ConnectError("temporary failure", request=request),
         ]
 
         with (
             patch.object(todoist_client_module, "settings", self.settings),
             patch.object(todoist_client_module.random, "uniform", return_value=0),
             patch.object(todoist_client_module.time, "sleep"),
-            patch.object(
-                todoist_client_module.urllib.request,
-                "urlopen",
-                side_effect=effects,
-            ) as urlopen,
         ):
             with self.assertRaises(jarvis.TodoistApiError) as raised:
                 client._request("https://api.todoist.com/api/v1/tasks")
@@ -351,7 +337,7 @@ class TodoistApiClientRetryTests(unittest.TestCase):
         self.assertEqual(raised.exception.kind, "transient")
         self.assertTrue(raised.exception.retryable)
         self.assertEqual(raised.exception.attempts, 3)
-        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual(client._http_client.request.call_count, 3)
 
     def test_v1_task_list_and_filter_endpoints(self) -> None:
         client = self.request_client()
@@ -407,6 +393,27 @@ class TodoistApiClientRetryTests(unittest.TestCase):
                 "deadline_date": None,
             },
         )
+
+    def test_update_priority_only_omits_none_fields(self) -> None:
+        client = self.request_client()
+        with patch.object(client, "_request", return_value={"id": "task-1"}) as request:
+            client.update_todoist_task(
+                {
+                    "task_id": "task-1",
+                    "priority": 4,
+                    "content": None,
+                }
+            )
+        request.assert_called_once_with(
+            "https://api.todoist.com/api/v1/tasks/task-1",
+            "POST",
+            {"priority": 4},
+        )
+
+    def test_update_rejects_explicit_null_labels(self) -> None:
+        client = self.request_client()
+        with self.assertRaisesRegex(ValueError, "labels must be an array"):
+            client.update_todoist_task({"task_id": "task-1", "labels": None})
 
     def test_completed_task_range_validation(self) -> None:
         client = self.request_client()
@@ -515,7 +522,8 @@ class ToolSelectionTests(unittest.TestCase):
         class FirstToolOnlySelector:
             """Test selector: records the query and exposes only the first tool."""
 
-            def select_schemas(self, query, registry):
+            def select_schemas(self, query, registry, active_domains=None):
+                del active_domains
                 recorded.append(query)
                 return registry.openai_schemas()[:1]
 
@@ -602,8 +610,8 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertIn("You are Jarvis, Jerry's personal assistant agent", prompt)
         self.assertIn("connected services listed in Runtime context", prompt)
         self.assertIn("ask_user", prompt)
-        self.assertIn("End at the requested deliverable", prompt)
-        self.assertIn("Maximum 20 loop iterations per user turn", prompt)
+        self.assertIn("end after the completed action/result", prompt)
+        self.assertNotIn("Maximum 20 loop iterations per user turn", prompt)
 
     def test_worker_prompt_available_for_worker_nodes(self) -> None:
         prompt = jarvis.get_worker_prompt()
@@ -616,8 +624,8 @@ class JarvisGraphTests(unittest.TestCase):
         messages = jarvis.build_initial_messages("Show me today's tasks")
 
         self.assertEqual(messages[1]["role"], "user")
-        self.assertIn("Current request date and time:", messages[1]["content"])
-        self.assertIn("User request:\nShow me today's tasks", messages[1]["content"])
+        self.assertIn("Current datetime:", messages[1]["content"])
+        self.assertIn("Current user message:\nShow me today's tasks", messages[1]["content"])
 
     def run_graph_with_fakes(
         self,
@@ -640,7 +648,7 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(result["final_response"], "Hello.")
         self.assertEqual(result["tool_results"], [])
 
-    def test_question_like_text_is_a_final_response(self) -> None:
+    def test_question_like_text_routes_to_clarification_interrupt(self) -> None:
         responses = [
             "Want me to continue?",
             "Would you like me to continue",
@@ -653,10 +661,12 @@ class JarvisGraphTests(unittest.TestCase):
                     [{"role": "assistant", "content": response}]
                 )
 
-                self.assertEqual(result["final_response"], response)
-                self.assertEqual(result["next"], "end")
-                self.assertNotIn("__interrupt__", result)
-                self.assertFalse(result.get("interrupted", False))
+                self.assertEqual(result["final_response"], "")
+                self.assertEqual(result["next"], "hitl")
+                self.assertTrue(result["interrupted"])
+                self.assertEqual(result["pending_interrupt"], "clarify")
+                self.assertEqual(result["interrupt_payload"]["question"], response)
+                self.assertIn("__interrupt__", result)
 
     def test_run_jarvis_generates_request_id_when_omitted(self) -> None:
         captured: List[Dict[str, Any]] = []
@@ -666,13 +676,13 @@ class JarvisGraphTests(unittest.TestCase):
 
         def capturing_create(*args: Any, **kwargs: Any):
             app = real_create(*args, **kwargs)
-            real_app_invoke = app.invoke
+            real_app_ainvoke = app.ainvoke
 
-            def invoke_spy(state: Any, config: Dict[str, Any]):
+            async def invoke_spy(state: Any, config: Dict[str, Any]):
                 captured.append(config)
-                return real_app_invoke(state, config)
+                return await real_app_ainvoke(state, config)
 
-            app.invoke = invoke_spy  # type: ignore[assignment]
+            app.ainvoke = invoke_spy  # type: ignore[assignment]
             return app
 
         with patch.object(builder_module, "create_jarvis_graph", side_effect=capturing_create):
@@ -698,13 +708,13 @@ class JarvisGraphTests(unittest.TestCase):
 
         def capturing_create(*args: Any, **kwargs: Any):
             app = real_create(*args, **kwargs)
-            real_app_invoke = app.invoke
+            real_app_ainvoke = app.ainvoke
 
-            def invoke_spy(state: Any, config: Dict[str, Any]):
+            async def invoke_spy(state: Any, config: Dict[str, Any]):
                 captured.append(config)
-                return real_app_invoke(state, config)
+                return await real_app_ainvoke(state, config)
 
-            app.invoke = invoke_spy  # type: ignore[assignment]
+            app.ainvoke = invoke_spy  # type: ignore[assignment]
             return app
 
         with patch.object(builder_module, "create_jarvis_graph", side_effect=capturing_create):
@@ -767,8 +777,8 @@ class JarvisGraphTests(unittest.TestCase):
             [result["final_response"] for result in results],
             ["First done.", "Second done."],
         )
-        self.assertIn("User request:\nfirst prompt", agent_client.calls[0][1]["content"])
-        self.assertIn("User request:\nsecond prompt", agent_client.calls[1][1]["content"])
+        self.assertIn("Current user message:\nfirst prompt", agent_client.calls[0][1]["content"])
+        self.assertIn("Current user message:\nsecond prompt", agent_client.calls[1][1]["content"])
 
     def test_load_user_prompts_from_text_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1007,7 +1017,7 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(result["messages"][3]["tool_call_id"], "call_ask")
         self.assertEqual(result["messages"][3]["name"], jarvis.ASK_USER_TOOL_NAME)
         self.assertEqual(json.loads(result["messages"][3]["content"])["user_reply"], "the dentist task")
-        self.assertIn("Clarification received", result["messages"][4]["content"])
+        self.assertIn("Clarification result", result["messages"][4]["content"])
         self.assertEqual(len(agent_client.calls), 2)
         second_call_roles = [message.get("role") for message in agent_client.calls[1]]
         self.assertEqual(second_call_roles, ["system", "user", "assistant", "tool", "user"])
@@ -1102,6 +1112,40 @@ class JarvisGraphTests(unittest.TestCase):
                 "deadline_date": None,
             },
         )
+
+    def test_update_tool_priority_only_omits_missing_fields(self) -> None:
+        result = jarvis.run_jarvis(
+            user_prompt="fake prompt",
+            allow_mutations=True,
+            agent_client=FakeDeepSeekAgentClient(
+                [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            fake_tool_call("call_read", "get_todoist_task", {"task_id": "task-1"})
+                        ],
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            fake_tool_call(
+                                "call_update",
+                                "update_todoist_task",
+                                {"task_id": "task-1", "priority": 4},
+                            )
+                        ],
+                    },
+                    {"role": "assistant", "content": "Raised the priority."},
+                ]
+            ),
+            todoist_client=SeededTodoistClient(),
+            tracer=jarvis.NULL_TRACE,
+        )
+
+        arguments = result["tool_results"][-1]["content"]["arguments"]
+        self.assertEqual(arguments, {"task_id": "task-1", "priority": 4})
 
     def test_prior_read_lets_mutation_on_seen_id_execute(self) -> None:
         # Happy path: read surfaces t1, then completing t1 executes normally.
@@ -1327,8 +1371,8 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(len(result["tool_results"]), 2)
         self.assertEqual(result["final_response"], "Here is the combined summary.")
 
-    def test_multiple_tool_calls_in_one_turn_execute_in_parallel(self) -> None:
-        todoist_client = ParallelTrackingTodoistClient(expected_concurrent_calls=2)
+    def test_multiple_tool_calls_in_one_turn_preserve_order(self) -> None:
+        todoist_client = FakeTodoistClient()
         result = jarvis.run_jarvis(
             user_prompt="fake prompt",
             agent_client=FakeDeepSeekAgentClient(
@@ -1354,9 +1398,12 @@ class JarvisGraphTests(unittest.TestCase):
             ["call_today", "call_tomorrow"],
         )
         self.assertEqual(len(todoist_client.calls), 2)
-        self.assertGreaterEqual(todoist_client.max_active_calls, 2)
+        self.assertEqual(
+            [call["arguments"]["query"] for call in todoist_client.calls],
+            ["today", "tomorrow"],
+        )
 
-    def test_unsupported_tool_returns_error(self) -> None:
+    def test_unsupported_tool_is_rejected_before_execution(self) -> None:
         result = self.run_graph_with_fakes(
             [
                 {
@@ -1368,9 +1415,16 @@ class JarvisGraphTests(unittest.TestCase):
             ]
         )
 
-        tool_result = result["tool_results"][0]
+        self.assertEqual(result["tool_results"], [])
+        tool_messages = [
+            message for message in result["messages"] if message.get("role") == "tool"
+        ]
+        self.assertEqual(len(tool_messages), 1)
+        tool_result = json.loads(tool_messages[0]["content"])
         self.assertFalse(tool_result["success"])
-        self.assertIn("Unsupported tool", tool_result["error"])
+        self.assertTrue(tool_result["out_of_route_tool"])
+        self.assertIn("was not selected for this turn", tool_result["error"])
+        self.assertEqual(result["final_response"], "That tool is unsupported.")
 
     def test_classified_todoist_error_survives_tool_result_and_message(self) -> None:
         result = jarvis.run_jarvis(
@@ -1404,7 +1458,7 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertNotIn("api/v1/tasks/completed", tool_messages[0]["content"])
 
     def test_max_turn_guard(self) -> None:
-        result = self.run_graph_with_fakes(
+        agent_client = FakeDeepSeekAgentClient(
             [
                 {
                     "role": "assistant",
@@ -1416,11 +1470,23 @@ class JarvisGraphTests(unittest.TestCase):
                     "content": "",
                     "tool_calls": [fake_tool_call("call_2", "get_tasks_by_filter", {"query": "tomorrow"})],
                 },
-            ],
+            ]
+        )
+        result = jarvis.run_jarvis(
+            user_prompt="fake prompt",
+            agent_client=agent_client,
+            todoist_client=FakeTodoistClient(),
+            tracer=jarvis.NULL_TRACE,
             max_agent_turns=1,
         )
 
         self.assertIn("Max agent turns exceeded", result["error"])
+        self.assertEqual(
+            result["final_response"],
+            "Max number of turns reached for this agent. Simplify your query.",
+        )
+        self.assertEqual(result["next"], "end")
+        self.assertEqual(len(agent_client.calls), 1)
 
     def test_reasoning_content_preserved(self) -> None:
         result = self.run_graph_with_fakes(
@@ -1569,6 +1635,7 @@ class JarvisGraphTests(unittest.TestCase):
                 self,
                 _messages: List[Dict[str, Any]],
                 _tools: List[Dict[str, Any]],
+                **kwargs,
             ) -> Dict[str, Any]:
                 raise jarvis.DeepSeekAgentClientError(payload)
 
@@ -1601,7 +1668,7 @@ class ContextGateTests(unittest.TestCase):
             builder_module, "settings", SimpleNamespace(postgres_dsn="postgresql://fake")
         ), patch.object(
             builder_module,
-            "resolve_runtime_context",
+            "resolve_runtime_context_async",
             side_effect=PermissionError("No active Jarvis user for this identity."),
         ):
             with self.assertRaises(PermissionError):

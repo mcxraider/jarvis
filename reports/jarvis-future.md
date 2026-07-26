@@ -1,5 +1,15 @@
 # Jarvis future architecture
 
+## Future Integrations:
+- Todoist
+- Google calendar
+- Apple calendar
+- Gmail
+- Drive
+- Github
+- Notion
+
+
 ## Purpose
 
 This document describes how Jarvis should evolve from its current two-integration agent into an assistant that can safely coordinate Todoist, Google Calendar, Gmail, Notion, Drive, Slack, and future services.

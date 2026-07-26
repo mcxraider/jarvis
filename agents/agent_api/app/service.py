@@ -32,7 +32,7 @@ thinking metadata.
 import sys
 
 from agents.agent_api.app.checkpointing import (
-    DEFAULT_CHECKPOINTER,
+    get_default_checkpointer,
     InMemorySaver,
     create_default_checkpointer,
     create_postgres_checkpointer,
@@ -58,6 +58,7 @@ from agents.agent_api.app.graph.builder import (
     build_initial_state,
     create_jarvis_graph,
     run_jarvis,
+    run_jarvis_async,
 )
 from agents.agent_api.app.graph.edges import route_after_agent, route_by_next
 from agents.agent_api.app.graph.nodes.hitl import (
@@ -165,7 +166,7 @@ __all__ = [
     "NULL_TRACE",
     "TracePrinter",
     # checkpointing
-    "DEFAULT_CHECKPOINTER",
+    "get_default_checkpointer",
     "InMemorySaver",
     "create_default_checkpointer",
     "create_postgres_checkpointer",
@@ -239,6 +240,7 @@ __all__ = [
     "build_initial_state",
     "create_jarvis_graph",
     "run_jarvis",
+    "run_jarvis_async",
     # runner / cli
     "ask_user_for_clarification",
     "build_arg_parser",

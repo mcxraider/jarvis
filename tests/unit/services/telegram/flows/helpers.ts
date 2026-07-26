@@ -3,6 +3,7 @@ import { CallbackHandler } from '../../../../../src/services/telegram/handlers/c
 import { MemoryPendingClarificationStore } from '../../../../../src/services/telegram/pending-clarification.store';
 import { MemoryConversationGateStore } from '../../../../../src/services/telegram/conversation-gate.store';
 import { LangGraphAgentResponse } from '../../../../../src/services/ai/langgraph-agent-client.service';
+import { createTerminalReplyStore } from '../../../../../src/services/telegram/terminal-reply.store';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,6 +26,7 @@ export interface CtxOpts {
 }
 
 export interface FakeContext {
+  update?: { __requestId?: string };
   from: { id: number };
   chat: { id: number };
   message?: Record<string, unknown>;
@@ -106,7 +108,8 @@ export function createFlowHarness(agentClient: MockAgentClient): FlowHarness {
   const store = new MemoryPendingClarificationStore();
   const gateStore = new MemoryConversationGateStore();
   const textProcessor = new TextProcessorService(agentClient as any, store, gateStore);
-  const callbackHandler = new CallbackHandler(agentClient as any, store, gateStore);
+  const callbackHandler = new CallbackHandler(agentClient as any, store, gateStore, createTerminalReplyStore());
+  let callbackSequence = 0;
 
   return {
     agentClient,
@@ -127,6 +130,7 @@ export function createFlowHarness(agentClient: MockAgentClient): FlowHarness {
 
     async pressButton(data: string, opts: CtxOpts = {}) {
       const ctx = createCallbackCtx(data, opts);
+      ctx.update = { __requestId: `tg_flow_callback_${++callbackSequence}` };
       await callbackHandler.handleCallbackQuery(ctx as any);
       return { ctx };
     },
@@ -145,6 +149,7 @@ export function interruptResponse(opts: {
 }): LangGraphAgentResponse {
   return {
     status: 'interrupted',
+    delivery: 'terminal',
     threadId: opts.threadId,
     response: opts.message,
     interrupt: {
@@ -162,6 +167,7 @@ export function completedResponse(opts: {
 }): LangGraphAgentResponse {
   return {
     status: 'completed',
+    delivery: 'terminal',
     threadId: opts.threadId,
     response: opts.message,
     toolResults: [],
@@ -175,6 +181,7 @@ export function failedResponse(opts: {
 }): LangGraphAgentResponse {
   return {
     status: 'failed',
+    delivery: 'terminal',
     threadId: opts.threadId || '',
     response: opts.message || 'Jarvis is temporarily unavailable. Please try again in a moment.',
     toolResults: [],

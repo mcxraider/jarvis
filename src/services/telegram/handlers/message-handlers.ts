@@ -11,19 +11,31 @@ import { MessageProcessorService } from '../message-processor.service';
 import { BotActivityService, BotActivityType } from '../bot-activity.service';
 import {
   collapseClarification,
-  sendClarificationReply,
+  sendClarificationReplyWithReceipt,
   sendFinalReply,
 } from '../formatters/telegram-rich';
+import { normalizeMarkdownTables } from '../formatters/markdown-table-normalizer';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
+import { TelegramNarrationReporter } from '../telegram-narration-reporter';
 import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service';
 import {
   PendingPausePresentation,
   TextProcessorResult,
 } from '../processors/text-processor.service';
-import { PendingClarificationStore } from '../pending-clarification.store';
+import {
+  PendingClarificationRecord,
+  PendingClarificationStore,
+} from '../pending-clarification.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { formatReplyContext } from '../reply-context';
+import { ConversationGateStore } from '../conversation-gate.store';
+import { TerminalReplyStore } from '../terminal-reply.store';
+import {
+  extractForwardOrigin,
+  formatForwardContext,
+  ForwardBufferStore,
+} from '../forward-buffer.store';
 
 export class MessageHandlers {
   constructor(
@@ -32,7 +44,212 @@ export class MessageHandlers {
     private readonly activityService: BotActivityService,
     // Attaches the rich clarification block's message id after the processor saves the pause.
     private readonly pendingStore: PendingClarificationStore,
+    private readonly terminalReplyStore: TerminalReplyStore,
+    private readonly conversationGate?: ConversationGateStore,
+    private readonly forwardBuffer?: ForwardBufferStore,
   ) {}
+
+  // Serializes confirmation updates per conversation. Webhook updates are processed
+  // concurrently, and multi-selecting N messages to forward delivers N near-simultaneous
+  // updates — without serialization each one would race on the missing confirmation id
+  // and post its own reply.
+  private readonly confirmationChains = new Map<string, Promise<void>>();
+
+  // Consumes forwarded messages before any command or message handler runs (installed
+  // as a bot.use middleware). Returns true when the message was a forward (buffered or
+  // rejected) and the pipeline must stop. Intercepting at the middleware layer means a
+  // forward can never be misread as a clarification answer, and a forwarded message
+  // whose text happens to start with a /command can never execute that command.
+  async maybeBufferForward(ctx: Context): Promise<boolean> {
+    if (!this.forwardBuffer || !ctx.message) return false;
+    const message = ctx.message as unknown as Record<string, unknown>;
+    const origin = extractForwardOrigin(message);
+    if (!origin) return false;
+
+    const logContext = this.createLogContext(ctx, 'forward');
+    let text: string | undefined;
+    if (typeof message.text === 'string') {
+      text = message.text;
+    } else if (typeof message.caption === 'string' && ('photo' in message || 'document' in message)) {
+      // Only photos and files carry their captions into the buffer. Captioned audio,
+      // video, and GIF forwards are rejected below: buffering just the caption would
+      // silently drop the media the user actually wanted acted on.
+      const prefix = 'photo' in message
+        ? '[photo] '
+        : `[file: ${(message.document as { file_name?: string })?.file_name ?? 'unnamed'}] `;
+      text = prefix + message.caption;
+    }
+
+    if (!text || !text.trim()) {
+      // Forwarding an album delivers one update per item but the caption usually sits
+      // on a single item — rejecting every captionless sibling would spam the chat.
+      if (typeof message.media_group_id === 'string') {
+        logger.info('telegram.forward.rejected', {
+          ...logContext,
+          reason: 'no_text',
+          mediaGroup: true,
+        });
+        return true;
+      }
+      logger.info('telegram.forward.rejected', { ...logContext, reason: 'no_text' });
+      await ctx.reply(
+        'I can only buffer forwarded text, or photos and files with captions.',
+      );
+      return true;
+    }
+
+    const gateKey = this.gateKey(ctx);
+    const result = this.forwardBuffer.push(gateKey, {
+      senderName: origin.senderName,
+      chatTitle: origin.chatTitle,
+      forwardedAt: origin.forwardedAt,
+      receivedAt: new Date(),
+      text,
+    });
+
+    if (!result.ok) {
+      logger.info('telegram.forward.rejected', { ...logContext, reason: result.reason });
+      await ctx.reply(
+        result.reason === 'buffer_full'
+          ? `Buffer is full (${this.forwardBuffer.count(gateKey)} messages). Send /send_forward <instruction> to dispatch, or /new to clear.`
+          : 'That forward is too long for me to buffer.',
+      );
+      return true;
+    }
+
+    logger.info('telegram.forward.buffered', {
+      ...logContext,
+      count: result.count,
+      textLength: text.length,
+      hasChatTitle: Boolean(origin.chatTitle),
+    });
+
+    // Chain rather than call directly: concurrent forwards each await their turn, so
+    // exactly one reply is created and later turns edit it. updateForwardConfirmation
+    // never rejects (all failures are caught), so the chain cannot poison.
+    const prev = this.confirmationChains.get(gateKey) ?? Promise.resolve();
+    const next = prev.then(() => this.updateForwardConfirmation(ctx, gateKey, logContext));
+    this.confirmationChains.set(gateKey, next);
+    await next;
+    if (this.confirmationChains.get(gateKey) === next) {
+      this.confirmationChains.delete(gateKey);
+    }
+    return true;
+  }
+
+  // Single running confirmation, edited in place as the count grows — forwarding ten
+  // messages must not produce ten bot replies. Falls back to a fresh reply if the edit
+  // fails (e.g. the user deleted the confirmation). Reads the live count at execution
+  // time so coalesced turns in the chain display the final number.
+  private async updateForwardConfirmation(
+    ctx: Context,
+    gateKey: string,
+    logContext: LogContext,
+  ): Promise<void> {
+    if (!this.forwardBuffer) return;
+    const count = this.forwardBuffer.count(gateKey);
+    // Buffer dispatched or cleared while this turn waited in the chain — nothing to show.
+    if (count === 0) return;
+    const text = `📥 ${count} message${count === 1 ? '' : 's'} buffered. Send /send_forward <instruction> when ready.`;
+    const existingId = this.forwardBuffer.getConfirmationMessageId(gateKey);
+    if (existingId !== undefined && ctx.chat) {
+      try {
+        await ctx.telegram.editMessageText(ctx.chat.id, existingId, undefined, text);
+        return;
+      } catch (error) {
+        logger.warn('telegram.forward.confirmation_edit_failed', {
+          ...logContext,
+          confirmationMessageId: existingId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    try {
+      const sent = await ctx.reply(text);
+      this.forwardBuffer.setConfirmationMessageId(gateKey, sent.message_id);
+    } catch (error) {
+      logger.warn('telegram.forward.confirmation_send_failed', {
+        ...logContext,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // /send_forward <instruction> — dispatch all buffered forwards as structured context
+  // for <instruction> through the normal fresh-text pipeline.
+  async handleSendForward(ctx: Context): Promise<void> {
+    if (!ctx.message || !('text' in ctx.message) || !this.forwardBuffer) return;
+
+    const logContext = this.createLogContext(ctx, 'text');
+    const startedAt = Date.now();
+    const instruction = ctx.message.text.replace(/^\/send_forward(?:@\w+)?\s*/i, '').trim();
+    const gateKey = this.gateKey(ctx);
+    const messages = this.forwardBuffer.peek(gateKey);
+
+    logger.info('telegram.command.send_forward', {
+      ...logContext,
+      bufferedCount: messages.length,
+      hasInstruction: instruction.length > 0,
+    });
+
+    if (messages.length === 0) {
+      await ctx.reply(
+        'No forwarded messages buffered. Forward some messages first, then /send_forward <instruction>.',
+      );
+      return;
+    }
+    if (!instruction) {
+      await ctx.reply(
+        `You have ${messages.length} buffered message${messages.length === 1 ? '' : 's'}. ` +
+          'Tell me what to do with them, e.g. /send_forward summarize these.',
+      );
+      return;
+    }
+
+    // Keep the buffer intact if the previous request is still running — the processor
+    // would reject the dispatch anyway, and draining first would lose the forwards.
+    // The processor still owns final arbitration; this pre-check only closes the
+    // common "user is impatient" path.
+    const gateStatus = await this.conversationGate
+      ?.getSnapshot(gateKey)
+      .then((s) => s.status)
+      .catch(() => undefined);
+    if (gateStatus === 'running') {
+      await ctx.reply(
+        "I'm still finishing your previous request — /send_forward again in a moment, or /cancel.",
+      );
+      return;
+    }
+
+    const combined = formatForwardContext(messages, instruction);
+    const confirmationId = this.forwardBuffer.getConfirmationMessageId(gateKey);
+    this.forwardBuffer.clear(gateKey);
+    logger.info('telegram.forward.dispatched', {
+      ...logContext,
+      count: messages.length,
+      totalChars: combined.length,
+    });
+
+    if (confirmationId !== undefined && ctx.chat) {
+      await ctx.telegram
+        .editMessageText(
+          ctx.chat.id,
+          confirmationId,
+          undefined,
+          `📤 Sent ${messages.length} forwarded message${messages.length === 1 ? '' : 's'}.`,
+        )
+        .catch(() => undefined);
+    }
+
+    // forceFresh: dispatching a batch of forwards is semantically a new request; it
+    // abandons any pending clarification the same way /new does.
+    await this.runFreshText(ctx, combined, logContext, startedAt, { forceFresh: true });
+  }
+
+  private gateKey(ctx: Context): string {
+    const userId = ctx.from?.id;
+    return buildConversationKey(userId, mapTelegramUserId(userId), ctx.chat?.id);
+  }
 
   // Primary text message handler. Shows a rotating progress indicator while the
   // LangGraph agent processes the request, then delivers the final response.
@@ -49,6 +266,34 @@ export class MessageHandlers {
     const startedAt = Date.now();
     const replied = 'reply_to_message' in ctx.message ? ctx.message.reply_to_message : undefined;
     const replyContext = formatReplyContext(replied, ctx.botInfo?.id);
+
+    if (replied) {
+      logger.info('telegram.reply_to_message.debug', {
+        ...logContext,
+        keys: Object.keys(replied),
+        hasText: 'text' in replied,
+        textLength: 'text' in replied ? (replied as any).text?.length : undefined,
+        textPreview: 'text' in replied ? (replied as any).text?.slice(0, 200) : undefined,
+        hasRichMessage: 'rich_message' in replied,
+        richMessageKeys: 'rich_message' in replied ? Object.keys((replied as any).rich_message ?? {}) : undefined,
+        // Full block structure so we can see the exact schema extractTextFromBlocks must handle.
+        // Raw JSON (raised cap) plus a compact summary that survives even if the JSON truncates —
+        // important for large blocks like tables, which are the case that currently fails.
+        richMessageBlocks:
+          'rich_message' in replied
+            ? JSON.stringify((replied as any).rich_message?.blocks)?.slice(0, 8000)
+            : undefined,
+        blockCount: Array.isArray((replied as any).rich_message?.blocks)
+          ? (replied as any).rich_message.blocks.length
+          : undefined,
+        blockTypes: Array.isArray((replied as any).rich_message?.blocks)
+          ? (replied as any).rich_message.blocks.map((b: any) => b?.type ?? Object.keys(b ?? {}))
+          : undefined,
+        extractedReplyContext: replyContext?.message?.slice(0, 300),
+        hasQuote: 'quote' in (ctx.message as any),
+        quoteText: (ctx.message as any).quote?.text?.slice(0, 200),
+      });
+    }
 
     logger.info('telegram.message.received', {
       ...logContext,
@@ -88,6 +333,8 @@ export class MessageHandlers {
       const pending = await this.pendingStore.get(gateKey).catch(() => undefined);
       const outcome = await this.messageProcessor.abandonConversation(userId, logContext);
       if (outcome === 'running') {
+        // /new did not take effect — keep the forward buffer too, so "try again in a
+        // moment" doesn't silently cost the user their accumulated forwards.
         await sendFinalReply(
           ctx,
           "I'm still finishing your previous request — try /new again in a moment, or /cancel.",
@@ -95,8 +342,10 @@ export class MessageHandlers {
         );
         return;
       }
+      // /new means "abandon everything", including any accumulated forwards.
+      this.forwardBuffer?.clear(gateKey);
       if (outcome === 'abandoned') {
-        await this.collapsePendingClarification(ctx, pending, logContext);
+        await this.cleanupPendingPrompt(ctx, pending, logContext);
       }
       await sendFinalReply(
         ctx,
@@ -106,6 +355,8 @@ export class MessageHandlers {
       return;
     }
 
+    // Explicitly starting a new request abandons accumulated forwards along with it.
+    this.forwardBuffer?.clear(this.gateKey(ctx));
     await this.runFreshText(ctx, remainder, logContext, startedAt, { forceFresh: true });
   }
 
@@ -116,10 +367,11 @@ export class MessageHandlers {
     text: string,
     logContext: LogContext,
     startedAt: number,
-    options?: { forceFresh?: boolean; replyContext?: string },
+    options?: { forceFresh?: boolean; replyContext?: import('../reply-context').ReplyContextData },
   ): Promise<void> {
     const userId = ctx.from?.id;
     const progressReporter = new TelegramProgressReporter(ctx, logContext);
+    const narrationReporter = new TelegramNarrationReporter(ctx, logContext);
     let lastProgressStage = '';
 
     try {
@@ -128,9 +380,13 @@ export class MessageHandlers {
         text,
         userId,
         logContext,
-        async (event: LangGraphProgressEvent) => {
+        async (event: LangGraphProgressEvent, signal?: AbortSignal) => {
+          if (event.narration) {
+            await narrationReporter.record(event.narration);
+            return;
+          }
           lastProgressStage = event.stage;
-          await progressReporter.record(event);
+          await progressReporter.record(event, signal);
         },
         {
           ...options,
@@ -138,7 +394,13 @@ export class MessageHandlers {
             this.resolvePausePresentation(ctx, presentation, logContext),
         },
       );
+      await narrationReporter.complete();
       await progressReporter.complete(this.completionStatus(lastProgressStage));
+      if (result.suppressed) {
+        logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
+        return;
+      }
+      if (!this.claimTerminalReply(logContext, 'message_result')) return;
       await this.sendResult(ctx, result, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
@@ -152,8 +414,11 @@ export class MessageHandlers {
         userId,
         durationMs: Date.now() - startedAt,
       });
+      await narrationReporter.complete();
       await progressReporter.complete('Something went wrong');
-      await ctx.reply('Something went wrong processing your message. Please try again.');
+      if (this.claimTerminalReply(logContext, 'message_error')) {
+        await ctx.reply('Something went wrong processing your message. Please try again.');
+      }
     }
   }
 
@@ -174,8 +439,9 @@ export class MessageHandlers {
     await this.processAudioFile(ctx, ctx.message.audio, 'audio');
   }
 
-  // Photo handler: images are not supported. Reject with a helpful message, mirroring
-  // the sticker/GIF/video-note handlers, so only text and audio reach the agent.
+  // Photo handler: images are not supported (forwarded photos with captions are
+  // consumed by the forward middleware before reaching here). Reject with a helpful
+  // message, mirroring the sticker/GIF/video-note handlers.
   async handlePhoto(ctx: Context): Promise<void> {
     if (!ctx.message || !('photo' in ctx.message)) return;
     await this.rejectUnsupportedMedia(
@@ -361,11 +627,12 @@ export class MessageHandlers {
     processFn: (
       reporter: TelegramProgressReporter,
       onTranscribed: () => void,
-      onProgress: (event: LangGraphProgressEvent) => Promise<void>,
+      onProgress: (event: LangGraphProgressEvent, signal?: AbortSignal) => Promise<void>,
     ) => Promise<TextProcessorResult>,
     errorMessage: string,
   ): Promise<void> {
     const progressReporter = new TelegramProgressReporter(ctx, logContext);
+    const narrationReporter = new TelegramNarrationReporter(ctx, logContext);
     let lastProgressStage = '';
 
     try {
@@ -373,12 +640,22 @@ export class MessageHandlers {
       const result = await processFn(
         progressReporter,
         () => progressReporter.beginAgentPhase(),
-        async (event: LangGraphProgressEvent) => {
+        async (event: LangGraphProgressEvent, signal?: AbortSignal) => {
+          if (event.narration) {
+            await narrationReporter.record(event.narration);
+            return;
+          }
           lastProgressStage = event.stage;
-          await progressReporter.record(event);
+          await progressReporter.record(event, signal);
         },
       );
+      await narrationReporter.complete();
       await progressReporter.complete(this.completionStatus(lastProgressStage));
+      if (result.suppressed) {
+        logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
+        return;
+      }
+      if (!this.claimTerminalReply(logContext, 'audio_result')) return;
       await this.sendResult(ctx, result, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
@@ -392,9 +669,16 @@ export class MessageHandlers {
         userId,
         durationMs: Date.now() - startedAt,
       });
+      await narrationReporter.complete();
       await progressReporter.complete('Something went wrong');
-      await ctx.reply(errorMessage);
+      if (this.claimTerminalReply(logContext, 'audio_error')) {
+        await ctx.reply(errorMessage);
+      }
     }
+  }
+
+  private claimTerminalReply(logContext: LogContext, kind: string): boolean {
+    return this.terminalReplyStore.claim(logContext.requestId as string, kind);
   }
 
   // Sends the transcription as its own message once Whisper finishes, decoupled
@@ -418,31 +702,84 @@ export class MessageHandlers {
     result: TextProcessorResult,
     logContext: LogContext,
   ): Promise<void> {
+    if (result.suppressed) return;
     const userId = ctx.from?.id;
     const gateKey = buildConversationKey(userId, mapTelegramUserId(userId), ctx.chat?.id);
 
-    if (result.resolvedPendingPause) {
-      if (result.consumedClarificationMessageId && result.consumedClarificationQuestion) {
-        await this.collapsePendingClarification(
-          ctx,
-          {
-            clarificationMessageId: result.consumedClarificationMessageId,
-            question: result.consumedClarificationQuestion,
-          },
-          logContext,
-        );
+    if (result.interruptType && result.threadId) {
+      if (!result.settlementRequestId || !(await this.isCurrentPromptOwner(
+        gateKey,
+        result.threadId,
+        result.settlementRequestId,
+      ))) {
+        logger.info('telegram.interrupt.prompt_suppressed_stale_owner', {
+          ...logContext,
+          gateKey,
+          settlementRequestId: result.settlementRequestId,
+        });
+        return;
       }
     }
 
+    if (result.resolvedPendingPause) {
+      await this.cleanupPendingPrompt(ctx, {
+        interruptType: result.consumedInterruptType,
+        promptMessageId: result.consumedPromptMessageId,
+        clarificationMessageId: result.consumedClarificationMessageId,
+        question: result.consumedClarificationQuestion,
+      }, logContext);
+    }
+
+    let promptMessageId: number | undefined;
+    let collapsibleClarificationMessageId: number | undefined;
     if (result.interruptType === 'confirm' && result.threadId) {
-      await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
+      promptMessageId = await this.sendConfirmReply(ctx, result.response, result.threadId, logContext);
     } else if (result.interruptType === 'clarify' && result.threadId) {
-      const clarificationMessageId = await sendClarificationReply(ctx, result.response, logContext);
-      if (clarificationMessageId !== undefined) {
-        await this.attachClarificationMessageId(gateKey, clarificationMessageId, logContext);
-      }
+      const receipt = await sendClarificationReplyWithReceipt(ctx, result.response, logContext);
+      promptMessageId = receipt.messageId;
+      collapsibleClarificationMessageId = receipt.collapsibleMessageId;
     } else {
       await sendFinalReply(ctx, result.response, logContext);
+    }
+
+    if (result.interruptType && result.threadId && result.settlementRequestId) {
+      if (promptMessageId !== undefined) {
+        const attached = await this.pendingStore
+          .attachPromptMessageIdIfMatches(
+            gateKey,
+            { threadId: result.threadId, requestId: result.settlementRequestId },
+            promptMessageId,
+          )
+          .catch(() => false);
+        if (!attached) {
+          await this.deleteStalePrompt(ctx, promptMessageId, gateKey, logContext);
+          return;
+        }
+      }
+      const stillOwned = await this.isCurrentPromptOwner(
+        gateKey,
+        result.threadId,
+        result.settlementRequestId,
+      );
+      if (!stillOwned) {
+        await this.deleteStalePrompt(ctx, promptMessageId, gateKey, logContext);
+        logger.info('telegram.interrupt.prompt_removed_stale_owner', {
+          ...logContext,
+          gateKey,
+          settlementRequestId: result.settlementRequestId,
+          promptMessageId,
+        });
+        return;
+      }
+      if (collapsibleClarificationMessageId !== undefined) {
+        await this.attachClarificationMessageId(
+          gateKey,
+          result.threadId,
+          result.settlementRequestId,
+          collapsibleClarificationMessageId,
+          logContext,
+        );
+      }
     }
 
     if (result.interruptType === 'clarify' && result.threadId) {
@@ -455,12 +792,55 @@ export class MessageHandlers {
     }
   }
 
+  private async isCurrentPromptOwner(
+    gateKey: string,
+    threadId: string,
+    requestId: string,
+  ): Promise<boolean> {
+    const [pending, gateSnapshot] = await Promise.all([
+      this.pendingStore.get(gateKey).catch(() => undefined),
+      this.conversationGate
+        ? this.conversationGate.getSnapshot(gateKey).catch(() => undefined)
+        : Promise.resolve(undefined),
+    ]);
+    if (pending?.threadId !== threadId || pending.requestId !== requestId) return false;
+    return !this.conversationGate || (
+      gateSnapshot?.status === 'waiting_for_clarification'
+      && gateSnapshot.requestId === requestId
+    );
+  }
+
+  private async deleteStalePrompt(
+    ctx: Context,
+    messageId: number | undefined,
+    gateKey: string,
+    logContext: LogContext,
+  ): Promise<void> {
+    if (messageId === undefined || !ctx.chat) return;
+    try {
+      await ctx.telegram.deleteMessage(ctx.chat.id, messageId);
+    } catch (error) {
+      logger.warn('telegram.interrupt.stale_prompt_delete_failed', {
+        ...logContext,
+        gateKey,
+        promptMessageId: messageId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async attachClarificationMessageId(
     gateKey: string,
+    threadId: string,
+    requestId: string,
     messageId: number,
     logContext: LogContext,
   ): Promise<void> {
-    await this.pendingStore.attachClarificationMessageId(gateKey, messageId).catch((error) => {
+    await this.pendingStore.attachClarificationMessageIdIfMatches(
+      gateKey,
+      { threadId, requestId },
+      messageId,
+    ).catch((error) => {
       logger.warn('telegram.clarification.attach_failed', {
         ...logContext,
         gateKey,
@@ -476,6 +856,38 @@ export class MessageHandlers {
     logContext: LogContext,
   ): Promise<void> {
     await this.collapsePendingClarification(ctx, presentation, logContext);
+  }
+
+  private async cleanupPendingPrompt(
+    ctx: Context,
+    presentation: Partial<Pick<
+      PendingClarificationRecord,
+      'interruptType' | 'promptMessageId' | 'clarificationMessageId' | 'question'
+    >> | undefined,
+    logContext: LogContext,
+  ): Promise<void> {
+    if (
+      presentation?.interruptType !== 'confirm'
+      && presentation?.clarificationMessageId !== undefined
+      && presentation.question
+    ) {
+      await this.collapsePendingClarification(ctx, {
+        clarificationMessageId: presentation.clarificationMessageId,
+        question: presentation.question,
+      }, logContext);
+      return;
+    }
+
+    if (presentation?.promptMessageId === undefined || !ctx.chat) return;
+    try {
+      await ctx.telegram.deleteMessage(ctx.chat.id, presentation.promptMessageId);
+    } catch (error) {
+      logger.warn('telegram.interrupt.prompt_cleanup_failed', {
+        ...logContext,
+        promptMessageId: presentation.promptMessageId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private async collapsePendingClarification(
@@ -538,7 +950,8 @@ export class MessageHandlers {
     text: string,
     threadId: string,
     logContext: LogContext,
-  ): Promise<void> {
+  ): Promise<number | undefined> {
+    const normalizedText = normalizeMarkdownTables(text);
     const replyMarkup = {
       inline_keyboard: [
         [
@@ -548,16 +961,18 @@ export class MessageHandlers {
       ],
     };
     try {
-      await ctx.reply(toTelegramMarkdownV2(text), {
+      const message = await ctx.reply(toTelegramMarkdownV2(normalizedText), {
         parse_mode: 'MarkdownV2',
         reply_markup: replyMarkup,
       });
+      return message.message_id;
     } catch (error) {
       logger.warn('telegram.confirm_reply.markdown_parse_failed', {
         ...logContext,
         error: (error as Error).message,
       });
-      await ctx.reply(text, { reply_markup: replyMarkup });
+      const message = await ctx.reply(normalizedText, { reply_markup: replyMarkup });
+      return message.message_id;
     }
   }
 

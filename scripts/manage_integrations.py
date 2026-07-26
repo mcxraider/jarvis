@@ -18,6 +18,10 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from agents.agent_api.app.tools.domain_adapters import DOMAIN_ADAPTERS  # noqa: E402
+from agents.agent_api.app.tools.google_calendar.client import (  # noqa: E402
+    GoogleCalendarClient,
+)
+from agents.agent_api.app.tools.todoist.client import TodoistApiClient  # noqa: E402
 from agents.agent_api.app.user_context.preferences import (  # noqa: E402
     AssistantPreferencesV1,
 )
@@ -58,7 +62,13 @@ def _load_preferences(path: Path, stdin: TextIO) -> Dict[str, Any]:
         raise IntegrationAdminError(
             "Preferences do not match the supported schema."
         ) from exc
-    return validated.model_dump(mode="json", exclude_unset=True)
+    normalized = validated.model_dump(mode="json", exclude_unset=True)
+    todoist = normalized.get("domains", {}).get("todoist", {})
+    todoist.pop("usage", None)
+    todoist.pop("default_for", None)
+    google_calendar = normalized.get("domains", {}).get("google_calendar", {})
+    google_calendar.pop("usage", None)
+    return normalized
 
 
 def _validate_todoist(secret: str) -> Dict[str, Any]:
@@ -238,11 +248,112 @@ def attach_telegram_identity(args: argparse.Namespace) -> Dict[str, Any]:
 
 def set_preferences(args: argparse.Namespace, stdin: TextIO) -> Dict[str, Any]:
     preferences = _load_preferences(args.file, stdin)
+    _validate_restricted_resources(args.telegram_user_id, preferences)
     user_id, revision = _execute_one(
         "select user_id, revision from private.admin_set_preferences(%s, 1, %s::jsonb, %s)",
         (args.telegram_user_id, json.dumps(preferences), args.actor),
     )
     return {"user_id": str(user_id), "schema_version": 1, "revision": revision}
+
+
+def _stored_credential(telegram_user_id: int, provider: str) -> str:
+    (secret,) = _execute_one(
+        "select private.admin_get_integration_secret(%s, %s)",
+        (telegram_user_id, provider),
+    )
+    if not secret:
+        raise IntegrationAdminError(
+            f"{provider} must be connected before restricted resources are configured."
+        )
+    return secret
+
+
+def _provider_resources(telegram_user_id: int, provider: str) -> list[Dict[str, Any]]:
+    secret = _stored_credential(telegram_user_id, provider)
+    try:
+        if provider == "todoist":
+            client = TodoistApiClient(api_key=secret)
+            resources: list[Dict[str, Any]] = []
+            cursor = None
+            while True:
+                payload = client.get_projects({"limit": 200, "cursor": cursor})
+                if isinstance(payload, list):
+                    rows, cursor = payload, None
+                else:
+                    rows = payload.get("results", payload.get("items", []))
+                    cursor = payload.get("next_cursor")
+                resources.extend(
+                    {
+                        "id": str(row["id"]),
+                        "label": row.get("name") or str(row["id"]),
+                        "is_primary": False,
+                    }
+                    for row in rows
+                    if isinstance(row, dict) and row.get("id") is not None
+                )
+                if not cursor:
+                    return resources
+
+        if provider == "google_calendar":
+            client = GoogleCalendarClient(credential_json=secret)
+            resources = []
+            page_token = None
+            while True:
+                payload = client.list_calendars(
+                    {"max_results": 250, "page_token": page_token}
+                )
+                resources.extend(
+                    {
+                        "id": str(row["calendar_id"]),
+                        "label": row.get("summary") or str(row["calendar_id"]),
+                        "is_primary": bool(row.get("primary")),
+                    }
+                    for row in payload.get("calendars", [])
+                    if isinstance(row, dict) and row.get("calendar_id") is not None
+                )
+                page_token = payload.get("next_page_token")
+                if not page_token:
+                    return resources
+    except IntegrationAdminError:
+        raise
+    except Exception as exc:
+        raise IntegrationAdminError(
+            f"Could not discover {provider} resources."
+        ) from exc
+    raise IntegrationAdminError("Unsupported provider.")
+
+
+def list_resources(args: argparse.Namespace) -> Dict[str, Any]:
+    resources = _provider_resources(args.telegram_user_id, args.provider)
+    return {"provider": args.provider, "resources": resources}
+
+
+def _validate_restricted_resources(
+    telegram_user_id: int,
+    preferences: Dict[str, Any],
+) -> None:
+    access = preferences.get("access") or {}
+    configured = {
+        "todoist": access.get("restricted_todoist_projects") or [],
+        "google_calendar": access.get("restricted_google_calendars") or [],
+    }
+    for provider, restrictions in configured.items():
+        if not restrictions:
+            continue
+        discovered = {
+            resource["id"]: resource
+            for resource in _provider_resources(telegram_user_id, provider)
+        }
+        for restriction in restrictions:
+            resource = discovered.get(str(restriction["id"]))
+            if resource is None:
+                raise IntegrationAdminError(
+                    f"A restricted {provider} resource could not be resolved."
+                )
+            if bool(restriction.get("is_primary")) != bool(resource["is_primary"]):
+                raise IntegrationAdminError(
+                    f"A restricted {provider} resource has incorrect primary metadata."
+                )
 
 
 def store_credential(
@@ -422,6 +533,15 @@ def _print_result(result: Dict[str, Any], as_json: bool, stdout: TextIO) -> None
         for finding in result["findings"]:
             print(f"- {finding['type']}: {finding['subject_id']}", file=stdout)
         return
+    if "resources" in result:
+        print(f"{result['provider']} resources:", file=stdout)
+        for resource in result["resources"]:
+            suffix = " (primary)" if resource["is_primary"] else ""
+            print(
+                f"- {resource['label']}: {resource['id']}{suffix}",
+                file=stdout,
+            )
+        return
     print(
         ", ".join(f"{key}={_json_value(value)}" for key, value in result.items()),
         file=stdout,
@@ -487,6 +607,13 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         credential.add_argument("--account-label")
         credential.set_defaults(credential_action=command)
         _add_actor(credential)
+
+    resources = groups.add_parser("resources").add_subparsers(
+        dest="command", required=True
+    )
+    list_parser = resources.add_parser("list")
+    _add_user_target(list_parser)
+    _add_provider(list_parser)
     validate = credentials.add_parser("validate")
     _add_user_target(validate)
     _add_provider(validate)
@@ -525,6 +652,8 @@ def _dispatch(args: argparse.Namespace, stdin: TextIO) -> Dict[str, Any]:
         return validate_stored_credential(args)
     if args.group == "credential" and args.command in ("disable", "revoke"):
         return set_credential_state(args)
+    if handler == ("resources", "list"):
+        return list_resources(args)
     if handler == ("capabilities", "show"):
         return capability_summary(args)
     if handler == ("audit", "check"):

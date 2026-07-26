@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from agents.agent_api.app.tools.calendar.auth import (
+from agents.agent_api.app.tools.google_calendar.auth import (
     GoogleCalendarApiError,
     load_credentials,
 )
@@ -26,12 +26,14 @@ class FakeCreds:
         self.token = token
         self.expiry = None
         self.refreshed = False
+        self.refresh_request = None
 
     @property
     def valid(self):
         return self._valid
 
-    def refresh(self, _request):
+    def refresh(self, request):
+        self.refresh_request = request
         self.refreshed = True
         self._valid = True
         self.expired = False
@@ -80,6 +82,30 @@ def test_expired_token_refreshes_and_persists(monkeypatch, tmp_path):
     fake.refreshed = False
     load_credentials()
     assert fake.refreshed is False
+
+
+def test_oauth_refresh_transport_is_bounded_to_30_seconds(monkeypatch, tmp_path):
+    token = tmp_path / "token.json"
+    token.write_text('{"orig": true}')
+    fake = FakeCreds(valid=False, expired=True, refresh_token="r")
+    observed = []
+
+    def raw_request(*args, **kwargs):
+        observed.append((args, kwargs))
+        return object()
+
+    monkeypatch.setattr(CREDS_FACTORY, lambda path, scopes: fake)
+    monkeypatch.setattr(
+        "google.auth.transport.requests.Request",
+        lambda: raw_request,
+    )
+    monkeypatch.setenv("GOOGLE_TOKEN_PATH", str(token))
+
+    load_credentials()
+
+    assert fake.refresh_request is not None
+    fake.refresh_request(method="POST", url="https://oauth2.googleapis.com/token")
+    assert observed[0][1]["timeout"] == 30.0
 
 
 def test_valid_vault_json_does_not_touch_files(monkeypatch):

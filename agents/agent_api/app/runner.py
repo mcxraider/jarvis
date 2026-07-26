@@ -29,9 +29,10 @@ if str(_PROJECT_ROOT) not in sys.path:
 # make simple runner invocations depend on the database/pooler.
 os.environ.setdefault("JARVIS_CHECKPOINT_BACKEND", "memory")
 
-from agents.agent_api.app.checkpointing import DEFAULT_CHECKPOINTER  # noqa: E402
+from agents.agent_api.app.checkpointing import get_default_checkpointer  # noqa: E402
 from agents.agent_api.app.constants import ALLOW_MUTATIONS, MAX_AGENT_TURNS
-from agents.agent_api.app.graph.builder import run_jarvis
+from agents.agent_api.app.formatting.tool_tree import render_tool_tree
+from agents.agent_api.app.graph.builder import run_jarvis, shutdown_sync_runner
 from agents.agent_api.app.graph.nodes.orchestrator import DeepSeekAgentClient
 from agents.agent_api.app.graph.prompts import USER_PROMPT, USER_PROMPTS
 from agents.agent_api.app.graph.state import JarvisState
@@ -89,7 +90,7 @@ def run_jarvis_with_local_clarifications(
     """Run Jarvis and resume local HITL clarifications via input()."""
 
     tracer = tracer if tracer is not None else TracePrinter()
-    checkpointer = checkpointer or DEFAULT_CHECKPOINTER
+    checkpointer = checkpointer or get_default_checkpointer()
     thread_id = str(uuid.uuid4())
     agent_client = agent_client or DeepSeekAgentClient(tracer=tracer)
     # Clients are resolved inside run_jarvis from the user's runtime context;
@@ -284,6 +285,8 @@ def result_to_json_summary(result: JarvisState, prompt: str, index: int) -> Dict
                 "success": item.get("success"),
                 "error": item.get("error"),
                 "mutation_blocked": item.get("mutation_blocked", False),
+                "batch_index": item.get("batch_index"),
+                "service": item.get("service"),
             }
             for item in result.get("tool_results", [])
         ],
@@ -398,16 +401,8 @@ def print_run_summary(
 
     tool_results = result.get("tool_results", [])
     print("\nTool calls")
-    print("----------")
-    if not tool_results:
-        print("None")
-    else:
-        for index, item in enumerate(tool_results, start=1):
-            status = "ok" if item.get("success") else "error"
-            blocked = " blocked" if item.get("mutation_blocked") else ""
-            print(f"{index}. {item.get('tool_name')} [{status}{blocked}]")
-            if item.get("error"):
-                print(f"   {item['error']}")
+    print("──────────")
+    print(render_tool_tree(tool_results))
 
     print("\nMutation mode")
     print("-------------")
@@ -456,6 +451,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(str(error))
         traceback.print_exc()
         return 1
+    finally:
+        shutdown_sync_runner()
 
 
 __all__ = [

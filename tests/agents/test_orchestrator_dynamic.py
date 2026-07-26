@@ -1,6 +1,8 @@
 """Dynamic orchestrator prompt: role, runtime-context fragments, and tools line."""
 
 import json
+from datetime import datetime, timezone
+from unittest.mock import patch
 
 from agents.agent_api.app.credentials import IntegrationCredential
 from agents.agent_api.app.graph.builder import (
@@ -19,7 +21,7 @@ from agents.agent_api.app.tools.registry_factory import (
 )
 from agents.agent_api.app.tracing import NULL_TRACE
 from agents.agent_api.app.user_context.runtime import ResolvedRuntimeContext
-from tests.agents.runtime_helpers import make_snapshot
+from tests.agents.runtime_helpers import make_preferences, make_snapshot
 
 
 class TestBuildRoleLine:
@@ -56,6 +58,22 @@ class TestOfflinePrompt:
         prompt = get_orchestrator_prompt(user_name="X")
         assert "## Todoist tool tips" not in prompt
         assert "## Google Calendar tool tips" not in prompt
+
+    def test_request_date_and_weekday_use_offline_timezone_override(self):
+        instant = datetime.fromisoformat("2026-07-09T11:30:00-05:00")
+        with patch(
+            "agents.agent_api.app.graph.prompts.context._current_user_datetime",
+            return_value=instant,
+        ):
+            messages = build_initial_messages(
+                "hello", timezone="America/Chicago", user_name="X"
+            )
+
+        assert "Current date:" not in messages[0]["content"]
+        assert (
+            "Current datetime: 2026-07-09T11:30:00-05:00" in messages[1]["content"]
+            and "Current day: Thursday" in messages[1]["content"]
+        )
 
 
 class TestRuntimeContextPrompt:
@@ -114,6 +132,81 @@ class TestRuntimeContextPrompt:
         prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
         assert "Task provider: todoist" in prompt
         assert "Event provider: todoist" in prompt
+        assert "Reminder provider: todoist" in prompt
+        assert "Time-related provider: todoist" in prompt
+
+    def test_communication_and_calendar_preferences_are_selectively_rendered(self):
+        preferences = make_preferences(
+            communication={
+                "tone": "professional",
+                "verbosity": "detailed",
+                "likes": ["tables"],
+                "avoid": ["filler"],
+                "notes": ["Lead with the result"],
+            },
+            fallback_calendar="Personal",
+            onboarding={
+                "future_providers": ["gmail"],
+                "admin_notes": ["never render this internal note"],
+            },
+        )
+        prompt = get_orchestrator_prompt(
+            runtime_context=make_snapshot(preferences=preferences)
+        )
+        assert "Tone: professional" in prompt
+        assert "Answer length: detailed" in prompt
+        assert "Likes: tables" in prompt
+        assert "Avoid: filler" in prompt
+        assert "Fallback calendar: Personal" in prompt
+        assert "gmail" not in prompt
+        assert "never render this internal note" not in prompt
+
+    def test_request_date_and_weekday_come_from_one_executor_datetime(self):
+        instant = datetime.fromisoformat("2026-07-10T08:30:00+08:00")
+        snapshot = make_snapshot(timezone_name="Asia/Singapore")
+        with patch(
+            "agents.agent_api.app.graph.prompts.context._current_user_datetime",
+            return_value=instant,
+        ) as current_datetime:
+            messages = build_initial_messages("hello", runtime_context=snapshot)
+
+        current_datetime.assert_called_once_with("Asia/Singapore")
+        assert "Current date:" not in messages[0]["content"]
+        assert (
+            "Current datetime: 2026-07-10T08:30:00+08:00" in messages[1]["content"]
+            and "Current day: Friday" in messages[1]["content"]
+        )
+
+    def test_relative_weekday_semantics_are_deterministic(self):
+        prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
+
+        assert 'A bare weekday or "this <weekday>" means the nearest future occurrence' in prompt
+        assert '"next <weekday>" means that weekday in the following Monday–Sunday calendar week' in prompt
+        assert '"next Friday" means 2026-07-17, not tomorrow' in prompt
+        assert 'Never emit a relative "next <weekday>" phrase to a tool' in prompt
+
+    def test_clarification_default_policy_has_explicit_branches(self):
+        prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
+
+        assert "When all three are true, use the obvious default" in prompt
+        assert "If ANY condition is false, call `ask_user`" in prompt
+        assert "Otherwise pick the sensible default" not in prompt
+
+    def test_hard_invariants_are_front_loaded(self):
+        prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
+
+        hard_invariants = prompt.index("## Hard invariants")
+        operating_loop = prompt.index("## Operating loop")
+        todoist_tips = prompt.index("## Todoist tool tips")
+        assert hard_invariants < operating_loop < todoist_tips
+        assert prompt.index("### 1. Clarification uses `ask_user`") < operating_loop
+        assert prompt.index("### 2. Ground existing entities before mutation") < operating_loop
+        assert prompt.index("### 3. Destructive and bulk actions are system-gated") < operating_loop
+
+    def test_model_facing_loop_limit_is_absent(self):
+        prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
+
+        assert "Maximum 20 loop iterations" not in prompt
 
 
 class TestPassthrough:
@@ -127,6 +220,91 @@ class TestPassthrough:
         snapshot = make_snapshot(display_name="Zachary")
         messages = build_initial_messages("hello", runtime_context=snapshot)
         assert "Zachary's personal assistant" in messages[0]["content"]
+
+
+class TestRelevantDomainsSlimming:
+    """The router's relevant_domains narrows only the heavy per-domain fragments."""
+
+    # Distinct substrings from each domain's grounding note (see tools.py), used to
+    # assert a domain's block is present/absent independently of its tool-tips header.
+    _TODOIST_GROUNDING = "never guess a `project_id`"
+    _CALENDAR_GROUNDING = "never invent an `event_id`"
+
+    def _both_active(self):
+        return make_snapshot(active=("todoist", "google_calendar"))
+
+    def test_none_keeps_all_fragments(self):
+        """Regression: omitting relevant_domains == today's behavior (all active)."""
+        prompt = get_orchestrator_prompt(runtime_context=self._both_active())
+        assert "## Todoist tool tips" in prompt
+        assert "## Google Calendar tool tips" in prompt
+        assert self._TODOIST_GROUNDING in prompt
+        assert self._CALENDAR_GROUNDING in prompt
+
+    def test_subset_narrows_to_that_domain(self):
+        prompt = get_orchestrator_prompt(
+            runtime_context=self._both_active(),
+            relevant_domains={"todoist"},
+        )
+        assert "## Todoist tool tips" in prompt
+        assert self._TODOIST_GROUNDING in prompt
+        # Calendar's heavy fragment + grounding are gone...
+        assert "## Google Calendar tool tips" not in prompt
+        assert self._CALENDAR_GROUNDING not in prompt
+
+    def test_availability_block_stays_full_when_narrowed(self):
+        """Slimming fragments must NOT hide that a domain exists but wasn't routed."""
+        prompt = get_orchestrator_prompt(
+            runtime_context=self._both_active(),
+            relevant_domains={"todoist"},
+        )
+        # The lightweight availability summary still lists Calendar as available.
+        assert "- Google Calendar: available" in prompt
+        assert "Task provider: todoist" in prompt
+
+    def test_empty_set_omits_all_fragments(self):
+        """A query needing no domain (e.g. a greeting) drops every fragment."""
+        prompt = get_orchestrator_prompt(
+            runtime_context=self._both_active(),
+            relevant_domains=set(),
+        )
+        assert "## Todoist tool tips" not in prompt
+        assert "## Google Calendar tool tips" not in prompt
+        assert self._TODOIST_GROUNDING not in prompt
+        assert self._CALENDAR_GROUNDING not in prompt
+        # Role + policy body survive so the agent still behaves.
+        assert "personal assistant" in prompt
+        assert "## Operating loop" in prompt
+
+    def test_relevant_domains_only_intersects_active(self):
+        """Requesting an inactive domain adds nothing (intersection with active)."""
+        snapshot = make_snapshot(
+            active=("todoist",), unavailable={"google_calendar": "not_connected"}
+        )
+        prompt = get_orchestrator_prompt(
+            runtime_context=snapshot,
+            relevant_domains={"todoist", "google_calendar"},
+        )
+        assert "## Todoist tool tips" in prompt
+        assert "## Google Calendar tool tips" not in prompt
+
+    def test_threads_through_get_system_prompt(self):
+        prompt = get_system_prompt(
+            runtime_context=self._both_active(),
+            relevant_domains={"todoist"},
+        )
+        assert "## Todoist tool tips" in prompt
+        assert "## Google Calendar tool tips" not in prompt
+
+    def test_threads_through_build_initial_messages(self):
+        messages = build_initial_messages(
+            "hello",
+            runtime_context=self._both_active(),
+            relevant_domains={"google_calendar"},
+        )
+        system = messages[0]["content"]
+        assert "## Google Calendar tool tips" in system
+        assert "## Todoist tool tips" not in system
 
 
 class TestRuntimeContextGuards:

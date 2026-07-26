@@ -2,286 +2,265 @@ import { TelegramProgressReporter } from '../../../../src/services/telegram/tele
 import { setRichMessagesEnabled } from '../../../../src/services/telegram/formatters/telegram-rich';
 import { logger } from '../../../../src/utils/logger';
 
-const DOT_INTERVAL_MS = 800;
-
 describe('TelegramProgressReporter', () => {
+  let infoSpy: jest.SpyInstance;
+
   beforeEach(() => {
     jest.useFakeTimers();
-    setRichMessagesEnabled(false);
+    infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger);
   });
-
   afterEach(() => {
+    infoSpy.mockRestore();
     setRichMessagesEnabled(false);
     jest.clearAllTimers();
     jest.useRealTimers();
-    jest.restoreAllMocks();
   });
 
-  function createContext() {
+  function context(type: 'private' | 'group' = 'private') {
     return {
-      chat: { id: 123 },
+      chat: { id: 123, type },
       reply: jest.fn().mockResolvedValue({ message_id: 77 }),
       telegram: {
         editMessageText: jest.fn().mockResolvedValue(true),
         deleteMessage: jest.fn().mockResolvedValue(true),
+        callApi: jest.fn().mockResolvedValue(true),
       },
     } as any;
   }
 
-  it('animates the ellipsis on a fixed Thinking base and deletes it on completion', async () => {
-    const ctx = createContext();
-    const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
+  it('logs each successfully delivered user-visible label at info level', async () => {
+    const ctx = context('group');
+    const reporter = new TelegramProgressReporter(ctx, { requestId: 'request-1' });
 
     await reporter.start();
-    expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.', { parse_mode: 'MarkdownV2' });
+    expect(infoSpy).toHaveBeenLastCalledWith('telegram.progress.rendered', expect.objectContaining({
+      requestId: 'request-1',
+      label: 'Thinking…',
+      transport: 'plain',
+      phase: 'request',
+      deliveredAtMs: expect.any(Number),
+    }));
 
-    await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
-    expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
-      123,
-      77,
-      undefined,
-      'Thinking\\.\\.',
-      { parse_mode: 'MarkdownV2' },
+    infoSpy.mockClear();
+    await reporter.record({
+      sequence: 1, stage: 'progress', message: 'ignored', fact: {
+        phase: 'lookup', action: 'started', domains: ['calendar'], intent: 'read',
+      },
+    });
+    await jest.advanceTimersByTimeAsync(4_000);
+
+    expect(infoSpy).toHaveBeenCalledTimes(1);
+    expect(infoSpy).toHaveBeenLastCalledWith('telegram.progress.rendered', expect.objectContaining({
+      requestId: 'request-1',
+      label: 'Pulling up Calendar…',
+      transport: 'plain',
+      phase: 'lookup',
+      sequence: 1,
+      deliveredAtMs: expect.any(Number),
+    }));
+    await reporter.complete('Done');
+  });
+
+  it('does not log a successful render when all delivery transports fail', async () => {
+    setRichMessagesEnabled(true);
+    const ctx = context('private');
+    ctx.telegram.callApi.mockRejectedValue(new Error('rich unavailable'));
+    ctx.reply.mockRejectedValue(new Error('plain unavailable'));
+    const reporter = new TelegramProgressReporter(ctx, { requestId: 'request-2' });
+
+    await reporter.start();
+
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      'telegram.progress.rendered',
+      expect.anything(),
     );
+    await reporter.complete('Something went wrong');
+  });
 
-    await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
+  it('uses semantic facts and respects the four-second render floor', async () => {
+    const ctx = context('group');
+    const reporter = new TelegramProgressReporter(ctx);
+    await reporter.start();
+    expect(ctx.reply).toHaveBeenCalledWith('Thinking…', { parse_mode: 'MarkdownV2' });
+
+    await reporter.record({
+      sequence: 1, stage: 'progress', message: 'ignored', fact: {
+        phase: 'lookup', action: 'started', domains: ['calendar'], intent: 'read',
+      },
+    });
+    expect(ctx.telegram.editMessageText).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(4_000);
     expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
-      123,
-      77,
-      undefined,
-      'Thinking\\.\\.\\.',
-      { parse_mode: 'MarkdownV2' },
+      123, 77, undefined, 'Pulling up Calendar…', { parse_mode: 'MarkdownV2' },
     );
-
-    // Fourth frame wraps back to a single dot.
-    await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
-    expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
-      123,
-      77,
-      undefined,
-      'Thinking\\.',
-      { parse_mode: 'MarkdownV2' },
-    );
-
     await reporter.complete('Done');
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(123, 77);
-
-    const editsAtCompletion = ctx.telegram.editMessageText.mock.calls.length;
-    await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS * 2);
-    expect(ctx.telegram.editMessageText).toHaveBeenCalledTimes(editsAtCompletion);
   });
 
-  it('keeps transcribing static until the agent phase begins', async () => {
-    const ctx = createContext();
-    const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
-
-    await reporter.startTranscribing();
-    expect(ctx.reply).toHaveBeenCalledWith('Transcribing\\.', {
-      parse_mode: 'MarkdownV2',
+  it('keeps one rich draft continuously refreshed through a 130-second run', async () => {
+    setRichMessagesEnabled(true);
+    const callTimes: number[] = [];
+    const ctx = context('private');
+    ctx.telegram.callApi.mockImplementation(async () => {
+      callTimes.push(Date.now());
+      return true;
     });
-
-    // No dot timer runs during transcription, so nothing is edited.
-    await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS * 3);
-    expect(ctx.telegram.editMessageText).not.toHaveBeenCalled();
-
-    await reporter.beginAgentPhase();
-    expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
-      123,
-      77,
-      undefined,
-      'Thinking\\.',
-      { parse_mode: 'MarkdownV2' },
-    );
-
-    await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
-    expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
-      123,
-      77,
-      undefined,
-      'Thinking\\.\\.',
-      { parse_mode: 'MarkdownV2' },
-    );
-
-    // The base never rotates to the transcription phrase once thinking starts.
-    expect(ctx.telegram.editMessageText.mock.calls.flat()).not.toContain(
-      'Transcribing\\.',
-    );
-
-    await reporter.complete('Done');
-  });
-
-  it('ignores agent transitions after completion and repeated transitions', async () => {
-    const ctx = createContext();
-    const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
-
-    await reporter.startTranscribing();
-    await reporter.beginAgentPhase();
-    await reporter.beginAgentPhase();
-    expect(ctx.telegram.editMessageText).toHaveBeenCalledTimes(1);
-
-    await reporter.complete('Done');
-    await reporter.beginAgentPhase();
-    await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
-    expect(ctx.telegram.editMessageText).toHaveBeenCalledTimes(1);
-  });
-
-  it('keeps the agent progress callback UI-neutral', async () => {
-    const ctx = createContext();
-    const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
+    const reporter = new TelegramProgressReporter(ctx);
 
     await reporter.start();
-    await reporter.record({
-      sequence: 1,
-      stage: 'tools_calling',
-      message: 'Calling Todoist (1 request(s))',
-    });
+    await jest.advanceTimersByTimeAsync(130_000);
 
+    const calls = ctx.telegram.callApi.mock.calls;
+    expect(calls.length).toBeGreaterThanOrEqual(8);
+    expect(calls.every((call: unknown[]) => call[0] === 'sendRichMessageDraft')).toBe(true);
+    expect(new Set(calls.map((call: any[]) => call[1].draft_id)).size).toBe(1);
+    expect(callTimes.slice(1).every((time, index) => time - callTimes[index] <= 20_000)).toBe(true);
+    expect(calls.map((call: any[]) => call[1].rich_message.markdown)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Thinking — taking a little longer…'),
+        expect.stringContaining('Thinking — still working…'),
+        expect.stringContaining('Thinking — taking longer than expected…'),
+      ]),
+    );
+    await reporter.complete('Done');
+  });
+
+  it('does not send unchanged keepalives for a persistent plain status', async () => {
+    const ctx = context('group');
+    const reporter = new TelegramProgressReporter(ctx);
+    await reporter.start();
+
+    await jest.advanceTimersByTimeAsync(44_999);
+    expect(ctx.telegram.editMessageText).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(ctx.telegram.editMessageText).toHaveBeenCalledTimes(1);
+    expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
+      123, 77, undefined, 'Thinking — taking a little longer…', { parse_mode: 'MarkdownV2' },
+    );
+    await reporter.complete('Done');
+  });
+
+  it('ingests later graph phases while a Telegram refresh is blocked', async () => {
+    setRichMessagesEnabled(true);
+    let resolveRefresh!: () => void;
+    const blockedRefresh = new Promise<void>((resolve) => { resolveRefresh = resolve; });
+    const ctx = context('private');
+    ctx.telegram.callApi
+      .mockResolvedValueOnce(true)
+      .mockReturnValueOnce(blockedRefresh)
+      .mockResolvedValue(true);
+    const reporter = new TelegramProgressReporter(ctx);
+    await reporter.start();
+
+    await jest.advanceTimersByTimeAsync(20_000);
+    await expect(reporter.record({
+      sequence: 2, stage: 'progress', message: 'ignored', fact: {
+        phase: 'lookup', action: 'started', domains: ['calendar'], intent: 'read',
+      },
+    })).resolves.toBeUndefined();
+    expect(ctx.telegram.callApi).toHaveBeenCalledTimes(2);
+
+    await jest.advanceTimersByTimeAsync(4_000);
+    expect(ctx.telegram.callApi).toHaveBeenCalledTimes(2);
+    resolveRefresh();
+    await Promise.resolve();
+    await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(4_000);
+
+    expect(ctx.telegram.callApi).toHaveBeenCalledTimes(3);
+    expect(ctx.telegram.callApi.mock.calls[2][1].rich_message.markdown)
+      .toContain('Pulling up Calendar…');
+    await reporter.complete('Done');
+  });
+
+  it('falls back to plain once and stops rich keepalives after a draft failure', async () => {
+    setRichMessagesEnabled(true);
+    const ctx = context('private');
+    ctx.telegram.callApi
+      .mockResolvedValueOnce(true)
+      .mockRejectedValueOnce(new Error('read ECONNRESET'));
+    const reporter = new TelegramProgressReporter(ctx);
+    await reporter.start();
+
+    await jest.advanceTimersByTimeAsync(20_000);
     expect(ctx.reply).toHaveBeenCalledTimes(1);
+    expect(ctx.reply).toHaveBeenLastCalledWith('Thinking…', { parse_mode: 'MarkdownV2' });
+    await jest.advanceTimersByTimeAsync(24_999);
     expect(ctx.telegram.editMessageText).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(ctx.telegram.editMessageText).toHaveBeenCalledTimes(1);
+    expect(ctx.telegram.callApi).toHaveBeenCalledTimes(2);
     await reporter.complete('Done');
   });
 
-  it('continues safely when plain edits or deletion fail', async () => {
-    const ctx = createContext();
-    ctx.telegram.editMessageText.mockRejectedValue(new Error('edit failed'));
-    ctx.telegram.deleteMessage.mockRejectedValue(new Error('delete failed'));
-    const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
-
+  it('recreates a plain status when Telegram no longer has the original message', async () => {
+    const ctx = context('group');
+    ctx.reply
+      .mockResolvedValueOnce({ message_id: 77 })
+      .mockResolvedValueOnce({ message_id: 78 });
+    ctx.telegram.editMessageText
+      .mockRejectedValueOnce(new Error('400: Bad Request: message to edit not found'));
+    const reporter = new TelegramProgressReporter(ctx);
     await reporter.start();
-    await expect(jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS)).resolves.toBeUndefined();
-    await expect(reporter.complete('Something went wrong')).resolves.toBeUndefined();
+
+    await jest.advanceTimersByTimeAsync(45_000);
+    expect(ctx.reply).toHaveBeenCalledTimes(2);
+    expect(ctx.reply).toHaveBeenLastCalledWith(
+      'Thinking — taking a little longer…', { parse_mode: 'MarkdownV2' },
+    );
+    await reporter.complete('Done');
+    expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(123, 78);
   });
 
-  describe('rich mode', () => {
-    function createRichContext() {
-      return {
-        chat: { id: 123 },
-        reply: jest.fn().mockResolvedValue({ message_id: 77 }),
-        telegram: {
-          editMessageText: jest.fn().mockResolvedValue(true),
-          deleteMessage: jest.fn().mockResolvedValue(true),
-          callApi: jest.fn().mockResolvedValue(true),
-        },
-      } as any;
-    }
+  it('treats an unchanged plain edit as delivered without creating another status', async () => {
+    const ctx = context('group');
+    ctx.telegram.editMessageText
+      .mockRejectedValueOnce(new Error('400: Bad Request: message is not modified'));
+    const reporter = new TelegramProgressReporter(ctx);
+    await reporter.start();
 
-    it('animates one ephemeral thinking draft without persisting a status message', async () => {
-      setRichMessagesEnabled(true);
-      const ctx = createRichContext();
-      const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
+    await jest.advanceTimersByTimeAsync(45_000);
+    expect(ctx.telegram.editMessageText).toHaveBeenCalledTimes(1);
+    expect(ctx.reply).toHaveBeenCalledTimes(1);
+    await reporter.complete('Done');
+  });
 
-      await reporter.start();
-      await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
-      await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
-      await reporter.complete('Done');
+  it('drains an in-flight plain render and emits nothing after completion', async () => {
+    let resolveReply!: (message: { message_id: number }) => void;
+    const reply = new Promise<{ message_id: number }>((resolve) => { resolveReply = resolve; });
+    const ctx = context('group');
+    ctx.reply.mockReturnValue(reply);
+    const reporter = new TelegramProgressReporter(ctx);
 
-      expect(ctx.reply).not.toHaveBeenCalled();
-      expect(ctx.telegram.editMessageText).not.toHaveBeenCalled();
-      expect(ctx.telegram.deleteMessage).not.toHaveBeenCalled();
+    const start = reporter.start();
+    await Promise.resolve();
+    const completion = reporter.complete('Done');
+    resolveReply({ message_id: 88 });
+    await Promise.all([start, completion]);
 
-      const calls = ctx.telegram.callApi.mock.calls;
-      expect(calls.map((call: unknown[]) => call[0])).toEqual([
-        'sendRichMessageDraft',
-        'sendRichMessageDraft',
-        'sendRichMessageDraft',
-      ]);
-      expect(calls.map((call: any[]) => call[1].rich_message.markdown)).toEqual([
-        '<tg-thinking><tg-emoji emoji-id="5573333417954639880">😀</tg-emoji> Thinking.</tg-thinking>',
-        '<tg-thinking><tg-emoji emoji-id="5573333417954639880">😀</tg-emoji> Thinking..</tg-thinking>',
-        '<tg-thinking><tg-emoji emoji-id="5573333417954639880">😀</tg-emoji> Thinking...</tg-thinking>',
-      ]);
+    expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(123, 88);
+    await jest.advanceTimersByTimeAsync(130_000);
+    expect(ctx.reply).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
 
-      const draftIds = calls.map((call: any[]) => call[1].draft_id);
-      expect(draftIds[0]).toBeGreaterThan(0);
-      expect(new Set(draftIds).size).toBe(1);
-    });
+  it('ignores an already-aborted progress delivery', async () => {
+    const ctx = context('group');
+    const reporter = new TelegramProgressReporter(ctx);
+    await reporter.start();
+    const controller = new AbortController();
+    controller.abort();
 
-    it('reuses one rich draft for transcribing and agent animation', async () => {
-      setRichMessagesEnabled(true);
-      const ctx = createRichContext();
-      const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
+    await reporter.record({
+      sequence: 1, stage: 'progress', message: 'ignored', fact: {
+        phase: 'lookup', action: 'started', domains: ['calendar'], intent: 'read',
+      },
+    }, controller.signal);
+    await jest.advanceTimersByTimeAsync(45_000);
 
-      await reporter.startTranscribing();
-      await reporter.beginAgentPhase();
-      await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
-      await reporter.complete('Done');
-
-      const calls = ctx.telegram.callApi.mock.calls;
-      expect(calls.map((call: any[]) => call[1].rich_message.markdown)).toEqual([
-        expect.stringContaining('Transcribing.'),
-        expect.stringContaining('Thinking.'),
-        expect.stringContaining('Thinking..'),
-      ]);
-      expect(new Set(calls.map((call: any[]) => call[1].draft_id)).size).toBe(1);
-    });
-
-    it('falls back to an animated plain status when the first draft fails', async () => {
-      setRichMessagesEnabled(true);
-      const ctx = createRichContext();
-      ctx.telegram.callApi.mockRejectedValueOnce(new Error('404 method not found'));
-      const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
-
-      await reporter.start();
-      expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.', { parse_mode: 'MarkdownV2' });
-
-      await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
-      expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
-        123,
-        77,
-        undefined,
-        'Thinking\\.\\.',
-        { parse_mode: 'MarkdownV2' },
-      );
-
-      await reporter.complete('Done');
-      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(123, 77);
-      expect(ctx.telegram.callApi).toHaveBeenCalledTimes(1);
-    });
-
-    it('switches to plain animation when a later rich draft update fails', async () => {
-      setRichMessagesEnabled(true);
-      const ctx = createRichContext();
-      ctx.telegram.callApi
-        .mockResolvedValueOnce(true)
-        .mockRejectedValueOnce(new Error('draft update failed'));
-      const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
-
-      await reporter.start();
-      await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
-
-      expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.\\.', { parse_mode: 'MarkdownV2' });
-
-      await jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS);
-      expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
-        123,
-        77,
-        undefined,
-        'Thinking\\.\\.\\.',
-        { parse_mode: 'MarkdownV2' },
-      );
-
-      await reporter.complete('Done');
-      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(123, 77);
-    });
-
-    it('handles a non-Error rejection from a detached rich animation tick', async () => {
-      setRichMessagesEnabled(true);
-      const ctx = createRichContext();
-      const warn = jest.spyOn(logger, 'warn').mockImplementation();
-      ctx.telegram.callApi
-        .mockResolvedValueOnce(true)
-        .mockRejectedValueOnce(undefined);
-      const reporter = new TelegramProgressReporter(ctx, { requestId: 'tg_test' });
-
-      await reporter.start();
-      await expect(jest.advanceTimersByTimeAsync(DOT_INTERVAL_MS)).resolves.toBeUndefined();
-
-      expect(warn).toHaveBeenCalledWith(
-        'telegram.rich.fallback',
-        expect.objectContaining({ stage: 'progress.update', error: 'undefined' }),
-      );
-      expect(ctx.reply).toHaveBeenCalledWith('Thinking\\.\\.', { parse_mode: 'MarkdownV2' });
-      await reporter.complete('Done');
-    });
+    expect(ctx.telegram.editMessageText).toHaveBeenCalledTimes(1);
+    expect(ctx.telegram.editMessageText.mock.calls[0][3])
+      .toBe('Thinking — taking a little longer…');
+    await reporter.complete('Done');
   });
 });

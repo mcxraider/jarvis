@@ -1,5 +1,8 @@
-# Terminates TLS for $PUBLIC_DOMAIN (auto Let's Encrypt) and reverse-proxies to
-# the Node container. Telegram hits https://$PUBLIC_DOMAIN/webhook/<secret>.
 {$PUBLIC_DOMAIN} {
-	reverse_proxy web:3000
+	encode zstd gzip
+
+	@app path /ping /health /webhook/*
+	reverse_proxy @app web:3000
+
+	respond 404
 }

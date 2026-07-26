@@ -71,25 +71,27 @@ def test_calendar_can_register_without_todoist():
 
 def test_calendar_delete_routes_to_confirm_gate():
     # Safety-critical: a single delete must be "risky" (confirm gate), not "low".
-    assert risk.classify_risk(_tool_call("delete_calendar_event"), {"tool_results": []}) == "risky"
+    assert risk.classify_risk(_tool_call("delete_calendar_event")) == "risky"
     assert "delete_calendar_event" in risk.RISKY_TOOLS
     assert get_meta("delete_calendar_event").irreversible is True
 
 
 def test_calendar_single_mutation_is_low():
     for name in ("create_calendar_event", "update_calendar_event"):
-        assert risk.classify_risk(_tool_call(name), {"tool_results": []}) == "low"
+        assert risk.classify_risk(_tool_call(name)) == "low"
 
 
 def test_calendar_reads_are_not_gated():
     for name in ("list_calendar_events", "get_calendar_event", "get_freebusy", "list_calendars"):
-        assert risk.classify_risk(_tool_call(name), {"tool_results": []}) == "read"
+        assert risk.classify_risk(_tool_call(name)) == "read"
 
 
 def test_calendar_bulk_crosses_threshold():
-    # Enough prior mutations that the next calendar mutation trips the bulk gate.
-    state = {"tool_results": [{"tool_name": "create_calendar_event"}] * risk.BULK_THRESHOLD}
-    assert risk.classify_risk(_tool_call("create_calendar_event"), state) == "risky"
+    # A batch of >= BULK_THRESHOLD calendar mutations trips the bulk gate.
+    calls = [_tool_call("create_calendar_event") for _ in range(risk.BULK_THRESHOLD)]
+    risky, safe = risk.partition_tool_calls(calls)
+    assert len(risky) == risk.BULK_THRESHOLD
+    assert safe == []
 
 
 # -- 3. dynamic prompt --------------------------------------------------------
@@ -104,9 +106,13 @@ def test_prompt_includes_both_domains_when_both_active():
     assert "Todoist tool tips" in prompt
     assert "list_calendar_events" in prompt  # calendar tool in the tools line
     assert "add_todoist_task" in prompt  # todoist tool in the tools line
-    # The calendar block must teach that calendar deletes are system-gated,
-    # else the model double-confirms them (worse UX than task deletes).
-    assert "`delete_calendar_event`) is system-gated" in prompt
+    # Delete gating belongs to the shared policy, not the Calendar fragment.
+    assert prompt.count("ANY delete (even a single delete)") == 1
+    assert "`delete_calendar_event`) is system-gated" not in prompt
+    assert "Calendar creates and updates count toward the shared 5+ mutations-per-turn bulk gate" in prompt
+    assert "does not make them an attendee" in prompt
+    assert "unless the user explicitly asks to invite or add someone as an attendee" in prompt
+    assert "If the user gives a name without an email" not in prompt
 
 
 def test_prompt_has_no_router_section():

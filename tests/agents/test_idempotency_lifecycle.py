@@ -4,9 +4,17 @@ import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
-from agents.agent_api.app import main
+from agents.agent_api.app import main, run_logging
+
+
+@pytest.fixture(autouse=True)
+def isolate_run_log_writer():
+    run_logging.reset_log_writer()
+    yield
+    run_logging.reset_log_writer()
 
 
 def test_lifespan_runs_cleanup_without_blocking_health():

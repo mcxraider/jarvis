@@ -86,10 +86,16 @@ export class AudioProcessorService {
 
         return {
           response: result.response,
+          reasoningContent: result.reasoningContent,
+          delivery: result.delivery,
+          suppressed: result.suppressed,
           interruptType: result.interruptType,
           threadId: result.threadId,
+          settlementRequestId: result.settlementRequestId,
           blocked: result.blocked,
           bufferedMessage: result.bufferedMessage,
+          consumedInterruptType: result.consumedInterruptType,
+          consumedPromptMessageId: result.consumedPromptMessageId,
           consumedClarificationMessageId: result.consumedClarificationMessageId,
           consumedClarificationQuestion: result.consumedClarificationQuestion,
           resolvedPendingPause: result.resolvedPendingPause,
@@ -179,10 +185,16 @@ export class AudioProcessorService {
 
         return {
           response: result.response,
+          reasoningContent: result.reasoningContent,
+          delivery: result.delivery,
+          suppressed: result.suppressed,
           interruptType: result.interruptType,
           threadId: result.threadId,
+          settlementRequestId: result.settlementRequestId,
           blocked: result.blocked,
           bufferedMessage: result.bufferedMessage,
+          consumedInterruptType: result.consumedInterruptType,
+          consumedPromptMessageId: result.consumedPromptMessageId,
           consumedClarificationMessageId: result.consumedClarificationMessageId,
           consumedClarificationQuestion: result.consumedClarificationQuestion,
           resolvedPendingPause: result.resolvedPendingPause,

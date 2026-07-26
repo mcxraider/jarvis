@@ -1,4 +1,4 @@
-import { logger } from '../../utils/logger';
+import { createRequestId, logger } from '../../utils/logger';
 import {
   AbandonOutcome,
   PendingPausePresentation,
@@ -8,8 +8,12 @@ import {
 import { AudioProcessingHooks, AudioProcessorService } from './processors/audio-processor.service';
 import { LogContext } from '../../utils/logger';
 import { LangGraphProgressCallback } from '../ai/langgraph-agent-client.service';
-import { ConversationGateStatus, ConversationGateStore } from './conversation-gate.store';
+import {
+  ConversationGateSnapshot,
+  ConversationGateStore,
+} from './conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from './conversation-key';
+import type { ReplyContextData } from './reply-context';
 import { PendingClarificationStore } from './pending-clarification.store';
 
 const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
@@ -40,7 +44,7 @@ export class MessageProcessorService {
     onProgress?: LangGraphProgressCallback,
     options?: {
       forceFresh?: boolean;
-      replyContext?: string;
+      replyContext?: ReplyContextData;
       onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
     },
   ): Promise<TextProcessorResult> {
@@ -67,7 +71,7 @@ export class MessageProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
-    extraOptions?: { replyContext?: string },
+    extraOptions?: { replyContext?: ReplyContextData },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
@@ -79,7 +83,10 @@ export class MessageProcessorService {
 
     const internalUserId = mapTelegramUserId(userId);
     const gateKey = buildConversationKey(userId, internalUserId, logContext.chatId);
-    const gateStatus = await this.safeGetGateStatus(gateKey);
+    const activeRequestId = logContext.requestId ?? createRequestId('tg');
+    const requestContext = { ...logContext, requestId: activeRequestId };
+    const gateSnapshot = await this.safeGetGateSnapshot(gateKey);
+    const gateStatus = gateSnapshot.status;
 
     if (gateStatus === 'running') {
       logger.info('conversation_gate.audio_blocked', { ...logContext, gateKey, gateStatus });
@@ -91,8 +98,9 @@ export class MessageProcessorService {
 
     const reservation = await this.reserveAudioGate(
       gateKey,
-      gateStatus,
-      logContext,
+      gateSnapshot,
+      requestContext,
+      activeRequestId,
       hooks?.onPendingPauseAccepted,
     );
     if (!reservation.reserved) {
@@ -115,14 +123,26 @@ export class MessageProcessorService {
       const result = await this.audioProcessor.processAudioMessage(
         fileUrl,
         userId,
-        logContext,
-        hooks,
+        requestContext,
+        this.guardAudioPresentationHooks(gateKey, activeRequestId, requestContext, hooks),
         audioOptions,
       );
-      await this.restoreAudioGateIfUnprocessed(gateKey, reservation.kind, result);
-      return result;
+      const ownershipSettled = await this.restoreAudioGateIfUnprocessed(
+        gateKey,
+        reservation.kind,
+        result,
+        activeRequestId,
+        reservation.kind === 'clarification' ? reservation.waitingRequestId : undefined,
+      );
+      return ownershipSettled ? result : { response: '', suppressed: true };
     } catch (error) {
-      await this.restoreAudioGateAfterFailure(gateKey, reservation.kind);
+      const ownershipSettled = await this.restoreAudioGateAfterFailure(
+        gateKey,
+        reservation.kind,
+        activeRequestId,
+        reservation.kind === 'clarification' ? reservation.waitingRequestId : undefined,
+      );
+      if (!ownershipSettled) return { response: '', suppressed: true };
       throw error;
     }
   }
@@ -134,7 +154,7 @@ export class MessageProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
-    extraOptions?: { replyContext?: string },
+    extraOptions?: { replyContext?: ReplyContextData },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
@@ -147,7 +167,10 @@ export class MessageProcessorService {
 
     const internalUserId = mapTelegramUserId(userId);
     const gateKey = buildConversationKey(userId, internalUserId, logContext.chatId);
-    const gateStatus = await this.safeGetGateStatus(gateKey);
+    const activeRequestId = logContext.requestId ?? createRequestId('tg');
+    const requestContext = { ...logContext, requestId: activeRequestId };
+    const gateSnapshot = await this.safeGetGateSnapshot(gateKey);
+    const gateStatus = gateSnapshot.status;
 
     if (gateStatus === 'running') {
       logger.info('conversation_gate.audio_blocked', { ...logContext, gateKey, gateStatus });
@@ -159,8 +182,9 @@ export class MessageProcessorService {
 
     const reservation = await this.reserveAudioGate(
       gateKey,
-      gateStatus,
-      logContext,
+      gateSnapshot,
+      requestContext,
+      activeRequestId,
       hooks?.onPendingPauseAccepted,
     );
     if (!reservation.reserved) {
@@ -185,14 +209,26 @@ export class MessageProcessorService {
         fileName,
         mimeType,
         userId,
-        logContext,
-        hooks,
+        requestContext,
+        this.guardAudioPresentationHooks(gateKey, activeRequestId, requestContext, hooks),
         docOptions,
       );
-      await this.restoreAudioGateIfUnprocessed(gateKey, reservation.kind, result);
-      return result;
+      const ownershipSettled = await this.restoreAudioGateIfUnprocessed(
+        gateKey,
+        reservation.kind,
+        result,
+        activeRequestId,
+        reservation.kind === 'clarification' ? reservation.waitingRequestId : undefined,
+      );
+      return ownershipSettled ? result : { response: '', suppressed: true };
     } catch (error) {
-      await this.restoreAudioGateAfterFailure(gateKey, reservation.kind);
+      const ownershipSettled = await this.restoreAudioGateAfterFailure(
+        gateKey,
+        reservation.kind,
+        activeRequestId,
+        reservation.kind === 'clarification' ? reservation.waitingRequestId : undefined,
+      );
+      if (!ownershipSettled) return { response: '', suppressed: true };
       throw error;
     }
   }
@@ -296,31 +332,47 @@ export class MessageProcessorService {
     }
   }
 
-  private async safeGetGateStatus(gateKey: string): Promise<ConversationGateStatus> {
+  private async safeGetGateSnapshot(gateKey: string): Promise<ConversationGateSnapshot> {
     try {
-      return await this.conversationGate.getStatus(gateKey);
+      return await this.conversationGate.getSnapshot(gateKey);
     } catch {
-      return 'idle';
+      return { status: 'running' };
     }
   }
 
   private async reserveAudioGate(
     gateKey: string,
-    gateStatus: ConversationGateStatus,
+    gateSnapshot: ConversationGateSnapshot,
     logContext: LogContext,
+    activeRequestId: string,
     onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>,
   ): Promise<
-    | { reserved: true; kind: 'fresh' | 'clarification'; pauseAcceptedNotified?: boolean }
-    | { reserved: false; gateStatus: ConversationGateStatus }
+    | { reserved: true; kind: 'fresh'; pauseAcceptedNotified?: boolean }
+    | {
+        reserved: true;
+        kind: 'clarification';
+        waitingRequestId?: string;
+        pauseAcceptedNotified?: boolean;
+      }
+    | { reserved: false; gateStatus: ConversationGateSnapshot['status'] }
   > {
+    const gateStatus = gateSnapshot.status;
     if (gateStatus === 'waiting_for_clarification') {
-      const transitioned = await this.conversationGate.transitionToRunning(gateKey, this.runningTtlMs);
+      const pending = await this.pendingStore?.get(gateKey).catch(() => undefined);
+      if (!pending || pending.requestId !== gateSnapshot.requestId) {
+        return { reserved: false, gateStatus: 'waiting_for_clarification' };
+      }
+      const transitioned = await this.conversationGate.transitionToRunning(
+        gateKey,
+        this.runningTtlMs,
+        activeRequestId,
+        gateSnapshot.requestId,
+      );
       if (!transitioned) {
-        const currentStatus = await this.safeGetGateStatus(gateKey);
-        return { reserved: false, gateStatus: currentStatus };
+        const currentSnapshot = await this.safeGetGateSnapshot(gateKey);
+        return { reserved: false, gateStatus: currentSnapshot.status };
       }
       logger.info('conversation_gate.audio_resume_reserved', { ...logContext, gateKey });
-      const pending = await this.pendingStore?.get(gateKey).catch(() => undefined);
       let pauseAcceptedNotified = false;
       if (pending?.interruptType !== 'confirm' && pending?.clarificationMessageId !== undefined) {
         try {
@@ -338,19 +390,29 @@ export class MessageProcessorService {
           });
         }
       }
-      return { reserved: true, kind: 'clarification', pauseAcceptedNotified };
+      return {
+        reserved: true,
+        kind: 'clarification',
+        waitingRequestId: pending.requestId,
+        pauseAcceptedNotified,
+      };
     }
 
     try {
       const chatIdNum = typeof logContext.chatId === 'number' ? logContext.chatId : undefined;
-      const acquired = await this.conversationGate.tryAcquire(gateKey, this.runningTtlMs, chatIdNum);
+      const acquired = await this.conversationGate.tryAcquire(
+        gateKey,
+        this.runningTtlMs,
+        chatIdNum,
+        activeRequestId,
+      );
       if (!acquired) {
-        const currentStatus = await this.safeGetGateStatus(gateKey);
-        return { reserved: false, gateStatus: currentStatus };
+        const currentSnapshot = await this.safeGetGateSnapshot(gateKey);
+        return { reserved: false, gateStatus: currentSnapshot.status };
       }
       return { reserved: true, kind: 'fresh' };
     } catch {
-      return { reserved: true, kind: 'fresh' };
+      return { reserved: false, gateStatus: 'running' };
     }
   }
 
@@ -358,25 +420,83 @@ export class MessageProcessorService {
     gateKey: string,
     kind: 'fresh' | 'clarification',
     result: TextProcessorResult,
-  ): Promise<void> {
-    if (result.threadId || result.interruptType || result.blocked) {
-      return;
+    activeRequestId: string,
+    waitingRequestId?: string,
+  ): Promise<boolean> {
+    if (
+      result.delivery === 'ambiguous'
+      || result.threadId
+      || result.interruptType
+      || result.blocked
+      || result.suppressed
+    ) {
+      return true;
     }
-    await this.restoreAudioGateAfterFailure(gateKey, kind);
+    return this.restoreAudioGateAfterFailure(gateKey, kind, activeRequestId, waitingRequestId);
+  }
+
+  private guardAudioPresentationHooks(
+    gateKey: string,
+    activeRequestId: string,
+    logContext: LogContext,
+    hooks?: AudioProcessingHooks,
+  ): AudioProcessingHooks | undefined {
+    if (!hooks) return undefined;
+
+    const stillOwnsGate = async (): Promise<boolean> => {
+      const snapshot = await this.safeGetGateSnapshot(gateKey);
+      const owned = snapshot.status === 'running' && snapshot.requestId === activeRequestId;
+      if (!owned) {
+        logger.info('conversation_gate.audio_presentation_suppressed_stale_owner', {
+          ...logContext,
+          gateKey,
+          activeRequestId,
+        });
+      }
+      return owned;
+    };
+
+    return {
+      ...hooks,
+      onTranscription: hooks.onTranscription
+        ? async (text: string) => {
+            if (await stillOwnsGate()) await hooks.onTranscription?.(text);
+          }
+        : undefined,
+      onTranscribed: hooks.onTranscribed
+        ? async () => {
+            if (await stillOwnsGate()) await hooks.onTranscribed?.();
+          }
+        : undefined,
+    };
   }
 
   private async restoreAudioGateAfterFailure(
     gateKey: string,
     kind: 'fresh' | 'clarification',
-  ): Promise<void> {
+    activeRequestId: string,
+    waitingRequestId?: string,
+  ): Promise<boolean> {
     if (kind === 'clarification') {
-      await this.conversationGate.transitionToWaiting(gateKey, this.waitingTtlMs).catch(() => {
-        this.conversationGate.release(gateKey).catch(() => {});
-      });
-      return;
+      const restored = await this.conversationGate
+        .transitionToWaitingIfActiveRequestId(
+          gateKey,
+          activeRequestId,
+          this.waitingTtlMs,
+          waitingRequestId,
+        )
+        .catch(() => false);
+      if (restored) return true;
+      const snapshot = await this.safeGetGateSnapshot(gateKey);
+      return snapshot.status === 'waiting_for_clarification'
+        && snapshot.requestId === waitingRequestId;
     }
 
-    await this.conversationGate.release(gateKey).catch(() => {});
+    const release = await this.conversationGate
+      .releaseIfActiveRequestId(gateKey, activeRequestId)
+      .catch(() => ({ released: false }));
+    if (release.released) return true;
+    return (await this.safeGetGateSnapshot(gateKey)).status === 'idle';
   }
 
 }

@@ -209,6 +209,8 @@ _ENTITY_REQUIREMENTS: Dict[str, Tuple[EntityRef, ...]] = {
     "delete_todoist_task": (EntityRef("task_id", "task"),),
     # add_comment targets a task OR a project, so task_id is only validated when present.
     "add_comment": (EntityRef("task_id", "task", required=False),),
+    "update_calendar_event": (EntityRef("event_id", "event"),),
+    "delete_calendar_event": (EntityRef("event_id", "event"),),
 }
 
 

@@ -1,12 +1,13 @@
 """Human-in-the-loop (clarification) graph node and its message helpers."""
 
-import copy
 import json
 from typing import Any, Dict, List, Optional
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
 from agents.agent_api.app.constants import USER_ID
+from agents.agent_api.app.graph.run_deps import RunDeps, deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.base import parse_tool_call_arguments, tool_call_name
 from agents.agent_api.app.tools.control import ASK_USER_TOOL_NAME, is_ask_user_tool_call
@@ -89,11 +90,19 @@ def deferred_tool_message(tool_call: Dict[str, Any], reason: str) -> Dict[str, A
 def create_hitl_node(tracer: Optional[TracePrinter] = None):
     """Create the graph node that pauses for user clarification."""
 
-    tracer = tracer or NULL_TRACE
+    _captured = RunDeps(tracer=tracer or NULL_TRACE)
 
-    def hitl_node(state: JarvisState) -> JarvisState:
-        messages = copy.deepcopy(state.get("messages", []))
-        latest_message = messages[-1] if messages else {}
+    async def hitl_node(
+        state: JarvisState,
+        config: RunnableConfig | None = None,
+    ) -> JarvisState:
+        deps = deps_from_config(config)
+        tracer = (
+            deps.tracer
+            if deps is not None and deps.tracer is not None
+            else _captured.tracer
+        )
+        latest_message = (state.get("messages") or [{}])[-1]
         tool_calls = latest_message.get("tool_calls") or []
         ask_user_calls = [tool_call for tool_call in tool_calls if is_ask_user_tool_call(tool_call)]
         if not ask_user_calls:
@@ -123,11 +132,17 @@ def create_hitl_node(tracer: Optional[TracePrinter] = None):
             deferred_tools=len(deferred_tool_calls),
             extra_questions=len(extra_ask_user_calls),
         )
+        tracer.progress({
+            "phase": "awaiting_confirmation",
+            "action": "waiting",
+            "intent": "clarify",
+        })
 
         human_reply = interrupt(payload)
         reply_text = str(human_reply)
         tracer.event("graph.hitl", "Resumed from user clarification.")
 
+        messages = list(state.get("messages", []))
         messages.append(
             ask_user_tool_message(
                 primary_ask_user_call.get("id", "missing_tool_call_id"),
@@ -160,8 +175,10 @@ def create_hitl_node(tracer: Optional[TracePrinter] = None):
         messages.append({
             "role": "user",
             "content": (
-                f"[Clarification received — see the ask_user tool response above. "
-                f"Continue working on the original request: \"{original_prompt}\"]"
+                f"[Clarification result]\n"
+                f"Original request: \"{original_prompt}\"\n"
+                f"Question asked by you: \"{payload.get('question')}\"\n"
+                f"User response: \"{reply_text}\""
             ),
         })
 

@@ -8,10 +8,13 @@ pending_interrupt, and creates synthetic deferred messages for sibling calls.
 import json
 from typing import Any, Dict, List, Optional
 
+from langchain_core.runnables import RunnableConfig
+
 from agents.agent_api.app.graph.canonicalize import build_held_call
 from agents.agent_api.app.graph.extractors import extract_event_items, extract_task_items
 from agents.agent_api.app.graph.nodes.hitl import deferred_tool_message
 from agents.agent_api.app.graph.risk import partition_tool_calls
+from agents.agent_api.app.graph.run_deps import RunDeps, deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.metadata import (
     needs_event_context_tools,
@@ -61,14 +64,23 @@ def _find_event_summary(messages: List[Dict[str, Any]], event_id: str) -> Option
 def create_prepare_confirm_node(tracer: Optional[TracePrinter] = None):
     """Create the node that freezes a risky action into state before confirmation."""
 
-    tracer = tracer or NULL_TRACE
+    _captured = RunDeps(tracer=tracer or NULL_TRACE)
 
-    def prepare_confirm_node(state: JarvisState) -> JarvisState:
+    async def prepare_confirm_node(
+        state: JarvisState,
+        config: RunnableConfig | None = None,
+    ) -> JarvisState:
+        deps = deps_from_config(config)
+        tracer = (
+            deps.tracer
+            if deps is not None and deps.tracer is not None
+            else _captured.tracer
+        )
         messages = list(state.get("messages", []))
         latest_message = messages[-1] if messages else {}
         tool_calls = latest_message.get("tool_calls") or []
 
-        risky, safe = partition_tool_calls(tool_calls, state)
+        risky, safe = partition_tool_calls(tool_calls)
 
         if not risky:
             error = "prepare_confirm reached without any risky tool calls."
@@ -105,6 +117,7 @@ def create_prepare_confirm_node(tracer: Optional[TracePrinter] = None):
             tool_names=list({h["tool_name"] for h in held_calls}),
             deferred_count=len(safe),
         )
+        tracer.progress({"phase": "preparing_change", "action": "started", "intent": "mutation"})
 
         return {
             "held_calls": held_calls,
