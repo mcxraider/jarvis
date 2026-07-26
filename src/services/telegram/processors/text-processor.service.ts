@@ -16,12 +16,14 @@ import {
 } from '../conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { classifyError } from '../errors/classified-error';
+import type { ReplyContextData } from '../reply-context';
 
 const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_WAITING_TTL_MS = 30 * 60 * 1000;
 
 export interface TextProcessorResult {
   response: string;
+  reasoningContent?: string;
   /** Whether the backend returned a terminal envelope or transport delivery is uncertain. */
   delivery?: LangGraphDelivery;
   /** The producing request lost gate ownership; callers must not emit response or HITL UI. */
@@ -43,7 +45,7 @@ export interface TextProcessorResult {
 export interface TextProcessorOptions {
   gatePreAcquired?: boolean;
   pendingClarificationPreReserved?: boolean;
-  replyContext?: string;
+  replyContext?: ReplyContextData;
   onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
   pendingPauseAcceptedNotified?: boolean;
   // When set, abandon any pending clarify/confirm interrupt for this conversation and start
@@ -234,9 +236,7 @@ export class TextProcessorService {
 
       ownedActiveRequestId = activeRequestId;
       const requestContext = { ...logContext, requestId: activeRequestId };
-      const message = options?.replyContext
-        ? `${options.replyContext}\n\n${normalizedText}`
-        : normalizedText;
+      const message = normalizedText;
       const agentRequest = {
         message,
         userId: internalUserId,
@@ -248,6 +248,7 @@ export class TextProcessorService {
               username: logContext.telegramUsername,
             },
         requestId: activeRequestId,
+        replyContext: options?.replyContext,
       };
       const bound = await this.conversationGate.setActiveRequestId(gateKey, activeRequestId);
       if (!bound) return this.suppressedResult();
@@ -272,6 +273,7 @@ export class TextProcessorService {
         });
         return {
           response: agentResponse.response,
+          reasoningContent: agentResponse.reasoningContent,
           delivery: agentResponse.delivery,
           threadId: agentResponse.threadId || undefined,
           consumedInterruptType: supersededInterruptType,
@@ -328,6 +330,7 @@ export class TextProcessorService {
 
       return {
         response,
+        reasoningContent: agentResponse.reasoningContent,
         interruptType: resultInterruptType,
         threadId: agentResponse.threadId,
         settlementRequestId: resultInterruptType ? activeRequestId : undefined,
@@ -424,7 +427,7 @@ export class TextProcessorService {
       alreadyRunning?: boolean;
       onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
       pendingPauseAcceptedNotified?: boolean;
-      replyContext?: string;
+      replyContext?: ReplyContextData;
     },
   ): Promise<TextProcessorResult> {
     if (options?.alreadyRunning) {
@@ -523,6 +526,7 @@ export class TextProcessorService {
         });
         return {
           response: agentResponse.response,
+          reasoningContent: agentResponse.reasoningContent,
           delivery: agentResponse.delivery,
           threadId: agentResponse.threadId || pending.threadId,
         };
@@ -565,6 +569,7 @@ export class TextProcessorService {
 
       return {
         response,
+        reasoningContent: agentResponse.reasoningContent,
         interruptType: resultInterruptType,
         threadId: agentResponse.threadId,
         settlementRequestId: resultInterruptType ? activeRequestId : undefined,

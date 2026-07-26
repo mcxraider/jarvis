@@ -1204,10 +1204,13 @@ def create_agent_node(
             turn=turn_count + 1,
         )
 
+        raw_reasoning = assistant_message.get("reasoning_content") or None
+
         return {
             "messages": messages,
             "turn_count": turn_count + 1,
             "final_response": final_response,
+            "reasoning_content": raw_reasoning,
             "selected_tool_names": selected_tool_names,
             "active_domains": active_domains,
             "router_outcome": (

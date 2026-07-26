@@ -318,7 +318,7 @@ describe('MessageHandlers', () => {
       expect.any(Object),
       expect.any(Function),
       expect.objectContaining({
-        replyContext: '[In reply to your earlier message: "Created task: Buy milk"]',
+        replyContext: { role: 'assistant', message: 'Created task: Buy milk' },
       }),
     );
     expect(info).toHaveBeenCalledWith(

@@ -313,21 +313,29 @@ def build_user_prompt_with_request_datetime(
     user_prompt: str,
     timezone: Optional[str] = None,
     request_datetime: Optional[datetime] = None,
+    reply_context: Optional[dict] = None,
 ) -> str:
     """Add one timezone-resolved request timestamp to the user message content."""
 
     current = request_datetime or _current_user_datetime(_user_timezone(timezone))
 
-    return "\n".join(
-        [
-            "Request context:",
-            "Current request date and time: "
-            f"{current.isoformat(timespec='seconds')} ({current:%A})",
+    lines = [
+        f"Current datetime: {current.isoformat(timespec='seconds')}",
+        f"Current day: {current:%A}",
+        "",
+    ]
+    if reply_context:
+        lines += [
+            "Reply context:",
+            f"- Replied-to role: {reply_context['role']}",
+            f"- Replied-to message: {reply_context['message']}",
             "",
-            "User request:",
-            user_prompt,
         ]
-    )
+    lines += [
+        "Current user message:",
+        user_prompt,
+    ]
+    return "\n".join(lines)
 
 
 def build_initial_messages(
@@ -337,6 +345,7 @@ def build_initial_messages(
     runtime_context: Optional[RuntimeContextSnapshot] = None,
     registered_tools: Optional[List[str]] = None,
     relevant_domains: Optional[Set[str]] = None,
+    reply_context: Optional[dict] = None,
 ) -> List[Dict[str, Any]]:
     """Create the raw message list used by the DeepSeek API.
 
@@ -361,6 +370,7 @@ def build_initial_messages(
             "content": build_user_prompt_with_request_datetime(
                 user_prompt,
                 timezone=(runtime_context.timezone if runtime_context is not None else timezone),
+                reply_context=reply_context,
             ),
         },
     ]

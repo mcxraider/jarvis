@@ -8,6 +8,7 @@ describe('TelegramMenuRegistry', () => {
 
     expect(registry.getCommands()).toEqual([
       { command: 'new', description: 'Abandon the current step and start a new request' },
+      { command: 'send_forward', description: 'Send buffered forwards to Jarvis with an instruction' },
       { command: 'cancel', description: 'Cancel the current operation' },
       { command: 'help', description: 'Show available commands and supported inputs' },
     ]);
@@ -22,6 +23,7 @@ describe('TelegramMenuRegistry', () => {
 
     expect(registry.getCommands()).toEqual([
       { command: 'new', description: 'Abandon the current step and start a new request' },
+      { command: 'send_forward', description: 'Send buffered forwards to Jarvis with an instruction' },
       { command: 'cancel', description: 'Cancel the current operation' },
       { command: 'help', description: 'Show available commands and supported inputs' },
       { command: 'schedule_next_week', description: 'Show next week schedule' },

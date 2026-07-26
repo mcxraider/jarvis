@@ -71,8 +71,8 @@ class TestOfflinePrompt:
 
         assert "Current date:" not in messages[0]["content"]
         assert (
-            "Current request date and time: 2026-07-09T11:30:00-05:00 (Thursday)"
-            in messages[1]["content"]
+            "Current datetime: 2026-07-09T11:30:00-05:00" in messages[1]["content"]
+            and "Current day: Thursday" in messages[1]["content"]
         )
 
 
@@ -173,8 +173,8 @@ class TestRuntimeContextPrompt:
         current_datetime.assert_called_once_with("Asia/Singapore")
         assert "Current date:" not in messages[0]["content"]
         assert (
-            "Current request date and time: 2026-07-10T08:30:00+08:00 (Friday)"
-            in messages[1]["content"]
+            "Current datetime: 2026-07-10T08:30:00+08:00" in messages[1]["content"]
+            and "Current day: Friday" in messages[1]["content"]
         )
 
     def test_relative_weekday_semantics_are_deterministic(self):

@@ -112,6 +112,11 @@ class IdentityRequestMixin(BaseModel):
         )
 
 
+class ReplyContext(BaseModel):
+    role: Literal["assistant", "user"]
+    message: str = Field(..., min_length=1)
+
+
 class InvokeRequest(IdentityRequestMixin):
     message: str = Field(..., min_length=1)
     user_id: str = Field(..., min_length=1)
@@ -119,6 +124,7 @@ class InvokeRequest(IdentityRequestMixin):
     request_id: Optional[str] = None
     thread_id: Optional[str] = None
     allow_mutations: Optional[bool] = None
+    reply_context: Optional[ReplyContext] = None
 
 
 class ResumeRequest(IdentityRequestMixin):
@@ -143,6 +149,7 @@ class AgentResponse(BaseModel):
     status: Literal["completed", "interrupted", "failed"]
     thread_id: str
     response: str
+    reasoning_content: Optional[str] = None
     interrupt: Optional[Dict[str, Any]] = None
     tool_results: List[Dict[str, Any]] = Field(default_factory=list)
     error: Optional[str] = None

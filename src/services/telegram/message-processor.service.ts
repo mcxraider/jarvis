@@ -13,6 +13,7 @@ import {
   ConversationGateStore,
 } from './conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from './conversation-key';
+import type { ReplyContextData } from './reply-context';
 import { PendingClarificationStore } from './pending-clarification.store';
 
 const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
@@ -43,7 +44,7 @@ export class MessageProcessorService {
     onProgress?: LangGraphProgressCallback,
     options?: {
       forceFresh?: boolean;
-      replyContext?: string;
+      replyContext?: ReplyContextData;
       onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
     },
   ): Promise<TextProcessorResult> {
@@ -70,7 +71,7 @@ export class MessageProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
-    extraOptions?: { replyContext?: string },
+    extraOptions?: { replyContext?: ReplyContextData },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
@@ -153,7 +154,7 @@ export class MessageProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
-    extraOptions?: { replyContext?: string },
+    extraOptions?: { replyContext?: ReplyContextData },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
