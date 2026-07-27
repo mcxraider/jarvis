@@ -1,7 +1,6 @@
 import { Context } from 'telegraf';
 import { createRequestId, logger, LogContext } from '../../../utils/logger';
 import { LangGraphAgentClient, LangGraphAgentResponse } from '../../ai/langgraph-agent-client.service';
-import { normalizeMarkdownTables } from '../formatters/markdown-table-normalizer';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { sendClarificationReplyWithReceipt, sendFinalReply } from '../formatters/telegram-rich';
 import { PendingClarificationRecord, PendingClarificationStore } from '../pending-clarification.store';
@@ -395,7 +394,6 @@ export class CallbackHandler {
     threadId: string,
     requestId: string,
   ): Promise<number | undefined> {
-    const normalizedText = normalizeMarkdownTables(text);
     const replyMarkup = {
       inline_keyboard: [
         [
@@ -405,13 +403,13 @@ export class CallbackHandler {
       ],
     };
     try {
-      const message = await ctx.reply(toTelegramMarkdownV2(normalizedText), {
+      const message = await ctx.reply(toTelegramMarkdownV2(text), {
         parse_mode: 'MarkdownV2',
         reply_markup: replyMarkup,
       });
       return message.message_id;
     } catch {
-      const message = await ctx.reply(normalizedText, { reply_markup: replyMarkup });
+      const message = await ctx.reply(text, { reply_markup: replyMarkup });
       return message.message_id;
     }
   }

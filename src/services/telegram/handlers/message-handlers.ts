@@ -14,7 +14,6 @@ import {
   sendClarificationReplyWithReceipt,
   sendFinalReply,
 } from '../formatters/telegram-rich';
-import { normalizeMarkdownTables } from '../formatters/markdown-table-normalizer';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
 import { TelegramNarrationReporter } from '../telegram-narration-reporter';
@@ -951,7 +950,6 @@ export class MessageHandlers {
     threadId: string,
     logContext: LogContext,
   ): Promise<number | undefined> {
-    const normalizedText = normalizeMarkdownTables(text);
     const replyMarkup = {
       inline_keyboard: [
         [
@@ -961,7 +959,7 @@ export class MessageHandlers {
       ],
     };
     try {
-      const message = await ctx.reply(toTelegramMarkdownV2(normalizedText), {
+      const message = await ctx.reply(toTelegramMarkdownV2(text), {
         parse_mode: 'MarkdownV2',
         reply_markup: replyMarkup,
       });
@@ -971,7 +969,7 @@ export class MessageHandlers {
         ...logContext,
         error: (error as Error).message,
       });
-      const message = await ctx.reply(normalizedText, { reply_markup: replyMarkup });
+      const message = await ctx.reply(text, { reply_markup: replyMarkup });
       return message.message_id;
     }
   }

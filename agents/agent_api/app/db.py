@@ -70,7 +70,7 @@ def get_pool() -> Any:
         pool = ConnectionPool(
             conninfo=dsn,
             min_size=2,
-            max_size=10,
+            max_size=16,
             kwargs={"autocommit": True, "prepare_threshold": None},
             open=False,
             check=ConnectionPool.check_connection,
