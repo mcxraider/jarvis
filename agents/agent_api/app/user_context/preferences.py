@@ -93,6 +93,15 @@ class TodoistPreferences(BaseModel):
 
     usage: Optional[Literal["tasks_todos_reminders", "tasks_and_scheduling"]] = None
     default_for: List[str] = Field(default_factory=list)
+    user_domain_specific_comments: List[PreferenceText] = Field(
+        default_factory=list,
+        max_length=10,
+    )
+
+    @model_validator(mode="after")
+    def validate_domain_comments(self) -> "TodoistPreferences":
+        _validate_text_lists(self.user_domain_specific_comments)
+        return self
 
 
 class GoogleCalendarPreferences(BaseModel):
@@ -105,6 +114,10 @@ class GoogleCalendarPreferences(BaseModel):
         min_length=1,
         max_length=200,
     )
+    user_domain_specific_comments: List[PreferenceText] = Field(
+        default_factory=list,
+        max_length=10,
+    )
 
     @model_validator(mode="after")
     def validate_calendar_names(self) -> "GoogleCalendarPreferences":
@@ -114,6 +127,7 @@ class GoogleCalendarPreferences(BaseModel):
             list(self.event_category_defaults),
             list(self.event_category_defaults.values()),
         )
+        _validate_text_lists(self.user_domain_specific_comments)
         return self
 
 
