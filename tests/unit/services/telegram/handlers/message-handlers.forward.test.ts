@@ -251,7 +251,7 @@ describe('MessageHandlers forward buffering', () => {
       expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
     });
 
-    it('replies with a usage hint on bare command and keeps the buffer', async () => {
+    it('dispatches with default instruction on bare command and clears the buffer', async () => {
       const { handlers, messageProcessor, forwardBuffer } = createHandlers();
       const ctx = createContext({ text: 'fwd', forward_origin: FORWARD_ORIGIN, message_id: 21 });
       await handlers.maybeBufferForward(ctx);
@@ -259,9 +259,10 @@ describe('MessageHandlers forward buffering', () => {
       ctx.message = { text: '/send_forward', message_id: 22 };
       await handlers.handleSendForward(ctx);
 
-      expect(ctx.reply).toHaveBeenLastCalledWith(expect.stringContaining('Tell me what to do'));
-      expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(1);
-      expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
+      expect(messageProcessor.processTextMessage).toHaveBeenCalledTimes(1);
+      const combined = messageProcessor.processTextMessage.mock.calls[0][0] as string;
+      expect(combined).toContain('Help me with these.');
+      expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(0);
     });
 
     it('dispatches formatted context + instruction and clears the buffer', async () => {

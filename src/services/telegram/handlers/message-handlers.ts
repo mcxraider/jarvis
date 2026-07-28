@@ -193,17 +193,12 @@ export class MessageHandlers {
 
     if (messages.length === 0) {
       await ctx.reply(
-        'No forwarded messages buffered. Forward some messages first, then /send_forward <instruction>.',
+        'No forwarded messages buffered. Forward some messages first, then /send_forward.',
       );
       return;
     }
-    if (!instruction) {
-      await ctx.reply(
-        `You have ${messages.length} buffered message${messages.length === 1 ? '' : 's'}. ` +
-          'Tell me what to do with them, e.g. /send_forward summarize these.',
-      );
-      return;
-    }
+    const resolvedInstruction = instruction || 'Help me with these.';
+
 
     // Keep the buffer intact if the previous request is still running — the processor
     // would reject the dispatch anyway, and draining first would lose the forwards.
@@ -220,7 +215,7 @@ export class MessageHandlers {
       return;
     }
 
-    const combined = formatForwardContext(messages, instruction);
+    const combined = formatForwardContext(messages, resolvedInstruction);
     const confirmationId = this.forwardBuffer.getConfirmationMessageId(gateKey);
     this.forwardBuffer.clear(gateKey);
     logger.info('telegram.forward.dispatched', {
