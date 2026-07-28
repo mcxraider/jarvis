@@ -126,6 +126,20 @@ class TestFastPath:
 
         assert fast_path_classify("show my tasks", snapshot) is None
 
+    def test_domain_comments_do_not_change_fast_path_decisions(self):
+        without_comments = fast_path_classify("show my tasks", make_snapshot())
+        with_comments = fast_path_classify(
+            "show my tasks",
+            make_snapshot(
+                preferences=make_preferences(
+                    todoist_comments=["Apply a task or event label."],
+                    google_calendar_comments=["Use the family calendar."],
+                )
+            ),
+        )
+
+        assert with_comments == without_comments
+
     @pytest.mark.parametrize(
         "query",
         [
@@ -324,6 +338,34 @@ class TestSelectorProcessCache:
             "add_todoist_task",
             "get_tasks",
         }
+
+    def test_comment_changes_reuse_the_same_router_cache_contract(self):
+        cache = RouterCache()
+        first_client = _Client(_decision())
+        RouterToolSelector(
+            first_client,
+            make_snapshot(),
+            use_fast_path=False,
+            router_cache=cache,
+        ).select_schemas("route this request", _registry())
+
+        second_client = _Client(_decision(domains=["google_calendar"]))
+        second = RouterToolSelector(
+            second_client,
+            make_snapshot(
+                preferences=make_preferences(
+                    todoist_comments=["Apply a task or event label."],
+                    google_calendar_comments=["Use the family calendar."],
+                )
+            ),
+            use_fast_path=False,
+            router_cache=cache,
+        )
+        second.select_schemas("route this request", _registry())
+
+        assert first_client.sync_calls == 1
+        assert second_client.sync_calls == 0
+        assert second.decision.domains == ["todoist"]
 
     def test_cached_raw_classifier_miss_reapplies_guardrails(self):
         cache = RouterCache()

@@ -223,7 +223,7 @@ def load_settings() -> Settings:
         ),
         allow_mutations=_bool_env("JARVIS_ALLOW_MUTATIONS", True),
         max_agent_turns=_int_env("JARVIS_MAX_AGENT_TURNS", 20),
-        max_concurrent_runs=_positive_int_env("JARVIS_MAX_CONCURRENT_RUNS", 8),
+        max_concurrent_runs=_positive_int_env("JARVIS_MAX_CONCURRENT_RUNS", 12),
         run_deadline_seconds=_positive_float_env(
             "JARVIS_RUN_DEADLINE_SECONDS",
             DEFAULT_RUN_DEADLINE_SECONDS,

@@ -45,6 +45,12 @@ The prompt builds a numbered ruleset at runtime from the user's preferences snap
 | next | Genuinely unclear domain → `ambiguous`, `uncertain=true`, safe candidate domains populated |
 | last | Multi-domain requests → return all touched domains |
 
+Per-domain free-text comments at
+`domains.<provider>.user_domain_specific_comments` are intentionally excluded
+from the query-router prompt, fast path, prompt fingerprint, and cache contract.
+They guide orchestrator execution only after routing, so changing a comment
+cannot select a provider or invalidate a cached routing decision.
+
 ### Outcomes and their downstream effects
 
 | Outcome | `domains` | `uncertain` | Downstream |

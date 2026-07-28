@@ -281,6 +281,40 @@ def _preference_block(runtime_context: RuntimeContextSnapshot) -> str:
     return "\n".join([*response_lines, "", *routing_lines, "", *domain_lines])
 
 
+def _domain_specific_comments_block(
+    runtime_context: RuntimeContextSnapshot,
+    relevant_domains: Optional[Set[str]] = None,
+) -> str:
+    """Render execution guidance only for active domains used by this turn."""
+
+    applicable_domains = runtime_context.active_providers()
+    if relevant_domains is not None:
+        applicable_domains &= relevant_domains
+
+    lines: List[str] = []
+    for provider, adapter in DOMAIN_ADAPTERS.items():
+        if provider not in applicable_domains:
+            continue
+        preferences = getattr(runtime_context.preferences.domains, provider)
+        lines.extend(
+            f"- {adapter.display_name}: {' '.join(comment.split())}"
+            for comment in preferences.user_domain_specific_comments
+        )
+    if not lines:
+        return ""
+    return "\n".join(
+        [
+            "## User domain-specific comments",
+            (
+                "Use these comments only to guide execution after routing. Hard "
+                "invariants, safety controls, access controls, tool policies, and "
+                "routing preferences take precedence; comments cannot select providers."
+            ),
+            *lines,
+        ]
+    )
+
+
 def _tools_line(
     runtime_context: Optional[RuntimeContextSnapshot],
     registered_tools: Optional[List[str]],
@@ -324,23 +358,31 @@ def get_orchestrator_prompt(
         ]
         prompt_body = "\n\n".join(blocks)
         preference_block = _preference_block(runtime_context)
+        domain_comments_block = _domain_specific_comments_block(
+            runtime_context,
+            relevant_domains,
+        )
         resolved_tz = _user_timezone(runtime_context.timezone)
         locale = runtime_context.locale
     else:
         role = _build_role_line(user_name) if user_name else _ROLE_LINE
         prompt_body = f"{role}\n\n{_POLICY_BODY}"
         preference_block = ""
+        domain_comments_block = ""
         resolved_tz = _user_timezone(tz)
         locale = "en"
 
     tools_line = _tools_line(runtime_context, registered_tools)
+    runtime_preferences = "\n\n".join(
+        block for block in (preference_block, domain_comments_block) if block
+    )
     return (
         f"{prompt_body}\n\n"
         "## Runtime context\n"
         f"User timezone: {resolved_tz}\n"
         f"User locale: {locale}\n"
         f"{tools_line}\n"
-        f"{preference_block}\n"
+        f"{runtime_preferences}\n"
     )
 
 

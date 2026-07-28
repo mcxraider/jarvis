@@ -16,6 +16,7 @@ from agents.agent_api.app.router.prompt import (
     build_router_messages,
     build_router_system_prompt,
     effective_router_domains,
+    router_prompt_schema_fingerprint,
 )
 from tests.agents.runtime_helpers import make_preferences, make_snapshot
 
@@ -265,3 +266,22 @@ class TestBuildRouterMessages:
         snapshot = make_snapshot()
         messages = build_router_messages("hi", snapshot)
         assert messages[0]["content"] == build_router_system_prompt(snapshot)
+
+    def test_domain_comments_do_not_change_router_contract(self):
+        without_comments = make_snapshot()
+        with_comments = make_snapshot(
+            preferences=make_preferences(
+                todoist_comments=["Apply a task or event label."],
+                google_calendar_comments=["Use the family calendar."],
+            )
+        )
+
+        assert build_router_system_prompt(with_comments) == build_router_system_prompt(
+            without_comments
+        )
+        assert router_prompt_schema_fingerprint(
+            with_comments
+        ) == router_prompt_schema_fingerprint(without_comments)
+        assert "Apply a task or event label." not in build_router_system_prompt(
+            with_comments
+        )

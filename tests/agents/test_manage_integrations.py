@@ -19,8 +19,18 @@ VALID_PREFERENCES = {
         "calendar_usage": "default",
     },
     "domains": {
-        "todoist": {},
-        "google_calendar": {"event_category_defaults": {"work": "Work"}},
+        "todoist": {
+            "usage": "tasks_and_scheduling",
+            "default_for": ["tasks", "events"],
+            "user_domain_specific_comments": [
+                "Apply the task or event label according to item type."
+            ]
+        },
+        "google_calendar": {
+            "usage": "events_meetings_time_related_items",
+            "event_category_defaults": {"work": "Work"},
+            "user_domain_specific_comments": [],
+        },
     },
 }
 
@@ -76,30 +86,37 @@ def test_preferences_are_strictly_validated():
         "time_related_provider": "google_calendar",
         "explicit_calendar_provider": "google_calendar",
     }
-    assert "usage" not in loaded["domains"]["todoist"]
-    assert "usage" not in loaded["domains"]["google_calendar"]
+    assert loaded["domains"]["todoist"]["usage"] == "tasks_and_scheduling"
+    assert loaded["domains"]["todoist"]["default_for"] == ["tasks", "events"]
+    assert (
+        loaded["domains"]["google_calendar"]["usage"]
+        == "events_meetings_time_related_items"
+    )
+    assert loaded["domains"]["todoist"]["user_domain_specific_comments"] == [
+        "Apply the task or event label according to item type."
+    ]
+    assert loaded["domains"]["google_calendar"]["user_domain_specific_comments"] == []
     invalid = {**VALID_PREFERENCES, "unexpected": True}
     with pytest.raises(admin.IntegrationAdminError, match="supported schema"):
         admin._load_preferences(Path("-"), io.StringIO(json.dumps(invalid)))
 
 
-def test_deprecated_domain_fields_are_accepted_but_not_written():
+def test_domain_usage_and_defaults_are_preserved_during_canonical_writes():
     payload = json.loads(json.dumps(VALID_PREFERENCES))
-    payload["domains"]["todoist"].update(
-        {
-            "usage": "tasks_and_scheduling",
-            "default_for": ["tasks", "events"],
-        }
-    )
-    payload["domains"]["google_calendar"]["usage"] = (
-        "events_meetings_time_related_items"
-    )
 
     loaded = admin._load_preferences(Path("-"), io.StringIO(json.dumps(payload)))
 
-    assert loaded["domains"]["todoist"] == {}
+    assert loaded["domains"]["todoist"] == {
+        "usage": "tasks_and_scheduling",
+        "default_for": ["tasks", "events"],
+        "user_domain_specific_comments": [
+            "Apply the task or event label according to item type."
+        ]
+    }
     assert loaded["domains"]["google_calendar"] == {
-        "event_category_defaults": {"work": "Work"}
+        "usage": "events_meetings_time_related_items",
+        "event_category_defaults": {"work": "Work"},
+        "user_domain_specific_comments": [],
     }
 
 
@@ -293,6 +310,20 @@ def test_audit_check_detects_preferences_rejected_by_runtime_model(monkeypatch):
     assert result["findings"][0]["type"] == "invalid_preferences"
 
 
+def test_audit_check_accepts_domain_comment_lists(monkeypatch):
+    calls = iter(
+        [
+            [],
+            [("user-id", 1, VALID_PREFERENCES)],
+        ]
+    )
+    monkeypatch.setattr(admin, "_execute_all", lambda statement, params=(): next(calls))
+
+    result = admin.audit_check(Namespace())
+
+    assert result == {"ok": True, "finding_count": 0, "findings": []}
+
+
 def test_json_success_output_contains_no_secret(monkeypatch):
     monkeypatch.setattr(
         admin,
@@ -355,3 +386,15 @@ def test_migration_defines_restricted_atomic_entrypoints():
     assert "grant execute" in migration
     assert "jarvis_admin_runtime" in migration
     assert "vault.decrypted_secrets" in migration
+
+
+def test_admin_preference_upsert_uses_unambiguous_conflict_target():
+    migration = (
+        Path(__file__).parents[2]
+        / "supabase"
+        / "migrations"
+        / "20260727123757_fix_admin_set_preferences_conflict_target.sql"
+    ).read_text(encoding="utf-8")
+
+    assert "on conflict on constraint user_preferences_pkey do update" in migration
+    assert "on conflict (user_id)" not in migration

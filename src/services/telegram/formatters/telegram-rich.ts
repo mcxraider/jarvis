@@ -1,7 +1,6 @@
 import { Context, Telegram } from 'telegraf';
 import { Message } from 'telegraf/typings/core/types/typegram';
 import { logger } from '../../../utils/logger';
-import { normalizeMarkdownTables } from './markdown-table-normalizer';
 import { replyWithMarkdown, sendMessageWithMarkdown } from './telegram-markdown';
 import { splitMessage } from './message-splitter';
 
@@ -87,6 +86,14 @@ export function renderThinkingLabel(label: string): string {
 }
 
 /**
+ * Ensures a blank line precedes any markdown table header so the rich message
+ * API parses it as a table rather than rendering pipes as literal text.
+ */
+export function ensureBlankLineBeforeTables(text: string): string {
+  return text.replace(/([^\n])\n(\|[^\n]+\|\s*\n\|[\s:|-]+\|)/g, '$1\n\n$2');
+}
+
+/**
  * Sends the agent's final answer. Rich mode persists it via `sendRichMessage`;
  * otherwise (or on failure) falls back to the MarkdownV2 reply path.
  */
@@ -95,15 +102,14 @@ export async function sendFinalReply(
   text: string,
   logContext: object = {},
 ): Promise<void> {
-  const normalizedText = normalizeMarkdownTables(text);
-  const chunks = splitMessage(normalizedText);
+  const chunks = splitMessage(text);
 
   for (const chunk of chunks) {
     if (richEnabled && ctx.chat) {
       try {
         await rawCallApi(ctx, 'sendRichMessage', {
           chat_id: ctx.chat.id,
-          rich_message: { markdown: chunk },
+          rich_message: { markdown: ensureBlankLineBeforeTables(chunk) },
         });
         continue;
       } catch (error) {
@@ -198,13 +204,12 @@ export async function sendRichMessageToChat(
   // reach Bot API 10.1's untyped `sendRichMessage` through the loosened RawTelegram
   // shape — same cast as rawCallApi() above.
   const raw = telegram as unknown as RawTelegram;
-  const normalizedText = normalizeMarkdownTables(text);
 
   if (richEnabled) {
     try {
       await raw.callApi('sendRichMessage', {
         chat_id: chatId,
-        rich_message: { markdown: normalizedText },
+        rich_message: { markdown: ensureBlankLineBeforeTables(text) },
       });
       return;
     } catch (error) {
@@ -219,7 +224,7 @@ export async function sendRichMessageToChat(
   await sendMessageWithMarkdown(
     raw.sendMessage.bind(raw),
     chatId,
-    normalizedText,
+    text,
     {},
     logContext,
   );
@@ -235,11 +240,10 @@ export async function sendRichDraft(
   markdown: string,
 ): Promise<void> {
   if (!ctx.chat) throw new Error('missing chat for rich draft');
-  const normalizedMarkdown = normalizeMarkdownTables(markdown);
   await rawCallApi(ctx, 'sendRichMessageDraft', {
     chat_id: ctx.chat.id,
     draft_id: draftId,
-    rich_message: { markdown: normalizedMarkdown },
+    rich_message: { markdown },
   });
 }
 
@@ -252,10 +256,9 @@ export async function sendRichMessage(
   markdown: string,
 ): Promise<Message> {
   if (!ctx.chat) throw new Error('missing chat for rich message');
-  const normalizedMarkdown = normalizeMarkdownTables(markdown);
   const message = await rawCallApi(ctx, 'sendRichMessage', {
     chat_id: ctx.chat.id,
-    rich_message: { markdown: normalizedMarkdown },
+    rich_message: { markdown },
   });
   return message as Message;
 }

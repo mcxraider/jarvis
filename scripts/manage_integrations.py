@@ -62,13 +62,7 @@ def _load_preferences(path: Path, stdin: TextIO) -> Dict[str, Any]:
         raise IntegrationAdminError(
             "Preferences do not match the supported schema."
         ) from exc
-    normalized = validated.model_dump(mode="json", exclude_unset=True)
-    todoist = normalized.get("domains", {}).get("todoist", {})
-    todoist.pop("usage", None)
-    todoist.pop("default_for", None)
-    google_calendar = normalized.get("domains", {}).get("google_calendar", {})
-    google_calendar.pop("usage", None)
-    return normalized
+    return validated.model_dump(mode="json", exclude_unset=True)
 
 
 def _validate_todoist(secret: str) -> Dict[str, Any]:
