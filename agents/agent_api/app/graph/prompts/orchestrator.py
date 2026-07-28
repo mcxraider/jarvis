@@ -244,6 +244,35 @@ def _preference_block(runtime_context: RuntimeContextSnapshot) -> str:
         f"Explicit calendar provider: {routing.explicit_calendar_provider}",
         f"Calendar usage: {routing.calendar_usage}",
     ]
+    if routing.task_provider == "google_calendar":
+        routing_lines.extend(
+            [
+                "Calendar-backed task mode is active:",
+                (
+                    "- Represent tasks and to-dos as Google Calendar events; never "
+                    "claim that Google Calendar provides native task completion, "
+                    "priority, project, or section semantics."
+                ),
+                (
+                    "- Prefix calendar-backed task event titles with `Task: `. For "
+                    "task lookups, search a bounded date range for that prefix."
+                ),
+                (
+                    "- A dated task without a time becomes a one-day all-day event. "
+                    "A task with a time becomes a timed event."
+                ),
+                (
+                    "- If a task has no date, ask for one before creating the event. "
+                    "Do not invent a deadline."
+                ),
+            ]
+        )
+    if routing.reminder_provider == "google_calendar":
+        routing_lines.append(
+            "Calendar-backed reminders use Google Calendar events with structured "
+            "popup reminder overrides; ask for the missing date or time instead of "
+            "inventing it."
+        )
     for exception in routing.exceptions:
         routing_lines.append(
             "Routing exception: "

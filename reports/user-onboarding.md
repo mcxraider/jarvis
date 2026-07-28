@@ -38,11 +38,12 @@ How much detail should Jarvis normally provide?
 - Things Jarvis should avoid (up to 10 short items):
 - Other communication notes (up to 10 short items):
 
-## 3. What Todoist should manage
+## 3. What should manage tasks
 
-Todoist always manages tasks, to-dos, and projects. The exact routing questions
-below determine whether it also receives reminders, events, or other time-related
-requests.
+Todoist provides native tasks, completion, priorities, and projects when it is
+connected. Google Calendar can instead represent dated tasks as calendar events,
+but it does not provide native task completion, priority, project, or section
+semantics. Calendar-backed tasks without a date require clarification.
 
 ### Todoist usage profile
 
@@ -126,7 +127,8 @@ These choices decide which service receives each kind of request.
 
 When you ask Jarvis to create a task, where should it go?
 
-- Todoist (fixed)
+- [ ] Todoist
+- [ ] Google Calendar as a calendar-backed task event
 
 ### Events
 

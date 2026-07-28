@@ -99,7 +99,7 @@ class TestFastPath:
         assert decision.candidate_domains == []
         assert decision.complexity == "low"
 
-    def test_tasks_always_use_todoist(self):
+    def test_tasks_use_configured_provider(self):
         snapshot = make_snapshot(
             preferences=make_preferences(
                 task_provider="todoist",
@@ -111,6 +111,31 @@ class TestFastPath:
 
         assert decision is not None
         assert decision.domains == ["todoist"]
+
+        calendar_snapshot = make_snapshot(
+            active=("google_calendar",),
+            preferences=make_preferences(
+                task_provider="google_calendar",
+                event_provider="google_calendar",
+                reminder_provider="google_calendar",
+                calendar_usage="default",
+            ),
+        )
+        calendar_decision = fast_path_classify("show my tasks", calendar_snapshot)
+        assert calendar_decision is not None
+        assert calendar_decision.domains == ["google_calendar"]
+
+        selector = RouterToolSelector(
+            _Client(_decision(complexity="high")),
+            calendar_snapshot,
+            router_cache=RouterCache(),
+        )
+        schemas = selector.select_schemas("show my tasks", _registry())
+        assert _schema_names(schemas) == {
+            "ask_user",
+            "list_calendar_events",
+            "delete_calendar_event",
+        }
 
     def test_routing_exceptions_disable_the_deterministic_fast_path(self):
         snapshot = make_snapshot(

@@ -566,7 +566,7 @@ export class MessageHandlers {
     });
     this.activityService.recordActivity('message_unknown');
 
-    await ctx.reply('I can only handle text, audio, and voice for now.');
+    await ctx.reply('Whats up guys! I can only process text, voice notes, and audio files. Please send one of those.');
   }
 
   private async processAudioFile(ctx: Context, audioFile: any, messageType: string): Promise<void> {

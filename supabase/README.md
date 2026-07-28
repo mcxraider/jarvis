@@ -31,6 +31,21 @@ this connection string.
 
 1. Create the user with `scripts/manage_integrations.py user create`.
 2. Import each requested provider credential with `credential import`.
+
+   For a new Google Calendar connection, pass the authorized-user JSON file to
+   the parameterized admin CLI:
+
+   ```bash
+   python scripts/manage_integrations.py credential import \
+     --telegram-user-id 123456789 \
+     --provider google_calendar \
+     --secret-file /secure/path/token.json
+   ```
+
+   Do not paste OAuth JSON into a generated SQL file. The CLI validates the
+   credential with Google before calling the audited Vault-backed database
+   function. `supabase/google_cal_token_refresher.sql` is only for manual
+   rotation of an existing connection; it cannot create the initial connection.
 3. Discover canonical resource IDs:
 
    ```bash
