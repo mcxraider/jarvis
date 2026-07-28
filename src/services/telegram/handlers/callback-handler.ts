@@ -116,8 +116,7 @@ export class CallbackHandler {
 
       await ctx.answerCbQuery(decision === 'approve' ? 'Approved!' : 'Declined.');
 
-      // Strip buttons immediately so the UI reflects the decision before processing.
-      try { await ctx.editMessageReplyMarkup(undefined); } catch { /* best-effort strip, non-critical */ }
+      try { await ctx.deleteMessage(); } catch { /* best-effort delete, non-critical */ }
 
       const statusEmoji = decision === 'approve' ? '✅' : '❌';
       const statusText = decision === 'approve' ? 'Approved' : 'Declined';
@@ -152,7 +151,6 @@ export class CallbackHandler {
           await progress.record(event, signal);
         },
       );
-
 
       if (agentResponse.delivery === 'ambiguous') {
         // The decision may still be executing remotely. Preserve this running

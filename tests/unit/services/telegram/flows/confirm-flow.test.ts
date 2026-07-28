@@ -148,7 +148,7 @@ describe('Confirm flow: text → buttons → callback → reply', () => {
     } as any);
 
     expect(ctx.editMessageReplyMarkup).toHaveBeenCalledWith(undefined);
-    expect(ctx.reply).toHaveBeenCalledWith('✅ Approved', { parse_mode: 'MarkdownV2' });
+    expect(ctx.reply).toHaveBeenCalledWith('Approved ✔️', { parse_mode: 'MarkdownV2' });
     expect(ctx.editMessageText).not.toHaveBeenCalled();
   });
 

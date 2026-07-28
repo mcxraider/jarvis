@@ -243,7 +243,7 @@ export async function sendRichDraft(
   await rawCallApi(ctx, 'sendRichMessageDraft', {
     chat_id: ctx.chat.id,
     draft_id: draftId,
-    rich_message: { markdown },
+    rich_message: { markdown: ensureBlankLineBeforeTables(markdown) },
   });
 }
 
@@ -258,7 +258,7 @@ export async function sendRichMessage(
   if (!ctx.chat) throw new Error('missing chat for rich message');
   const message = await rawCallApi(ctx, 'sendRichMessage', {
     chat_id: ctx.chat.id,
-    rich_message: { markdown },
+    rich_message: { markdown: ensureBlankLineBeforeTables(markdown) },
   });
   return message as Message;
 }
