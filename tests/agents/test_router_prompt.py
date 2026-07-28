@@ -156,6 +156,17 @@ class TestRouterSystemPrompt:
         assert "Route ambiguous time blocks" in prompt
         assert "explicit generic requests" in prompt
 
+    def test_routing_rules_allow_google_calendar_task_provider(self):
+        prefs = make_preferences(
+            task_provider="google_calendar",
+            event_provider="google_calendar",
+            reminder_provider="google_calendar",
+            calendar_usage="default",
+        )
+        prompt = build_router_system_prompt(make_snapshot(preferences=prefs))
+        assert "Route tasks, to-dos, and projects to `google_calendar`" in prompt
+        assert '"domains": ["google_calendar"]' in prompt
+
     def test_event_provider_todoist_gets_generic_calendar_note(self):
         prefs = make_preferences(event_provider="todoist")
         prompt = build_router_system_prompt(make_snapshot(preferences=prefs))

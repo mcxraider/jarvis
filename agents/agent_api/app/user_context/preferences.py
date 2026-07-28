@@ -44,7 +44,7 @@ class RoutingException(BaseModel):
 class RoutingPreferences(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    task_provider: Literal["todoist"]
+    task_provider: Provider
     event_provider: Provider
     calendar_usage: Literal["default", "explicit_only"]
     reminder_provider: Optional[Provider] = None
@@ -74,6 +74,7 @@ class RoutingPreferences(BaseModel):
             implicit_google_fields = [
                 name
                 for name in (
+                    "task_provider",
                     "event_provider",
                     "reminder_provider",
                     "time_related_provider",

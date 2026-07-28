@@ -135,6 +135,27 @@ class TestRuntimeContextPrompt:
         assert "Reminder provider: todoist" in prompt
         assert "Time-related provider: todoist" in prompt
 
+    def test_calendar_backed_task_semantics_are_rendered_only_when_selected(self):
+        preferences = make_preferences(
+            task_provider="google_calendar",
+            event_provider="google_calendar",
+            reminder_provider="google_calendar",
+            calendar_usage="default",
+        )
+        prompt = get_orchestrator_prompt(
+            runtime_context=make_snapshot(
+                active=("google_calendar",),
+                preferences=preferences,
+            )
+        )
+        assert "Calendar-backed task mode is active" in prompt
+        assert "Prefix calendar-backed task event titles with `Task: `" in prompt
+        assert "If a task has no date, ask for one" in prompt
+        assert "Calendar-backed reminders use Google Calendar events" in prompt
+
+        default_prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
+        assert "Calendar-backed task mode is active" not in default_prompt
+
     def test_communication_and_calendar_preferences_are_selectively_rendered(self):
         preferences = make_preferences(
             communication={
