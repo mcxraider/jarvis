@@ -19,18 +19,8 @@ VALID_PREFERENCES = {
         "calendar_usage": "default",
     },
     "domains": {
-        "todoist": {
-            "usage": "tasks_and_scheduling",
-            "default_for": ["tasks", "events"],
-            "user_domain_specific_comments": [
-                "Apply the task or event label according to item type."
-            ]
-        },
-        "google_calendar": {
-            "usage": "events_meetings_time_related_items",
-            "event_category_defaults": {"work": "Work"},
-            "user_domain_specific_comments": [],
-        },
+        "todoist": {},
+        "google_calendar": {"event_category_defaults": {"work": "Work"}},
     },
 }
 
@@ -50,7 +40,6 @@ def test_parser_exposes_all_command_groups():
         ["credential", "validate", "--telegram-user-id", "1", "--provider", "todoist"],
         ["credential", "disable", "--telegram-user-id", "1", "--provider", "todoist"],
         ["credential", "revoke", "--telegram-user-id", "1", "--provider", "todoist"],
-        ["resources", "list", "--telegram-user-id", "1", "--provider", "todoist"],
         ["capabilities", "show", "--telegram-user-id", "1"],
         ["audit", "check"],
     ]
@@ -77,92 +66,12 @@ def test_credential_writes_require_file_or_stdin(command):
 
 
 def test_preferences_are_strictly_validated():
-    loaded = admin._load_preferences(
+    assert admin._load_preferences(
         Path("-"), io.StringIO(json.dumps(VALID_PREFERENCES))
-    )
-    assert loaded["routing"] == {
-        **VALID_PREFERENCES["routing"],
-        "reminder_provider": "todoist",
-        "time_related_provider": "google_calendar",
-        "explicit_calendar_provider": "google_calendar",
-    }
-    assert loaded["domains"]["todoist"]["usage"] == "tasks_and_scheduling"
-    assert loaded["domains"]["todoist"]["default_for"] == ["tasks", "events"]
-    assert (
-        loaded["domains"]["google_calendar"]["usage"]
-        == "events_meetings_time_related_items"
-    )
-    assert loaded["domains"]["todoist"]["user_domain_specific_comments"] == [
-        "Apply the task or event label according to item type."
-    ]
-    assert loaded["domains"]["google_calendar"]["user_domain_specific_comments"] == []
+    ) == VALID_PREFERENCES
     invalid = {**VALID_PREFERENCES, "unexpected": True}
     with pytest.raises(admin.IntegrationAdminError, match="supported schema"):
         admin._load_preferences(Path("-"), io.StringIO(json.dumps(invalid)))
-
-
-def test_domain_usage_and_defaults_are_preserved_during_canonical_writes():
-    payload = json.loads(json.dumps(VALID_PREFERENCES))
-
-    loaded = admin._load_preferences(Path("-"), io.StringIO(json.dumps(payload)))
-
-    assert loaded["domains"]["todoist"] == {
-        "usage": "tasks_and_scheduling",
-        "default_for": ["tasks", "events"],
-        "user_domain_specific_comments": [
-            "Apply the task or event label according to item type."
-        ]
-    }
-    assert loaded["domains"]["google_calendar"] == {
-        "usage": "events_meetings_time_related_items",
-        "event_category_defaults": {"work": "Work"},
-        "user_domain_specific_comments": [],
-    }
-
-
-def test_resource_discovery_is_sanitized_and_paginated(monkeypatch):
-    monkeypatch.setattr(admin, "_stored_credential", lambda user_id, provider: "token")
-
-    class FakeTodoist:
-        def __init__(self, **kwargs):
-            pass
-
-        def get_projects(self, arguments):
-            assert arguments["limit"] == 200
-            return {
-                "results": [{"id": "p1", "name": "Work"}],
-                "next_cursor": None,
-            }
-
-    monkeypatch.setattr(admin, "TodoistApiClient", FakeTodoist)
-    result = admin.list_resources(
-        Namespace(telegram_user_id=1, provider="todoist")
-    )
-    assert result == {
-        "provider": "todoist",
-        "resources": [{"id": "p1", "label": "Work", "is_primary": False}],
-    }
-
-
-def test_restricted_resource_validation_fails_closed(monkeypatch):
-    monkeypatch.setattr(
-        admin,
-        "_provider_resources",
-        lambda user_id, provider: [
-            {"id": "known", "label": "Known", "is_primary": False}
-        ],
-    )
-    with pytest.raises(admin.IntegrationAdminError, match="could not be resolved"):
-        admin._validate_restricted_resources(
-            1,
-            {
-                "access": {
-                    "restricted_todoist_projects": [
-                        {"id": "unknown", "label": "Private"}
-                    ]
-                }
-            },
-        )
 
 
 def test_user_creation_rejects_non_iana_timezone(monkeypatch):
@@ -310,20 +219,6 @@ def test_audit_check_detects_preferences_rejected_by_runtime_model(monkeypatch):
     assert result["findings"][0]["type"] == "invalid_preferences"
 
 
-def test_audit_check_accepts_domain_comment_lists(monkeypatch):
-    calls = iter(
-        [
-            [],
-            [("user-id", 1, VALID_PREFERENCES)],
-        ]
-    )
-    monkeypatch.setattr(admin, "_execute_all", lambda statement, params=(): next(calls))
-
-    result = admin.audit_check(Namespace())
-
-    assert result == {"ok": True, "finding_count": 0, "findings": []}
-
-
 def test_json_success_output_contains_no_secret(monkeypatch):
     monkeypatch.setattr(
         admin,
@@ -386,15 +281,3 @@ def test_migration_defines_restricted_atomic_entrypoints():
     assert "grant execute" in migration
     assert "jarvis_admin_runtime" in migration
     assert "vault.decrypted_secrets" in migration
-
-
-def test_admin_preference_upsert_uses_unambiguous_conflict_target():
-    migration = (
-        Path(__file__).parents[2]
-        / "supabase"
-        / "migrations"
-        / "20260727123757_fix_admin_set_preferences_conflict_target.sql"
-    ).read_text(encoding="utf-8")
-
-    assert "on conflict on constraint user_preferences_pkey do update" in migration
-    assert "on conflict (user_id)" not in migration

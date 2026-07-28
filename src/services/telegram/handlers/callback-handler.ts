@@ -72,7 +72,7 @@ export class CallbackHandler {
       const pending = await this.pendingStore.get(gateKey);
       if (!pending) {
         await ctx.answerCbQuery('This action has expired.');
-        try { await ctx.editMessageReplyMarkup(undefined); } catch {}
+        try { await ctx.editMessageReplyMarkup(undefined); } catch { /* best-effort strip, non-critical */ }
         return;
       }
       priorPendingSnapshot = pending;
@@ -116,6 +116,9 @@ export class CallbackHandler {
 
       await ctx.answerCbQuery(decision === 'approve' ? 'Approved!' : 'Declined.');
 
+      // Strip buttons immediately so the UI reflects the decision before processing.
+      try { await ctx.editMessageReplyMarkup(undefined); } catch { /* best-effort strip, non-critical */ }
+
       const statusEmoji = decision === 'approve' ? '✅' : '❌';
       const statusText = decision === 'approve' ? 'Approved' : 'Declined';
 
@@ -150,17 +153,6 @@ export class CallbackHandler {
         },
       );
 
-      // Strip the inline keyboard now that the resume succeeded — prevents re-tapping.
-      if (ctx.callbackQuery?.message) {
-        try {
-          await ctx.editMessageReplyMarkup(undefined);
-        } catch (markupError) {
-          logger.warn('telegram.callback.editMarkup.failed', {
-            requestId,
-            error: (markupError as Error).message,
-          });
-        }
-      }
 
       if (agentResponse.delivery === 'ambiguous') {
         // The decision may still be executing remotely. Preserve this running
