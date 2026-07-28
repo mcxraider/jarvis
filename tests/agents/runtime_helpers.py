@@ -35,6 +35,8 @@ def make_preferences(
     routing_exceptions: Optional[List[Dict[str, str]]] = None,
     communication: Optional[Dict[str, object]] = None,
     fallback_calendar: Optional[str] = None,
+    todoist_comments: Optional[List[str]] = None,
+    google_calendar_comments: Optional[List[str]] = None,
     access: Optional[Dict[str, object]] = None,
     onboarding: Optional[Dict[str, object]] = None,
 ) -> AssistantPreferencesV1:
@@ -52,7 +54,14 @@ def make_preferences(
         routing["explicit_calendar_provider"] = explicit_calendar_provider
     if routing_exceptions is not None:
         routing["exceptions"] = routing_exceptions
-    calendar = {"event_category_defaults": category_defaults or {}}
+    calendar = {
+        "event_category_defaults": category_defaults or {},
+        **(
+            {"user_domain_specific_comments": google_calendar_comments}
+            if google_calendar_comments is not None
+            else {}
+        ),
+    }
     if fallback_calendar is not None:
         calendar["fallback_calendar"] = fallback_calendar
     return AssistantPreferencesV1.model_validate(
@@ -61,7 +70,13 @@ def make_preferences(
             or {"tone": "casual", "verbosity": "concise"},
             "routing": routing,
             "domains": {
-                "todoist": {},
+                "todoist": {
+                    **(
+                        {"user_domain_specific_comments": todoist_comments}
+                        if todoist_comments is not None
+                        else {}
+                    )
+                },
                 "google_calendar": calendar,
             },
             **({"access": access} if access is not None else {}),

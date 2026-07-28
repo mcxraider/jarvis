@@ -31,6 +31,21 @@ this connection string.
 
 1. Create the user with `scripts/manage_integrations.py user create`.
 2. Import each requested provider credential with `credential import`.
+
+   For a new Google Calendar connection, pass the authorized-user JSON file to
+   the parameterized admin CLI:
+
+   ```bash
+   python scripts/manage_integrations.py credential import \
+     --telegram-user-id 123456789 \
+     --provider google_calendar \
+     --secret-file /secure/path/token.json
+   ```
+
+   Do not paste OAuth JSON into a generated SQL file. The CLI validates the
+   credential with Google before calling the audited Vault-backed database
+   function. `supabase/google_cal_token_refresher.sql` is only for manual
+   rotation of an existing connection; it cannot create the initial connection.
 3. Discover canonical resource IDs:
 
    ```bash
@@ -51,3 +66,48 @@ this connection string.
 7. Ask the user to execute the review examples in the questionnaire.
 
 The Markdown questionnaire is deliberately not parsed automatically.
+
+Preserve the questionnaire's domain profile fields during translation and later
+administrative writes:
+
+- `domains.todoist.usage`
+- `domains.todoist.default_for`
+- `domains.google_calendar.usage`
+
+These fields remain part of preference schema V1; do not strip them when adding
+or changing domain comments.
+
+### Translating domain comments
+
+Administrators manually copy each answered comment into the matching JSON array:
+
+- Todoist:
+  `domains.todoist.user_domain_specific_comments`
+- Google Calendar:
+  `domains.google_calendar.user_domain_specific_comments`
+
+Keep each comment short (1–200 non-whitespace characters) and use at most 10 per
+domain. Unanswered sections may be omitted or represented as empty arrays. For
+example:
+
+```json
+{
+  "domains": {
+    "todoist": {
+      "usage": "tasks_and_scheduling",
+      "default_for": ["tasks", "events"],
+      "user_domain_specific_comments": [
+        "When adding Todoist items, apply the `task` or `event` label according to the item type."
+      ]
+    },
+    "google_calendar": {
+      "usage": "events_meetings_time_related_items",
+      "user_domain_specific_comments": []
+    }
+  }
+}
+```
+
+This questionnaire-to-JSON step remains intentionally manual so an administrator
+can review free text for secrets, resource IDs, and attempts to override safety,
+access, tool, or routing controls before storing it.

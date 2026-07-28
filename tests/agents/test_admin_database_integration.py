@@ -60,14 +60,35 @@ def test_user_identity_preferences_and_audits_are_atomic():
                         "calendar_usage":"explicit_only"
                       },
                       "domains":{
-                        "todoist":{},
-                        "google_calendar":{"event_category_defaults":{}}
+                        "todoist":{
+                          "user_domain_specific_comments":[
+                            "Apply the task or event label according to item type."
+                          ]
+                        },
+                        "google_calendar":{
+                          "event_category_defaults":{},
+                          "user_domain_specific_comments":[]
+                        }
                       }
                     }""",
                     "admin:test",
                 ),
             )
             assert cursor.fetchone() == (user_id, 1)
+            cursor.execute(
+                """
+                select
+                  preferences #> '{domains,todoist,user_domain_specific_comments}',
+                  preferences #> '{domains,google_calendar,user_domain_specific_comments}'
+                from public.user_preferences
+                where user_id = %s
+                """,
+                (user_id,),
+            )
+            assert cursor.fetchone() == (
+                ["Apply the task or event label according to item type."],
+                [],
+            )
             cursor.execute(
                 """
                 select event_type, actor

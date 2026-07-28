@@ -66,12 +66,12 @@ export class CommandHandlers {
       `* /status — system health\n` +
       `* /cancel — cancel the current operation\n` +
       `* /new <message> — abandon the current step and start a new request\n` +
-      `* /send_forward <instruction> — act on messages you've forwarded to me\n` +
+      `* /send_forward [instruction] — act on messages you've forwarded to me\n` +
       `\n` +
       `### ⚙️ Capabilities\n` +
       `\n` +
       `* Text — send a message and I'll handle it (task management via Todoist)\n` +
-      `* Forwards — forward messages from other chats, then /send_forward with an instruction\n` +
+      `* Forwards — forward messages from other chats, then /send_forward\n` +
       `* Voice — send a voice note and I'll transcribe + act on it\n` +
       `* Audio files — OGG, MP3, WAV, M4A supported\n` +
       `* Unsupported media — images, stickers, GIFs, and Telebubbles are rejected`;

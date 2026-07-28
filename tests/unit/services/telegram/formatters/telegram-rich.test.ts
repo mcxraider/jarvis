@@ -40,7 +40,7 @@ describe('telegram-rich clarification blocks', () => {
     });
   });
 
-  it('normalizes compact tables for direct rich sends', async () => {
+  it('passes compact tables through unchanged for direct rich sends', async () => {
     const callApi = jest.fn().mockResolvedValue({ message_id: 42 });
     const ctx = {
       chat: { id: 123 },
@@ -52,7 +52,7 @@ describe('telegram-rich clarification blocks', () => {
     expect(callApi).toHaveBeenCalledWith('sendRichMessage', {
       chat_id: 123,
       rich_message: {
-        markdown: 'Friday\n| Task | Time |\n| ------ | ------ |\n| Worship practice | 7:30 pm |',
+        markdown: 'Friday | Task | Time | |------|------| | Worship practice | 7:30 pm |',
       },
     });
   });
@@ -118,7 +118,7 @@ describe('telegram-rich sendFinalReply', () => {
     expect(ctx.reply).not.toHaveBeenCalled();
   });
 
-  it('normalizes compact Markdown tables before sending', async () => {
+  it('passes compact Markdown tables through unchanged', async () => {
     setRichMessagesEnabled(true);
     const callApi = jest.fn().mockResolvedValue({ message_id: 9 });
     const ctx = createContext(callApi);
@@ -128,7 +128,7 @@ describe('telegram-rich sendFinalReply', () => {
     expect(callApi).toHaveBeenCalledWith('sendRichMessage', {
       chat_id: 123,
       rich_message: {
-        markdown: 'Tuesday\n| Time | Event |\n| --- | --- |\n| 10:00 | Stand-up |',
+        markdown: 'Tuesday | Time | Event || --- | --- || 10:00 | Stand-up |',
       },
     });
   });

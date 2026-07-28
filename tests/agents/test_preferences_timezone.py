@@ -105,7 +105,7 @@ class TestResolvedUserPreferences:
         assert preferences.routing.time_related_provider == "todoist"
         assert preferences.routing.explicit_calendar_provider == "todoist"
 
-    def test_google_calendar_cannot_be_a_task_provider(self):
+    def test_google_calendar_can_be_a_calendar_backed_task_provider(self):
         payload = {
             "communication": {"tone": "neutral", "verbosity": "balanced"},
             "routing": {
@@ -115,12 +115,14 @@ class TestResolvedUserPreferences:
             },
             "domains": {"todoist": {}, "google_calendar": {}},
         }
-        with pytest.raises(ValueError):
-            AssistantPreferencesV1.model_validate(payload)
+        preferences = AssistantPreferencesV1.model_validate(payload)
+        assert preferences.routing.task_provider == "google_calendar"
+        assert preferences.routing.reminder_provider == "google_calendar"
 
     @pytest.mark.parametrize(
         "overrides",
         [
+            {"task_provider": "google_calendar"},
             {"event_provider": "google_calendar"},
             {"reminder_provider": "google_calendar"},
             {"time_related_provider": "google_calendar"},
