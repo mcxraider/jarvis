@@ -117,7 +117,12 @@ DOMAIN_ADAPTERS: Dict[str, DomainAdapter] = {
     "google_calendar": DomainAdapter(
         key="google_calendar",
         display_name="Google Calendar",
-        capabilities=["calendar_events", "free_busy"],
+        capabilities=[
+            "calendar_events",
+            "calendar_backed_tasks",
+            "reminders",
+            "free_busy",
+        ],
         build_client=_build_calendar_client,
         get_tool_specs=get_calendar_tool_specs,
         langchain_builder=build_calendar_langchain_tools,
