@@ -126,8 +126,8 @@ const forwardBuffer = new MemoryForwardBufferStore();
 // Telegram infrastructure: file downloads, activity metrics, and health reporting.
 const fileService = new FileService(BOT_TOKEN, bot.telegram);
 const activityService = new BotActivityService();
-// Delegate dependency probing to the Python agent (it owns DeepSeek + per-user
-// Todoist), so /status reflects real downstream health rather than a phantom check.
+// Delegate dependency probing to the Python agent (it owns the selected LLM +
+// per-user Todoist), so /status reflects real downstream health.
 const statusService = new BotStatusService(activityService, {
   agentHealth: (telegramUserId) => agentClient.fetchDependencyHealth(telegramUserId),
 });

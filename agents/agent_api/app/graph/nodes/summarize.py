@@ -3,7 +3,6 @@
 import asyncio
 import inspect
 import json
-import os
 import threading
 import weakref
 from collections import Counter
@@ -27,20 +26,26 @@ from tenacity import (
 )
 
 from agents.agent_api.app.async_offload import bounded_to_thread
+from agents.agent_api.app.config import settings
 from agents.agent_api.app.constants import (
-    DEEPSEEK_BASE_URL,
     SUMMARIZE_THRESHOLD,
     SUMMARIZER_MAX_RETRY_ATTEMPTS,
     SUMMARIZER_MAX_CONCURRENCY,
     SUMMARIZER_MAX_TOKENS_CEILING,
     SUMMARIZER_MIN_ID_COVERAGE,
-    SUMMARIZER_MODEL,
     SUMMARIZER_REQUEST_TIMEOUT_SECONDS,
     SUMMARIZER_RETRY_MAX_DELAY_SECONDS,
 )
 from agents.agent_api.app.graph.extractors import extract_list_from_content
 from agents.agent_api.app.graph.run_deps import RunDeps, deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
+from agents.agent_api.app.llm.chat import (
+    UsageLedger,
+    build_chat_completion_call,
+    derive_safety_identifier,
+    normalize_chat_completion,
+)
+from agents.agent_api.app.llm.provider import LLMProvider, LLMProviderProfile
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 Candidate = tuple[int, List[Any], Any]
@@ -57,6 +62,7 @@ def _summarizer_limiter(max_concurrency: int) -> asyncio.Semaphore:
 
     if max_concurrency <= 0:
         raise ValueError("max_concurrency must be greater than zero")
+
     loop = asyncio.get_running_loop()
     with _summarizer_limiters_lock:
         by_limit = _summarizer_limiters.setdefault(loop, {})
@@ -65,6 +71,19 @@ def _summarizer_limiter(max_concurrency: int) -> asyncio.Semaphore:
             limiter = asyncio.Semaphore(max_concurrency)
             by_limit[max_concurrency] = limiter
         return limiter
+
+
+def _add_usage_record(accumulator: Optional[Any], record: Optional[Any]) -> None:
+    """Add one exact usage record to either ledger compatibility shape."""
+
+    if record is None or accumulator is None:
+        return
+    if isinstance(accumulator, UsageLedger):
+        accumulator.add(record)
+        return
+    add_record = getattr(accumulator, "add_record", None)
+    if callable(add_record):
+        add_record(record)
 
 
 def reset_summarizer_limiters() -> None:
@@ -182,7 +201,9 @@ _shared_async_summarizer_client: Optional[AsyncOpenAI] = None
 _shared_async_summarizer_client_lock = threading.Lock()
 
 
-def get_shared_summarizer_client() -> OpenAI:
+def get_shared_summarizer_client(
+    profile: Optional[LLMProviderProfile] = None,
+) -> OpenAI:
     """Return the lazily-created sync summarizer SDK transport."""
 
     global _shared_summarizer_client
@@ -191,15 +212,19 @@ def get_shared_summarizer_client() -> OpenAI:
         return client
     with _shared_summarizer_client_lock:
         if _shared_summarizer_client is None:
+            selected = profile or settings.summarizer_llm
             _shared_summarizer_client = OpenAI(
-                api_key=os.getenv("DEEPSEEK_API_KEY"),
-                base_url=DEEPSEEK_BASE_URL,
-                timeout=SUMMARIZER_REQUEST_TIMEOUT_SECONDS,
+                api_key=selected.api_key,
+                base_url=selected.base_url,
+                timeout=selected.request_timeout_seconds,
+                max_retries=selected.sdk_max_retries,
             )
         return _shared_summarizer_client
 
 
-def get_shared_async_summarizer_client() -> AsyncOpenAI:
+def get_shared_async_summarizer_client(
+    profile: Optional[LLMProviderProfile] = None,
+) -> AsyncOpenAI:
     """Return the lazily-created async summarizer SDK transport."""
 
     global _shared_async_summarizer_client
@@ -208,10 +233,12 @@ def get_shared_async_summarizer_client() -> AsyncOpenAI:
         return client
     with _shared_async_summarizer_client_lock:
         if _shared_async_summarizer_client is None:
+            selected = profile or settings.summarizer_llm
             _shared_async_summarizer_client = AsyncOpenAI(
-                api_key=os.getenv("DEEPSEEK_API_KEY"),
-                base_url=DEEPSEEK_BASE_URL,
-                timeout=SUMMARIZER_REQUEST_TIMEOUT_SECONDS,
+                api_key=selected.api_key,
+                base_url=selected.base_url,
+                timeout=selected.request_timeout_seconds,
+                max_retries=selected.sdk_max_retries,
             )
         return _shared_async_summarizer_client
 
@@ -242,8 +269,9 @@ def create_summarize_node(
     tracer: Optional[TracePrinter] = None,
     *,
     client: Optional[Any] = None,
-    model: str = SUMMARIZER_MODEL,
+    model: Optional[str] = None,
     max_concurrency: int = SUMMARIZER_MAX_CONCURRENCY,
+    profile: Optional[LLMProviderProfile] = None,
 ):
     """Create an async node over a shared, request-stateless SDK client."""
 
@@ -252,6 +280,8 @@ def create_summarize_node(
     # Resolve the process-wide transport only if a result actually needs LLM
     # summarization; failures still take the deterministic fallback below.
     summarizer_client = client
+    summarizer_profile = profile or settings.summarizer_llm
+    summarizer_model = model or summarizer_profile.model
 
     if max_concurrency <= 0:
         raise ValueError("max_concurrency must be greater than zero")
@@ -261,6 +291,8 @@ def create_summarize_node(
         user_query: str = "",
         *,
         tracer: TracePrinter,
+        safety_identifier: Optional[str] = None,
+        usage_accumulator: Optional[Any] = None,
     ) -> str:
         """Call the summarizer LLM with retry logic and output validation."""
         count = len(items)
@@ -277,14 +309,19 @@ def create_summarize_node(
             provider_client = (
                 summarizer_client
                 if summarizer_client is not None
-                else get_shared_summarizer_client()
+                else get_shared_summarizer_client(summarizer_profile)
             )
-            return provider_client.chat.completions.create(
-                model=model,
+            call = build_chat_completion_call(
+                summarizer_profile,
                 messages=messages,
+                safety_identifier=safety_identifier,
+                model=summarizer_model,
+                max_output_tokens=max_tokens,
                 temperature=0,
-                max_tokens=max_tokens,
+                timeout_seconds=summarizer_profile.request_timeout_seconds,
+                include_thinking=False,
             )
+            return provider_client.chat.completions.create(**call.as_kwargs())
 
         retrying = Retrying(
             retry=retry_if_exception(_is_retryable_error),
@@ -302,7 +339,13 @@ def create_summarize_node(
 
         try:
             response = retrying(_create_completion, messages)
-            summary = response.choices[0].message.content or ""
+            result = normalize_chat_completion(
+                response,
+                summarizer_profile,
+                requested_model=summarizer_model,
+            )
+            _add_usage_record(usage_accumulator, result.usage)
+            summary = result.message.content or ""
 
             if original_ids and not _validate_summary(summary, original_ids, min_coverage):
                 tracer.event(
@@ -316,7 +359,13 @@ def create_summarize_node(
                     {"role": "user", "content": SUMMARIZE_RETRY_INSTRUCTION},
                 ]
                 response = retrying(_create_completion, retry_messages)
-                summary = response.choices[0].message.content or ""
+                result = normalize_chat_completion(
+                    response,
+                    summarizer_profile,
+                    requested_model=summarizer_model,
+                )
+                _add_usage_record(usage_accumulator, result.usage)
+                summary = result.message.content or ""
 
                 if not _validate_summary(summary, original_ids, min_coverage):
                     tracer.event(
@@ -331,6 +380,10 @@ def create_summarize_node(
                 summary_length=len(summary),
                 item_count=count,
                 max_tokens=max_tokens,
+                provider=summarizer_profile.provider.value,
+                requested_model=summarizer_model,
+                returned_model=result.returned_model,
+                provider_request_id=result.provider_request_id,
             )
             return summary
         except Exception as error:
@@ -348,6 +401,8 @@ def create_summarize_node(
         *,
         tracer: TracePrinter,
         client: Optional[Any] = None,
+        safety_identifier: Optional[str] = None,
+        usage_accumulator: Optional[Any] = None,
     ) -> str:
         """Call the shared async summarizer transport with retry and validation."""
 
@@ -363,14 +418,21 @@ def create_summarize_node(
         )
         async def _create_completion(messages: List[Dict[str, str]]) -> Any:
             provider_client = (
-                client if client is not None else get_shared_async_summarizer_client()
+                client
+                if client is not None
+                else get_shared_async_summarizer_client(summarizer_profile)
             )
-            return await provider_client.chat.completions.create(
-                model=model,
+            call = build_chat_completion_call(
+                summarizer_profile,
                 messages=messages,
+                safety_identifier=safety_identifier,
+                model=summarizer_model,
+                max_output_tokens=max_tokens,
                 temperature=0,
-                max_tokens=max_tokens,
+                timeout_seconds=summarizer_profile.request_timeout_seconds,
+                include_thinking=False,
             )
+            return await provider_client.chat.completions.create(**call.as_kwargs())
 
         retrying = AsyncRetrying(
             retry=retry_if_exception(_is_retryable_error),
@@ -389,7 +451,13 @@ def create_summarize_node(
 
         try:
             response = await retrying(_create_completion, messages)
-            summary = response.choices[0].message.content or ""
+            result = normalize_chat_completion(
+                response,
+                summarizer_profile,
+                requested_model=summarizer_model,
+            )
+            _add_usage_record(usage_accumulator, result.usage)
+            summary = result.message.content or ""
 
             if original_ids and not _validate_summary(summary, original_ids, min_coverage):
                 tracer.event(
@@ -403,7 +471,13 @@ def create_summarize_node(
                     {"role": "user", "content": SUMMARIZE_RETRY_INSTRUCTION},
                 ]
                 response = await retrying(_create_completion, retry_messages)
-                summary = response.choices[0].message.content or ""
+                result = normalize_chat_completion(
+                    response,
+                    summarizer_profile,
+                    requested_model=summarizer_model,
+                )
+                _add_usage_record(usage_accumulator, result.usage)
+                summary = result.message.content or ""
 
                 if not _validate_summary(summary, original_ids, min_coverage):
                     tracer.event(
@@ -418,6 +492,10 @@ def create_summarize_node(
                 summary_length=len(summary),
                 item_count=count,
                 max_tokens=max_tokens,
+                provider=summarizer_profile.provider.value,
+                requested_model=summarizer_model,
+                returned_model=result.returned_model,
+                provider_request_id=result.provider_request_id,
             )
             return summary
         except Exception as error:
@@ -441,6 +519,18 @@ def create_summarize_node(
         )
         messages = list(state.get("messages", []))
         user_query = state.get("user_prompt", "")
+        usage_accumulator = deps.usage_accumulator if deps is not None else None
+        safety_identifier = None
+        if summarizer_profile.provider is LLMProvider.OPENAI:
+            source_user_id = str(state.get("user_id", "")).strip()
+            if not source_user_id:
+                # Direct node tests may not provide an identity. A fixed,
+                # non-user sentinel is stable and remains HMAC protected.
+                source_user_id = "anonymous-summarizer"
+            safety_identifier = derive_safety_identifier(
+                settings.llm_safety_identifier_secret or "",
+                source_user_id,
+            )
         tracer.event(
             "graph.summarize",
             "Entering summarize node.",
@@ -518,6 +608,8 @@ def create_summarize_node(
                         user_query=user_query,
                         tracer=tracer,
                         client=summarizer_client,
+                        safety_identifier=safety_identifier,
+                        usage_accumulator=usage_accumulator,
                     )
                 # Sync-only injected clients remain a compatibility seam. The
                 # existing bounded offload pool is used directly; no nested
@@ -527,6 +619,8 @@ def create_summarize_node(
                     items,
                     user_query=user_query,
                     tracer=tracer,
+                    safety_identifier=safety_identifier,
+                    usage_accumulator=usage_accumulator,
                 )
 
         summaries = await asyncio.gather(

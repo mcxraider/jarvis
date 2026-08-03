@@ -16,6 +16,7 @@ import {
   LangGraphInterruptSchema,
   StreamEventSchema,
   StreamFinalEventSchema,
+  StreamNarrationEventSchema,
   StreamProgressEventSchema,
 } from '../../src/types/agent.types';
 
@@ -69,7 +70,10 @@ describe('Agent API contract — AgentResponseSchema', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.status).toBe('failed');
-      expect(result.data.error).toContain('DeepSeek');
+      expect(result.data.error).toContain('selected LLM provider');
+      expect(result.data.error_details).toEqual(
+        expect.objectContaining({ provider: 'openai', requested_model: 'gpt-5.6-luna' }),
+      );
     }
   });
 });
@@ -91,6 +95,32 @@ describe('Agent API contract — StreamEventSchema', () => {
     if (result.success && result.data.type === 'final') {
       expect(result.data.response.status).toBe('completed');
     }
+  });
+
+  it('accepts the shared narration fixture', () => {
+    const data = loadFixture('stream-narration.json');
+    const result = StreamNarrationEventSchema.safeParse(data);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({
+        type: 'narration',
+        sequence: 2,
+        text: 'I found the matching tasks and am checking their dates.',
+      });
+    }
+  });
+
+  it.each([
+    ['missing text', { type: 'narration', sequence: 2 }],
+    ['missing sequence', { type: 'narration', text: 'working' }],
+    ['non-string text', { type: 'narration', sequence: 2, text: 42 }],
+    ['invalid type', { type: 'commentary', sequence: 2, text: 'working' }],
+    ['negative sequence', { type: 'narration', sequence: -1, text: 'working' }],
+    ['zero sequence', { type: 'narration', sequence: 0, text: 'working' }],
+    ['fractional sequence', { type: 'narration', sequence: 1.5, text: 'working' }],
+  ])('rejects narration with %s', (_label, data) => {
+    expect(StreamNarrationEventSchema.safeParse(data).success).toBe(false);
   });
 
   it('StreamProgressEventSchema validates stage and message', () => {
@@ -123,10 +153,53 @@ describe('Agent API contract — health detail', () => {
       expect(result.data.limits).toEqual({
         run_deadline_seconds: 150,
         max_agent_turns: 20,
-        deepseek_request_timeout_seconds: 30,
+        llm_request_timeout_seconds: 60,
         model_router_complex_timeout_seconds: 90,
       });
+      expect(result.data.provider).toBe('openai');
     }
+  });
+
+  it('normalizes the rolling DeepSeek timeout alias to the provider-neutral field', () => {
+    const legacy = {
+      status: 'ok',
+      model: 'deepseek-v4-flash',
+      checks: { deepseek: { ok: true, detail: 'reachable' } },
+      limits: {
+        run_deadline_seconds: 150,
+        max_agent_turns: 20,
+        deepseek_request_timeout_seconds: 30,
+        model_router_complex_timeout_seconds: 90,
+      },
+    };
+
+    const result = AgentHealthDetailSchema.safeParse(legacy);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.provider).toBe('deepseek');
+      expect(result.data.limits).toEqual({
+        run_deadline_seconds: 150,
+        max_agent_turns: 20,
+        llm_request_timeout_seconds: 30,
+        model_router_complex_timeout_seconds: 90,
+      });
+      expect(result.data.limits).not.toHaveProperty('deepseek_request_timeout_seconds');
+    }
+  });
+
+  it.each([
+    ['missing request timeout', undefined],
+    ['zero request timeout', 0],
+    ['negative request timeout', -1],
+    ['non-finite request timeout', Number.POSITIVE_INFINITY],
+  ])('rejects health limits with %s', (_label, llmTimeout) => {
+    const health = loadFixture('health-detail.json') as Record<string, any>;
+    if (llmTimeout === undefined) {
+      delete health.limits.llm_request_timeout_seconds;
+    } else {
+      health.limits.llm_request_timeout_seconds = llmTimeout;
+    }
+    expect(AgentHealthDetailSchema.safeParse(health).success).toBe(false);
   });
 });
 

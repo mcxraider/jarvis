@@ -33,7 +33,7 @@ from agents.agent_api.app.checkpointing import get_default_checkpointer  # noqa:
 from agents.agent_api.app.constants import ALLOW_MUTATIONS, MAX_AGENT_TURNS
 from agents.agent_api.app.formatting.tool_tree import render_tool_tree
 from agents.agent_api.app.graph.builder import run_jarvis, shutdown_sync_runner
-from agents.agent_api.app.graph.nodes.orchestrator import DeepSeekAgentClient
+from agents.agent_api.app.graph.nodes.orchestrator import LLMAgentClient
 from agents.agent_api.app.graph.prompts import USER_PROMPT, USER_PROMPTS
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
@@ -92,7 +92,7 @@ def run_jarvis_with_local_clarifications(
     tracer = tracer if tracer is not None else TracePrinter()
     checkpointer = checkpointer or get_default_checkpointer()
     thread_id = str(uuid.uuid4())
-    agent_client = agent_client or DeepSeekAgentClient(tracer=tracer)
+    agent_client = agent_client or LLMAgentClient(tracer=tracer)
     # Clients are resolved inside run_jarvis from the user's runtime context;
     # only an explicitly injected client is threaded through here.
 
@@ -147,7 +147,7 @@ def run_jarvis_sequence(
         raise ValueError("At least one user prompt is required.")
 
     tracer = tracer if tracer is not None else TracePrinter()
-    agent_client = agent_client or DeepSeekAgentClient(tracer=tracer)
+    agent_client = agent_client or LLMAgentClient(tracer=tracer)
     results: List[JarvisState] = []
 
     for index, prompt in enumerate(prompts, start=1):

@@ -347,7 +347,7 @@ def build_initial_messages(
     relevant_domains: Optional[Set[str]] = None,
     reply_context: Optional[dict] = None,
 ) -> List[Dict[str, Any]]:
-    """Create the raw message list used by the DeepSeek API.
+    """Create the canonical message list used by the selected LLM provider.
 
     ``relevant_domains`` (from the query router) is forwarded to the system
     prompt to slim the per-domain fragments; ``None`` keeps every active domain

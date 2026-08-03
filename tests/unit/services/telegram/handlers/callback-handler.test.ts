@@ -99,10 +99,9 @@ describe('CallbackHandler', () => {
       expect.any(Function),
     );
 
-    // The decision is delivered as its own new message, and the confirm message keeps
-    // its text (only its inline keyboard is stripped).
+    // The decision is delivered as its own new message after removing the stale prompt.
     expect(ctx.deleteMessage).toHaveBeenCalled();
-    expect(ctx.reply).toHaveBeenCalledWith('Approved ✔️', { parse_mode: 'MarkdownV2' });
+    expect(ctx.reply).toHaveBeenCalledWith('✅ Approved', { parse_mode: 'MarkdownV2' });
     expect(ctx.editMessageText).not.toHaveBeenCalled();
   });
 
@@ -230,7 +229,7 @@ describe('CallbackHandler', () => {
   });
 
   it.each([
-    ['approve', 'Approved ✔️'],
+    ['approve', '✅ Approved'],
     ['decline', '❌ Declined'],
   ])('sends the %s acknowledgement as a rich standalone message', async (decision, text) => {
     setRichMessagesEnabled(true);
@@ -280,7 +279,7 @@ describe('CallbackHandler', () => {
 
     await handler.handleCallbackQuery(ctx);
 
-    expect(ctx.reply).toHaveBeenCalledWith('Approved ✔️', { parse_mode: 'MarkdownV2' });
+    expect(ctx.reply).toHaveBeenCalledWith('✅ Approved', { parse_mode: 'MarkdownV2' });
     expect(agentClient.resume).toHaveBeenCalled();
   });
 
@@ -634,7 +633,7 @@ describe('CallbackHandler', () => {
     const richCalls = ctx.telegram.callApi.mock.calls.filter(
       (call: unknown[]) => call[0] === 'sendRichMessage',
     );
-    expect(richCalls[0][1].rich_message.markdown).toBe('Approved ✔️');
+    expect(richCalls[0][1].rich_message.markdown).toBe('✅ Approved');
     expect(richCalls[1][1].rich_message.markdown).toContain('<details open>');
     const pending = await pendingStore.get(getGateKey());
     expect(pending?.clarificationMessageId).toBe(901);

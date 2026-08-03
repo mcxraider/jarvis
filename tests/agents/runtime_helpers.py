@@ -39,6 +39,8 @@ def make_preferences(
     google_calendar_comments: Optional[List[str]] = None,
     access: Optional[Dict[str, object]] = None,
     onboarding: Optional[Dict[str, object]] = None,
+    llm: Optional[Dict[str, object]] = None,
+    execution: Optional[Dict[str, object]] = None,
 ) -> AssistantPreferencesV1:
     routing = {
         "task_provider": task_provider,
@@ -81,6 +83,8 @@ def make_preferences(
             },
             **({"access": access} if access is not None else {}),
             **({"onboarding": onboarding} if onboarding is not None else {}),
+            **({"llm": llm} if llm is not None else {}),
+            **({"execution": execution} if execution is not None else {}),
         }
     )
 

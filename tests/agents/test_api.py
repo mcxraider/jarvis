@@ -440,7 +440,7 @@ class JarvisApiTests(unittest.TestCase):
 
     def test_health_detail_ok(self) -> None:
         with patch(
-            "agents.agent_api.app.api.routes.health._check_deepseek",
+            "agents.agent_api.app.api.routes.health._check_llm",
             return_value={"ok": True, "detail": "reachable"},
         ), patch(
             "agents.agent_api.app.api.routes.health._check_todoist",
@@ -451,15 +451,16 @@ class JarvisApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["status"], "ok")
+        self.assertEqual(body["provider"], "openai")
         self.assertIn("model", body)
-        self.assertEqual(body["checks"]["deepseek"], {"ok": True, "detail": "reachable"})
+        self.assertEqual(body["checks"]["llm"], {"ok": True, "detail": "reachable"})
         self.assertEqual(body["checks"]["todoist"], {"ok": True, "detail": "5 project(s)"})
         self.assertEqual(
             body["limits"],
             {
                 "run_deadline_seconds": 150.0,
                 "max_agent_turns": 20,
-                "deepseek_request_timeout_seconds": 30.0,
+                "llm_request_timeout_seconds": 60.0,
                 "model_router_complex_timeout_seconds": 90.0,
             },
         )
@@ -468,7 +469,7 @@ class JarvisApiTests(unittest.TestCase):
 
     def test_health_detail_degraded_when_a_check_fails(self) -> None:
         with patch(
-            "agents.agent_api.app.api.routes.health._check_deepseek",
+            "agents.agent_api.app.api.routes.health._check_llm",
             return_value={"ok": True, "detail": "reachable"},
         ), patch(
             "agents.agent_api.app.api.routes.health._check_todoist",
@@ -511,6 +512,7 @@ class JarvisApiTests(unittest.TestCase):
                 "status": "completed",
                 "thread_id": "thread-1",
                 "response": "Done.",
+                "reasoning_content": None,
                 "interrupt": None,
                 "tool_results": [{"tool_name": "add_todoist_task"}],
                 "error": None,
@@ -525,6 +527,47 @@ class JarvisApiTests(unittest.TestCase):
         self.assertEqual(identity.telegram_id, 123)
         self.assertEqual(identity.username, "tester")
         self.assertEqual(run.call_args.kwargs["request_id"], "tg_test")
+
+    def _completed(self):
+        return {
+            "thread_id": "t",
+            "interrupted": False,
+            "final_response": "ok",
+            "tool_results": [],
+            "error": "",
+        }
+
+    def test_invoke_omitted_allow_mutations_reaches_runner_as_none(self) -> None:
+        # Stage 3: the route must NOT coerce a missing allow_mutations to the
+        # global default — the resolver decides that once prefs are loaded.
+        with patch(
+            "agents.agent_api.app.api.routes.invoke.run_jarvis",
+            return_value=self._completed(),
+        ) as run:
+            self.client.post("/invoke", json={"message": "hi", "user_id": "jerry"})
+        self.assertIsNone(run.call_args.kwargs["allow_mutations"])
+
+    def test_invoke_explicit_allow_mutations_false_is_preserved(self) -> None:
+        with patch(
+            "agents.agent_api.app.api.routes.invoke.run_jarvis",
+            return_value=self._completed(),
+        ) as run:
+            self.client.post(
+                "/invoke",
+                json={"message": "hi", "user_id": "jerry", "allow_mutations": False},
+            )
+        self.assertIs(run.call_args.kwargs["allow_mutations"], False)
+
+    def test_resume_omitted_allow_mutations_reaches_runner_as_none(self) -> None:
+        with patch(
+            "agents.agent_api.app.api.routes.resume.run_jarvis",
+            return_value=self._completed(),
+        ) as run:
+            self.client.post(
+                "/resume",
+                json={"message": "yes", "user_id": "jerry", "thread_id": "t"},
+            )
+        self.assertIsNone(run.call_args.kwargs["allow_mutations"])
 
     def test_invoke_awaits_async_runner(self) -> None:
         run = AsyncMock(
@@ -708,7 +751,9 @@ class JarvisApiTests(unittest.TestCase):
         self.assertEqual(run.call_args_list[0].kwargs["user_prompt"], "first prompt")
         self.assertEqual(run.call_args_list[1].kwargs["user_prompt"], "second prompt")
         self.assertEqual(run.call_args_list[0].kwargs["max_agent_turns"], 3)
-        self.assertTrue(run.call_args_list[0].kwargs["allow_mutations"])
+        # Stage 3: routes forward the raw request value; the resolver defaults
+        # an omitted allow_mutations to the global setting inside run_jarvis_async.
+        self.assertIsNone(run.call_args_list[0].kwargs["allow_mutations"])
         self.assertEqual(run.call_args_list[0].kwargs["request_source"], "api")
 
     def test_config_defaults_to_memory_checkpointing_without_postgres_dsn(self) -> None:
