@@ -10,6 +10,7 @@ class JarvisState(TypedDict, total=False):
     # Raw chat messages are the agent's memory and include tool call/result turns.
     messages: List[Dict[str, Any]]
     user_prompt: str
+    reply_context: Optional[Dict[str, str]]
     user_id: str
     request_source: str
     turn_count: int

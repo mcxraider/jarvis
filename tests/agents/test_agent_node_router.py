@@ -35,8 +35,10 @@ class _CannedRouterClient:
 
     def __init__(self, decision) -> None:
         self._decision = decision
+        self.seen_queries: List[str] = []
 
     def classify(self, query, snapshot):
+        self.seen_queries.append(query)
         return self._decision
 
 SENTINEL_TOOL_RESULT = "SENTINEL_TOOL_RESULT_do_not_lose_me"
@@ -72,12 +74,14 @@ class FakeDecisionSelector:
 
     def __init__(self, decision) -> None:
         self._decision = decision
+        self.seen_queries: List[str] = []
 
     @property
     def decision(self):
         return self._decision
 
     def select_schemas(self, query, registry, **kwargs):
+        self.seen_queries.append(query)
         return registry.openai_schemas()
 
 
@@ -150,11 +154,16 @@ class TestPromptSlimming:
         assert "- Todoist: available" in system
 
 
-def _state_turn0(snapshot, user_prompt="add buy milk"):
+def _state_turn0(snapshot, user_prompt="add buy milk", reply_context=None):
     """A fresh turn-0 state: exactly [system, user], no tool history yet."""
     return {
-        "messages": build_initial_messages(user_prompt, runtime_context=snapshot),
+        "messages": build_initial_messages(
+            user_prompt,
+            runtime_context=snapshot,
+            reply_context=reply_context,
+        ),
         "user_prompt": user_prompt,
+        "reply_context": reply_context,
         "turn_count": 0,
         "runtime_context": snapshot.model_dump(mode="json"),
     }
@@ -170,6 +179,15 @@ class TestOriginalQueryPreservation:
         client, _result = _run_node(state, selector)
 
         assert client.seen_messages[-1]["content"] == original_user
+
+    def test_no_reply_context_keeps_raw_router_query(self):
+        snapshot = make_snapshot(active=("todoist",))
+        selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test"))
+
+        _run_node(_state_turn0(snapshot), selector)
+
+        assert selector.seen_queries == ["add buy milk"]
+
 
 class TestEndToEndThroughRealSelector:
     """The real RouterToolSelector + agent_node compose: filter and slim."""
@@ -198,6 +216,51 @@ class TestEndToEndThroughRealSelector:
         assert "Available tools: ask_user, add_todoist_task, get_tasks" in system
         assert "list_calendar_events" not in system
         assert "add buy milk" in client.seen_messages[-1]["content"]
+
+    def test_reply_context_reaches_router_and_routes_referential_request(self):
+        snapshot = make_snapshot(active=("todoist", "google_calendar"))
+        reply_context = {
+            "role": "assistant",
+            "message": "Created task: Buy milk",
+        }
+        state = _state_turn0(
+            snapshot,
+            user_prompt="make it due tomorrow",
+            reply_context=reply_context,
+        )
+        router_client = _CannedRouterClient(
+            RouterDecision(
+                outcome="routed",
+                domains=["todoist"],
+                uncertain=False,
+                candidate_domains=[],
+                complexity="low",
+                reasoning="task reply context",
+            )
+        )
+        selector = RouterToolSelector(
+            router_client=router_client,
+            snapshot=snapshot,
+            use_fast_path=False,
+            use_lru_cache=False,
+        )
+
+        client, _result = _run_node(state, selector)
+
+        assert router_client.seen_queries == [
+            "Reply context:\n"
+            "- Replied-to role: assistant\n"
+            "- Replied-to message: Created task: Buy milk\n\n"
+            "Current user message:\n"
+            "make it due tomorrow"
+        ]
+        assert {tool["function"]["name"] for tool in client.seen_tools} == {
+            "ask_user",
+            "add_todoist_task",
+            "get_tasks",
+        }
+        assert "Reply context:" in client.seen_messages[-1]["content"]
+        assert "Created task: Buy milk" in client.seen_messages[-1]["content"]
 
     def test_calendar_route_does_not_advertise_todoist_tools(self):
         snapshot = make_snapshot(active=("todoist", "google_calendar"))

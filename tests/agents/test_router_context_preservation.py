@@ -41,8 +41,10 @@ class _CannedRouterClient:
     def __init__(self, decisions: Dict[str, RouterDecision]) -> None:
         self._decisions = decisions
         self._default = RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")
+        self.seen_queries: List[str] = []
 
     def classify(self, query: str, snapshot: Any) -> RouterDecision:
+        self.seen_queries.append(query)
         for key, decision in self._decisions.items():
             if key in query:
                 return decision
@@ -245,6 +247,39 @@ class TestOrchestratorActiveDomains:
         # composed query, so it should return google_calendar decision.
         assert selector.decision is not None
         assert "google_calendar" in effective_router_domains(selector.decision)
+
+    def test_clarification_query_excludes_persisted_telegram_reply_context(self):
+        snapshot = make_snapshot(active=("todoist", "google_calendar"))
+        router_client = _CannedRouterClient({})
+        selector = RouterToolSelector(
+            router_client=router_client,
+            snapshot=snapshot,
+            use_fast_path=False,
+            use_lru_cache=False,
+        )
+        client = _RecordingClient()
+        node = create_agent_node(client, _registry(), max_agent_turns=20, tool_selector=selector)
+        state = _resume_state(
+            snapshot,
+            user_prompt="make it due tomorrow",
+            clarification_history=[
+                {"question": "Which task?", "reply": "Buy milk"},
+            ],
+            active_domains=["todoist"],
+            reply_context={
+                "role": "assistant",
+                "message": "Created task: Buy milk",
+            },
+        )
+
+        asyncio.run(node(state))
+
+        assert router_client.seen_queries == [
+            "make it due tomorrow "
+            "[You asked: Which task?] "
+            "[User replied: Buy milk]"
+        ]
+        assert "Reply context:" not in router_client.seen_queries[0]
 
 
 # ---------------------------------------------------------------------------

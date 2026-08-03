@@ -422,7 +422,7 @@ def load_settings() -> Settings:
         "OPENAI_BASE_URL", "https://api.openai.com/v1"
     )
     openai_max_completion_tokens = _positive_int_env(
-        "OPENAI_MAX_COMPLETION_TOKENS", 16000
+        "OPENAI_MAX_COMPLETION_TOKENS", 20000
     )
     openai_request_timeout_seconds = _positive_float_env(
         "OPENAI_REQUEST_TIMEOUT_SECONDS", 60.0
