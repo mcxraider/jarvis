@@ -9,7 +9,7 @@ import os
 
 from agents.agent_api.app.config import settings
 from agents.agent_api.app.graph.builder import create_jarvis_graph
-from agents.agent_api.app.graph.nodes.orchestrator import DeepSeekAgentClient
+from agents.agent_api.app.graph.nodes.orchestrator import LLMAgentClient
 from agents.agent_api.app.tools.dispatcher import ToolDispatcher
 from agents.agent_api.app.tools.registry_factory import build_registry_from_clients
 from agents.agent_api.app.tools.selection import get_selector
@@ -33,7 +33,7 @@ def _build_studio_graph():
         idempotency_store=None,
     )
     return create_jarvis_graph(
-        DeepSeekAgentClient(tracer=tracer),
+        LLMAgentClient(tracer=tracer),
         dispatcher,
         max_agent_turns=settings.max_agent_turns,
         tracer=tracer,

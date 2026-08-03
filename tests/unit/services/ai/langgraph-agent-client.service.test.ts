@@ -366,6 +366,83 @@ describe('LangGraphAgentClient', () => {
     );
   });
 
+  it('dispatches narration and semantic progress in sequence without dispatching final', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      body: streamBody([
+        { type: 'narration', sequence: 1, text: 'I found the matching tasks.' },
+        {
+          type: 'progress',
+          sequence: 2,
+          fact: { phase: 'lookup', action: 'completed', domains: ['todoist'] },
+        },
+        {
+          type: 'final',
+          response: {
+            status: 'completed',
+            thread_id: 'thread-1',
+            response: 'Done.',
+            tool_results: [],
+          },
+        },
+      ]),
+    }) as any;
+    const onProgress = jest.fn();
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    const response = await client.invoke(
+      { message: 'hello', userId: 'local-user' },
+      {},
+      onProgress,
+    );
+
+    expect(onProgress.mock.calls.map(([event]) => event)).toEqual([
+      {
+        sequence: 1,
+        stage: 'narration',
+        message: 'I found the matching tasks.',
+        narration: 'I found the matching tasks.',
+      },
+      {
+        sequence: 2,
+        stage: 'progress',
+        message: 'Jarvis is working',
+        fact: { phase: 'lookup', action: 'completed', domains: ['todoist'] },
+      },
+    ]);
+    expect(response).toEqual(expect.objectContaining({ status: 'completed', response: 'Done.' }));
+  });
+
+  it('normalizes the rolling health timeout alias and defaults the legacy provider', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        status: 'ok',
+        model: 'deepseek-v4-flash',
+        checks: { deepseek: { ok: true, detail: 'reachable' } },
+        limits: {
+          run_deadline_seconds: 150,
+          max_agent_turns: 20,
+          deepseek_request_timeout_seconds: 30,
+          model_router_complex_timeout_seconds: 90,
+        },
+      }),
+    }) as any;
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    await expect(client.fetchDependencyHealth()).resolves.toEqual(
+      expect.objectContaining({
+        provider: 'deepseek',
+        limits: {
+          run_deadline_seconds: 150,
+          max_agent_turns: 20,
+          llm_request_timeout_seconds: 30,
+          model_router_complex_timeout_seconds: 90,
+        },
+      }),
+    );
+  });
+
   it('logs the backend error returned by a failed stream response', async () => {
     const infoSpy = jest.spyOn(logger, 'info').mockImplementation();
     global.fetch = jest.fn().mockResolvedValue({
@@ -380,14 +457,17 @@ describe('LangGraphAgentClient', () => {
             tool_results: [],
             error: 'Stored user preferences failed schema validation.',
             error_details: {
-              source: 'deepseek',
+              source: 'llm',
+              provider: 'openai',
+              requested_model: 'gpt-5.6-luna',
+              returned_model: 'gpt-5.6-luna-2026-07-15',
               type: 'timeout',
               retryable: true,
               attempts: 3,
               timeout_kind: 'read',
               request_timeout_seconds: 90,
               total_elapsed_ms: 275000,
-              provider_request_id: 'req_deepseek_123',
+              provider_request_id: 'req_openai_123',
             },
           },
         },
@@ -404,14 +484,17 @@ describe('LangGraphAgentClient', () => {
       expect.objectContaining({
         status: 'failed',
         agentError: 'Stored user preferences failed schema validation.',
-        backendErrorSource: 'deepseek',
+        backendErrorSource: 'llm',
+        backendErrorProvider: 'openai',
+        backendErrorRequestedModel: 'gpt-5.6-luna',
+        backendErrorReturnedModel: 'gpt-5.6-luna-2026-07-15',
         backendErrorType: 'timeout',
         backendErrorRetryable: true,
         backendErrorAttempts: 3,
         backendErrorTimeoutKind: 'read',
         backendErrorRequestTimeoutSeconds: 90,
         backendErrorTotalElapsedMs: 275000,
-        backendErrorProviderRequestId: 'req_deepseek_123',
+        backendErrorProviderRequestId: 'req_openai_123',
       }),
     );
   });

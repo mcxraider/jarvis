@@ -34,7 +34,7 @@ Canonical display names are stored only on `users`.
 
 **run_jarvis** builds the graph and injects clients, then hands control to the **Orchestrator**.
 
-Before the orchestrator sees tools, the default **RouterToolSelector** uses a lightweight DeepSeek classifier to pick the relevant connected service domains and expose only those tools plus `ask_user`. The router can also provide a faithful query rewrite and slim the runtime prompt to the chosen domains. Router failures are non-fatal: the run falls back to the static all-tools selector.
+Before the orchestrator sees tools, the default **RouterToolSelector** uses the configured lightweight classifier to pick the relevant connected service domains and expose only those tools plus `ask_user`. The router can also provide a faithful query rewrite and slim the runtime prompt to the chosen domains. Router failures are non-fatal: the run falls back to the static all-tools selector.
 
 The **Orchestrator** is the only graph node that calls the main LLM. It routes every turn to one of:
 
@@ -68,7 +68,7 @@ Every graph node is stateless. Persistence and external IO live in shared single
 | **Query router** | Domain classification, tool narrowing, prompt slimming, and safe fallback |
 | **DB pool** | Connection threads and usage tracking |
 | **Observability** | LangSmith tracing and structured logs |
-| **External APIs** | DeepSeek (LLM) and Todoist (task CRUD) |
+| **External APIs** | DeepSeek or OpenAI (LLM) and Todoist (task CRUD) |
 
 ## Router configuration
 

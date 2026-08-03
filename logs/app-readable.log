@@ -247461,3 +247461,105 @@
     {
       "signal": "SIGINT"
     }
+[2026-08-03 12:17:07] INFO app.startup.validation_completed
+  details:
+    {
+      "requiredEnvVars": 5,
+      "nodeEnv": "development"
+    }
+[2026-08-03 12:17:07] INFO telegram.authorization.configured
+  details:
+    {
+      "store": "postgres",
+      "emergencyDeniedUsers": 0
+    }
+[2026-08-03 12:17:07] INFO WhisperService initialized
+  details:
+    {
+      "model": "whisper-large-v3",
+      "maxFileSizeMB": 25,
+      "responseFormat": "verbose_json",
+      "language": "en",
+      "enforceEnglishOnly": true,
+      "promptLength": 166,
+      "qualityMonitoringEnabled": true,
+      "qualityThresholds": {
+        "minAvgLogprob": -0.5,
+        "maxNoSpeechProb": 0.6,
+        "minCompressionRatio": 0.8,
+        "maxCompressionRatio": 2.4
+      },
+      "requestTimeoutMs": 12000,
+      "maxRetryAttempts": 2,
+      "retryMaxDelayMs": 2000,
+      "retryTotalTimeoutMs": 20000,
+      "maxRetryAfterMs": 5000,
+      "sdkMaxRetries": 0
+    }
+[2026-08-03 12:17:07] INFO telegram.pending_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-08-03 12:17:07] INFO telegram.gate_store.configured
+  details:
+    {
+      "store": "postgres"
+    }
+[2026-08-03 12:17:07] INFO telegram.terminal_reply_store.configured
+  details:
+    {
+      "store": "memory"
+    }
+[2026-08-03 12:17:07] INFO telegram.bot.initialized
+[2026-08-03 12:17:07] INFO app.services.initialized
+  details:
+    {
+      "telegramConfigured": true,
+      "langGraphAgentConfigured": true,
+      "audioTranscriptionConfigured": true,
+      "telegramPendingStoreConfigured": true,
+      "telegramHandlerTimeoutMs": 195000,
+      "langGraphClientOverallTimeoutMs": 165000,
+      "langGraphClientIdleTimeoutMs": 155000
+    }
+[2026-08-03 12:17:07] INFO database.runtime.ready
+  details:
+    {
+      "role": "jarvis_app",
+      "inheritedRole": "jarvis_runtime",
+      "requiredTables": 6
+    }
+[2026-08-03 12:17:09] INFO agent.contract.verified
+  details:
+    {
+      "runDeadlineMs": 150000,
+      "complexModelTimeoutMs": 90000,
+      "maxAgentTurns": 20,
+      "llmRequestTimeoutMs": 60000,
+      "clientOverallMs": 165000,
+      "clientIdleMs": 155000,
+      "telegrafHandlerTimeoutMs": 195000
+    }
+[2026-08-03 12:17:09] INFO telegram.webhook.setup_started
+  details:
+    {
+      "baseUrl": "https://48c6-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-08-03 12:17:10] INFO telegram.webhook.configured
+  details:
+    {
+      "baseUrl": "https://48c6-116-87-102-52.ngrok-free.app",
+      "path": "/webhook/[REDACTED]"
+    }
+[2026-08-03 12:17:10] INFO server.started
+  details:
+    {
+      "url": "http://localhost:3000"
+    }
+[2026-08-03 12:17:10] INFO telegram.webhook.awaiting_updates
+  details:
+    {
+      "path": "/webhook/:secret"
+    }

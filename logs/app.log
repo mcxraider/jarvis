@@ -40527,3 +40527,17 @@
 {"level":"info","message":"server.shutdown.started","signal":"SIGINT","timestamp":"2026-07-15 11:20:30"}
 {"error":"Bot is not running!","level":"error","message":"telegram.bot.stop_failed","timestamp":"2026-07-15 11:20:30"}
 {"level":"info","message":"server.shutdown.completed","signal":"SIGINT","timestamp":"2026-07-15 11:20:30"}
+{"level":"info","message":"app.startup.validation_completed","nodeEnv":"development","requiredEnvVars":5,"timestamp":"2026-08-03 12:17:07"}
+{"emergencyDeniedUsers":0,"level":"info","message":"telegram.authorization.configured","store":"postgres","timestamp":"2026-08-03 12:17:07"}
+{"enforceEnglishOnly":true,"language":"en","level":"info","maxFileSizeMB":25,"maxRetryAfterMs":5000,"maxRetryAttempts":2,"message":"WhisperService initialized","model":"whisper-large-v3","promptLength":166,"qualityMonitoringEnabled":true,"qualityThresholds":{"maxCompressionRatio":2.4,"maxNoSpeechProb":0.6,"minAvgLogprob":-0.5,"minCompressionRatio":0.8},"requestTimeoutMs":12000,"responseFormat":"verbose_json","retryMaxDelayMs":2000,"retryTotalTimeoutMs":20000,"sdkMaxRetries":0,"timestamp":"2026-08-03 12:17:07"}
+{"level":"info","message":"telegram.pending_store.configured","store":"postgres","timestamp":"2026-08-03 12:17:07"}
+{"level":"info","message":"telegram.gate_store.configured","store":"postgres","timestamp":"2026-08-03 12:17:07"}
+{"level":"info","message":"telegram.terminal_reply_store.configured","store":"memory","timestamp":"2026-08-03 12:17:07"}
+{"level":"info","message":"telegram.bot.initialized","timestamp":"2026-08-03 12:17:07"}
+{"audioTranscriptionConfigured":true,"langGraphAgentConfigured":true,"langGraphClientIdleTimeoutMs":155000,"langGraphClientOverallTimeoutMs":165000,"level":"info","message":"app.services.initialized","telegramConfigured":true,"telegramHandlerTimeoutMs":195000,"telegramPendingStoreConfigured":true,"timestamp":"2026-08-03 12:17:07"}
+{"inheritedRole":"jarvis_runtime","level":"info","message":"database.runtime.ready","requiredTables":6,"role":"jarvis_app","timestamp":"2026-08-03 12:17:07"}
+{"clientIdleMs":155000,"clientOverallMs":165000,"complexModelTimeoutMs":90000,"level":"info","llmRequestTimeoutMs":60000,"maxAgentTurns":20,"message":"agent.contract.verified","runDeadlineMs":150000,"telegrafHandlerTimeoutMs":195000,"timestamp":"2026-08-03 12:17:09"}
+{"baseUrl":"https://48c6-116-87-102-52.ngrok-free.app","level":"info","message":"telegram.webhook.setup_started","path":"/webhook/[REDACTED]","timestamp":"2026-08-03 12:17:09"}
+{"baseUrl":"https://48c6-116-87-102-52.ngrok-free.app","level":"info","message":"telegram.webhook.configured","path":"/webhook/[REDACTED]","timestamp":"2026-08-03 12:17:10"}
+{"level":"info","message":"server.started","timestamp":"2026-08-03 12:17:10","url":"http://localhost:3000"}
+{"level":"info","message":"telegram.webhook.awaiting_updates","path":"/webhook/:secret","timestamp":"2026-08-03 12:17:10"}

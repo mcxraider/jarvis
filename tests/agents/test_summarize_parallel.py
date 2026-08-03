@@ -53,7 +53,19 @@ def _ids_from_request(kwargs: dict[str, Any]) -> list[str]:
 
 def _response(summary: str):
     return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=summary))]
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content=summary,
+                    tool_calls=None,
+                    refusal=None,
+                    reasoning_content=None,
+                ),
+                finish_reason="stop",
+            )
+        ],
+        usage=None,
+        model="deepseek-v4-flash",
     )
 
 

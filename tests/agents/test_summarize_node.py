@@ -4,6 +4,7 @@ import asyncio
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -25,6 +26,8 @@ from agents.agent_api.app.graph.nodes.summarize import (
     get_shared_summarizer_client,
 )
 from agents.agent_api.app.graph.run_deps import CONFIGURABLE_DEPS_KEY, RunDeps
+from agents.agent_api.app.llm.chat import UsageLedger
+from agents.agent_api.app.llm.provider import OpenAIChatProfile
 
 
 @pytest.fixture(autouse=True)
@@ -143,8 +146,16 @@ def _make_mock_response(content: str):
     """Build a mock OpenAI completion response."""
     choice = MagicMock()
     choice.message.content = content
+    choice.message.tool_calls = None
+    choice.message.refusal = None
+    choice.message.reasoning_content = None
+    choice.finish_reason = "stop"
     response = MagicMock()
     response.choices = [choice]
+    response.usage = None
+    response.model = "deepseek-v4-flash"
+    response._request_id = None
+    response.request_id = None
     return response
 
 
@@ -570,7 +581,7 @@ class TestSharedSummarizerClients:
         sdk_client.chat.completions.create.side_effect = create
         first_tracer = _RecordingTracer()
         second_tracer = _RecordingTracer()
-        node = create_summarize_node(client=sdk_client, model="summary-fast")
+        node = create_summarize_node(client=sdk_client, model="gpt-5.6-luna")
         first_config = {
             "configurable": {
                 CONFIGURABLE_DEPS_KEY: RunDeps(tracer=first_tracer),
@@ -602,7 +613,7 @@ class TestSharedSummarizerClients:
 
         assert json.loads(first_result["messages"][-1]["content"])["summarized"] is True
         assert json.loads(second_result["messages"][-1]["content"])["summarized"] is True
-        assert {call["model"] for call in calls} == {"summary-fast"}
+        assert {call["model"] for call in calls} == {"gpt-5.6-luna"}
         first_done = next(
             event
             for event in first_tracer.events
@@ -615,3 +626,80 @@ class TestSharedSummarizerClients:
         )
         assert first_done["fields"]["item_count"] == 55
         assert second_done["fields"]["item_count"] == 60
+
+
+def test_openai_summarizer_request_and_usage_are_provider_aware(monkeypatch):
+    items = _make_items(55)
+    summary = "IDs: " + " ".join(str(index) for index in range(1, 56))
+    response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content=summary,
+                    tool_calls=None,
+                    refusal=None,
+                ),
+                finish_reason="stop",
+            )
+        ],
+        model="gpt-5.6-luna",
+        usage=SimpleNamespace(
+            prompt_tokens=100,
+            completion_tokens=25,
+            prompt_tokens_details=SimpleNamespace(cached_tokens=10),
+            completion_tokens_details=SimpleNamespace(reasoning_tokens=0),
+            service_tier=None,
+        ),
+        service_tier=None,
+        id="req_test",
+    )
+    seen_kwargs = []
+
+    async def create(**kwargs):
+        seen_kwargs.append(kwargs)
+        return response
+
+    sdk_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+    profile = OpenAIChatProfile(
+        api_key="openai-test-key",
+        base_url="https://api.openai.com/v1",
+        model="gpt-5.6-luna",
+        max_output_tokens=4_000,
+        request_timeout_seconds=30.0,
+        max_retry_attempts=3,
+        retry_max_delay_seconds=8.0,
+        sdk_max_retries=0,
+    )
+    monkeypatch.setattr(
+        summarize_module,
+        "settings",
+        SimpleNamespace(llm_safety_identifier_secret="safety-secret"),
+    )
+    ledger = UsageLedger()
+    config = {
+        "configurable": {
+            CONFIGURABLE_DEPS_KEY: RunDeps(usage_accumulator=ledger),
+        }
+    }
+    state = _make_state(items)
+    state["user_id"] = "user-123"
+
+    result = asyncio.run(
+        create_summarize_node(client=sdk_client, profile=profile)(state, config)
+    )
+
+    assert json.loads(result["messages"][-1]["content"])["summarized"] is True
+    assert len(seen_kwargs) == 1
+    kwargs = seen_kwargs[0]
+    assert kwargs["model"] == "gpt-5.6-luna"
+    assert kwargs["max_completion_tokens"] == _compute_max_tokens(55)
+    assert kwargs["reasoning_effort"] == "none"
+    assert len(kwargs["safety_identifier"]) == 64
+    assert "max_tokens" not in kwargs
+    assert "temperature" not in kwargs
+    assert "extra_body" not in kwargs
+    assert len(ledger.calls) == 1
+    assert ledger.calls[0].provider.value == "openai"
+    assert ledger.calls[0].cached_read_tokens == 10

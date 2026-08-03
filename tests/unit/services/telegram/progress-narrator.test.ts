@@ -56,9 +56,9 @@ describe('ProgressNarrator', () => {
 
     narrator.record({ phase: 'review', action: 'completed', intent: 'read' }, 3);
     expect(deliver(narrator, 79_000).label)
-      .toBe('Reviewing what I found — still working…');
+      .toBe('Reviewing — still working…');
     expect(deliver(narrator, 120_000).label)
-      .toBe('Reviewing what I found — taking longer than expected…');
+      .toBe('Reviewing — taking longer than expected…');
   });
 
   it('coalesces bursts to the latest sequence and ignores stale events', () => {
@@ -83,8 +83,8 @@ describe('ProgressNarrator', () => {
     narrator.record({ phase: 'review', action: 'completed', intent: 'read' }, 1);
 
     const attempted = narrator.nextDesired(4_000, PROGRESS_RICH_REFRESH_MS);
-    expect(attempted?.label).toBe('Reviewing what I found…');
+    expect(attempted?.label).toBe('Reviewing…');
     expect(narrator.nextDesired(4_001, PROGRESS_RICH_REFRESH_MS))
-      .toEqual(expect.objectContaining({ label: 'Reviewing what I found…' }));
+      .toEqual(expect.objectContaining({ label: 'Reviewing…' }));
   });
 });

@@ -7,6 +7,13 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 import pytest
 
+from agents.agent_api.app.llm.provider import (
+    DeepSeekProfile,
+    LLMProvider,
+    LLMProviderError,
+    OpenAIChatProfile,
+    OpenAIResponsesProfile,
+)
 from agents.agent_api.app.router.model_router import (
     ModelRouter,
     ModelRoutingRule,
@@ -153,3 +160,70 @@ class TestModelRouter:
         default = ModelSelection(model="default", reasoning_effort="max")
         router = ModelRouter(rules, default)
         assert router.select(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")) == sel_a
+
+
+def _profile(provider: LLMProvider):
+    common = dict(
+        api_key="test-key",
+        base_url="https://example.test/v1",
+        model=(
+            "deepseek-v4-flash"
+            if provider is LLMProvider.DEEPSEEK
+            else "gpt-5.6-luna"
+        ),
+        max_output_tokens=100,
+        request_timeout_seconds=30.0,
+        max_retry_attempts=2,
+        retry_max_delay_seconds=2.0,
+        sdk_max_retries=0,
+    )
+    if provider is LLMProvider.DEEPSEEK:
+        return DeepSeekProfile(**common, reasoning_effort="high", thinking_enabled=True)
+    return OpenAIResponsesProfile(**common, reasoning_effort="medium")
+
+
+def test_openai_responses_model_routes_preserve_configured_effort() -> None:
+    router = create_default_model_router(
+        profile=_profile(LLMProvider.OPENAI),
+        default_model="gpt-5.6-luna",
+        default_reasoning="high",
+        complex_model="gpt-5.6-sol",
+        complex_reasoning="max",
+        multi_domain_reasoning="high",
+    )
+    assert router.default.provider is LLMProvider.OPENAI
+    assert router.default.reasoning_effort == "high"
+    decision = RouterDecision(
+        outcome="routed",
+        domains=["todoist"],
+        uncertain=True,
+        candidate_domains=["todoist"],
+        complexity="high",
+        reasoning="test",
+    )
+    assert router.select(decision).reasoning_effort == "max"
+    assert router.select(decision).provider is LLMProvider.OPENAI
+
+
+@pytest.mark.parametrize(
+    ("provider", "foreign_model"),
+    [
+        (LLMProvider.OPENAI, "deepseek-v4-pro"),
+        (LLMProvider.DEEPSEEK, "gpt-5.6-sol"),
+    ],
+)
+def test_model_router_rejects_foreign_provider_models(
+    provider: LLMProvider,
+    foreign_model: str,
+) -> None:
+    valid_default = (
+        "gpt-5.6-luna"
+        if provider is LLMProvider.OPENAI
+        else "deepseek-v4-flash"
+    )
+    with pytest.raises(LLMProviderError, match="incompatible"):
+        create_default_model_router(
+            profile=_profile(provider),
+            default_model=valid_default,
+            complex_model=foreign_model,
+        )

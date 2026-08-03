@@ -14,12 +14,12 @@ describe('TelegramNarrationReporter', () => {
     };
   });
 
-  it('sends a new italic message on first record()', async () => {
+  it('sends a new escaped message on first record()', async () => {
     const reporter = new TelegramNarrationReporter(mockCtx);
     await reporter.record('Looking up your task...');
     expect(mockCtx.reply).toHaveBeenCalledTimes(1);
     const [text, opts] = mockCtx.reply.mock.calls[0];
-    expect(text).toMatch(/^_.*_$/); // wrapped in italic markers
+    expect(text).toBe('Looking up your task\\.\\.\\.');
     expect(opts.parse_mode).toBe('MarkdownV2');
   });
 
@@ -31,7 +31,7 @@ describe('TelegramNarrationReporter', () => {
     expect(mockCtx.telegram.editMessageText).toHaveBeenCalledTimes(1);
     expect(mockCtx.telegram.editMessageText).toHaveBeenCalledWith(
       123, 42, undefined,
-      expect.stringMatching(/^_.*Second.*_$/),
+      'Second',
       expect.objectContaining({ parse_mode: 'MarkdownV2' }),
     );
   });
@@ -91,17 +91,17 @@ describe('TelegramNarrationReporter', () => {
     const reporter = new TelegramNarrationReporter(mockCtx);
     await reporter.record('Hello! [test] (parens)');
     const [text] = mockCtx.reply.mock.calls[0];
-    // All special chars should be escaped within the italic wrapper
+    // All special chars are escaped for MarkdownV2.
     expect(text).toContain('\\!');
     expect(text).toContain('\\[');
     expect(text).toContain('\\(');
   });
 
-  it('trims whitespace before wrapping in italic', async () => {
+  it('trims whitespace before rendering', async () => {
     const reporter = new TelegramNarrationReporter(mockCtx);
     await reporter.record('  hello  ');
     const [text] = mockCtx.reply.mock.calls[0];
-    expect(text).toBe('_hello_');
+    expect(text).toBe('hello');
   });
 
   it('deduplicates trimmed-equivalent text', async () => {

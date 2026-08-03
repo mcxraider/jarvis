@@ -38,8 +38,6 @@ from agents.agent_api.app.middleware.request_gate import (
 )
 from agents.agent_api.app.graph.run_control import RunControl, RunPhase
 from agents.agent_api.app.service import (
-    ALLOW_MUTATIONS,
-    MAX_AGENT_TURNS,
     NULL_TRACE,
     JarvisState,
     run_jarvis_async as run_jarvis,
@@ -112,18 +110,6 @@ async def drain_stream_workers(
         _done, pending = await asyncio.wait(tasks, timeout=remaining)
         if pending:
             return False
-
-
-def allow_mutations(request_value: Optional[bool]) -> bool:
-    if request_value is not None:
-        return request_value
-    return ALLOW_MUTATIONS
-
-
-def allow_bulk_mutations(request_value: Optional[bool]) -> bool:
-    if request_value is not None:
-        return request_value
-    return ALLOW_MUTATIONS
 
 
 request_source = idempotency.request_source
@@ -587,7 +573,7 @@ async def invoke(
             user_prompt=request.message,
             user_id=request.user_id,
             request_source=ctx.request_source,
-            allow_mutations=allow_mutations(request.allow_mutations),
+            allow_mutations=request.allow_mutations,
             tracer=tracer,
             thread_id=request.thread_id,
             identity=ctx.identity,
@@ -637,7 +623,7 @@ async def invoke_stream(
             user_prompt=request.message,
             user_id=request.user_id,
             request_source=ctx.request_source,
-            allow_mutations=allow_mutations(request.allow_mutations),
+            allow_mutations=request.allow_mutations,
             tracer=tracer,
             thread_id=request.thread_id,
             identity=ctx.identity,
@@ -706,8 +692,8 @@ async def invoke_bulk(
                         user_prompt=message,
                         user_id=request.user_id,
                         request_source=request_source(request.source, identity),
-                        allow_mutations=allow_bulk_mutations(request.allow_mutations),
-                        max_agent_turns=request.max_agent_turns or MAX_AGENT_TURNS,
+                        allow_mutations=request.allow_mutations,
+                        max_agent_turns=request.max_agent_turns,
                         tracer=NULL_TRACE,
                         identity=identity,
                         request_id=request.request_id,

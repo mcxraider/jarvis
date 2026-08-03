@@ -173,3 +173,25 @@ class CancelResponse(BaseModel):
         "not_found",
     ]
     request_id: str
+
+
+class DependencyHealth(BaseModel):
+    """Provider-neutral result of one detailed-health dependency probe."""
+
+    ok: bool
+    detail: str = Field(..., min_length=1)
+
+
+class HealthLimits(BaseModel):
+    run_deadline_seconds: float = Field(..., gt=0)
+    max_agent_turns: int = Field(..., gt=0)
+    llm_request_timeout_seconds: float = Field(..., gt=0)
+    model_router_complex_timeout_seconds: float = Field(..., gt=0)
+
+
+class DetailedHealthResponse(BaseModel):
+    status: Literal["ok", "degraded"]
+    provider: Literal["deepseek", "openai"]
+    model: str = Field(..., min_length=1)
+    checks: Dict[str, DependencyHealth]
+    limits: HealthLimits
