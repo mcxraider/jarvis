@@ -3,12 +3,13 @@ import { logger } from '../../../../src/utils/logger';
 
 const validHealth = {
   status: 'ok' as const,
-  model: 'deepseek-v4-flash',
+  provider: 'openai' as const,
+  model: 'gpt-5.6-luna',
   checks: {},
   limits: {
     run_deadline_seconds: 150,
     max_agent_turns: 20,
-    deepseek_request_timeout_seconds: 30,
+    llm_request_timeout_seconds: 60,
     model_router_complex_timeout_seconds: 90,
   },
 };
@@ -31,6 +32,7 @@ describe('verifyAgentContract', () => {
       'agent.contract.verified',
       expect.objectContaining({
         runDeadlineMs: 150_000,
+        llmRequestTimeoutMs: 60_000,
         clientOverallMs: 165_000,
         telegrafHandlerTimeoutMs: 195_000,
       }),
@@ -38,7 +40,11 @@ describe('verifyAgentContract', () => {
   });
 
   it.each([
-    ['complex timeout equals idle timeout', validTimeouts, { model_router_complex_timeout_seconds: 155 }],
+    [
+      'complex timeout equals idle timeout',
+      validTimeouts,
+      { model_router_complex_timeout_seconds: 155 },
+    ],
     ['run deadline equals client idle', { ...validTimeouts, clientIdleMs: 150_000 }, {}],
     ['run deadline equals client overall', validTimeouts, { run_deadline_seconds: 165 }],
     [
@@ -68,6 +74,26 @@ describe('verifyAgentContract', () => {
       '/health/detail omitted runtime limits',
     );
   });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects an invalid provider-neutral request timeout: %s',
+    async (llmRequestTimeout) => {
+      const client = {
+        fetchDependencyHealth: jest.fn().mockResolvedValue({
+          ...validHealth,
+          limits: {
+            ...validHealth.limits,
+            llm_request_timeout_seconds: llmRequestTimeout,
+          },
+        }),
+      };
+
+      // The real client rejects this payload through Zod before readiness runs.
+      // Keep this assertion at the readiness seam by requiring a finite positive
+      // limit before it can be treated as verified.
+      await expect(verifyAgentContract(client as any, validTimeouts)).rejects.toThrow();
+    },
+  );
 
   it('logs at error and continues when the backend is unreachable', async () => {
     const client = {

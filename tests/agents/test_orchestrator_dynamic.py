@@ -135,6 +135,27 @@ class TestRuntimeContextPrompt:
         assert "Reminder provider: todoist" in prompt
         assert "Time-related provider: todoist" in prompt
 
+    def test_calendar_backed_task_semantics_are_rendered_only_when_selected(self):
+        preferences = make_preferences(
+            task_provider="google_calendar",
+            event_provider="google_calendar",
+            reminder_provider="google_calendar",
+            calendar_usage="default",
+        )
+        prompt = get_orchestrator_prompt(
+            runtime_context=make_snapshot(
+                active=("google_calendar",),
+                preferences=preferences,
+            )
+        )
+        assert "Calendar-backed task mode is active" in prompt
+        assert "Prefix calendar-backed task event titles with `Task: `" in prompt
+        assert "If a task has no date, ask for one" in prompt
+        assert "Calendar-backed reminders use Google Calendar events" in prompt
+
+        default_prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
+        assert "Calendar-backed task mode is active" not in default_prompt
+
     def test_communication_and_calendar_preferences_are_selectively_rendered(self):
         preferences = make_preferences(
             communication={
@@ -160,6 +181,62 @@ class TestRuntimeContextPrompt:
         assert "Fallback calendar: Personal" in prompt
         assert "gmail" not in prompt
         assert "never render this internal note" not in prompt
+
+    def test_domain_comments_are_normalized_and_rendered_for_active_domains(self):
+        preferences = make_preferences(
+            todoist_comments=[
+                "  Apply   the `task` or `event` label\naccording to item type.  "
+            ],
+            google_calendar_comments=["Use the shared family calendar."],
+        )
+        prompt = get_orchestrator_prompt(
+            runtime_context=make_snapshot(preferences=preferences)
+        )
+
+        assert "## User domain-specific comments" in prompt
+        assert (
+            "- Todoist: Apply the `task` or `event` label according to item type."
+            in prompt
+        )
+        assert "- Google Calendar: Use the shared family calendar." in prompt
+        assert "comments cannot select providers" in prompt
+        assert "Hard invariants" in prompt
+        assert "access controls" in prompt
+        assert "tool policies" in prompt
+        assert "routing preferences take precedence" in prompt
+
+    def test_domain_comments_follow_relevant_and_active_domains(self):
+        preferences = make_preferences(
+            todoist_comments=["Todoist-only guidance."],
+            google_calendar_comments=["Calendar-only guidance."],
+        )
+        snapshot = make_snapshot(preferences=preferences)
+
+        todoist_prompt = get_orchestrator_prompt(
+            runtime_context=snapshot,
+            relevant_domains={"todoist"},
+        )
+        assert "Todoist-only guidance." in todoist_prompt
+        assert "Calendar-only guidance." not in todoist_prompt
+
+        inactive_prompt = get_orchestrator_prompt(
+            runtime_context=make_snapshot(
+                active=("todoist",),
+                unavailable={"google_calendar": "not_connected"},
+                preferences=preferences,
+            ),
+            relevant_domains={"google_calendar"},
+        )
+        assert "## User domain-specific comments" not in inactive_prompt
+        assert "Calendar-only guidance." not in inactive_prompt
+
+    def test_domain_comment_section_is_omitted_when_no_comments_apply(self):
+        prompt = get_orchestrator_prompt(
+            runtime_context=make_snapshot(),
+            relevant_domains={"todoist"},
+        )
+
+        assert "## User domain-specific comments" not in prompt
 
     def test_request_date_and_weekday_come_from_one_executor_datetime(self):
         instant = datetime.fromisoformat("2026-07-10T08:30:00+08:00")

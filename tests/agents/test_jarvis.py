@@ -465,7 +465,16 @@ class FakeOpenAICompletions:
         effect = self.effects.pop(0)
         if isinstance(effect, BaseException):
             raise effect
-        return SimpleNamespace(choices=[SimpleNamespace(message=copy.deepcopy(effect))])
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=copy.deepcopy(effect),
+                    finish_reason=("tool_calls" if effect.get("tool_calls") else "stop"),
+                )
+            ],
+            model="deepseek-v4-flash",
+            usage=None,
+        )
 
 
 class FakeOpenAIClient:
@@ -580,12 +589,40 @@ class UsageAndRedactionTests(unittest.TestCase):
 
     def test_usage_summary_aggregates_across_turns(self) -> None:
         total = orchestrator_module.UsageSummary()
-        total.add(orchestrator_module.UsageSummary(prompt_tokens=10, total_tokens=12))
-        total.add(orchestrator_module.UsageSummary(prompt_tokens=5, total_tokens=6, reasoning_tokens=2))
+        total.add(orchestrator_module.UsageSummary(
+            prompt_tokens=10, total_tokens=12, models={"deepseek-v4-flash"}
+        ))
+        total.add(orchestrator_module.UsageSummary(
+            prompt_tokens=5, total_tokens=6, reasoning_tokens=2,
+            models={"deepseek-v4-pro"},
+        ))
 
         self.assertEqual(total.prompt_tokens, 15)
         self.assertEqual(total.total_tokens, 18)
         self.assertEqual(total.reasoning_tokens, 2)
+        self.assertEqual(total.models, {"deepseek-v4-flash", "deepseek-v4-pro"})
+        # Model set stays out of the token-only emptiness dict.
+        self.assertNotIn("models", total.as_dict())
+
+    def test_effective_run_model_no_completion_falls_back_to_default(self) -> None:
+        self.assertEqual(
+            builder_module.effective_run_model(set(), "deepseek-v4-flash"),
+            "deepseek-v4-flash",
+        )
+
+    def test_effective_run_model_single_model_used(self) -> None:
+        self.assertEqual(
+            builder_module.effective_run_model({"deepseek-v4-pro"}, "deepseek-v4-flash"),
+            "deepseek-v4-pro",
+        )
+
+    def test_effective_run_model_multiple_models_is_mixed(self) -> None:
+        self.assertEqual(
+            builder_module.effective_run_model(
+                {"deepseek-v4-flash", "deepseek-v4-pro"}, "deepseek-v4-flash"
+            ),
+            "mixed",
+        )
 
     def test_todoist_endpoint_template_strips_identifiers(self) -> None:
         base = todoist_client_module.TODOIST_REST_BASE_URL
@@ -756,6 +793,60 @@ class JarvisGraphTests(unittest.TestCase):
 
         self.assertEqual(result["request_source"], "test")
         self.assertEqual(result["interrupt_payload"]["request_source"], "test")
+
+    def _capture_run_config(self, **run_kwargs) -> Dict[str, Any]:
+        """Run jarvis with a create_jarvis_graph spy and return the invoke config.
+
+        Exercises the real resolve_user_runtime_config wiring in run_jarvis_async
+        (offline path: no identity/DSN -> global settings + request overrides).
+        """
+        captured: List[Dict[str, Any]] = []
+        real_create = builder_module.create_jarvis_graph
+
+        def capturing_create(*args: Any, **kwargs: Any):
+            app = real_create(*args, **kwargs)
+            real_app_ainvoke = app.ainvoke
+
+            async def invoke_spy(state: Any, config: Dict[str, Any]):
+                captured.append(config)
+                return await real_app_ainvoke(state, config)
+
+            app.ainvoke = invoke_spy  # type: ignore[assignment]
+            return app
+
+        with patch.object(builder_module, "create_jarvis_graph", side_effect=capturing_create):
+            jarvis.run_jarvis(
+                user_prompt="fake prompt",
+                agent_client=FakeDeepSeekAgentClient([{"role": "assistant", "content": "Hi."}]),
+                todoist_client=FakeTodoistClient(),
+                tracer=jarvis.NULL_TRACE,
+                **run_kwargs,
+            )
+        self.assertEqual(len(captured), 1)
+        return captured[0]
+
+    def test_offline_run_uses_global_defaults(self) -> None:
+        config = self._capture_run_config()
+        deps = config["configurable"]["deps"]
+        self.assertEqual(deps.max_agent_turns, builder_module.MAX_AGENT_TURNS)
+        self.assertIsNone(deps.forced_model)
+        self.assertIsNone(deps.forced_reasoning_effort)
+        self.assertEqual(config["metadata"]["allow_mutations"], builder_module.ALLOW_MUTATIONS)
+
+    def test_request_allow_mutations_false_tightens_global(self) -> None:
+        config = self._capture_run_config(allow_mutations=False)
+        self.assertIs(config["metadata"]["allow_mutations"], False)
+
+    def test_request_turn_cap_below_global_applies(self) -> None:
+        low = builder_module.MAX_AGENT_TURNS - 1
+        config = self._capture_run_config(max_agent_turns=low)
+        self.assertEqual(config["configurable"]["deps"].max_agent_turns, low)
+
+    def test_request_turn_cap_above_global_is_clamped(self) -> None:
+        config = self._capture_run_config(max_agent_turns=builder_module.MAX_AGENT_TURNS + 100)
+        self.assertEqual(
+            config["configurable"]["deps"].max_agent_turns, builder_module.MAX_AGENT_TURNS
+        )
 
     def test_run_jarvis_sequence_invokes_prompts_in_order(self) -> None:
         agent_client = FakeDeepSeekAgentClient(
@@ -1559,10 +1650,10 @@ class JarvisGraphTests(unittest.TestCase):
 
     def test_deepseek_client_retries_retryable_failures(self) -> None:
         cases = [
-            (FakeOpenAIRateLimitError(429), "rate_limit"),
-            (FakeOpenAIStatusError(503), "server_error"),
+            (FakeOpenAIRateLimitError(429), "rate_limited"),
+            (FakeOpenAIStatusError(503), "provider_unavailable"),
             (FakeOpenAITimeoutError("timeout"), "timeout"),
-            (FakeOpenAIConnectionError("connection"), "connection_error"),
+            (FakeOpenAIConnectionError("connection"), "provider_unavailable"),
         ]
 
         for error, expected_type in cases:
@@ -1617,7 +1708,8 @@ class JarvisGraphTests(unittest.TestCase):
                         client.create_message([{"role": "user", "content": "hello"}], [])
 
                 self.assertEqual(fake_client.completions.calls, 1)
-                self.assertEqual(raised.exception.payload["type"], "client_error")
+                expected_type = "auth" if status_code == 401 else "configuration"
+                self.assertEqual(raised.exception.payload["type"], expected_type)
                 self.assertFalse(raised.exception.payload["retryable"])
                 self.assertEqual(raised.exception.payload["status_code"], status_code)
 

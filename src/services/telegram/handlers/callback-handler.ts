@@ -1,7 +1,6 @@
 import { Context } from 'telegraf';
 import { createRequestId, logger, LogContext } from '../../../utils/logger';
 import { LangGraphAgentClient, LangGraphAgentResponse } from '../../ai/langgraph-agent-client.service';
-import { normalizeMarkdownTables } from '../formatters/markdown-table-normalizer';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { sendClarificationReplyWithReceipt, sendFinalReply } from '../formatters/telegram-rich';
 import { PendingClarificationRecord, PendingClarificationStore } from '../pending-clarification.store';
@@ -73,7 +72,7 @@ export class CallbackHandler {
       const pending = await this.pendingStore.get(gateKey);
       if (!pending) {
         await ctx.answerCbQuery('This action has expired.');
-        try { await ctx.editMessageReplyMarkup(undefined); } catch {}
+        try { await ctx.editMessageReplyMarkup(undefined); } catch { /* best-effort strip, non-critical */ }
         return;
       }
       priorPendingSnapshot = pending;
@@ -117,6 +116,8 @@ export class CallbackHandler {
 
       await ctx.answerCbQuery(decision === 'approve' ? 'Approved!' : 'Declined.');
 
+      try { await ctx.deleteMessage(); } catch { /* best-effort delete, non-critical */ }
+
       const statusEmoji = decision === 'approve' ? '✅' : '❌';
       const statusText = decision === 'approve' ? 'Approved' : 'Declined';
 
@@ -150,18 +151,6 @@ export class CallbackHandler {
           await progress.record(event, signal);
         },
       );
-
-      // Strip the inline keyboard now that the resume succeeded — prevents re-tapping.
-      if (ctx.callbackQuery?.message) {
-        try {
-          await ctx.editMessageReplyMarkup(undefined);
-        } catch (markupError) {
-          logger.warn('telegram.callback.editMarkup.failed', {
-            requestId,
-            error: (markupError as Error).message,
-          });
-        }
-      }
 
       if (agentResponse.delivery === 'ambiguous') {
         // The decision may still be executing remotely. Preserve this running
@@ -395,7 +384,6 @@ export class CallbackHandler {
     threadId: string,
     requestId: string,
   ): Promise<number | undefined> {
-    const normalizedText = normalizeMarkdownTables(text);
     const replyMarkup = {
       inline_keyboard: [
         [
@@ -405,13 +393,13 @@ export class CallbackHandler {
       ],
     };
     try {
-      const message = await ctx.reply(toTelegramMarkdownV2(normalizedText), {
+      const message = await ctx.reply(toTelegramMarkdownV2(text), {
         parse_mode: 'MarkdownV2',
         reply_markup: replyMarkup,
       });
       return message.message_id;
     } catch {
-      const message = await ctx.reply(normalizedText, { reply_markup: replyMarkup });
+      const message = await ctx.reply(text, { reply_markup: replyMarkup });
       return message.message_id;
     }
   }

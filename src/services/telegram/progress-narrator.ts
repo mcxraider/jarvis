@@ -166,14 +166,14 @@ export class ProgressNarrator {
       const domains = domainLabel(fact.domains);
       return domains ? `Pulling up ${domains}…` : 'Checking what I need…';
     }
-    if (fact.phase === 'review') return 'Reviewing what I found…';
-    if (fact.phase === 'preparing_change') return 'Preparing the update…';
+    if (fact.phase === 'review') return 'Reviewing…';
+    if (fact.phase === 'preparing_change') return 'Finalising…';
     if (fact.phase === 'awaiting_confirmation') {
       return fact.intent === 'clarify'
         ? 'Waiting for your details…'
         : 'Awaiting your confirmation…';
     }
-    if (fact.phase === 'applying_change') return 'Making the changes…';
+    if (fact.phase === 'applying_change') return 'Making changes…';
     if (fact.phase === 'finalizing') return 'Putting the answer together…';
     if (fact.phase === 'retrying') {
       const domain = fact.retry?.domain ? DOMAIN_LABELS[fact.retry.domain] : undefined;

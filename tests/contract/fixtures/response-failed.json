@@ -2,5 +2,12 @@
   "status": "failed",
   "thread_id": "thread_abc123",
   "response": "",
-  "error": "DeepSeek API is unreachable after 3 attempts."
+  "error": "The selected LLM provider is unreachable after 3 attempts.",
+  "error_details": {
+    "provider": "openai",
+    "requested_model": "gpt-5.6-luna",
+    "type": "connection",
+    "retryable": true,
+    "attempts": 3
+  }
 }

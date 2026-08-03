@@ -49,15 +49,42 @@ export const AgentDependencyCheckSchema = z.object({
   detail: z.string(),
 });
 
-export const AgentRuntimeLimitsSchema = z.object({
-  run_deadline_seconds: z.number().positive(),
-  max_agent_turns: z.number().int().positive(),
-  deepseek_request_timeout_seconds: z.number().positive(),
-  model_router_complex_timeout_seconds: z.number().positive(),
-});
+const AgentRuntimeLimitsInputSchema = z
+  .object({
+    run_deadline_seconds: z.number().finite().positive(),
+    max_agent_turns: z.number().int().positive(),
+    llm_request_timeout_seconds: z.number().finite().positive().optional(),
+    // One-release rolling-upgrade alias. Parsed output is normalized to the
+    // provider-neutral field below, so callers never need provider branching.
+    deepseek_request_timeout_seconds: z.number().finite().positive().optional(),
+    model_router_complex_timeout_seconds: z.number().finite().positive(),
+  })
+  .superRefine((limits, context) => {
+    if (
+      limits.llm_request_timeout_seconds === undefined &&
+      limits.deepseek_request_timeout_seconds === undefined
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['llm_request_timeout_seconds'],
+        message: 'LLM request timeout is required',
+      });
+    }
+  });
+
+export const AgentRuntimeLimitsSchema = AgentRuntimeLimitsInputSchema.transform(
+  ({ deepseek_request_timeout_seconds, llm_request_timeout_seconds, ...limits }) => ({
+    ...limits,
+    llm_request_timeout_seconds:
+      llm_request_timeout_seconds ?? (deepseek_request_timeout_seconds as number),
+  }),
+);
 
 export const AgentHealthDetailSchema = z.object({
   status: z.enum(['ok', 'degraded']),
+  // Older DeepSeek-only backends omitted this field. Defaulting preserves
+  // rolling compatibility while upgraded backends report it explicitly.
+  provider: z.enum(['deepseek', 'openai']).optional().default('deepseek'),
   model: z.string(),
   checks: z.record(AgentDependencyCheckSchema),
   // Optional so /status remains compatible with a backend during a rolling upgrade.
@@ -95,7 +122,9 @@ export const ProgressFactSchema = z.object({
 // (stage update for the UI) or a final event (complete agent response payload).
 export const StreamProgressEventSchema = z.object({
   type: z.literal('progress'),
-  sequence: z.number().optional(),
+  // Legacy stage-only progress remains accepted, but sequenced native events
+  // must use the positive monotonic counter emitted by the Python stream.
+  sequence: z.number().int().positive().optional(),
   // Legacy fields remain accepted while clients migrate to fact-based progress.
   stage: z.string().optional(),
   message: z.string().optional(),
@@ -105,7 +134,7 @@ export const StreamProgressEventSchema = z.object({
 
 export const StreamNarrationEventSchema = z.object({
   type: z.literal('narration'),
-  sequence: z.number().optional(),
+  sequence: z.number().int().positive(),
   text: z.string(),
 });
 

@@ -11,10 +11,10 @@ def test_router_timeout_default_is_five_seconds(monkeypatch):
     assert settings.router_request_timeout_seconds == 5.0
 
 
-def test_model_router_default_reasoning_is_high(monkeypatch):
+def test_model_router_default_reasoning_is_medium(monkeypatch):
     monkeypatch.delenv("MODEL_ROUTER_DEFAULT_REASONING", raising=False)
     settings = load_settings()
-    assert settings.model_router_default_reasoning == "high"
+    assert settings.model_router_default_reasoning == "medium"
 
 
 def test_model_router_timeout_defaults(monkeypatch):
@@ -25,12 +25,13 @@ def test_model_router_timeout_defaults(monkeypatch):
 
     settings = load_settings()
 
-    assert settings.model_router_default_timeout_seconds == 30.0
+    assert settings.model_router_default_timeout_seconds == 60.0
     assert settings.model_router_multi_domain_timeout_seconds == 60.0
     assert settings.model_router_complex_timeout_seconds == 90.0
 
 
 def test_model_router_default_timeout_falls_back_to_deepseek_timeout(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     monkeypatch.setenv("DEEPSEEK_REQUEST_TIMEOUT_SECONDS", "45")
     monkeypatch.delenv("MODEL_ROUTER_DEFAULT_TIMEOUT_SECONDS", raising=False)
 

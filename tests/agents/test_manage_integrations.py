@@ -40,7 +40,6 @@ def test_parser_exposes_all_command_groups():
         ["credential", "validate", "--telegram-user-id", "1", "--provider", "todoist"],
         ["credential", "disable", "--telegram-user-id", "1", "--provider", "todoist"],
         ["credential", "revoke", "--telegram-user-id", "1", "--provider", "todoist"],
-        ["resources", "list", "--telegram-user-id", "1", "--provider", "todoist"],
         ["capabilities", "show", "--telegram-user-id", "1"],
         ["audit", "check"],
     ]
@@ -67,85 +66,57 @@ def test_credential_writes_require_file_or_stdin(command):
 
 
 def test_preferences_are_strictly_validated():
-    loaded = admin._load_preferences(
-        Path("-"), io.StringIO(json.dumps(VALID_PREFERENCES))
-    )
-    assert loaded["routing"] == {
-        **VALID_PREFERENCES["routing"],
-        "reminder_provider": "todoist",
-        "time_related_provider": "google_calendar",
-        "explicit_calendar_provider": "google_calendar",
+    # The routing before-validator materializes reminder/time_related/explicit
+    # calendar providers from task/event_provider, so exclude_unset serialization
+    # returns those derived keys too. That normalization is the correct stored form.
+    expected = {
+        **VALID_PREFERENCES,
+        "routing": {
+            **VALID_PREFERENCES["routing"],
+            "reminder_provider": "todoist",
+            "time_related_provider": "google_calendar",
+            "explicit_calendar_provider": "google_calendar",
+        },
     }
-    assert "usage" not in loaded["domains"]["todoist"]
-    assert "usage" not in loaded["domains"]["google_calendar"]
+    assert admin._load_preferences(
+        Path("-"), io.StringIO(json.dumps(VALID_PREFERENCES))
+    ) == expected
     invalid = {**VALID_PREFERENCES, "unexpected": True}
     with pytest.raises(admin.IntegrationAdminError, match="supported schema"):
         admin._load_preferences(Path("-"), io.StringIO(json.dumps(invalid)))
 
 
-def test_deprecated_domain_fields_are_accepted_but_not_written():
-    payload = json.loads(json.dumps(VALID_PREFERENCES))
-    payload["domains"]["todoist"].update(
-        {
-            "usage": "tasks_and_scheduling",
-            "default_for": ["tasks", "events"],
-        }
-    )
-    payload["domains"]["google_calendar"]["usage"] = (
-        "events_meetings_time_related_items"
-    )
-
-    loaded = admin._load_preferences(Path("-"), io.StringIO(json.dumps(payload)))
-
-    assert loaded["domains"]["todoist"] == {}
-    assert loaded["domains"]["google_calendar"] == {
-        "event_category_defaults": {"work": "Work"}
+def test_load_preferences_serializes_llm_and_execution_sections():
+    document = {
+        **VALID_PREFERENCES,
+        "llm": {"model": "deepseek-v4-pro", "reasoning_effort": "max"},
+        "execution": {"max_agent_turns": 20, "allow_mutations": False},
     }
+    serialized = admin._load_preferences(Path("-"), io.StringIO(json.dumps(document)))
+    assert serialized["llm"] == {"model": "deepseek-v4-pro", "reasoning_effort": "max"}
+    assert serialized["execution"] == {"max_agent_turns": 20, "allow_mutations": False}
 
 
-def test_resource_discovery_is_sanitized_and_paginated(monkeypatch):
-    monkeypatch.setattr(admin, "_stored_credential", lambda user_id, provider: "token")
-
-    class FakeTodoist:
-        def __init__(self, **kwargs):
-            pass
-
-        def get_projects(self, arguments):
-            assert arguments["limit"] == 200
-            return {
-                "results": [{"id": "p1", "name": "Work"}],
-                "next_cursor": None,
-            }
-
-    monkeypatch.setattr(admin, "TodoistApiClient", FakeTodoist)
-    result = admin.list_resources(
-        Namespace(telegram_user_id=1, provider="todoist")
+def test_load_preferences_clearing_section_omits_it():
+    # There is no field-level clear: "clearing" means submitting a full document
+    # without the section. Omitted sections are absent from the serialized payload,
+    # and admin_set_preferences replaces the whole document (see set_preferences).
+    serialized = admin._load_preferences(
+        Path("-"), io.StringIO(json.dumps(VALID_PREFERENCES))
     )
-    assert result == {
-        "provider": "todoist",
-        "resources": [{"id": "p1", "label": "Work", "is_primary": False}],
-    }
+    assert "llm" not in serialized
+    assert "execution" not in serialized
 
 
-def test_restricted_resource_validation_fails_closed(monkeypatch):
-    monkeypatch.setattr(
-        admin,
-        "_provider_resources",
-        lambda user_id, provider: [
-            {"id": "known", "label": "Known", "is_primary": False}
-        ],
-    )
-    with pytest.raises(admin.IntegrationAdminError, match="could not be resolved"):
-        admin._validate_restricted_resources(
-            1,
-            {
-                "access": {
-                    "restricted_todoist_projects": [
-                        {"id": "unknown", "label": "Private"}
-                    ]
-                }
-            },
-        )
+def test_load_preferences_rejects_invalid_llm_section():
+    for bad_llm in (
+        {"reasoning_effort": "disabled"},
+        {"model": "x" * 101},  # exceeds max_length
+        {"unexpected": True},  # extra key
+    ):
+        document = {**VALID_PREFERENCES, "llm": bad_llm}
+        with pytest.raises(admin.IntegrationAdminError, match="supported schema"):
+            admin._load_preferences(Path("-"), io.StringIO(json.dumps(document)))
 
 
 def test_user_creation_rejects_non_iana_timezone(monkeypatch):

@@ -1,8 +1,16 @@
 """Versioned validation models for database-backed assistant preferences."""
 
+from dataclasses import dataclass
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    ValidationError,
+    model_validator,
+)
 
 Provider = Literal["todoist", "google_calendar"]
 PreferenceText = str
@@ -44,7 +52,7 @@ class RoutingException(BaseModel):
 class RoutingPreferences(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    task_provider: Literal["todoist"]
+    task_provider: Provider
     event_provider: Provider
     calendar_usage: Literal["default", "explicit_only"]
     reminder_provider: Optional[Provider] = None
@@ -74,6 +82,7 @@ class RoutingPreferences(BaseModel):
             implicit_google_fields = [
                 name
                 for name in (
+                    "task_provider",
                     "event_provider",
                     "reminder_provider",
                     "time_related_provider",
@@ -93,6 +102,15 @@ class TodoistPreferences(BaseModel):
 
     usage: Optional[Literal["tasks_todos_reminders", "tasks_and_scheduling"]] = None
     default_for: List[str] = Field(default_factory=list)
+    user_domain_specific_comments: List[PreferenceText] = Field(
+        default_factory=list,
+        max_length=10,
+    )
+
+    @model_validator(mode="after")
+    def validate_domain_comments(self) -> "TodoistPreferences":
+        _validate_text_lists(self.user_domain_specific_comments)
+        return self
 
 
 class GoogleCalendarPreferences(BaseModel):
@@ -105,6 +123,10 @@ class GoogleCalendarPreferences(BaseModel):
         min_length=1,
         max_length=200,
     )
+    user_domain_specific_comments: List[PreferenceText] = Field(
+        default_factory=list,
+        max_length=10,
+    )
 
     @model_validator(mode="after")
     def validate_calendar_names(self) -> "GoogleCalendarPreferences":
@@ -114,6 +136,7 @@ class GoogleCalendarPreferences(BaseModel):
             list(self.event_category_defaults),
             list(self.event_category_defaults.values()),
         )
+        _validate_text_lists(self.user_domain_specific_comments)
         return self
 
 
@@ -177,6 +200,22 @@ class OnboardingMetadata(BaseModel):
         return self
 
 
+class LlmPreferences(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    model: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    reasoning_effort: Optional[
+        Literal["off", "none", "low", "medium", "high", "xhigh", "max"]
+    ] = None
+
+
+class ExecutionPreferences(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_agent_turns: Optional[int] = Field(default=None, strict=True, gt=0, le=50)
+    allow_mutations: Optional[StrictBool] = None
+
+
 class AssistantPreferencesV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -185,6 +224,8 @@ class AssistantPreferencesV1(BaseModel):
     domains: DomainPreferences
     access: AccessPreferences = Field(default_factory=AccessPreferences)
     onboarding: OnboardingMetadata = Field(default_factory=OnboardingMetadata)
+    llm: LlmPreferences = Field(default_factory=LlmPreferences)
+    execution: ExecutionPreferences = Field(default_factory=ExecutionPreferences)
 
 
 class ResolvedUserPreferences(BaseModel):
@@ -215,6 +256,47 @@ class ResolvedUserPreferences(BaseModel):
             raise PreferenceConfigurationError(
                 "Stored user preferences failed schema validation."
             ) from exc
+
+
+@dataclass(frozen=True)
+class ResolvedUserRuntimeConfig:
+    forced_model: Optional[str]
+    forced_reasoning_effort: Optional[str]
+    max_agent_turns: int
+    allow_mutations: bool
+
+
+def resolve_user_runtime_config(
+    *,
+    global_max_turns: int,
+    global_allow_mutations: bool,
+    llm: Optional[LlmPreferences],
+    execution: Optional[ExecutionPreferences],
+    request_max_turns: Optional[int],
+    request_allow_mutations: Optional[bool],
+) -> ResolvedUserRuntimeConfig:
+    """Combine global settings, user preferences, and per-request overrides.
+
+    Model/reasoning are forced overrides (a non-null user value wins). Turn budget
+    and mutation permission can only tighten the global setting: a missing user or
+    request value cannot raise a limit or re-enable a higher-level ``False``.
+    """
+    user_max = (
+        execution.max_agent_turns
+        if execution is not None and execution.max_agent_turns is not None
+        else global_max_turns
+    )
+    request_max = request_max_turns if request_max_turns is not None else global_max_turns
+    return ResolvedUserRuntimeConfig(
+        forced_model=llm.model if llm is not None else None,
+        forced_reasoning_effort=llm.reasoning_effort if llm is not None else None,
+        max_agent_turns=min(global_max_turns, user_max, request_max),
+        allow_mutations=(
+            global_allow_mutations
+            and not (execution is not None and execution.allow_mutations is False)
+            and request_allow_mutations is not False
+        ),
+    )
 
 
 def _validate_text_lists(*groups: List[str]) -> None:

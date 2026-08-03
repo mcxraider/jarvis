@@ -20,11 +20,19 @@ npm start
 npm test -- --runInBand
 npm run test:integration -- --runInBand
 npm run lint
+npm run lint:fix
+npm run clean
 
 # Agent CLI (for local testing without Telegram)
-python3 agents/agent_api/app/runner.py
+npm run agent
+# or directly: python3 agents/agent_api/app/runner.py
 
-
+# Supabase local
+npm run db:start
+npm run db:stop
+npm run db:reset
+npm run db:lint
+npm run db:migrations
 ```
 
 ## Runtime
@@ -44,7 +52,7 @@ src/server.ts
 
 `npm start` builds to `dist/` first, then runs `dist/server.js`.
 
-Python agent startup: `agents/agent_api/app/main.py` → `create_app()` → registers routers, runs `lifespan` context (DB pool init, DB verification, log/idempotency cleanup).
+Python agent startup: `agents/agent_api/app/main.py` → `create_app()` → registers routers, runs `lifespan` context (DB pool init, DB verification, async checkpointer init, graph compilation, log/idempotency cleanup).
 
 LangGraph Studio: `langgraph.json` registers the graph at `./agents/agent_api/app/studio.py:graph` (python 3.12). Use `langgraph dev` for local Studio.
 
@@ -63,9 +71,10 @@ Telegram update
   -> Python FastAPI /invoke or /resume (agents/agent_api/app/api/routes/)
   -> request_gate middleware (auth, rate_limit, idempotency, admission, thread_ownership)
   -> graph/builder.py: run_jarvis / run_jarvis_async
-  -> RuntimeContextSnapshot resolver (identity, secrets/Vault, domains, prefs)
-  -> domain router (LLM classifier → fast_path/cache/LLM fallback)
-  -> model_router (rule-based DeepSeek model + reasoning effort selection)
+  -> pre-graph DI setup (injected into RunDeps, not graph nodes):
+     - RuntimeContextSnapshot resolver (identity, secrets/Vault, domains, prefs)
+     - domain router (LLM classifier → fast_path/cache/LLM fallback)
+     - model_router (rule-based DeepSeek model + reasoning effort selection)
   -> orchestrator node (DeepSeek via RunDeps)
   -> validate_entities node (prior-read ID verification, hallucination guard)
   -> tools node (safe calls via ToolDispatcher, concurrent execution)
@@ -81,6 +90,7 @@ Telegram update
 
 ```text
 ENTRY -> agent
+         |-- (error) ------------------> END
          |-- (ask_user tool call?) --> hitl --> agent
          |-- (has tool calls) ------> validate_entities
          |-- (no tool calls) -------> END
@@ -130,7 +140,9 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 - `telegram-bot.service.ts` — Telegraf lifecycle, auth middleware, webhook registration, global error boundary
 - `telegram-menu.registry.ts` — Telegram commands menu (autocomplete): `/new`, `/cancel`, `/help`
 - `telegram-progress-reporter.ts` — ephemeral Telegram status line transport (rich draft or MarkdownV2 edit)
+- `telegram-narration-reporter.ts` — sends/edits a single narration message (MarkdownV2 formatted), simpler sibling of progress reporter
 - `progress-narrator.ts` — reduces streaming ProgressFact events + elapsed time into user-facing copy
+- `forward-buffer.store.ts` — in-memory buffer for user-forwarded messages, accumulated per conversation until dispatched
 - `message-processor.service.ts` — gate-aware pipeline orchestrator
 - `conversation-gate.store.ts` — per-conversation serialization (idle/running/waiting); Postgres-backed
 - `pending-clarification.store.ts` — HITL interrupt state persistence; Postgres-backed
@@ -161,7 +173,6 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 - `telegram-rich.ts` — Bot API 10.1 rich messages with MarkdownV2 fallback
 - `telegram-markdown.ts` — standard Markdown → Telegram MarkdownV2 conversion
 - `message-splitter.ts` — splits at paragraph/line/word boundaries for 4096-char limit
-- `markdown-table-normalizer.ts` — repairs collapsed/broken LLM table output
 - `tool-result-formatter.ts` — success count or bulleted failure list
 
 #### `src/utils/`
@@ -176,6 +187,7 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 ### Python (`agents/agent_api/app/`)
 
 - `main.py` — FastAPI `create_app()`, lifespan hooks
+- `logging.py` — `get_logger` factory for the agent API
 - `config.py` — Pydantic `Settings`, `load_settings()`, `apply_langsmith_env_defaults()`
 - `constants.py` — runtime constants derived from settings (model params, thresholds, tags)
 - `db.py` — PostgreSQL connection pool (`get_pool`, `close_pool`, `verify_database_runtime`)
@@ -221,7 +233,7 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 - `orchestrator.py` — system prompt for orchestrator agent
 - `context.py` — runtime context injection into prompts
 - `worker.py` — worker prompt for tool execution context
-- `skills/` — markdown skill files (google-calendar-skill, daily-brief, free-up-time, group-scheduler)
+- `skills/` — markdown skill files (`google-calendar-skill.md`, `google-calendar-daily-brief-skill.md`, `google-calendar-free-up-time-skill.md`, `google-calendar-group-scheduler-skill.md`)
 
 #### `tools/`
 
@@ -236,8 +248,10 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 - `selectors/static.py` — `StaticToolSelector` (pass-through)
 - `selectors/keyword.py` — `KeywordToolSelector` (regex matching)
 - `selectors/router.py` — `RouterToolSelector` (LLM-backed classifier with cache + fallback)
+- `access_policy.py` — request-scoped resource restrictions / access denial for provider tool calls
 - `todoist/` — client, schemas, tools (tasks, projects, comments, labels, sections)
 - `google_calendar/` — auth, client, schemas, tools (events, free/busy)
+- `gmail/`, `notion/` — placeholder stubs (not active)
 
 #### `router/`
 
@@ -263,6 +277,9 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 - `schemas.py` — Pydantic request/response models
 - `active_runs.py` — `ActiveRunRegistry`: identity-safe registry of in-flight runs with deadlines
 - `admission.py` — `RunAdmission`: process-wide bounded semaphore for concurrent runs
+- `request_idempotency.py` — request-level idempotency coordination (key generation, claim orchestration)
+- `rate_limit.py` — shim re-exporting `consume_new_thread_quota` from middleware
+- `thread_ownership.py` — shim re-exporting `validate_thread_ownership` from middleware
 
 #### `user_context/`
 
@@ -301,7 +318,7 @@ Key tables: `public.users`, `public.telegram_identities`, `public.user_preferenc
 
 Migrations live in `supabase/migrations/`. Use `npm run db:*` scripts for local Supabase management.
 
-Notable migrations include: multi-user foundation, integration connections, user preferences versioning, usage cost tracking, thread quota middleware, daily usage snapshots, daily rate-limit resets, and runtime state cleanup.
+Notable migrations include: multi-user foundation, integration connections, user preferences versioning, usage cost tracking, thread quota middleware, daily usage snapshots, daily rate-limit resets, runtime state cleanup, gate active-request tracking, preferences v1 extension, and user domain-specific comments.
 
 ## Logging
 
@@ -358,6 +375,8 @@ tests/
 │   ├── config/
 │   ├── controllers/
 │   ├── server.test.ts
+│   ├── utils/                     # logger, audio converter, file validation
+│   │   └── ai/
 │   └── services/
 │       ├── ai/                    # langgraph client, whisper, contract readiness
 │       ├── database/              # runtime readiness
@@ -366,17 +385,23 @@ tests/
 │           ├── formatters/
 │           ├── processors/
 │           ├── flows/             # end-to-end confirm flow tests
+│           ├── errors/
 │           └── *.test.ts          # individual service tests
+├── e2e/                           # end-to-end tests
+│   └── telegram/
 ├── integration/                   # TS integration tests (jest)
 │   ├── conversation-gate.integration.test.ts
 │   ├── telegram-integration.test.ts
 │   └── webhook-pipeline.integration.test.ts
 ├── contract/                      # TS-Python contract tests
-│   └── agent-contract.test.ts
+│   ├── agent-contract.test.ts
+│   └── fixtures/
 ├── agents/                        # Python tests (pytest)
 │   ├── test_*.py                  # graph, routing, tools, user context, resilience, multi-user e2e
 │   └── conftest.py
 ├── data/                          # test fixtures
+│   ├── router_evals/             # per-user router evaluation fixtures
+│   └── router_users/
 └── helpers/                       # shared test utilities
 ```
 
@@ -397,6 +422,8 @@ Live tests are gated by explicit env flags and may mutate Todoist only when enab
 - `scripts/_broadcast_onboarded_telegram_users.sh` — sends a message to all onboarded users
 - `scripts/eval_router.py` — evaluate router decisions across test fixtures
 - `scripts/generate_friend_token.py` — OAuth consent for friends to generate Google Calendar tokens
+- `scripts/loadtest_concurrent.sh` — concurrent load testing
+- `scripts/loadtest_seed.sql` / `scripts/loadtest_teardown.sql` — load test DB fixtures
 
 ## Repo Hygiene
 

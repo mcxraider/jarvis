@@ -2,13 +2,15 @@ import { TextProcessorService } from '../../src/services/telegram/processors/tex
 import { CallbackHandler } from '../../src/services/telegram/handlers/callback-handler';
 import { MemoryPendingClarificationStore } from '../../src/services/telegram/pending-clarification.store';
 import { MemoryConversationGateStore } from '../../src/services/telegram/conversation-gate.store';
+import { MemoryTerminalReplyStore } from '../../src/services/telegram/terminal-reply.store';
 import { buildConversationKey } from '../../src/services/telegram/conversation-key';
 
 function createHarness(agentClient: any) {
   const pendingStore = new MemoryPendingClarificationStore();
   const gateStore = new MemoryConversationGateStore();
+  const terminalReplyStore = new MemoryTerminalReplyStore();
   const textProcessor = new TextProcessorService(agentClient, pendingStore, gateStore);
-  const callbackHandler = new CallbackHandler(agentClient, pendingStore, gateStore);
+  const callbackHandler = new CallbackHandler(agentClient, pendingStore, gateStore, terminalReplyStore);
   return { textProcessor, callbackHandler, pendingStore, gateStore };
 }
 

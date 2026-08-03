@@ -1,14 +1,15 @@
 {
   "status": "ok",
-  "model": "deepseek-v4-flash",
+  "provider": "openai",
+  "model": "gpt-5.6-luna",
   "checks": {
-    "deepseek": { "ok": true, "detail": "reachable" },
+    "llm": { "ok": true, "detail": "reachable" },
     "todoist": { "ok": true, "detail": "5 project(s)" }
   },
   "limits": {
     "run_deadline_seconds": 150,
     "max_agent_turns": 20,
-    "deepseek_request_timeout_seconds": 30,
+    "llm_request_timeout_seconds": 60,
     "model_router_complex_timeout_seconds": 90
   }
 }

@@ -14,7 +14,6 @@ import {
   sendClarificationReplyWithReceipt,
   sendFinalReply,
 } from '../formatters/telegram-rich';
-import { normalizeMarkdownTables } from '../formatters/markdown-table-normalizer';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
 import { TelegramNarrationReporter } from '../telegram-narration-reporter';
@@ -194,17 +193,12 @@ export class MessageHandlers {
 
     if (messages.length === 0) {
       await ctx.reply(
-        'No forwarded messages buffered. Forward some messages first, then /send_forward <instruction>.',
+        'No forwarded messages buffered. Forward some messages first, then /send_forward.',
       );
       return;
     }
-    if (!instruction) {
-      await ctx.reply(
-        `You have ${messages.length} buffered message${messages.length === 1 ? '' : 's'}. ` +
-          'Tell me what to do with them, e.g. /send_forward summarize these.',
-      );
-      return;
-    }
+    const resolvedInstruction = instruction || 'Help me with these.';
+
 
     // Keep the buffer intact if the previous request is still running — the processor
     // would reject the dispatch anyway, and draining first would lose the forwards.
@@ -221,7 +215,7 @@ export class MessageHandlers {
       return;
     }
 
-    const combined = formatForwardContext(messages, instruction);
+    const combined = formatForwardContext(messages, resolvedInstruction);
     const confirmationId = this.forwardBuffer.getConfirmationMessageId(gateKey);
     this.forwardBuffer.clear(gateKey);
     logger.info('telegram.forward.dispatched', {
@@ -572,7 +566,7 @@ export class MessageHandlers {
     });
     this.activityService.recordActivity('message_unknown');
 
-    await ctx.reply('I can only handle text, audio, and voice for now.');
+    await ctx.reply('Whats up guys! I can only process text, voice notes, and audio files. Please send one of those.');
   }
 
   private async processAudioFile(ctx: Context, audioFile: any, messageType: string): Promise<void> {
@@ -951,7 +945,6 @@ export class MessageHandlers {
     threadId: string,
     logContext: LogContext,
   ): Promise<number | undefined> {
-    const normalizedText = normalizeMarkdownTables(text);
     const replyMarkup = {
       inline_keyboard: [
         [
@@ -961,7 +954,7 @@ export class MessageHandlers {
       ],
     };
     try {
-      const message = await ctx.reply(toTelegramMarkdownV2(normalizedText), {
+      const message = await ctx.reply(toTelegramMarkdownV2(text), {
         parse_mode: 'MarkdownV2',
         reply_markup: replyMarkup,
       });
@@ -971,7 +964,7 @@ export class MessageHandlers {
         ...logContext,
         error: (error as Error).message,
       });
-      const message = await ctx.reply(normalizedText, { reply_markup: replyMarkup });
+      const message = await ctx.reply(text, { reply_markup: replyMarkup });
       return message.message_id;
     }
   }

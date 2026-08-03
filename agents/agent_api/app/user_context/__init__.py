@@ -16,8 +16,12 @@ from agents.agent_api.app.user_context.identity import (
 )
 from agents.agent_api.app.user_context.preferences import (
     AssistantPreferencesV1,
+    ExecutionPreferences,
+    LlmPreferences,
     PreferenceConfigurationError,
     ResolvedUserPreferences,
+    ResolvedUserRuntimeConfig,
+    resolve_user_runtime_config,
 )
 from agents.agent_api.app.user_context.resolver import (
     load_thread_runtime_context,
@@ -39,14 +43,18 @@ __all__ = [
     "AssistantPreferencesV1",
     "ConnectionRow",
     "DomainAvailability",
+    "ExecutionPreferences",
+    "LlmPreferences",
     "PreferenceConfigurationError",
     "ResolvedIdentity",
     "ResolvedRuntimeContext",
     "ResolvedUserPreferences",
+    "ResolvedUserRuntimeConfig",
     "RuntimeContextError",
     "RuntimeContextSnapshot",
     "TelegramIdentity",
     "classify_domains",
+    "resolve_user_runtime_config",
     "load_thread_runtime_context",
     "refresh_identity_profile",
     "resolve_active_identity",

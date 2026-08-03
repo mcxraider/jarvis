@@ -44,6 +44,9 @@ Each preference is edited via inline keyboard callbacks — no free-text parsing
 ### Not in MVP
 
 - Domain-specific preferences (todoist.usage, google_calendar.event_category_defaults) — too complex for inline keyboards
+- Free-text domain comments (`domains.*.user_domain_specific_comments`) — these
+  require bounded text entry, review, and safety guidance rather than fixed
+  inline-keyboard choices; administrators manage them through onboarding JSON.
 - Creating preferences from scratch (assume row exists; `/config` on a user with no row → "No preferences configured yet, contact admin")
 
 ## Implementation Plan

@@ -36,6 +36,14 @@ export async function verifyAgentContract(
   if (!limits) {
     throw new Error('Agent contract readiness failed: /health/detail omitted runtime limits');
   }
+  if (
+    !Number.isFinite(limits.llm_request_timeout_seconds) ||
+    limits.llm_request_timeout_seconds <= 0
+  ) {
+    throw new Error(
+      'Agent contract readiness failed: /health/detail returned an invalid LLM request timeout',
+    );
+  }
 
   const runDeadlineMs = limits.run_deadline_seconds * 1000;
   const complexModelTimeoutMs = limits.model_router_complex_timeout_seconds * 1000;
@@ -70,7 +78,7 @@ export async function verifyAgentContract(
     runDeadlineMs,
     complexModelTimeoutMs,
     maxAgentTurns: limits.max_agent_turns,
-    deepseekRequestTimeoutMs: limits.deepseek_request_timeout_seconds * 1000,
+    llmRequestTimeoutMs: limits.llm_request_timeout_seconds * 1000,
     ...timeouts,
   });
   return { verified: true, limits };

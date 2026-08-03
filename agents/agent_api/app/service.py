@@ -70,6 +70,8 @@ from agents.agent_api.app.graph.nodes.hitl import (
 from agents.agent_api.app.graph.nodes.orchestrator import (
     DeepSeekAgentClient,
     DeepSeekAgentClientError,
+    LLMAgentClient,
+    LLMAgentClientError,
     LLM_FAILURE_MESSAGE,
     create_agent_node,
     raw_message_from_openai,
@@ -223,6 +225,8 @@ __all__ = [
     # nodes + edges
     "DeepSeekAgentClient",
     "DeepSeekAgentClientError",
+    "LLMAgentClient",
+    "LLMAgentClientError",
     "LLM_FAILURE_MESSAGE",
     "create_agent_node",
     "raw_message_from_openai",
