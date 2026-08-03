@@ -106,7 +106,7 @@ def test_cache_writes_are_separated_from_ordinary_uncached_input() -> None:
 @pytest.mark.parametrize(
     ("model", "input_rate", "cached_rate", "write_rate", "output_rate"),
     [
-        ("gpt-5.6-luna", "1.0000", "0.1000", "1.2500", "6.0000"),
+        ("gpt-5.6-luna", "0.2000", "0.0200", "0.2500", "1.2000"),
         ("gpt-5.6-terra", "2.5000", "0.2500", "3.1250", "15.0000"),
         ("gpt-5.6-sol", "5.0000", "0.5000", "6.2500", "30.0000"),
     ],
@@ -168,7 +168,7 @@ def test_openai_long_context_tier_applies_to_entire_call() -> None:
         cache_write_tokens=0,
         output_tokens=1_000_000,
         request_input_tokens=OPENAI_LONG_CONTEXT_THRESHOLD + 1,
-    ) == Decimal("11.0000")
+    ) == Decimal("2.2000")
 
 
 @pytest.mark.parametrize(
@@ -216,7 +216,7 @@ def test_mixed_provider_ledger_is_costed_per_call_before_aggregation() -> None:
             _Usage("deepseek", "deepseek-v4-flash", 1_000_000),
             _Usage("openai", "gpt-5.6-luna", 1_000_000),
         ]
-    ) == Decimal("1.1400")
+    ) == Decimal("0.3400")
 
 
 def test_unpriceable_call_makes_ledger_cost_unknown() -> None:

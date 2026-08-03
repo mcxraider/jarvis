@@ -164,7 +164,7 @@ class TestLogUsageInsert:
             "gpt-5.6-luna",
         )
         assert second_params[12] == "long_context"
-        assert second_params[13] == Decimal("2.0000")
+        assert second_params[13] == Decimal("0.4000")
 
     def test_issues_insert_with_expected_params(self):
         pool = FakePool()
