@@ -496,6 +496,7 @@ def build_initial_state(
             reply_context=reply_context,
         ),
         "user_prompt": user_prompt,
+        "reply_context": reply_context,
         "user_id": user_id,
         "request_source": request_source,
         "thread_id": thread_id,
