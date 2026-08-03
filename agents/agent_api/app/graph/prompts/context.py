@@ -309,6 +309,27 @@ USER_PROMPTS: List[str] = [
 USER_PROMPT = USER_PROMPTS[0] if USER_PROMPTS else ""
 
 
+def build_user_request_context(
+    user_prompt: str,
+    reply_context: Optional[dict] = None,
+) -> str:
+    """Render quoted reply context alongside the current user message."""
+
+    lines: List[str] = []
+    if reply_context:
+        lines += [
+            "Reply context:",
+            f"- Replied-to role: {reply_context['role']}",
+            f"- Replied-to message: {reply_context['message']}",
+            "",
+        ]
+    lines += [
+        "Current user message:",
+        user_prompt,
+    ]
+    return "\n".join(lines)
+
+
 def build_user_prompt_with_request_datetime(
     user_prompt: str,
     timezone: Optional[str] = None,
@@ -323,17 +344,7 @@ def build_user_prompt_with_request_datetime(
         f"Current datetime: {current.isoformat(timespec='seconds')}",
         f"Current day: {current:%A}",
         "",
-    ]
-    if reply_context:
-        lines += [
-            "Reply context:",
-            f"- Replied-to role: {reply_context['role']}",
-            f"- Replied-to message: {reply_context['message']}",
-            "",
-        ]
-    lines += [
-        "Current user message:",
-        user_prompt,
+        build_user_request_context(user_prompt, reply_context=reply_context),
     ]
     return "\n".join(lines)
 
@@ -381,4 +392,5 @@ __all__ = [
     "USER_PROMPTS",
     "build_initial_messages",
     "build_user_prompt_with_request_datetime",
+    "build_user_request_context",
 ]

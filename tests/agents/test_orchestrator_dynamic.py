@@ -9,7 +9,10 @@ from agents.agent_api.app.graph.builder import (
     _build_runtime_metadata,
     build_initial_state,
 )
-from agents.agent_api.app.graph.prompts.context import build_initial_messages
+from agents.agent_api.app.graph.prompts.context import (
+    build_initial_messages,
+    build_user_request_context,
+)
 from agents.agent_api.app.graph.prompts.orchestrator import (
     _build_role_line,
     get_orchestrator_prompt,
@@ -74,6 +77,36 @@ class TestOfflinePrompt:
             "Current datetime: 2026-07-09T11:30:00-05:00" in messages[1]["content"]
             and "Current day: Thursday" in messages[1]["content"]
         )
+
+
+class TestUserRequestContext:
+    def test_without_reply_context_preserves_current_message_format(self):
+        assert build_user_request_context("hello") == "Current user message:\nhello"
+
+    def test_with_reply_context_quotes_role_message_and_current_request(self):
+        assert build_user_request_context(
+            "make it due tomorrow",
+            reply_context={"role": "assistant", "message": "Created task: Buy milk"},
+        ) == (
+            "Reply context:\n"
+            "- Replied-to role: assistant\n"
+            "- Replied-to message: Created task: Buy milk\n\n"
+            "Current user message:\n"
+            "make it due tomorrow"
+        )
+
+    def test_initial_state_preserves_reply_context_and_raw_user_prompt(self):
+        for role in ("assistant", "user"):
+            reply_context = {"role": role, "message": "Created task: Buy milk"}
+            state = build_initial_state(
+                "make it due tomorrow",
+                reply_context=reply_context,
+            )
+
+            assert state["user_prompt"] == "make it due tomorrow"
+            assert state["reply_context"] == reply_context
+            assert "Reply context:" in state["messages"][-1]["content"]
+            assert f"- Replied-to role: {role}" in state["messages"][-1]["content"]
 
 
 class TestRuntimeContextPrompt:
