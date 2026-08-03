@@ -44,6 +44,7 @@ from agents.agent_api.app.constants import (
     DEEPSEEK_SDK_MAX_RETRIES,
     DEEPSEEK_THINKING_ENABLED,
 )
+from agents.agent_api.app.graph.prompts.context import build_user_request_context
 from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 from agents.agent_api.app.graph.run_deps import deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
@@ -1214,7 +1215,15 @@ def create_agent_node(
                 f"[User replied: {last_reply}]"
             )
         else:
-            routing_query = user_prompt
+            reply_context = state.get("reply_context")
+            routing_query = (
+                build_user_request_context(
+                    user_prompt,
+                    reply_context=reply_context,
+                )
+                if reply_context
+                else user_prompt
+            )
         # Pass active_domains so the selector can merge pinned domains on resumes.
         active_domains = state.get("active_domains") or []
         async_select_schemas = getattr(run_tool_selector, "async_select_schemas", None)
