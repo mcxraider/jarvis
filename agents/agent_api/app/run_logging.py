@@ -369,6 +369,25 @@ def _submit_log_write(fn: Callable[[], None]) -> concurrent.futures.Future[None]
     return future
 
 
+def _redact_checkpoint_secrets(value: Any) -> Any:
+    """Copy a checkpoint payload while removing replay-only encrypted blobs."""
+
+    if isinstance(value, dict):
+        return {
+            key: (
+                "[redacted encrypted reasoning]"
+                if key == "encrypted_content"
+                else _redact_checkpoint_secrets(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_checkpoint_secrets(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_checkpoint_secrets(item) for item in value)
+    return value
+
+
 class RunFileLog:
     """Appends readable, timestamped lines to one per-run log file."""
 
@@ -427,7 +446,12 @@ class RunFileLog:
         """
         import json as _json
 
-        payload = _json.dumps(messages, indent=2, ensure_ascii=False, default=str)
+        payload = _json.dumps(
+            _redact_checkpoint_secrets(messages),
+            indent=2,
+            ensure_ascii=False,
+            default=str,
+        )
         separator = "~" * 78
         lines = [
             separator,

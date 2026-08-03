@@ -135,7 +135,7 @@ describe('Confirm flow: text → buttons → callback → reply', () => {
     expect(agentClient.resume).not.toHaveBeenCalled();
   });
 
-  it('approve callback strips the keyboard and posts the decision as a new message', async () => {
+  it('approve callback removes the prompt and posts the decision as a new message', async () => {
     const agentClient = createMockAgentClient({
       invoke: [interruptResponse({ threadId: THREAD_ID, message: 'Confirm?' })],
       resume: [completedResponse({ threadId: THREAD_ID, message: 'Done.' })],
@@ -147,12 +147,11 @@ describe('Confirm flow: text → buttons → callback → reply', () => {
       originalText: '⚠️ Confirm: Delete tasks',
     } as any);
 
-    expect(ctx.editMessageReplyMarkup).toHaveBeenCalledWith(undefined);
-    expect(ctx.reply).toHaveBeenCalledWith('Approved ✔️', { parse_mode: 'MarkdownV2' });
+    expect(ctx.reply).toHaveBeenCalledWith('✅ Approved', { parse_mode: 'MarkdownV2' });
     expect(ctx.editMessageText).not.toHaveBeenCalled();
   });
 
-  it('decline callback strips the keyboard and posts the decision as a new message', async () => {
+  it('decline callback removes the prompt and posts the decision as a new message', async () => {
     const agentClient = createMockAgentClient({
       invoke: [interruptResponse({ threadId: THREAD_ID, message: 'Confirm?' })],
       resume: [completedResponse({ threadId: THREAD_ID, message: 'Cancelled.' })],
@@ -163,8 +162,7 @@ describe('Confirm flow: text → buttons → callback → reply', () => {
     const { ctx } = await harness.pressButton(`confirm:decline:${THREAD_ID}`);
 
     expect(ctx.answerCbQuery).toHaveBeenCalledWith('Declined.');
-    expect(ctx.editMessageReplyMarkup).toHaveBeenCalledWith(undefined);
-    expect(ctx.reply).toHaveBeenCalledWith('Declined ❌', { parse_mode: 'MarkdownV2' });
+    expect(ctx.reply).toHaveBeenCalledWith('❌ Declined', { parse_mode: 'MarkdownV2' });
     expect(ctx.editMessageText).not.toHaveBeenCalled();
   });
 });

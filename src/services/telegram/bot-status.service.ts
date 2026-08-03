@@ -1,12 +1,11 @@
 // src/services/telegram/bot-status.service.ts — Aggregates system health information
 // for the /status command. Reports runtime uptime, interaction metrics, and — via the
-// Python agent's deep-health probe — the live model plus DeepSeek and Todoist
-// reachability. Outputs a Markdown-formatted status card.
+// Python agent's deep-health probe — the live provider/model plus downstream
+// dependency reachability. Outputs a Markdown-formatted status card.
 //
-// Todoist and DeepSeek execution live entirely in the Python agent, so their health
-// can only be checked there (Todoist tokens are resolved per Telegram user). This
-// service therefore delegates dependency probing to the agent via `agentHealth` and
-// renders whatever it reports; if the agent is unreachable, the card says so honestly.
+// LLM and Todoist execution live entirely in the Python agent, so their health can
+// only be checked there (Todoist tokens are resolved per Telegram user). This service
+// renders whatever the agent reports; if it is unreachable, the card says so honestly.
 
 import { BotActivityService } from './bot-activity.service';
 
@@ -16,9 +15,12 @@ export interface DependencyCheck {
   detail: string;
 }
 
+export type AgentProvider = 'deepseek' | 'openai';
+
 // The structured result of the agent's /health/detail deep-probe.
 export interface AgentDependencyHealth {
   status: 'ok' | 'degraded';
+  provider: AgentProvider;
   model: string;
   checks: Record<string, DependencyCheck>;
 }
@@ -27,6 +29,7 @@ export interface AgentDependencyHealth {
 export type AgentHealthProbe = (telegramUserId?: number) => Promise<AgentDependencyHealth>;
 
 export interface BotStatusServiceOptions {
+  agentProvider?: AgentProvider;
   agentModel?: string;
   agentHealth?: AgentHealthProbe;
 }
@@ -40,8 +43,9 @@ export interface BotStatusSnapshot {
   agent: {
     // Whether the Python agent API answered the health probe at all.
     reachable: boolean;
+    provider: AgentProvider;
     model: string;
-    // Per-dependency checks (deepseek, todoist). Empty when the agent is unreachable.
+    // Per-dependency checks (llm, todoist, etc.). Empty when the agent is unreachable.
     checks: Record<string, DependencyCheck>;
     // Populated with the error reason when the agent is unreachable.
     detail?: string;
@@ -56,10 +60,13 @@ export interface BotStatusSnapshot {
 // Human-friendly labels for known dependency check keys.
 const CHECK_LABELS: Record<string, string> = {
   deepseek: 'DeepSeek',
+  openai: 'OpenAI',
+  log_writer: 'Log writer',
   todoist: 'Todoist',
 };
 
 export class BotStatusService {
+  private readonly fallbackProvider: AgentProvider;
   private readonly fallbackModel: string;
   private readonly agentHealth?: AgentHealthProbe;
 
@@ -67,7 +74,14 @@ export class BotStatusService {
     private readonly activityService: BotActivityService,
     options: BotStatusServiceOptions = {},
   ) {
-    this.fallbackModel = options.agentModel || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
+    const configuredProvider = process.env.LLM_PROVIDER?.trim().toLowerCase();
+    this.fallbackProvider =
+      options.agentProvider || (configuredProvider === 'deepseek' ? 'deepseek' : 'openai');
+    this.fallbackModel =
+      options.agentModel ||
+      (this.fallbackProvider === 'openai'
+        ? process.env.OPENAI_MODEL || 'gpt-5.6-luna'
+        : process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash');
     this.agentHealth = options.agentHealth;
   }
 
@@ -109,6 +123,7 @@ export class BotStatusService {
       '',
       `### 🧠 AI`,
       '',
+      `* Provider: ${this.providerLabel(snapshot.agent.provider)}`,
       `* Model: \`${snapshot.agent.model}\``,
       `* Agent API: ${snapshot.agent.reachable ? 'reachable' : `unreachable (${snapshot.agent.detail})`}`,
       '',
@@ -144,7 +159,7 @@ export class BotStatusService {
 
     return keys.map((key) => {
       const check = agent.checks[key];
-      const label = CHECK_LABELS[key] || key;
+      const label = key === 'llm' ? this.providerLabel(agent.provider) : CHECK_LABELS[key] || key;
       const state = check.ok ? 'reachable' : 'degraded';
       return `* ${label}: ${state} (${check.detail})`;
     });
@@ -152,24 +167,36 @@ export class BotStatusService {
 
   private async getAgentStatus(telegramUserId?: number): Promise<BotStatusSnapshot['agent']> {
     if (!this.agentHealth) {
-      return { reachable: false, model: this.fallbackModel, checks: {}, detail: 'not configured' };
+      return {
+        reachable: false,
+        provider: this.fallbackProvider,
+        model: this.fallbackModel,
+        checks: {},
+        detail: 'not configured',
+      };
     }
 
     try {
       const health = await this.agentHealth(telegramUserId);
       return {
         reachable: true,
+        provider: health.provider || this.fallbackProvider,
         model: health.model || this.fallbackModel,
         checks: health.checks || {},
       };
     } catch (error) {
       return {
         reachable: false,
+        provider: this.fallbackProvider,
         model: this.fallbackModel,
         checks: {},
         detail: (error as Error).message,
       };
     }
+  }
+
+  private providerLabel(provider: AgentProvider): string {
+    return provider === 'openai' ? 'OpenAI' : 'DeepSeek';
   }
 
   private formatDuration(durationMs: number): string {

@@ -382,7 +382,14 @@ class TestPostgresIdempotencyStore:
 
 class TestIdempotencyConfiguration:
     def test_defaults(self):
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(
+            os.environ,
+            {
+                "LLM_PROVIDER": "deepseek",
+                "DEEPSEEK_API_KEY": "test-key",
+            },
+            clear=True,
+        ):
             settings = load_settings()
 
         assert settings.idempotency_request_ttl_seconds == 14400

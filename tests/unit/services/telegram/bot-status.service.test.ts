@@ -7,9 +7,10 @@ import {
 describe('BotStatusService', () => {
   const healthyReport: AgentDependencyHealth = {
     status: 'ok',
-    model: 'deepseek-v4-flash',
+    provider: 'openai',
+    model: 'gpt-5.6-luna',
     checks: {
-      deepseek: { ok: true, detail: 'reachable' },
+      llm: { ok: true, detail: 'reachable' },
       todoist: { ok: true, detail: '5 project(s)' },
     },
   };
@@ -25,9 +26,10 @@ describe('BotStatusService', () => {
 
     expect(agentHealth).toHaveBeenCalledWith(123);
     expect(status).toContain('healthy');
-    expect(status).toContain('deepseek-v4-flash');
+    expect(status).toContain('Provider: OpenAI');
+    expect(status).toContain('gpt-5.6-luna');
     expect(status).toContain('Agent API: reachable');
-    expect(status).toContain('DeepSeek: reachable');
+    expect(status).toContain('OpenAI: reachable');
     expect(status).toContain('Todoist: reachable (5 project(s))');
     expect(status).toContain('Interactions: 1');
   });
@@ -36,9 +38,10 @@ describe('BotStatusService', () => {
     const activity = new BotActivityService();
     const agentHealth = jest.fn().mockResolvedValue({
       status: 'degraded',
+      provider: 'deepseek',
       model: 'deepseek-v4-flash',
       checks: {
-        deepseek: { ok: true, detail: 'reachable' },
+        llm: { ok: true, detail: 'reachable' },
         todoist: { ok: false, detail: 'HTTP 401' },
       },
     } as AgentDependencyHealth);
@@ -47,6 +50,7 @@ describe('BotStatusService', () => {
     const status = await service.getFormattedStatus(123);
 
     expect(status).toContain('degraded');
+    expect(status).toContain('Provider: DeepSeek');
     expect(status).toContain('Todoist: degraded (HTTP 401)');
     expect(status).toContain('DeepSeek: reachable');
   });
@@ -54,14 +58,17 @@ describe('BotStatusService', () => {
   it('reports degraded and unreachable when the agent probe throws', async () => {
     const activity = new BotActivityService();
     const agentHealth = jest.fn().mockRejectedValue(new Error('connect ECONNREFUSED'));
-    const service = new BotStatusService(activity, { agentHealth });
+    const service = new BotStatusService(activity, {
+      agentHealth,
+    });
 
     const status = await service.getFormattedStatus(123);
 
     expect(status).toContain('degraded');
     expect(status).toContain('Agent API: unreachable (connect ECONNREFUSED)');
     // Falls back to the configured/default model name when the agent can't report it.
-    expect(status).toContain('deepseek-v4-flash');
+    expect(status).toContain('Provider: OpenAI');
+    expect(status).toContain('gpt-5.6-luna');
   });
 
   it('reports degraded when no agent health probe is configured', async () => {
@@ -72,5 +79,21 @@ describe('BotStatusService', () => {
 
     expect(status).toContain('degraded');
     expect(status).toContain('Agent API: unreachable (not configured)');
+  });
+
+  it('renders a legacy provider-named dependency without duplicating provider logic', async () => {
+    const activity = new BotActivityService();
+    const agentHealth = jest.fn().mockResolvedValue({
+      status: 'ok',
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      checks: { deepseek: { ok: true, detail: 'reachable' } },
+    } as AgentDependencyHealth);
+    const service = new BotStatusService(activity, { agentHealth });
+
+    const status = await service.getFormattedStatus();
+
+    expect(status).toContain('Provider: DeepSeek');
+    expect(status).toContain('DeepSeek: reachable (reachable)');
   });
 });

@@ -230,6 +230,43 @@ class TestLoadThreadRuntimeContext:
         assert set(resolved.credentials) == {"todoist"}
         assert resolved.credentials["todoist"].secret == TODOIST_SECRET
 
+    def test_pinned_runtime_config_survives_resume(self):
+        # A thread interrupted with per-user llm/execution pins must reload those
+        # exact overrides from its snapshot (snapshot-frozen resume), so
+        # resolve_user_runtime_config downstream keeps forcing the same model.
+        stored = _snapshot(
+            domains=[
+                DomainAvailability(
+                    provider="todoist",
+                    status="active",
+                    connection_id="todoist-conn",
+                    capabilities=["tasks"],
+                )
+            ],
+            prefs={
+                **_VALID_PREFERENCES,
+                "llm": {"model": "deepseek-v4-pro", "reasoning_effort": "max"},
+                "execution": {"max_agent_turns": 12, "allow_mutations": False},
+            },
+        )
+        cursor = ScriptedCursor(
+            fetchone_rows=[
+                (USER_ID,),
+                (stored.model_dump(mode="json"),),
+                (USER_ID, "todoist", "connected", True),
+                (TODOIST_SECRET,),
+            ]
+        )
+        patcher, _pool = _patch_pool(cursor)
+        with patcher:
+            resolved = load_thread_runtime_context("thread-1", IDENTITY)
+
+        prefs = resolved.snapshot.preferences
+        assert prefs.llm.model == "deepseek-v4-pro"
+        assert prefs.llm.reasoning_effort == "max"
+        assert prefs.execution.max_agent_turns == 12
+        assert prefs.execution.allow_mutations is False
+
     def test_only_active_domains_are_rehydrated(self):
         stored = _snapshot(
             domains=[

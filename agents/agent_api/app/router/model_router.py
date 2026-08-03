@@ -11,6 +11,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
+from agents.agent_api.app.llm.provider import (
+    LLMProvider,
+    LLMProviderProfile,
+    validate_model_for_profile,
+    validate_reasoning_for_profile,
+)
 from agents.agent_api.app.router.prompt import QueryComplexity, RouterDecision
 
 
@@ -21,6 +27,7 @@ class ModelSelection:
     model: str
     reasoning_effort: str
     request_timeout_seconds: Optional[float] = None
+    provider: Optional[LLMProvider] = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +86,7 @@ def create_default_model_router(
     complex_timeout_seconds: float = 90.0,
     multi_domain_reasoning: str = "high",
     multi_domain_timeout_seconds: float = 60.0,
+    profile: Optional[LLMProviderProfile] = None,
 ) -> ModelRouter:
     """Build the standard model router from configuration values.
 
@@ -87,10 +95,20 @@ def create_default_model_router(
     2. multi-domain (>1) or medium complexity → complex model + multi-domain budget
     3. low complexity, certain, single/empty domain → default selection
     """
+    provider: Optional[LLMProvider] = None
+    if profile is not None:
+        validate_model_for_profile(profile, default_model)
+        validate_model_for_profile(profile, complex_model)
+        validate_reasoning_for_profile(profile, default_reasoning)
+        validate_reasoning_for_profile(profile, complex_reasoning)
+        validate_reasoning_for_profile(profile, multi_domain_reasoning)
+        provider = profile.provider
+
     default = ModelSelection(
         model=default_model,
         reasoning_effort=default_reasoning,
         request_timeout_seconds=default_timeout_seconds,
+        provider=provider,
     )
 
     rules: List[ModelRoutingRule] = [
@@ -103,6 +121,7 @@ def create_default_model_router(
                 model=complex_model,
                 reasoning_effort=complex_reasoning,
                 request_timeout_seconds=complex_timeout_seconds,
+                provider=provider,
             ),
         ),
         ModelRoutingRule(
@@ -114,6 +133,7 @@ def create_default_model_router(
                 model=complex_model,
                 reasoning_effort=multi_domain_reasoning,
                 request_timeout_seconds=multi_domain_timeout_seconds,
+                provider=provider,
             ),
         ),
     ]

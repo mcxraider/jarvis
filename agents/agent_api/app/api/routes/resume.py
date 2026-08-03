@@ -7,7 +7,6 @@ from fastapi.responses import StreamingResponse
 
 from agents.agent_api.app.api.routes.invoke import (
     _call_runner,
-    allow_mutations,
     run_agent_request,
     runtime_checkpointer,
     stream_agent_run,
@@ -50,7 +49,7 @@ async def resume(
             user_prompt=request.message,
             user_id=request.user_id,
             request_source=ctx.request_source,
-            allow_mutations=allow_mutations(request.allow_mutations),
+            allow_mutations=request.allow_mutations,
             tracer=NULL_TRACE,
             thread_id=request.thread_id,
             identity=ctx.identity,
@@ -97,7 +96,7 @@ async def resume_stream(
             user_prompt=request.message,
             user_id=request.user_id,
             request_source=ctx.request_source,
-            allow_mutations=allow_mutations(request.allow_mutations),
+            allow_mutations=request.allow_mutations,
             tracer=tracer,
             thread_id=request.thread_id,
             identity=ctx.identity,

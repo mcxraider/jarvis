@@ -54,8 +54,11 @@ from agents.agent_api.app.graph.run_control import RunControl
 from agents.agent_api.app.graph.state import JarvisState, enrich_interrupt_status
 from agents.agent_api.app.idempotency import DEFAULT_IDEMPOTENCY_STORE, IdempotencyStore
 from agents.agent_api.app.pricing import (
+    calculate_usage_record_cost_usd,
     calculate_cost_usd,
+    calculate_ledger_cost_usd,
     derive_uncached_input_tokens,
+    pricing_tier_for_request,
 )
 from agents.agent_api.app.post_run import submit_post_run_job
 from agents.agent_api.app.run_logging import (
@@ -81,6 +84,7 @@ from agents.agent_api.app.user_context.resolver import (
     store_thread_context_async,
 )
 from agents.agent_api.app.user_context.identity import TelegramIdentity, telegram_identity
+from agents.agent_api.app.user_context.preferences import resolve_user_runtime_config
 from agents.agent_api.app.user_context.runtime import (
     ResolvedRuntimeContext,
     RuntimeContextSnapshot,
@@ -177,18 +181,88 @@ def _log_usage(
             extra={"thread_id": thread_id, "model": model},
         )
         return
+    records = list(getattr(usage, "records", ()) or ())
+    if records:
+        try:
+            from agents.agent_api.app.db import get_pool
+
+            pool = get_pool()
+            with pool.connection() as conn:
+                with conn.cursor() as cur:
+                    for record in records:
+                        provider = getattr(record.provider, "value", record.provider)
+                        tier = pricing_tier_for_request(
+                            str(provider),
+                            record.request_input_tokens,
+                        )
+                        uncached_tokens = derive_uncached_input_tokens(
+                            record.prompt_tokens,
+                            record.cached_read_tokens,
+                            record.cache_write_tokens,
+                        )
+                        cur.execute(
+                            """
+                            INSERT INTO usage_logs (
+                                user_id, thread_id, event_type, provider,
+                                requested_model, model, input_tokens,
+                                cached_input_tokens, cache_write_input_tokens,
+                                uncached_input_tokens, output_tokens,
+                                reasoning_tokens, request_input_tokens,
+                                pricing_tier, cost_usd, latency_ms
+                            ) VALUES (
+                                public.resolve_user_id(%s), %s, 'llm_call',
+                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                %s, %s, %s
+                            )
+                            """,
+                            (
+                                identity.telegram_id,
+                                thread_id,
+                                str(provider),
+                                record.requested_model,
+                                record.returned_model,
+                                record.prompt_tokens,
+                                record.cached_read_tokens,
+                                record.cache_write_tokens,
+                                uncached_tokens,
+                                record.completion_tokens,
+                                record.reasoning_tokens,
+                                record.request_input_tokens,
+                                tier,
+                                calculate_usage_record_cost_usd(record),
+                                None,
+                            ),
+                        )
+        except Exception as exc:
+            _builder_logger.warning(
+                "Usage logging failed (non-fatal).",
+                extra={
+                    "thread_id": thread_id,
+                    "error": type(exc).__name__,
+                    "error_message": str(exc),
+                },
+            )
+        return
     prompt_tokens = usage.prompt_tokens or 0
     cached_tokens: Optional[int] = usage.cached_tokens or 0
+    cache_write_tokens = getattr(usage, "cache_write_tokens", 0) or 0
     output_tokens = usage.completion_tokens or 0
     uncached_tokens: Optional[int] = None
     cost_usd: Optional[Decimal] = None
     try:
-        uncached_tokens = derive_uncached_input_tokens(prompt_tokens, cached_tokens)
-        cost_usd = calculate_cost_usd(
-            model,
-            prompt_tokens,
-            cached_tokens,
-            output_tokens,
+        uncached_tokens = derive_uncached_input_tokens(
+            prompt_tokens, cached_tokens, cache_write_tokens
+        )
+        records = getattr(usage, "records", [])
+        cost_usd = (
+            calculate_ledger_cost_usd(records)
+            if records
+            else calculate_cost_usd(
+                model,
+                prompt_tokens,
+                cached_tokens,
+                output_tokens,
+            )
         )
         if cost_usd is None:
             _builder_logger.warning(
@@ -247,6 +321,20 @@ def _log_usage(
                 "error_message": str(exc),
             },
         )
+
+
+def effective_run_model(models: set, default: str) -> str:
+    """The single model a run used, "mixed" if more than one, else the default.
+
+    "mixed" is intentionally absent from the pricing table so calculate_cost_usd
+    returns None (NULL cost) rather than mispricing a multi-model run.
+    """
+
+    if not models:
+        return default
+    if len(models) == 1:
+        return next(iter(models))
+    return "mixed"
 
 
 def _persist_post_run_metadata(
@@ -510,10 +598,10 @@ async def run_jarvis_async(
     user_prompt: str = USER_PROMPT,
     user_id: str = USER_ID,
     request_source: str = "api",
-    allow_mutations: bool = ALLOW_MUTATIONS,
+    allow_mutations: Optional[bool] = None,
     agent_client: Optional[Any] = None,
     todoist_client: Optional[Any] = None,
-    max_agent_turns: int = MAX_AGENT_TURNS,
+    max_agent_turns: Optional[int] = None,
     tracer: Optional[TracePrinter] = None,
     thread_id: Optional[str] = None,
     identity: Optional[TelegramIdentity] = None,
@@ -567,6 +655,24 @@ async def run_jarvis_async(
             else await resolve_runtime_context_async(identity)
         )
 
+    # Resolve the effective per-run config once: user preferences + global
+    # settings + optional request overrides. Turns/mutations can only tighten the
+    # global; model/reasoning are forced pins applied in the orchestrator node.
+    llm_prefs = execution_prefs = None
+    if runtime_context is not None:
+        prefs = runtime_context.snapshot.preferences
+        llm_prefs, execution_prefs = prefs.llm, prefs.execution
+    resolved_config = resolve_user_runtime_config(
+        global_max_turns=MAX_AGENT_TURNS,
+        global_allow_mutations=ALLOW_MUTATIONS,
+        llm=llm_prefs,
+        execution=execution_prefs,
+        request_max_turns=max_agent_turns,
+        request_allow_mutations=allow_mutations,
+    )
+    allow_mutations = resolved_config.allow_mutations
+    max_agent_turns = resolved_config.max_agent_turns
+
     base_tracer = tracer if tracer is not None else TracePrinter()
     run_log_identity = RunLogIdentity(
         request_source=request_source,
@@ -589,7 +695,9 @@ async def run_jarvis_async(
             telegram_first_name=telegram_first_name,
             request_source=request_source,
             invocation_type=invocation_type,
-            model=DEEPSEEK_MODEL,
+            model=resolved_config.forced_model or settings.orchestrator_llm.model,
+            model_pinned=resolved_config.forced_model is not None,
+            reasoning_pinned=resolved_config.forced_reasoning_effort is not None,
             allow_mutations=allow_mutations,
             max_agent_turns=max_agent_turns,
             resuming=resuming,
@@ -603,7 +711,9 @@ async def run_jarvis_async(
         "runtime.start",
         "Starting graph invocation.",
         request_id=request_id,
-        model=DEEPSEEK_MODEL,
+        provider=settings.orchestrator_llm.provider.value,
+        model=resolved_config.forced_model or settings.orchestrator_llm.model,
+        model_pinned=resolved_config.forced_model is not None,
         allow_mutations=allow_mutations,
         max_turns=max_agent_turns,
         thread_id=thread_id,
@@ -614,7 +724,12 @@ async def run_jarvis_async(
     tracer.payload("runtime.prompt", "user_prompt", user_prompt)
 
     if agent_client is None:
-        agent_client = get_shared_agent_client(tracer=tracer)
+        agent_client = get_shared_agent_client(
+            tracer=tracer,
+            internal_user_id=(
+                str(identity.telegram_id) if identity is not None else str(user_id)
+            ),
+        )
     else:
         agent_client = _retarget_tracer(agent_client, tracer)
     run_usage = UsageSummary()
@@ -670,6 +785,7 @@ async def run_jarvis_async(
             tool_selector_name=settings.tool_selector,
         )
     model_router = create_default_model_router(
+        profile=settings.orchestrator_llm,
         enabled=settings.model_router_enabled,
         default_model=settings.model_router_default_model,
         default_reasoning=settings.model_router_default_reasoning,
@@ -691,6 +807,8 @@ async def run_jarvis_async(
         model_router=model_router,
         usage_accumulator=run_usage,
         max_agent_turns=max_agent_turns,
+        forced_model=resolved_config.forced_model,
+        forced_reasoning_effort=resolved_config.forced_reasoning_effort,
         run_control=run_control,
     )
     app = get_or_compile_graph(checkpointer)
@@ -706,7 +824,10 @@ async def run_jarvis_async(
             "telegram_id": identity.telegram_id if identity else None,
             "telegram_username": identity.username if identity else None,
             "request_source": request_source,
-            "model": DEEPSEEK_MODEL,
+            "provider": settings.orchestrator_llm.provider.value,
+            "model": resolved_config.forced_model or settings.orchestrator_llm.model,
+            "model_pinned": resolved_config.forced_model is not None,
+            "reasoning_pinned": resolved_config.forced_reasoning_effort is not None,
             "allow_mutations": allow_mutations,
             "max_agent_turns": max_agent_turns,
             **_build_runtime_metadata(runtime_context, registry),
@@ -758,7 +879,7 @@ async def run_jarvis_async(
         raise
     result = enrich_interrupt_status(result, thread_id)
 
-    # Production DeepSeek clients write into the explicitly run-scoped
+    # Production LLM clients write into the explicitly run-scoped
     # accumulator. Preserve compatibility with injected/duck-typed clients that
     # expose only their legacy ``usage`` attribute.
     client_usage = getattr(agent_client, "usage", None)
@@ -770,6 +891,9 @@ async def run_jarvis_async(
     finished_at = datetime.now()
     duration_ms = int((finished_at - started_at).total_seconds() * 1000)
     thread_status = "interrupted" if result.get("interrupted") else "completed"
+    run_model = effective_run_model(
+        getattr(usage, "models", set()), settings.orchestrator_llm.model
+    )
     post_run_accepted = True
     if identity is not None:
         post_run_accepted = submit_post_run_job(
@@ -781,7 +905,7 @@ async def run_jarvis_async(
             resuming,
             usage,
             duration_ms,
-            DEEPSEEK_MODEL,
+            run_model,
         )
     tracer.event(
         "runtime.done",
@@ -811,6 +935,7 @@ async def run_jarvis_async(
             finished_at=format_singapore_log_iso(finished_at),
             duration_seconds=round((finished_at - started_at).total_seconds(), 3),
             request_id=request_id,
+            model=run_model,
             turns=result.get("turn_count"),
             tool_results=len(result.get("tool_results", [])),
             has_error=bool(result.get("error")),
@@ -843,10 +968,10 @@ def run_jarvis(
     user_prompt: str = USER_PROMPT,
     user_id: str = USER_ID,
     request_source: str = "api",
-    allow_mutations: bool = ALLOW_MUTATIONS,
+    allow_mutations: Optional[bool] = None,
     agent_client: Optional[Any] = None,
     todoist_client: Optional[Any] = None,
-    max_agent_turns: int = MAX_AGENT_TURNS,
+    max_agent_turns: Optional[int] = None,
     tracer: Optional[TracePrinter] = None,
     thread_id: Optional[str] = None,
     identity: Optional[TelegramIdentity] = None,

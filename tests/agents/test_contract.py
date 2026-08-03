@@ -189,7 +189,7 @@ class TestAgentResponse:
         resp = AgentResponse.model_validate(data)
         assert resp.status == "failed"
         assert resp.error is not None
-        assert "DeepSeek" in resp.error
+        assert "LLM provider" in resp.error
 
     def test_accepts_failed_response_with_error_details(self):
         data = load_fixture("response-failed.json")

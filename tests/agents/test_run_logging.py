@@ -128,15 +128,16 @@ class RunFileLogWritingTests(TestCase):
             path = run_logging.Path(tmp) / "run.log"
             log = run_logging.RunFileLog(path)
             log.write_header(thread_id="t1", request_source="cli")
-            log.write_line("agent.request", "Calling DeepSeek.")
+            log.write_line("agent.request", "Calling the language model.")
             log.write_footer(turns=2)
+            run_logging.flush_run_logs()
 
             content = path.read_text(encoding="utf-8")
 
         self.assertIn("Jarvis run", content)
         self.assertIn("thread_id: t1", content)
         self.assertIn("agent.request", content)
-        self.assertIn("Calling DeepSeek.", content)
+        self.assertIn("Calling the language model.", content)
         self.assertIn("Run finished", content)
         self.assertIn("turns: 2", content)
 
@@ -148,10 +149,41 @@ class RunFileLogWritingTests(TestCase):
         ):
             path = run_logging.Path(tmp) / "run.log"
             log = run_logging.RunFileLog(path)
-            log.write_line("agent.request", "Calling DeepSeek.")
+            log.write_line("agent.request", "Calling the language model.")
+            log.write_footer()
+            run_logging.flush_run_logs()
             content = path.read_text(encoding="utf-8")
 
         self.assertIn("2026-06-21 09:02:03.456 | agent.request", content)
+
+    def test_messages_dump_redacts_encrypted_reasoning(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = run_logging.Path(tmp) / "run.log"
+            log = run_logging.RunFileLog(path, background=False)
+            log.write_messages_dump(
+                "responses replay",
+                [
+                    {
+                        "role": "assistant",
+                        "continuation": {
+                            "provider": "openai",
+                            "output_items": [
+                                {
+                                    "type": "reasoning",
+                                    "encrypted_content": "secret-ciphertext",
+                                }
+                            ],
+                        },
+                    }
+                ],
+            )
+            log.write_footer()
+            content = path.read_text(encoding="utf-8")
+
+        self.assertNotIn("secret-ciphertext", content)
+        self.assertIn("[redacted encrypted reasoning]", content)
 
 
 class FileLoggingTracerTests(TestCase):
@@ -169,6 +201,8 @@ class FileLoggingTracerTests(TestCase):
             tracer.section("Run")
             tracer.event("tool.done", "Tool call completed.", name="get_tasks")
             tracer.payload("tool.result", "get_tasks", {"results": []})
+            tracer.run_log.write_footer()
+            run_logging.flush_run_logs()
             content = path.read_text(encoding="utf-8")
 
         self.assertIn("=== Run ===", content)
@@ -193,9 +227,12 @@ class _FakeAgentClientWithTracer:
         self.tracer = NULL_TRACE
 
     def create_message(
-        self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        **_kwargs: Any,
     ) -> Dict[str, Any]:
-        self.tracer.event("agent.request", "Calling DeepSeek chat completions.")
+        self.tracer.event("agent.request", "Calling language-model chat completions.")
         return dict(self.response)
 
 
@@ -239,6 +276,7 @@ class RunJarvisFileLoggingTests(TestCase):
                 thread_id="feedface-0000",
                 request_id="tg_log",
             )
+            run_logging.flush_run_logs()
         files = sorted(run_logging.Path(tmp).glob("*/*.log"))
         return files, result
 

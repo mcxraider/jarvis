@@ -66,12 +66,57 @@ def test_credential_writes_require_file_or_stdin(command):
 
 
 def test_preferences_are_strictly_validated():
+    # The routing before-validator materializes reminder/time_related/explicit
+    # calendar providers from task/event_provider, so exclude_unset serialization
+    # returns those derived keys too. That normalization is the correct stored form.
+    expected = {
+        **VALID_PREFERENCES,
+        "routing": {
+            **VALID_PREFERENCES["routing"],
+            "reminder_provider": "todoist",
+            "time_related_provider": "google_calendar",
+            "explicit_calendar_provider": "google_calendar",
+        },
+    }
     assert admin._load_preferences(
         Path("-"), io.StringIO(json.dumps(VALID_PREFERENCES))
-    ) == VALID_PREFERENCES
+    ) == expected
     invalid = {**VALID_PREFERENCES, "unexpected": True}
     with pytest.raises(admin.IntegrationAdminError, match="supported schema"):
         admin._load_preferences(Path("-"), io.StringIO(json.dumps(invalid)))
+
+
+def test_load_preferences_serializes_llm_and_execution_sections():
+    document = {
+        **VALID_PREFERENCES,
+        "llm": {"model": "deepseek-v4-pro", "reasoning_effort": "max"},
+        "execution": {"max_agent_turns": 20, "allow_mutations": False},
+    }
+    serialized = admin._load_preferences(Path("-"), io.StringIO(json.dumps(document)))
+    assert serialized["llm"] == {"model": "deepseek-v4-pro", "reasoning_effort": "max"}
+    assert serialized["execution"] == {"max_agent_turns": 20, "allow_mutations": False}
+
+
+def test_load_preferences_clearing_section_omits_it():
+    # There is no field-level clear: "clearing" means submitting a full document
+    # without the section. Omitted sections are absent from the serialized payload,
+    # and admin_set_preferences replaces the whole document (see set_preferences).
+    serialized = admin._load_preferences(
+        Path("-"), io.StringIO(json.dumps(VALID_PREFERENCES))
+    )
+    assert "llm" not in serialized
+    assert "execution" not in serialized
+
+
+def test_load_preferences_rejects_invalid_llm_section():
+    for bad_llm in (
+        {"reasoning_effort": "disabled"},
+        {"model": "x" * 101},  # exceeds max_length
+        {"unexpected": True},  # extra key
+    ):
+        document = {**VALID_PREFERENCES, "llm": bad_llm}
+        with pytest.raises(admin.IntegrationAdminError, match="supported schema"):
+            admin._load_preferences(Path("-"), io.StringIO(json.dumps(document)))
 
 
 def test_user_creation_rejects_non_iana_timezone(monkeypatch):

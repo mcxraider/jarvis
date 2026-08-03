@@ -111,3 +111,34 @@ example:
 This questionnaire-to-JSON step remains intentionally manual so an administrator
 can review free text for secrets, resource IDs, and attempts to override safety,
 access, tool, or routing controls before storing it.
+
+### Per-user runtime overrides (`llm` / `execution`)
+
+Two optional preference sections let an administrator pin a model or tighten
+safety limits for a single user. Both are omitted by default, in which case the
+user keeps global system behavior.
+
+```json
+{
+  "llm": { "model": "deepseek-v4-pro", "reasoning_effort": "max" },
+  "execution": { "max_agent_turns": 20, "allow_mutations": false }
+}
+```
+
+- `llm.model` / `llm.reasoning_effort` are **forced pins**: a non-null value
+  overrides the model router for that user. `reasoning_effort` is one of
+  `off`, `none`, `low`, `medium`, `high`, `xhigh`, `max`; `model` is a
+  1–100 character identifier. Provider validation rejects incompatible pins.
+- `execution.max_agent_turns` (1–50) and `execution.allow_mutations` can only
+  **tighten** global limits — they never raise the global turn ceiling or
+  re-enable mutations that a higher level disabled.
+
+**Setting and clearing.** `preferences set` replaces the entire preference
+document, so there is no field-level unset. To clear a runtime override, submit
+a new full preferences document that omits the field (or sets it to `null`).
+Omitted `llm`/`execution` sections restore global defaults.
+
+**Paused threads.** A resumed thread uses the runtime configuration captured in
+its snapshot, even after the database preferences change. Live global and
+per-request restrictions still apply, but to force a database-only change onto a
+paused thread, cancel or expire that thread first.

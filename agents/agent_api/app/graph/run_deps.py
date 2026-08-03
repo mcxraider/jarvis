@@ -29,6 +29,8 @@ class RunDeps:
     model_router: Any = None
     usage_accumulator: Any = None
     max_agent_turns: Optional[int] = None
+    forced_model: Optional[str] = None
+    forced_reasoning_effort: Optional[str] = None
     run_control: Any = None
 
     _tool_node: Any = field(default=None, init=False, repr=False, compare=False)
