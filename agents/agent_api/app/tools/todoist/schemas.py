@@ -31,7 +31,9 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
             "content": {
                 "type": "string",
                 "description": (
-                    "Task name/title. Should be concise and actionable. Supports Markdown."
+                    "Clean item title only, excluding create/schedule command language. "
+                    "Use an actionable verb phrase for a task and a natural noun phrase "
+                    "for an event-like plan. Supports Markdown."
                 ),
             },
             "description": {

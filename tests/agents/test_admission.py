@@ -97,10 +97,10 @@ def test_sync_and_async_acquisitions_share_one_pool() -> None:
     async_slot.release()
 
 
-def test_config_defaults_max_concurrent_runs_to_eight(monkeypatch) -> None:
+def test_config_defaults_max_concurrent_runs_to_twelve(monkeypatch) -> None:
     monkeypatch.delenv("JARVIS_MAX_CONCURRENT_RUNS", raising=False)
 
-    assert load_settings().max_concurrent_runs == 8
+    assert load_settings().max_concurrent_runs == 12
 
 
 @pytest.mark.parametrize(

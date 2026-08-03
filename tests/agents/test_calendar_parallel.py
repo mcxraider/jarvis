@@ -288,10 +288,10 @@ def test_with_tracer_clone_shares_transport_inputs() -> None:
     assert clone._lock is client._lock
 
 
-def test_async_calendar_methods_use_shared_bounded_offloader() -> None:
+def test_async_calendar_methods_are_native_coroutines() -> None:
+    import inspect
+
     client = GoogleCalendarClient(service=MagicMock())
-    arguments = {"probe": True}
-    expected = {"ok": True}
     method_pairs = (
         ("async_list_calendars", "list_calendars"),
         ("async_list_calendar_events", "list_calendar_events"),
@@ -302,16 +302,7 @@ def test_async_calendar_methods_use_shared_bounded_offloader() -> None:
         ("async_get_freebusy", "get_freebusy"),
     )
 
-    async def exercise() -> None:
-        with patch(
-            "agents.agent_api.app.tools.google_calendar.client.bounded_to_thread",
-            new_callable=AsyncMock,
-            return_value=expected,
-        ) as offload:
-            for async_name, sync_name in method_pairs:
-                offload.reset_mock()
-                result = await getattr(client, async_name)(arguments)
-                assert result is expected
-                offload.assert_awaited_once_with(getattr(client, sync_name), arguments)
-
-    asyncio.run(exercise())
+    # Calendar leaf calls now use the native async HTTP transport; they must
+    # remain true coroutine entry points and never fall back to a thread pool.
+    for async_name, _sync_name in method_pairs:
+        assert inspect.iscoroutinefunction(getattr(client, async_name))

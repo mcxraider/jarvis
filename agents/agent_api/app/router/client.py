@@ -1,6 +1,6 @@
-"""Synchronous DeepSeek-backed client for the query router.
+"""Provider-neutral synchronous client for the query router.
 
-This mirrors :class:`DeepSeekAgentClient` deliberately: the whole agent path is
+This mirrors :class:`LLMAgentClient` deliberately: the whole agent path is
 synchronous (``select_schemas`` and the graph node are sync), so the router call
 is sync too. It reuses the same OpenAI-compatible endpoint and structured-error
 contract as the orchestrator, but with a tighter, non-critical budget (shorter
@@ -9,11 +9,10 @@ timeout, fewer Tenacity attempts, and no SDK-internal retries). The router is
 :class:`RouterClientError`.
 
 Two things differ from the orchestrator client:
-1. Reasoning is OFF by default — the router is a fast classifier, so it
-   explicitly disables DeepSeek ``thinking`` mode unless configured otherwise.
-   We request DeepSeek's stable JSON Output mode. The provider guarantees JSON
-   syntax; :class:`RouterDecision` remains the authoritative schema and is
-   enforced locally with Pydantic.
+1. Reasoning is minimized by default because the router is a fast classifier.
+   Provider-specific request serialization chooses the compatible reasoning and
+   JSON-output fields. :class:`RouterDecision` remains the authoritative schema
+   and is enforced locally with Pydantic.
 2. The failure surface is wider: a non-retryable transport error AND an
    unparseable / schema-invalid completion both raise ``RouterClientError``. A
    malformed body is not worth retrying (the model will likely repeat it), so it
@@ -21,7 +20,6 @@ Two things differ from the orchestrator client:
 """
 
 import json
-import os
 import threading
 import time
 from contextlib import suppress
@@ -56,7 +54,21 @@ from agents.agent_api.app.constants import (
     ROUTER_REQUEST_TIMEOUT_SECONDS,
     ROUTER_RETRY_MAX_DELAY_SECONDS,
 )
+from agents.agent_api.app.config import settings
 from agents.agent_api.app.graph.nodes.orchestrator import UsageSummary, usage_from_response
+from agents.agent_api.app.llm.chat import (
+    UsageLedger,
+    build_chat_completion_call,
+    derive_safety_identifier,
+    normalize_chat_completion,
+)
+from agents.agent_api.app.llm.provider import (
+    DeepSeekProfile,
+    LLMProvider,
+    LLMProviderError,
+    LLMProviderProfile,
+    OpenAIChatProfile,
+)
 from agents.agent_api.app.router.prompt import RouterDecision, build_router_messages
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
@@ -81,7 +93,7 @@ _shared_async_router_openai_client_lock = threading.Lock()
 
 
 def _default_api_key() -> Optional[str]:
-    return ROUTER_API_KEY or os.getenv("DEEPSEEK_API_KEY")
+    return ROUTER_API_KEY
 
 
 def _build_router_openai_client(
@@ -128,7 +140,7 @@ def get_shared_router_openai_client() -> OpenAI:
             api_key = _default_api_key()
             if not api_key:
                 raise RuntimeError(
-                    "ROUTER_API_KEY (or DEEPSEEK_API_KEY) is required to run the router."
+                    "The selected router LLM API key is required to run the router."
                 )
             _shared_router_openai_client = _build_router_openai_client(
                 api_key=api_key,
@@ -150,7 +162,7 @@ def get_shared_async_router_openai_client() -> AsyncOpenAI:
             api_key = _default_api_key()
             if not api_key:
                 raise RuntimeError(
-                    "ROUTER_API_KEY (or DEEPSEEK_API_KEY) is required to run the router."
+                    "The selected router LLM API key is required to run the router."
                 )
             _shared_async_router_openai_client = _build_async_router_openai_client(
                 api_key=api_key,
@@ -185,7 +197,7 @@ async def close_shared_async_router_openai_client() -> None:
 class RouterClientError(RuntimeError):
     """Terminal router failure with graph-safe structured metadata.
 
-    Mirrors ``DeepSeekAgentClientError`` so callers can treat both uniformly. The
+    Mirrors ``LLMAgentClientError`` so callers can treat both uniformly. The
     payload always carries ``source="router"`` so a failure is attributable even
     when both clients share a trace.
     """
@@ -216,30 +228,57 @@ class RouterClient:
         retry_sleep: Optional[Any] = None,
         client: Optional[OpenAI] = None,
         async_client: Optional[AsyncOpenAI] = None,
+        profile: Optional[LLMProviderProfile] = None,
     ):
-        # ROUTER_API_KEY already falls back to DEEPSEEK_API_KEY at settings load;
-        # keep the env fallback here too so a directly-constructed client works.
-        self.api_key = api_key or _default_api_key()
-        self._default_model = model
-        self.request_timeout_seconds = request_timeout_seconds
+        profile_was_explicit = profile is not None
+        if profile is None and api_key is None and client is None and async_client is None:
+            profile = settings.router_llm
+        if profile is None:
+            resolved_api_key = api_key or _default_api_key() or ""
+            common = {
+                "api_key": resolved_api_key,
+                "base_url": base_url,
+                "model": model,
+                "max_output_tokens": _ROUTER_MAX_TOKENS,
+                "request_timeout_seconds": request_timeout_seconds,
+                "max_retry_attempts": max(1, max_retry_attempts),
+                "retry_max_delay_seconds": retry_max_delay_seconds,
+                "sdk_max_retries": _ROUTER_SDK_MAX_RETRIES,
+            }
+            if model.startswith("gpt-"):
+                profile = OpenAIChatProfile(**common)
+            else:
+                normalized_reasoning = reasoning_effort.strip().lower() or "off"
+                profile = DeepSeekProfile(
+                    **common,
+                    reasoning_effort=normalized_reasoning,
+                    thinking_enabled=self._thinking_enabled(reasoning_effort),
+                )
+        self.profile = profile
+        self.api_key = profile.api_key
+        self._default_model = profile.model
+        self.request_timeout_seconds = profile.request_timeout_seconds
         # Reasoning stays off for the classifier: an effort of "off"/"none"/""
         # means we explicitly disable DeepSeek thinking mode. DeepSeek defaults
         # thinking to enabled, so omission is not enough for the fast router.
-        self._default_reasoning_effort = reasoning_effort
-        self.base_url = base_url
+        self._default_reasoning_effort = profile.reasoning_effort
+        self.base_url = profile.base_url
         self._default_tracer = tracer or NULL_TRACE
         # Compatibility accumulator for direct callers. Production passes an
         # explicit RunDeps-owned accumulator, so the shared transport never owns
         # mutable request usage.
         self.usage = UsageSummary()
-        self.max_retry_attempts = max(1, max_retry_attempts)
-        self.retry_max_delay_seconds = retry_max_delay_seconds
+        self.max_retry_attempts = profile.max_retry_attempts
+        self.retry_max_delay_seconds = profile.retry_max_delay_seconds
         self.retry_sleep = retry_sleep
         if not self.api_key and client is None:
-            raise RuntimeError("ROUTER_API_KEY (or DEEPSEEK_API_KEY) is required to run the router.")
+            raise RuntimeError(
+                "The selected router LLM API key is required to run the router."
+            )
 
         self._uses_default_transport = (
             client is None
+            and not profile_was_explicit
             and api_key is None
             and base_url == ROUTER_BASE_URL
             and request_timeout_seconds == ROUTER_REQUEST_TIMEOUT_SECONDS
@@ -297,9 +336,81 @@ class RouterClient:
             retry_sleep=self.retry_sleep,
             client=self.client,
             async_client=self._async_client,
+            profile=self.profile,
         )
         bound._uses_default_transport = self._uses_default_transport
         return bound
+
+    def _completion_kwargs(
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        snapshot: RuntimeContextSnapshot,
+        model: str,
+        reasoning_effort: str,
+    ) -> Dict[str, Any]:
+        safety_identifier = None
+        if self.profile.provider is LLMProvider.OPENAI:
+            safety_identifier = derive_safety_identifier(
+                settings.llm_safety_identifier_secret or "",
+                snapshot.user_id,
+            )
+        return build_chat_completion_call(
+            self.profile,
+            messages=messages,
+            response_format={"type": "json_object"},
+            safety_identifier=safety_identifier,
+            model=model,
+            max_output_tokens=_ROUTER_MAX_TOKENS,
+            reasoning_effort=reasoning_effort,
+            timeout_seconds=self.request_timeout_seconds,
+        ).as_kwargs()
+
+    def _record_usage(
+        self,
+        response: Any,
+        *,
+        requested_model: str,
+        usage_accumulator: Optional[Any],
+    ) -> UsageSummary:
+        summary = usage_from_response(response)
+        if not isinstance(usage_accumulator, UsageLedger):
+            target = usage_accumulator if usage_accumulator is not None else self.usage
+            target.add(summary)
+        return summary
+
+    def _record_ledger_usage(
+        self,
+        response: Any,
+        *,
+        requested_model: str,
+        usage_accumulator: Optional[Any],
+        attempts: int,
+        tracer: TracePrinter,
+    ) -> None:
+        target = usage_accumulator if usage_accumulator is not None else self.usage
+        records = getattr(target, "records", None)
+        if not isinstance(target, UsageLedger) and not isinstance(records, list):
+            return
+        try:
+            result = normalize_chat_completion(
+                response,
+                self.profile,
+                requested_model=requested_model,
+            )
+        except LLMProviderError as error:
+            raise self._invalid_response(
+                str(error),
+                attempts,
+                tracer,
+            ) from error
+        if isinstance(target, UsageLedger):
+            target.add(result.usage)
+        elif result.usage is not None:
+            # UsageSummary already received the compatibility aggregate before
+            # JSON parsing. Append the exact call identity without re-adding
+            # its token totals.
+            records.append(result.usage)
 
     def _get_async_client(self) -> AsyncOpenAI:
         client = self._async_client
@@ -371,6 +482,7 @@ class RouterClient:
         call_tracer.event(
             "router.request",
             "Calling router classifier.",
+            provider=self.profile.provider.value,
             model=call_model,
             reasoning=call_reasoning,
             messages=len(messages),
@@ -394,17 +506,12 @@ class RouterClient:
                 attempt=attempts,
                 request_timeout_seconds=self.request_timeout_seconds,
             )
-            kwargs: Dict[str, Any] = {
-                "model": call_model,
-                "messages": messages,
-                "max_tokens": _ROUTER_MAX_TOKENS,
-                "response_format": {"type": "json_object"},
-            }
-            if self._thinking_enabled(call_reasoning):
-                kwargs["reasoning_effort"] = call_reasoning
-                kwargs["extra_body"] = _THINKING_ENABLED
-            else:
-                kwargs["extra_body"] = _THINKING_DISABLED
+            kwargs = self._completion_kwargs(
+                messages,
+                snapshot=snapshot,
+                model=call_model,
+                reasoning_effort=call_reasoning,
+            )
             try:
                 response = self.client.chat.completions.create(**kwargs)
             except Exception as error:
@@ -431,7 +538,7 @@ class RouterClient:
             response = self._retrying(call_tracer)(create_completion)
         except Exception as error:
             total_elapsed_ms = round((time.monotonic() - classify_started) * 1000, 1)
-            payload = self._failure_payload(error, attempts)
+            payload = self._failure_payload(error, attempts, requested_model=call_model)
             payload["total_elapsed_ms"] = total_elapsed_ms
             call_tracer.event(
                 "router.error",
@@ -454,14 +561,30 @@ class RouterClient:
             raise RouterClientError(payload) from error
 
         # Read usage before parsing so a downstream parse failure still records tokens.
-        turn_usage = usage_from_response(response)
-        call_usage = usage_accumulator if usage_accumulator is not None else self.usage
-        call_usage.add(turn_usage)
+        turn_usage = self._record_usage(
+            response,
+            requested_model=call_model,
+            usage_accumulator=usage_accumulator,
+        )
 
         decision = self._parse_decision(response, attempts, call_tracer)
+        self._record_ledger_usage(
+            response,
+            requested_model=call_model,
+            usage_accumulator=usage_accumulator,
+            attempts=attempts,
+            tracer=call_tracer,
+        )
         call_tracer.event(
             "router.response",
             "Received router decision.",
+            provider=self.profile.provider.value,
+            requested_model=call_model,
+            returned_model=(
+                response.model
+                if isinstance(getattr(response, "model", None), str)
+                else call_model
+            ),
             domains=len(decision.domains),
             outcome=decision.outcome.value,
             complexity=decision.complexity.value,
@@ -510,6 +633,7 @@ class RouterClient:
         call_tracer.event(
             "router.request",
             "Calling router classifier.",
+            provider=self.profile.provider.value,
             model=call_model,
             reasoning=call_reasoning,
             messages=len(messages),
@@ -535,17 +659,12 @@ class RouterClient:
                 request_timeout_seconds=self.request_timeout_seconds,
                 async_request=True,
             )
-            kwargs: Dict[str, Any] = {
-                "model": call_model,
-                "messages": messages,
-                "max_tokens": _ROUTER_MAX_TOKENS,
-                "response_format": {"type": "json_object"},
-            }
-            if self._thinking_enabled(call_reasoning):
-                kwargs["reasoning_effort"] = call_reasoning
-                kwargs["extra_body"] = _THINKING_ENABLED
-            else:
-                kwargs["extra_body"] = _THINKING_DISABLED
+            kwargs = self._completion_kwargs(
+                messages,
+                snapshot=snapshot,
+                model=call_model,
+                reasoning_effort=call_reasoning,
+            )
             try:
                 response = await client.chat.completions.create(**kwargs)
             except Exception as error:
@@ -576,7 +695,7 @@ class RouterClient:
                     response = await create_completion()
         except Exception as error:
             total_elapsed_ms = round((time.monotonic() - classify_started) * 1000, 1)
-            payload = self._failure_payload(error, attempts)
+            payload = self._failure_payload(error, attempts, requested_model=call_model)
             payload["total_elapsed_ms"] = total_elapsed_ms
             call_tracer.event(
                 "router.error",
@@ -599,13 +718,29 @@ class RouterClient:
             )
             raise RouterClientError(payload) from error
 
-        turn_usage = usage_from_response(response)
-        call_usage = usage_accumulator if usage_accumulator is not None else self.usage
-        call_usage.add(turn_usage)
+        turn_usage = self._record_usage(
+            response,
+            requested_model=call_model,
+            usage_accumulator=usage_accumulator,
+        )
         decision = self._parse_decision(response, attempts, call_tracer)
+        self._record_ledger_usage(
+            response,
+            requested_model=call_model,
+            usage_accumulator=usage_accumulator,
+            attempts=attempts,
+            tracer=call_tracer,
+        )
         call_tracer.event(
             "router.response",
             "Received router decision.",
+            provider=self.profile.provider.value,
+            requested_model=call_model,
+            returned_model=(
+                response.model
+                if isinstance(getattr(response, "model", None), str)
+                else call_model
+            ),
             domains=len(decision.domains),
             outcome=decision.outcome.value,
             complexity=decision.complexity.value,
@@ -763,10 +898,18 @@ class RouterClient:
 
         return isinstance(error, RateLimitError)
 
-    def _failure_payload(self, error: BaseException, attempts: int) -> Dict[str, Any]:
+    def _failure_payload(
+        self,
+        error: BaseException,
+        attempts: int,
+        *,
+        requested_model: Optional[str] = None,
+    ) -> Dict[str, Any]:
         status_code = self._status_code(error)
         payload: Dict[str, Any] = {
             "source": "router",
+            "provider": self.profile.provider.value,
+            "requested_model": requested_model or self.model,
             "type": self._error_type(error),
             "retryable": self._is_retryable_error(error),
             "attempts": attempts,

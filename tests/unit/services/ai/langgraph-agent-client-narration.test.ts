@@ -8,10 +8,10 @@ describe('StreamNarrationEventSchema', () => {
     expect(result.data).toEqual(event);
   });
 
-  it('parses narration without sequence', () => {
+  it('rejects narration without sequence', () => {
     const event = { type: 'narration', text: 'Searching...' };
     const result = StreamNarrationEventSchema.safeParse(event);
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
   });
 
   it('rejects narration without text', () => {
@@ -23,7 +23,7 @@ describe('StreamNarrationEventSchema', () => {
 
 describe('StreamEventSchema discriminated union', () => {
   it('recognizes narration type', () => {
-    const event = { type: 'narration', text: 'hello' };
+    const event = { type: 'narration', sequence: 1, text: 'hello' };
     const result = StreamEventSchema.safeParse(event);
     expect(result.success).toBe(true);
   });

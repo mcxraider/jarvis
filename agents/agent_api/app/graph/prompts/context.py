@@ -309,21 +309,13 @@ USER_PROMPTS: List[str] = [
 USER_PROMPT = USER_PROMPTS[0] if USER_PROMPTS else ""
 
 
-def build_user_prompt_with_request_datetime(
+def build_user_request_context(
     user_prompt: str,
-    timezone: Optional[str] = None,
-    request_datetime: Optional[datetime] = None,
     reply_context: Optional[dict] = None,
 ) -> str:
-    """Add one timezone-resolved request timestamp to the user message content."""
+    """Render quoted reply context alongside the current user message."""
 
-    current = request_datetime or _current_user_datetime(_user_timezone(timezone))
-
-    lines = [
-        f"Current datetime: {current.isoformat(timespec='seconds')}",
-        f"Current day: {current:%A}",
-        "",
-    ]
+    lines: List[str] = []
     if reply_context:
         lines += [
             "Reply context:",
@@ -338,6 +330,25 @@ def build_user_prompt_with_request_datetime(
     return "\n".join(lines)
 
 
+def build_user_prompt_with_request_datetime(
+    user_prompt: str,
+    timezone: Optional[str] = None,
+    request_datetime: Optional[datetime] = None,
+    reply_context: Optional[dict] = None,
+) -> str:
+    """Add one timezone-resolved request timestamp to the user message content."""
+
+    current = request_datetime or _current_user_datetime(_user_timezone(timezone))
+
+    lines = [
+        f"Current datetime: {current.isoformat(timespec='seconds')}",
+        f"Current day: {current:%A}",
+        "",
+        build_user_request_context(user_prompt, reply_context=reply_context),
+    ]
+    return "\n".join(lines)
+
+
 def build_initial_messages(
     user_prompt: str,
     timezone: Optional[str] = None,
@@ -347,7 +358,7 @@ def build_initial_messages(
     relevant_domains: Optional[Set[str]] = None,
     reply_context: Optional[dict] = None,
 ) -> List[Dict[str, Any]]:
-    """Create the raw message list used by the DeepSeek API.
+    """Create the canonical message list used by the selected LLM provider.
 
     ``relevant_domains`` (from the query router) is forwarded to the system
     prompt to slim the per-domain fragments; ``None`` keeps every active domain
@@ -381,4 +392,5 @@ __all__ = [
     "USER_PROMPTS",
     "build_initial_messages",
     "build_user_prompt_with_request_datetime",
+    "build_user_request_context",
 ]

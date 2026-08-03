@@ -10,6 +10,7 @@ import asyncio
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -41,6 +42,8 @@ with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
     from agents.agent_api.app.router.prompt import RouterDecision
 
 from agents.agent_api.app.graph.nodes.orchestrator import UsageSummary
+from agents.agent_api.app.llm.chat import UsageLedger
+from agents.agent_api.app.llm.provider import OpenAIChatProfile
 from tests.agents.runtime_helpers import make_snapshot
 
 
@@ -68,17 +71,27 @@ def make_response(content=VALID_DECISION_JSON, prompt_tokens=12, completion_toke
     """Build a mock OpenAI-compatible chat completion whose message.content is JSON."""
     message = MagicMock()
     message.content = content
+    message.tool_calls = None
+    message.refusal = None
+    message.reasoning_content = None
 
     usage = MagicMock()
     usage.prompt_tokens = prompt_tokens
     usage.completion_tokens = completion_tokens
     usage.total_tokens = prompt_tokens + completion_tokens
     usage.prompt_cache_hit_tokens = cached_tokens
+    usage.prompt_cache_miss_tokens = 0
+    usage.prompt_tokens_details = None
     usage.completion_tokens_details = None
 
     response = MagicMock()
-    response.choices = [MagicMock(message=message)]
+    response.choices = [MagicMock(message=message, finish_reason="stop")]
     response.usage = usage
+    response.model = "deepseek-v4-flash"
+    response.service_tier = None
+    response._request_id = None
+    response.request_id = None
+    response.id = None
     return response
 
 
@@ -118,10 +131,13 @@ def make_status_error(status_code: int, message: str = "Error", headers=None):
 
 
 def build_client(max_retry_attempts=2):
-    """Build a RouterClient with test defaults, patching wrap_openai."""
+    """Build an explicit DeepSeek RouterClient, patching wrap_openai."""
     with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
         client = RouterClient(
             api_key="test-key",
+            model="deepseek-v4-flash",
+            base_url="https://api.deepseek.com/v1",
+            reasoning_effort="off",
             max_retry_attempts=max_retry_attempts,
             retry_sleep=NO_SLEEP,
         )
@@ -473,6 +489,8 @@ class TestSuccessfulDecision:
     def test_reasoning_enabled_enables_thinking(self):
         client = RouterClient(
             api_key="test-key",
+            model="deepseek-v4-flash",
+            base_url="https://api.deepseek.com/v1",
             reasoning_effort="high",
             retry_sleep=NO_SLEEP,
         )
@@ -485,6 +503,45 @@ class TestSuccessfulDecision:
         kwargs = mock_create.call_args.kwargs
         assert kwargs["reasoning_effort"] == "high"
         assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
+
+    def test_openai_uses_provider_safe_request_and_usage_ledger(self, monkeypatch):
+        profile = OpenAIChatProfile(
+            api_key="openai-test-key",
+            base_url="https://api.openai.com/v1",
+            model="gpt-5.6-luna",
+            max_output_tokens=400,
+            request_timeout_seconds=5.0,
+            max_retry_attempts=2,
+            retry_max_delay_seconds=2.0,
+            sdk_max_retries=0,
+        )
+        sdk_client = MagicMock()
+        response = make_response()
+        response.model = "gpt-5.6-luna"
+        response.usage.prompt_tokens_details = SimpleNamespace(cached_tokens=3)
+        sdk_client.chat.completions.create.return_value = response
+        monkeypatch.setattr(
+            router_client_module,
+            "settings",
+            SimpleNamespace(llm_safety_identifier_secret="safety-secret"),
+        )
+        client = RouterClient(profile=profile, client=sdk_client)
+        ledger = UsageLedger()
+
+        decision = client.classify("add milk", SNAPSHOT, usage_accumulator=ledger)
+
+        assert decision.domains == ["todoist"]
+        kwargs = sdk_client.chat.completions.create.call_args.kwargs
+        assert kwargs["model"] == "gpt-5.6-luna"
+        assert kwargs["max_completion_tokens"] == 400
+        assert kwargs["reasoning_effort"] == "none"
+        assert len(kwargs["safety_identifier"]) == 64
+        assert "max_tokens" not in kwargs
+        assert "extra_body" not in kwargs
+        assert "temperature" not in kwargs
+        assert len(ledger.calls) == 1
+        assert ledger.calls[0].provider.value == "openai"
+        assert ledger.calls[0].cached_read_tokens == 3
 
     def test_request_trace_includes_router_budget_fields(self):
         tracer = RecordingTracer()
@@ -665,7 +722,7 @@ class TestConcurrentRequestIsolation:
             with seen_lock:
                 seen_kwargs.append(kwargs)
             barrier.wait(timeout=5)
-            prompt_tokens = 11 if kwargs["model"] == "router-fast" else 29
+            prompt_tokens = 11 if kwargs["model"] == "deepseek-router-fast" else 29
             return make_response(
                 content=VALID_DECISION_JSON,
                 prompt_tokens=prompt_tokens,
@@ -693,7 +750,7 @@ class TestConcurrentRequestIsolation:
                     run,
                     "first request",
                     first_tracer,
-                    "router-fast",
+                    "deepseek-router-fast",
                     "off",
                     first_usage,
                 )
@@ -701,7 +758,7 @@ class TestConcurrentRequestIsolation:
                     run,
                     "second request",
                     second_tracer,
-                    "router-careful",
+                    "deepseek-router-careful",
                     "high",
                     second_usage,
                 )
@@ -714,18 +771,18 @@ class TestConcurrentRequestIsolation:
         second_request = next(
             event for event in second_tracer.events if event["stage"] == "router.request"
         )
-        assert first_request["fields"]["model"] == "router-fast"
+        assert first_request["fields"]["model"] == "deepseek-router-fast"
         assert first_request["fields"]["reasoning"] == "off"
-        assert second_request["fields"]["model"] == "router-careful"
+        assert second_request["fields"]["model"] == "deepseek-router-careful"
         assert second_request["fields"]["reasoning"] == "high"
         assert first_usage.prompt_tokens == 11
         assert second_usage.prompt_tokens == 29
         assert {kwargs["model"] for kwargs in seen_kwargs} == {
-            "router-fast",
-            "router-careful",
+            "deepseek-router-fast",
+            "deepseek-router-careful",
         }
-        assert client.model == router_client_module.ROUTER_MODEL
-        assert client.reasoning_effort == router_client_module.ROUTER_REASONING_EFFORT
+        assert client.model == "deepseek-v4-flash"
+        assert client.reasoning_effort == "off"
         assert any(
             payload["value"] == "User request:\nfirst request"
             for payload in first_tracer.payloads

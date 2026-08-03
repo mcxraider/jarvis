@@ -89,7 +89,7 @@ class TestGetPoolSingleton:
         mock_ctor.assert_called_once_with(
             conninfo="postgresql://fake",
             min_size=2,
-            max_size=10,
+            max_size=16,
             kwargs={"autocommit": True, "prepare_threshold": None},
             open=False,
             check=mock_ctor.check_connection,

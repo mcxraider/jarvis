@@ -1,13 +1,15 @@
 """Tests for usage logging (_log_usage in builder.py)."""
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
 
 from agents.agent_api.app.graph.builder import _log_usage
+from agents.agent_api.app.llm.chat import UsageRecord
+from agents.agent_api.app.llm.provider import LLMProvider
 from agents.agent_api.app.user_context.identity import TelegramIdentity
 
 IDENTITY = TelegramIdentity(telegram_id=42)
@@ -19,6 +21,7 @@ class FakeUsage:
     completion_tokens: int = 0
     total_tokens: int = 0
     cached_tokens: int = 0
+    records: list[UsageRecord] = field(default_factory=list)
 
 
 class FakeCursor:
@@ -88,6 +91,81 @@ class TestLogUsageNoop:
 
 
 class TestLogUsageInsert:
+    def test_cache_write_tokens_are_removed_from_uncached_input(self):
+        pool = FakePool()
+        record = UsageRecord(
+            provider=LLMProvider.OPENAI,
+            requested_model="gpt-5.6-luna",
+            returned_model="gpt-5.6-luna",
+            prompt_tokens=100,
+            completion_tokens=20,
+            cached_read_tokens=30,
+            cache_write_tokens=25,
+            reasoning_tokens=10,
+            request_input_tokens=100,
+        )
+        usage = FakeUsage(total_tokens=120, records=[record])
+
+        with patch("agents.agent_api.app.db.get_pool", return_value=pool):
+            _log_usage(IDENTITY, "cache-write-thread", usage, 250, "gpt-5.6-luna")
+
+        _sql, params = pool.cursor_instance.statements[0]
+        assert params[5:12] == (100, 30, 25, 45, 20, 10, 100)
+
+    def test_mixed_provider_records_are_persisted_and_costed_per_call(self):
+        pool = FakePool()
+        records = [
+            UsageRecord(
+                provider=LLMProvider.DEEPSEEK,
+                requested_model="deepseek-v4-flash",
+                returned_model="deepseek-v4-flash",
+                prompt_tokens=1_000_000,
+                completion_tokens=0,
+                cached_read_tokens=0,
+                cache_write_tokens=0,
+                reasoning_tokens=0,
+                request_input_tokens=1_000_000,
+            ),
+            UsageRecord(
+                provider=LLMProvider.OPENAI,
+                requested_model="gpt-5.6-luna",
+                returned_model="gpt-5.6-luna",
+                prompt_tokens=1_000_000,
+                completion_tokens=0,
+                cached_read_tokens=0,
+                cache_write_tokens=0,
+                reasoning_tokens=0,
+                request_input_tokens=1_000_000,
+            ),
+        ]
+        usage = FakeUsage(
+            prompt_tokens=2_000_000,
+            total_tokens=2_000_000,
+            records=records,
+        )
+
+        with patch("agents.agent_api.app.db.get_pool", return_value=pool):
+            _log_usage(IDENTITY, "mixed-thread", usage, 250, "mixed")
+
+        assert len(pool.cursor_instance.statements) == 2
+        first_sql, first_params = pool.cursor_instance.statements[0]
+        _second_sql, second_params = pool.cursor_instance.statements[1]
+        assert "provider" in first_sql
+        assert "requested_model" in first_sql
+        assert first_params[2:5] == (
+            "deepseek",
+            "deepseek-v4-flash",
+            "deepseek-v4-flash",
+        )
+        assert first_params[13] == Decimal("0.1400")
+        assert second_params[2:5] == (
+            "openai",
+            "gpt-5.6-luna",
+            "gpt-5.6-luna",
+        )
+        assert second_params[12] == "long_context"
+        assert second_params[13] == Decimal("0.4000")
+
     def test_issues_insert_with_expected_params(self):
         pool = FakePool()
         usage = FakeUsage(
@@ -130,6 +208,37 @@ class TestLogUsageInsert:
         assert params[5] == 0  # uncached_input_tokens
         assert params[6] == 0  # output_tokens
         assert params[7] is None  # unknown model
+
+    def test_pinned_pro_model_is_priced_as_pro(self):
+        pool = FakePool()
+        usage = FakeUsage(
+            prompt_tokens=1_000_000,
+            completion_tokens=0,
+            total_tokens=1_000_000,
+            cached_tokens=0,
+        )
+        with patch("agents.agent_api.app.db.get_pool", return_value=pool):
+            _log_usage(IDENTITY, "t-1", usage, 200, "deepseek-v4-pro")
+
+        _sql, params = pool.cursor_instance.statements[0]
+        assert params[2] == "deepseek-v4-pro"
+        # 1M uncached input @ 0.435/M => 0.4350, not the flash rate 0.14.
+        assert params[7] == Decimal("0.4350")
+
+    def test_mixed_model_records_null_cost(self):
+        pool = FakePool()
+        usage = FakeUsage(
+            prompt_tokens=1_000_000,
+            completion_tokens=0,
+            total_tokens=1_000_000,
+            cached_tokens=0,
+        )
+        with patch("agents.agent_api.app.db.get_pool", return_value=pool):
+            _log_usage(IDENTITY, "t-1", usage, 200, "mixed")
+
+        _sql, params = pool.cursor_instance.statements[0]
+        assert params[2] == "mixed"
+        assert params[7] is None  # "mixed" is unpriced => NULL cost
 
     def test_invalid_cache_metadata_records_null_breakdown_and_cost(self, caplog):
         pool = FakePool()

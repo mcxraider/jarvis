@@ -56,6 +56,8 @@ def make_response(
     message.content = content
     message.tool_calls = tool_calls
     message.role = "assistant"
+    message.refusal = None
+    message.reasoning_content = None
     message.model_dump.return_value = {
         "role": "assistant",
         "content": content,
@@ -67,11 +69,21 @@ def make_response(
     usage.completion_tokens = completion_tokens
     usage.total_tokens = prompt_tokens + completion_tokens
     usage.prompt_cache_hit_tokens = cached_tokens
+    usage.prompt_cache_miss_tokens = 0
+    usage.prompt_tokens_details = None
     usage.completion_tokens_details = None
+    usage.service_tier = None
 
     response = MagicMock()
-    response.choices = [MagicMock(message=message)]
+    response.choices = [
+        MagicMock(
+            message=message,
+            finish_reason="tool_calls" if tool_calls else "stop",
+        )
+    ]
     response.usage = usage
+    response.model = "deepseek-v4-flash"
+    response.id = "req_test"
     return response
 
 
@@ -161,12 +173,25 @@ class RecordingTracer:
 
 
 class TestMissingApiKey:
-    def test_missing_api_key_raises(self, monkeypatch):
-        """No API key provided and env var unset -> RuntimeError."""
-        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    def test_explicit_empty_profile_key_raises(self):
+        """An explicitly configured empty credential is rejected."""
+        from agents.agent_api.app.llm.provider import DeepSeekProfile
+
+        profile = DeepSeekProfile(
+            api_key="",
+            base_url="https://api.deepseek.com",
+            model="deepseek-v4-flash",
+            max_output_tokens=100,
+            request_timeout_seconds=30,
+            max_retry_attempts=1,
+            retry_max_delay_seconds=1,
+            sdk_max_retries=0,
+            reasoning_effort="high",
+            thinking_enabled=True,
+        )
         with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
-            with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY is required"):
-                DeepSeekAgentClient(api_key=None)
+            with pytest.raises(RuntimeError, match="DEEPSEEK API key is required"):
+                DeepSeekAgentClient(profile=profile)
 
 
 class TestRetryableErrors:
@@ -649,8 +674,8 @@ class TestConcurrentRequestIsolation:
 
         with patch.object(client.client.chat.completions, "create", side_effect=fake_create):
             threads = [
-                threading.Thread(target=run, args=("user-a", "model-a", "max")),
-                threading.Thread(target=run, args=("user-b", "model-b", "high")),
+                threading.Thread(target=run, args=("user-a", "deepseek-model-a", "max")),
+                threading.Thread(target=run, args=("user-b", "deepseek-model-b", "high")),
             ]
             for thread in threads:
                 thread.start()
@@ -671,9 +696,9 @@ class TestConcurrentRequestIsolation:
         second_requests = [
             event for event in tracers["user-b"].events if event["stage"] == "agent.request"
         ]
-        assert [event["fields"]["model"] for event in first_requests] == ["model-a"]
+        assert [event["fields"]["model"] for event in first_requests] == ["deepseek-model-a"]
         assert [event["fields"]["reasoning_effort"] for event in first_requests] == ["max"]
-        assert [event["fields"]["model"] for event in second_requests] == ["model-b"]
+        assert [event["fields"]["model"] for event in second_requests] == ["deepseek-model-b"]
         assert [event["fields"]["reasoning_effort"] for event in second_requests] == ["high"]
 
     def test_with_tracer_reuses_transport_but_resets_usage(self):
@@ -758,3 +783,73 @@ class TestSuccessfulResponse:
         assert result["role"] == "assistant"
         assert result["content"] == "All done"
         assert result.get("tool_calls") is None
+
+
+class TestOpenAIProviderIntegration:
+    @staticmethod
+    def profile():
+        from agents.agent_api.app.llm.provider import OpenAIChatProfile
+
+        return OpenAIChatProfile(
+            api_key="openai-test-key",
+            base_url="https://api.openai.com/v1",
+            model="gpt-5.6-luna",
+            max_output_tokens=321,
+            request_timeout_seconds=12,
+            max_retry_attempts=1,
+            retry_max_delay_seconds=1,
+            sdk_max_retries=0,
+        )
+
+    def test_sync_request_uses_only_openai_fields(self):
+        sdk = MagicMock()
+        sdk.chat.completions.create.return_value = {
+            "id": "chatcmpl_test",
+            "model": "gpt-5.6-luna",
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": "OpenAI works."},
+            }],
+            "usage": {"prompt_tokens": 4, "completion_tokens": 3, "total_tokens": 7},
+        }
+        client = DeepSeekAgentClient(
+            profile=self.profile(),
+            client=sdk,
+            safety_identifier="a" * 64,
+        )
+
+        result = client.create_message(
+            messages=[{"role": "user", "content": "Say hello"}],
+            tools=[],
+        )
+
+        assert result == {"role": "assistant", "content": "OpenAI works."}
+        kwargs = sdk.chat.completions.create.call_args.kwargs
+        assert kwargs["model"] == "gpt-5.6-luna"
+        assert kwargs["reasoning_effort"] == "none"
+        assert kwargs["max_completion_tokens"] == 321
+        assert kwargs["safety_identifier"] == "a" * 64
+        assert "tool_choice" not in kwargs
+        for forbidden in ("max_tokens", "extra_body", "reasoning_content", "temperature"):
+            assert forbidden not in kwargs
+        assert client.usage.records[0].provider.value == "openai"
+
+    @pytest.mark.parametrize("finish_reason", ["length", "content_filter"])
+    def test_terminal_non_success_is_rejected(self, finish_reason):
+        sdk = MagicMock()
+        sdk.chat.completions.create.return_value = {
+            "model": "gpt-5.6-luna",
+            "choices": [{
+                "finish_reason": finish_reason,
+                "message": {"role": "assistant", "content": "partial"},
+            }],
+        }
+        client = DeepSeekAgentClient(
+            profile=self.profile(), client=sdk, safety_identifier="b" * 64
+        )
+        with pytest.raises(DeepSeekAgentClientError) as raised:
+            client.create_message(
+                messages=[{"role": "user", "content": "hello"}], tools=[]
+            )
+        assert raised.value.payload["type"] == "invalid_response"
+        assert raised.value.payload["provider"] == "openai"

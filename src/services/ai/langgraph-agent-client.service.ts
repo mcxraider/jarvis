@@ -62,9 +62,9 @@ export type LangGraphProgressCallback = (
   signal?: AbortSignal,
 ) => void | Promise<void>;
 
-// Structured result of the Python /health/detail deep-probe: one entry per
-// downstream dependency (deepseek, todoist) plus the live model name. Surfaced
-// by the Telegram /status card.
+// Structured result of the Python /health/detail deep-probe: the selected LLM
+// provider/model plus one entry per downstream dependency. Surfaced by the
+// Telegram /status card.
 export type LangGraphDependencyHealth = AgentHealthDetail;
 
 export interface TelegramIdentity {
@@ -878,6 +878,9 @@ export class LangGraphAgentClient {
     if (!details) return {};
     return {
       backendErrorSource: details.source,
+      backendErrorProvider: details.provider,
+      backendErrorRequestedModel: details.requested_model,
+      backendErrorReturnedModel: details.returned_model,
       backendErrorType: details.type,
       backendErrorRetryable: details.retryable,
       backendErrorAttempts: details.attempts,
