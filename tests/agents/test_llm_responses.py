@@ -22,7 +22,11 @@ from agents.agent_api.app.llm.responses import (
     normalize_response,
     serialize_responses_input,
 )
-from agents.agent_api.app.graph.nodes.orchestrator import LLMAgentClient
+from agents.agent_api.app.graph.nodes.orchestrator import (
+    LLMAgentClient,
+    LLMAgentClientError,
+)
+from agents.agent_api.app.tracing import UserProgressTracePrinter
 
 
 def _profile() -> OpenAIResponsesProfile:
@@ -167,7 +171,8 @@ def test_builds_medium_stateless_request_with_flat_function_tools():
 def test_normalizes_parallel_calls_usage_and_checkpoint_replay():
     result = normalize_response(_tool_response(), _profile())
 
-    assert result.message.content == "I will check that."
+    assert result.message.content == ""
+    assert result.commentary == ("I will check that.",)
     assert [call.id for call in result.message.tool_calls] == ["call_1", "call_2"]
     assert result.finish_reason == "tool_calls"
     assert result.provider_request_id == "resp_1"
@@ -196,10 +201,103 @@ def test_normalizes_parallel_calls_usage_and_checkpoint_replay():
         "function_call_output",
     ]
     assert replay[1]["encrypted_content"] == "encrypted-reasoning"
+    assert replay[2]["phase"] == "commentary"
     assert [item.get("call_id") for item in replay[-2:]] == ["call_1", "call_2"]
     deepseek_history = serialize_messages(LLMProvider.DEEPSEEK, restored)
     assert "continuation" not in deepseek_history[1]
     assert "reasoning_content" not in deepseek_history[1]
+
+
+def test_partitions_multiple_commentary_messages_from_final_answer():
+    result = normalize_response(
+        {
+            "id": "resp_mixed",
+            "status": "completed",
+            "model": "gpt-5.6-luna",
+            "output": [
+                {
+                    "type": "message",
+                    "id": "msg_commentary_1",
+                    "status": "completed",
+                    "role": "assistant",
+                    "phase": "commentary",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "Checking the logs.",
+                            "annotations": [],
+                        }
+                    ],
+                },
+                {
+                    "type": "message",
+                    "id": "msg_commentary_2",
+                    "status": "completed",
+                    "role": "assistant",
+                    "phase": "commentary",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "I found the race.",
+                            "annotations": [],
+                        }
+                    ],
+                },
+                {
+                    "type": "message",
+                    "id": "msg_final",
+                    "status": "completed",
+                    "role": "assistant",
+                    "phase": "final_answer",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "Use a generation key.",
+                            "annotations": [],
+                        }
+                    ],
+                },
+            ],
+        },
+        _profile(),
+    )
+
+    assert result.commentary == ("Checking the logs.", "I found the race.")
+    assert result.message.content == "Use a generation key."
+    assert result.message.continuation is None
+
+
+def test_unphased_tool_message_remains_backward_compatible_commentary():
+    response = _tool_response()
+    response["output"][1].pop("phase")
+
+    result = normalize_response(response, _profile())
+
+    assert result.commentary == ("I will check that.",)
+    assert result.message.content == ""
+
+
+@pytest.mark.parametrize(
+    "phase, message",
+    [
+        ("analysis", "invalid phase"),
+        ("final_answer", "cannot accompany unresolved function calls"),
+    ],
+)
+def test_rejects_invalid_or_contradictory_message_phases(phase, message):
+    response = _tool_response()
+    response["output"][1]["phase"] = phase
+
+    with pytest.raises(LLMProviderError, match=message):
+        normalize_response(response, _profile())
+
+
+def test_rejects_commentary_only_terminal_response():
+    response = _text_response("Still working.")
+    response["output"][0]["phase"] = "commentary"
+
+    with pytest.raises(LLMProviderError, match="no content or tools"):
+        normalize_response(response, _profile())
 
 
 def test_old_responses_sidecars_are_reconstructed_outside_current_user_turn():
@@ -300,6 +398,7 @@ def test_refusal_is_explicit_and_not_a_successful_answer():
                     "id": "msg_refusal",
                     "status": "completed",
                     "role": "assistant",
+                    "phase": "commentary",
                     "content": [{"type": "refusal", "refusal": "Cannot help."}],
                 }
             ],
@@ -309,6 +408,7 @@ def test_refusal_is_explicit_and_not_a_successful_answer():
 
     assert result.refusal == "Cannot help."
     assert result.message.content == ""
+    assert result.commentary == ()
 
 
 def _text_response(text: str = "OpenAI works."):
@@ -348,6 +448,72 @@ def test_orchestrator_sync_dispatches_responses_not_chat():
         "context": "current_turn",
     }
     assert client.usage.records[0].provider.value == "openai"
+
+
+def test_orchestrator_sync_emits_openai_commentary_without_checkpointing_it():
+    sdk = MagicMock()
+    sdk.responses.create.return_value = {
+        "id": "resp_mixed",
+        "status": "completed",
+        "model": "gpt-5.6-luna",
+        "output": [
+            {
+                "type": "message",
+                "id": "msg_commentary",
+                "status": "completed",
+                "role": "assistant",
+                "phase": "commentary",
+                "content": [
+                    {"type": "output_text", "text": "Checking now.", "annotations": []}
+                ],
+            },
+            {
+                "type": "message",
+                "id": "msg_final",
+                "status": "completed",
+                "role": "assistant",
+                "phase": "final_answer",
+                "content": [
+                    {"type": "output_text", "text": "All clear.", "annotations": []}
+                ],
+            },
+        ],
+    }
+    events = []
+    tracer = UserProgressTracePrinter(events.append, enabled=False)
+    client = LLMAgentClient(
+        profile=_profile(), client=sdk, safety_identifier="e" * 64
+    )
+
+    result = client.create_message(
+        messages=[{"role": "user", "content": "Check"}],
+        tools=[],
+        tracer=tracer,
+    )
+
+    assert result == {"role": "assistant", "content": "All clear."}
+    assert events == [{"narration": "Checking now."}]
+
+
+def test_invalid_openai_output_emits_no_commentary():
+    sdk = MagicMock()
+    response = _text_response("Do not show this.")
+    response["output"][0]["phase"] = "invalid"
+    sdk.responses.create.return_value = response
+    events = []
+    tracer = UserProgressTracePrinter(events.append, enabled=False)
+    client = LLMAgentClient(
+        profile=_profile(), client=sdk, safety_identifier="f" * 64
+    )
+
+    with pytest.raises(LLMAgentClientError):
+        client.create_message(
+            messages=[{"role": "user", "content": "Check"}],
+            tools=[],
+            tracer=tracer,
+        )
+
+    assert events == []
 
 
 def test_orchestrator_tool_loop_replays_checkpointed_output_items():
@@ -404,6 +570,33 @@ def test_orchestrator_async_dispatches_responses_not_chat():
     assert result == {"role": "assistant", "content": "Async works."}
     async_sdk.responses.create.assert_awaited_once()
     async_sdk.chat.completions.create.assert_not_awaited()
+
+
+def test_orchestrator_async_emits_openai_commentary_once():
+    sync_sdk = MagicMock()
+    async_sdk = MagicMock()
+    async_sdk.responses.create = AsyncMock(return_value=_tool_response())
+    events = []
+    tracer = UserProgressTracePrinter(events.append, enabled=False)
+    client = LLMAgentClient(
+        profile=_profile(),
+        client=sync_sdk,
+        async_client=async_sdk,
+        safety_identifier="1" * 64,
+    )
+
+    result = asyncio.run(
+        client.async_create_message(
+            messages=[{"role": "user", "content": "Look it up"}],
+            tools=TOOLS,
+            tracer=tracer,
+            async_client=async_sdk,
+        )
+    )
+
+    assert result["content"] == ""
+    assert len(result["tool_calls"]) == 2
+    assert events == [{"narration": "I will check that."}]
 
 
 @pytest.mark.skipif(
