@@ -520,12 +520,16 @@ class LLMAgentClient:
             tool_calls=len(message.get("tool_calls") or []),
             has_content=bool(message.get("content")),
             has_reasoning=bool(result.message.continuation),
+            has_commentary=bool(result.commentary),
+            commentary_messages=len(result.commentary) or None,
             prompt_tokens=turn_usage.prompt_tokens or None,
             completion_tokens=turn_usage.completion_tokens or None,
             total_tokens=turn_usage.total_tokens or None,
             cached_tokens=turn_usage.cached_tokens or None,
             cache_hit_rate=cache_hit_rate,
         )
+        for commentary in result.commentary:
+            call_tracer.narration(commentary)
         return message
 
     @traceable(
@@ -703,12 +707,16 @@ class LLMAgentClient:
             tool_calls=len(message.get("tool_calls") or []),
             has_content=bool(message.get("content")),
             has_reasoning=bool(result.message.continuation),
+            has_commentary=bool(result.commentary),
+            commentary_messages=len(result.commentary) or None,
             prompt_tokens=turn_usage.prompt_tokens or None,
             completion_tokens=turn_usage.completion_tokens or None,
             total_tokens=turn_usage.total_tokens or None,
             cached_tokens=turn_usage.cached_tokens or None,
             cache_hit_rate=cache_hit_rate,
         )
+        for commentary in result.commentary:
+            call_tracer.narration(commentary)
         return message
 
     @staticmethod

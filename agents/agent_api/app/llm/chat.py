@@ -101,6 +101,7 @@ class ModelCallResult:
     returned_model: str
     provider_request_id: str | None
     refusal: str | None
+    commentary: tuple[str, ...] = ()
 
 
 def derive_safety_identifier(

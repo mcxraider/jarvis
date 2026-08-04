@@ -280,7 +280,7 @@ def normalize_response(
         )
 
     calls: list[CanonicalToolCall] = []
-    content_parts: list[str] = []
+    message_outputs: list[tuple[str | None, str]] = []
     refusals: list[str] = []
     replay_items: list[dict[str, Any]] = []
     seen_calls: set[str] = set()
@@ -314,11 +314,17 @@ def normalize_response(
             continue
         if item_type == "message":
             item = _dump(raw_item)
+            phase = item.get("phase")
+            if phase not in {None, "commentary", "final_answer"}:
+                raise LLMProviderError(
+                    "invalid_response", "OpenAI Responses message has an invalid phase."
+                )
             parts = item.get("content")
             if not isinstance(parts, list):
                 raise LLMProviderError(
                     "invalid_response", "Responses message content must be a list."
                 )
+            message_text_parts: list[str] = []
             for part in parts:
                 if not isinstance(part, Mapping):
                     raise LLMProviderError(
@@ -326,7 +332,7 @@ def normalize_response(
                     )
                 part_type = part.get("type")
                 if part_type == "output_text" and isinstance(part.get("text"), str):
-                    content_parts.append(part["text"])
+                    message_text_parts.append(part["text"])
                 elif part_type == "refusal" and isinstance(part.get("refusal"), str):
                     refusals.append(part["refusal"])
                 else:
@@ -334,13 +340,35 @@ def normalize_response(
                         "invalid_response",
                         f"Unsupported Responses content part: {part_type!r}.",
                     )
+            message_outputs.append(
+                (
+                    cast(str | None, phase),
+                    "\n".join(part for part in message_text_parts if part),
+                )
+            )
             replay_items.append(item)
             continue
         raise LLMProviderError(
             "invalid_response", f"Unsupported Responses output item: {item_type!r}."
         )
 
-    content = "\n".join(part for part in content_parts if part)
+    if calls and any(phase == "final_answer" for phase, _ in message_outputs):
+        raise LLMProviderError(
+            "invalid_response",
+            "OpenAI Responses final_answer cannot accompany unresolved function calls.",
+        )
+
+    commentary: list[str] = []
+    content_parts: list[str] = []
+    for phase, text in message_outputs:
+        if not text:
+            continue
+        if phase == "commentary" or (phase is None and calls):
+            commentary.append(text)
+        else:
+            content_parts.append(text)
+
+    content = "\n".join(content_parts)
     refusal = "\n".join(part for part in refusals if part) or None
     if not content and not calls and refusal is None:
         raise LLMProviderError(
@@ -379,6 +407,7 @@ def normalize_response(
         returned_model=returned_model,
         provider_request_id=request_id,
         refusal=refusal,
+        commentary=tuple(commentary),
     )
 
 
