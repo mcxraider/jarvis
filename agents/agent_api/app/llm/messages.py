@@ -61,6 +61,8 @@ def _validated_responses_item(value: Any) -> dict[str, Any]:
             raise ValueError("OpenAI Responses output message must be from the assistant")
         if not isinstance(item.get("id"), str) or not item["id"].strip():
             raise ValueError("OpenAI Responses output message must include an ID")
+        if item.get("phase") not in {None, "commentary", "final_answer"}:
+            raise ValueError("OpenAI Responses output message has an invalid phase")
         content = item.get("content")
         if not isinstance(content, list):
             raise ValueError("OpenAI Responses output message content must be a list")
