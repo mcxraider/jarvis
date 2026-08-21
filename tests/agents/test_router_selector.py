@@ -282,11 +282,117 @@ class TestRoutingGuardrails:
         assert result == {"ask_user", *_TODOIST_TOOLS}
         assert selector.decision.domains == ["todoist"]
 
+    def test_cleared_domains_collapse_to_conversation_not_invalid_routed(self):
+        """Stripping every domain must not emit ROUTED with an empty domain list.
+
+        Regression for the production crash on "List me the calendars that u
+        have access to, the name and the email": explicit_only strips
+        google_calendar, and the "email" unsupported-provider anchor disables
+        every recovery fallback, leaving no domains at all.
+        """
+        selector = _selector(
+            decision=RouterDecision(
+                outcome="routed",
+                domains=["google_calendar"],
+                uncertain=False,
+                candidate_domains=[],
+                complexity="low",
+                reasoning="user wants calendars with associated names and emails",
+            )
+        )
+        result = _names(
+            selector.select_schemas(
+                "List me the calendars that u have access to, the name and the email",
+                _build_registry(),
+            )
+        )
+        assert result == {"ask_user"}
+        assert selector.decision.outcome == "conversation"
+        assert selector.decision.domains == []
+        assert selector.decision.candidate_domains == []
+        assert selector.decision.uncertain is False
+
+    def test_uncertain_decision_keeps_candidates_on_cleared_query(self):
+        """The empty-domains guard must not disturb the uncertain path.
+
+        The explicit_only strip is skipped when candidate domains are in play,
+        so an uncertain decision keeps its candidates even for the query that
+        crashes the certain path.
+        """
+        selector = _selector(
+            decision=RouterDecision(
+                outcome="routed",
+                domains=["google_calendar"],
+                uncertain=True,
+                candidate_domains=["google_calendar"],
+                complexity="low",
+                reasoning="test",
+            )
+        )
+        result = _names(
+            selector.select_schemas(
+                "List me the calendars that u have access to, the name and the email",
+                _build_registry(),
+            )
+        )
+        assert result == {"ask_user", *_CALENDAR_TOOLS}
+        assert selector.decision.outcome == "routed"
+        assert selector.decision.candidate_domains == ["google_calendar"]
+
     def test_explicit_google_calendar_mention_keeps_calendar_route(self):
         selector = _selector(decision=RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low", reasoning="test"))
         result = _names(selector.select_schemas("what's on my google calendar this week", _build_registry()))
         assert result == {"ask_user", *_CALENDAR_TOOLS}
         assert selector.decision.domains == ["google_calendar"]
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "what google calendars do u have accesss to",
+            "list my google cals",
+            "which gcals am i subscribed to",
+        ],
+    )
+    def test_plural_google_calendar_mention_keeps_calendar_route(self, query):
+        """Plural phrasings must survive the explicit_only strip.
+
+        Regression for the production crash on "what google calendars do u have
+        accesss to": the explicit anchor only matched the singular, so
+        explicit_only stripped google_calendar, no recovery anchor fired, and
+        the guardrails were left with no domain to route to.
+        """
+        selector = _selector(
+            decision=RouterDecision(
+                outcome="routed",
+                domains=["google_calendar"],
+                uncertain=False,
+                candidate_domains=[],
+                complexity="low",
+                reasoning="user wants the list of accessible calendars",
+            )
+        )
+        result = _names(selector.select_schemas(query, _build_registry()))
+        assert result == {"ask_user", *_CALENDAR_TOOLS}
+        assert selector.decision.outcome == "routed"
+        assert selector.decision.domains == ["google_calendar"]
+
+    @pytest.mark.parametrize("query", ["what are my calendars", "show me my cals"])
+    def test_plural_generic_calendar_anchor_routes_to_event_provider(self, query):
+        """The generic event anchor must recognise plural calendar wording."""
+
+        selector = _selector(
+            decision=RouterDecision(
+                outcome="conversation",
+                domains=[],
+                uncertain=False,
+                candidate_domains=[],
+                complexity="low",
+                reasoning="miss",
+            )
+        )
+        result = _names(selector.select_schemas(query, _build_registry()))
+        assert result == {"ask_user", *_TODOIST_TOOLS}
+        assert selector.decision.domains == ["todoist"]
 
     def test_explicit_supported_provider_survives_unsupported_anchor(self):
         selector = _selector(decision=RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low", reasoning="test"))
@@ -432,6 +538,48 @@ class TestFallback:
         assert fields["fallback_selector"] == "StaticToolSelector"
         assert fields["error_payload"]["type"] == "timeout"
 
+    def test_guardrail_exception_degrades_to_fallback(self, monkeypatch):
+        """Guardrails are non-critical: a bug there must not fail the run."""
+
+        class RecordingTracer(TracePrinter):
+            def __init__(self):
+                super().__init__(enabled=False)
+                self.events = []
+
+            def event(self, stage, message, **fields):
+                self.events.append((stage, message, fields))
+
+        def _boom(self, query, decision):
+            raise RuntimeError("guardrail bug")
+
+        monkeypatch.setattr(
+            RouterToolSelector, "_apply_routing_guardrails", _boom
+        )
+
+        tracer = RecordingTracer()
+        selector = RouterToolSelector(
+            router_client=FakeRouterClient(
+                decision=RouterDecision(
+                    outcome="routed",
+                    domains=["todoist"],
+                    uncertain=False,
+                    candidate_domains=[],
+                    complexity="low",
+                    reasoning="test",
+                )
+            ),
+            snapshot=make_snapshot(),
+            tracer=tracer,
+        )
+
+        result = _names(selector.select_schemas("add buy milk", _build_registry()))
+        assert result == set(_ALL_TOOLS)
+        assert selector.decision is None
+        error_event = next(
+            event for event in tracer.events if event[0] == "router.guardrail_error"
+        )
+        assert error_event[2]["error_type"] == "RuntimeError"
+
 
 class TestDecisionExposure:
     def test_decision_populated_on_success(self):
@@ -574,6 +722,35 @@ class TestAsyncSelection:
         assert selector.decision.outcome == "routed"
         assert selector.decision.domains == ["todoist"]
         assert selector.decision.complexity == "high"
+
+    def test_guardrail_exception_degrades_to_fallback(self, monkeypatch):
+        """Async path shares the sync path's non-critical guardrail contract."""
+
+        def _boom(self, query, decision):
+            raise RuntimeError("guardrail bug")
+
+        monkeypatch.setattr(
+            RouterToolSelector, "_apply_routing_guardrails", _boom
+        )
+
+        client = FakeRouterClient(
+            decision=RouterDecision(
+                outcome="routed",
+                domains=["todoist"],
+                uncertain=False,
+                candidate_domains=[],
+                complexity="low",
+                reasoning="test",
+            )
+        )
+        selector = RouterToolSelector(router_client=client, snapshot=make_snapshot())
+
+        result = asyncio.run(
+            selector.async_select_schemas("add buy milk", _build_registry())
+        )
+
+        assert _names(result) == set(_ALL_TOOLS)
+        assert selector.decision is None
 
     def test_repeat_query_uses_same_decision_cache(self):
         client = FakeRouterClient(
