@@ -39,11 +39,11 @@ from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 _EXPLICIT_GOOGLE_CALENDAR_PATTERN = re.compile(
-    r"\b(?:google\s+calendar|google\s+cal|gcal|google_calendar)\b",
+    r"\b(?:google\s+calendars?|google\s+cals?|gcals?|google_calendar)\b",
     re.IGNORECASE,
 )
 _GENERIC_EVENT_PATTERN = re.compile(
-    r"\b(?:cal|calendar|schedule|free|busy|availability|available|event|events|meeting|meetings|appointment|appointments)\b",
+    r"\b(?:cals?|calendars?|schedule|free|busy|availability|available|event|events|meeting|meetings|appointment|appointments)\b",
     re.IGNORECASE,
 )
 _REMINDER_PATTERN = re.compile(r"\b(?:remind|reminder|reminders)\b", re.IGNORECASE)
@@ -137,7 +137,9 @@ class RouterToolSelector:
                 self._record_failure(query, error)
                 return self._fallback.select_schemas(query, registry)
             self._cache_router_result(query, decision)
-            decision = self._apply_routing_guardrails(query, decision)
+            decision = self._safe_apply_routing_guardrails(query, decision)
+            if decision is None:
+                return self._fallback.select_schemas(query, registry)
             self._cache_decision(query, decision)
 
         return self._schemas_for_decision(
@@ -194,7 +196,13 @@ class RouterToolSelector:
                     active_domains,
                 )
             self._cache_router_result(query, decision)
-            decision = self._apply_routing_guardrails(query, decision)
+            decision = self._safe_apply_routing_guardrails(query, decision)
+            if decision is None:
+                return await self._async_fallback_schemas(
+                    query,
+                    registry,
+                    active_domains,
+                )
             self._cache_decision(query, decision)
 
         return self._schemas_for_decision(
@@ -232,7 +240,9 @@ class RouterToolSelector:
                     outcome=decision.outcome.value,
                     domains=[domain.value for domain in decision.domains],
                 )
-                decision = self._apply_routing_guardrails(query, decision)
+                decision = self._safe_apply_routing_guardrails(query, decision)
+                if decision is None:
+                    return None
                 self._cache_decision(query, decision)
                 return decision
 
@@ -252,7 +262,9 @@ class RouterToolSelector:
             outcome=decision.outcome.value,
             domains=[domain.value for domain in decision.domains],
         )
-        decision = self._apply_routing_guardrails(query, decision)
+        decision = self._safe_apply_routing_guardrails(query, decision)
+        if decision is None:
+            return None
         self._cache_decision(query, decision)
         return decision
 
@@ -360,6 +372,30 @@ class RouterToolSelector:
         )
         return schemas
 
+    def _safe_apply_routing_guardrails(
+        self,
+        query: str,
+        decision: RouterDecision,
+    ) -> Optional[RouterDecision]:
+        """Apply guardrails without letting a bug there fail the run.
+
+        Guardrails are part of the selector's non-critical contract: they shape
+        which domains get exposed, and a defect in that shaping should give up
+        the narrowing, not kill the turn. Returns ``None`` to signal the caller
+        should degrade (to the fallback selector, or to a live classification).
+        """
+
+        try:
+            return self._apply_routing_guardrails(query, decision)
+        except Exception as error:  # noqa: BLE001 - non-critical by contract
+            self._tracer.event(
+                "router.guardrail_error",
+                "Guardrails failed; degrading instead of failing the run.",
+                error_type=type(error).__name__,
+                error=str(error),
+            )
+            return None
+
     def _apply_routing_guardrails(
         self,
         query: str,
@@ -444,6 +480,35 @@ class RouterToolSelector:
                 matched_event_anchor=generic_event_request,
                 matched_task_anchor=task_request,
                 matched_explicit_calendar=explicit_google_calendar,
+            )
+        # Preferences can strip every domain the router named (e.g. explicit_only
+        # removes google_calendar and an unsupported-provider anchor suppresses
+        # each recovery fallback). There is nothing left to route to, so emit a
+        # non-routed decision: `conversation` is the only outcome the schema
+        # permits with no domains, since `ambiguous` requires uncertain=True and
+        # uncertain=True requires non-empty candidate_domains. Downstream this
+        # collapses to ask_user only, letting the orchestrator explain.
+        #
+        # Only the certain path can reach here today — the strip above is the
+        # sole operation that removes a domain and it is skipped when
+        # use_candidates is set, so candidate routing always keeps at least one
+        # domain. The guard sits ahead of both branches anyway, so neither can
+        # construct an invalid decision if that strip condition ever loosens.
+        if not domains:
+            self._tracer.event(
+                "router.guardrail_cleared_domains",
+                "Routing preferences removed every domain; exposing no tools.",
+                original_outcome=decision.outcome.value,
+                original_effective_domains=original_effective_domains,
+                adjusted_outcome=RouterOutcome.CONVERSATION.value,
+            )
+            return RouterDecision(
+                outcome=RouterOutcome.CONVERSATION,
+                domains=[],
+                uncertain=False,
+                candidate_domains=[],
+                complexity=decision.complexity,
+                reasoning=decision.reasoning,
             )
         if use_candidates:
             primary_domains = [
