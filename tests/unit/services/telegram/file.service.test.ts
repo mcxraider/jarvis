@@ -40,7 +40,7 @@ describe('FileService', () => {
     const service = new FileService('token-123', telegram);
 
     await expect(service.getFileUrl('file-id')).rejects.toThrow(
-      'Failed to get file URL: File path not available',
+      'Telegram file is unavailable',
     );
   });
 
@@ -68,6 +68,37 @@ describe('FileService', () => {
       statusText: 'Bad Gateway',
     }) as any;
 
-    await expect(service.downloadFile('file-id')).rejects.toThrow('HTTP 502: Bad Gateway');
+    await expect(service.downloadFile('file-id')).rejects.toThrow('Telegram file download failed');
+  });
+
+  it('stops a streaming download as soon as its byte allowance is exceeded', async () => {
+    const telegram = {
+      getFile: jest.fn().mockResolvedValue({ file_path: 'photos/file.jpg' }),
+    } as any;
+    const cancel = jest.fn().mockResolvedValue(undefined);
+    let reads = 0;
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: jest.fn().mockReturnValue(null) },
+      body: {
+        getReader: () => ({
+          read: jest.fn(async () => {
+            reads += 1;
+            return reads === 1
+              ? { done: false, value: Uint8Array.from([1, 2, 3]) }
+              : { done: false, value: Uint8Array.from([4, 5, 6]) };
+          }),
+          cancel,
+          releaseLock: jest.fn(),
+        }),
+      },
+    }) as any;
+    const service = new FileService('token-123', telegram);
+
+    await expect(service.downloadFile('private-id', 5)).rejects.toThrow(
+      'Telegram file exceeds byte limit',
+    );
+    expect(reads).toBe(2);
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,6 +1,6 @@
-import { TelegramNarrationReporter } from '../../../../src/services/telegram/telegram-narration-reporter';
+import { TelegramReasoningSummaryReporter } from '../../../../src/services/telegram/telegram-reasoning-summary-reporter';
 
-describe('TelegramNarrationReporter', () => {
+describe('TelegramReasoningSummaryReporter', () => {
   let mockCtx: any;
 
   beforeEach(() => {
@@ -15,7 +15,7 @@ describe('TelegramNarrationReporter', () => {
   });
 
   it('sends a new escaped message on first record()', async () => {
-    const reporter = new TelegramNarrationReporter(mockCtx);
+    const reporter = new TelegramReasoningSummaryReporter(mockCtx);
     await reporter.record('Looking up your task...');
     expect(mockCtx.reply).toHaveBeenCalledTimes(1);
     const [text, opts] = mockCtx.reply.mock.calls[0];
@@ -24,7 +24,7 @@ describe('TelegramNarrationReporter', () => {
   });
 
   it('edits the existing message on subsequent record()', async () => {
-    const reporter = new TelegramNarrationReporter(mockCtx);
+    const reporter = new TelegramReasoningSummaryReporter(mockCtx);
     await reporter.record('First');
     await reporter.record('Second');
     expect(mockCtx.reply).toHaveBeenCalledTimes(1);
@@ -37,7 +37,7 @@ describe('TelegramNarrationReporter', () => {
   });
 
   it('skips duplicate text', async () => {
-    const reporter = new TelegramNarrationReporter(mockCtx);
+    const reporter = new TelegramReasoningSummaryReporter(mockCtx);
     await reporter.record('Same');
     await reporter.record('Same');
     expect(mockCtx.reply).toHaveBeenCalledTimes(1);
@@ -45,27 +45,27 @@ describe('TelegramNarrationReporter', () => {
   });
 
   it('skips empty text', async () => {
-    const reporter = new TelegramNarrationReporter(mockCtx);
+    const reporter = new TelegramReasoningSummaryReporter(mockCtx);
     await reporter.record('');
     await reporter.record('   ');
     expect(mockCtx.reply).not.toHaveBeenCalled();
   });
 
   it('deletes message on complete()', async () => {
-    const reporter = new TelegramNarrationReporter(mockCtx);
+    const reporter = new TelegramReasoningSummaryReporter(mockCtx);
     await reporter.record('text');
     await reporter.complete();
     expect(mockCtx.telegram.deleteMessage).toHaveBeenCalledWith(123, 42);
   });
 
   it('complete() is safe without any record()', async () => {
-    const reporter = new TelegramNarrationReporter(mockCtx);
+    const reporter = new TelegramReasoningSummaryReporter(mockCtx);
     await reporter.complete();
     expect(mockCtx.telegram.deleteMessage).not.toHaveBeenCalled();
   });
 
   it('is a no-op after complete()', async () => {
-    const reporter = new TelegramNarrationReporter(mockCtx);
+    const reporter = new TelegramReasoningSummaryReporter(mockCtx);
     await reporter.complete();
     await reporter.record('ignored');
     expect(mockCtx.reply).not.toHaveBeenCalled();
@@ -73,7 +73,7 @@ describe('TelegramNarrationReporter', () => {
 
   it('handles reply error gracefully', async () => {
     mockCtx.reply.mockRejectedValue(new Error('Telegram API error'));
-    const reporter = new TelegramNarrationReporter(mockCtx);
+    const reporter = new TelegramReasoningSummaryReporter(mockCtx);
     // Should not throw
     await reporter.record('text');
     expect(mockCtx.reply).toHaveBeenCalledTimes(1);
@@ -81,14 +81,14 @@ describe('TelegramNarrationReporter', () => {
 
   it('handles delete error gracefully', async () => {
     mockCtx.telegram.deleteMessage.mockRejectedValue(new Error('message not found'));
-    const reporter = new TelegramNarrationReporter(mockCtx);
+    const reporter = new TelegramReasoningSummaryReporter(mockCtx);
     await reporter.record('text');
     // Should not throw
     await reporter.complete();
   });
 
   it('escapes MarkdownV2 special characters', async () => {
-    const reporter = new TelegramNarrationReporter(mockCtx);
+    const reporter = new TelegramReasoningSummaryReporter(mockCtx);
     await reporter.record('Hello! [test] (parens)');
     const [text] = mockCtx.reply.mock.calls[0];
     // All special chars are escaped for MarkdownV2.
@@ -98,14 +98,14 @@ describe('TelegramNarrationReporter', () => {
   });
 
   it('trims whitespace before rendering', async () => {
-    const reporter = new TelegramNarrationReporter(mockCtx);
+    const reporter = new TelegramReasoningSummaryReporter(mockCtx);
     await reporter.record('  hello  ');
     const [text] = mockCtx.reply.mock.calls[0];
     expect(text).toBe('hello');
   });
 
   it('deduplicates trimmed-equivalent text', async () => {
-    const reporter = new TelegramNarrationReporter(mockCtx);
+    const reporter = new TelegramReasoningSummaryReporter(mockCtx);
     await reporter.record('foo');
     await reporter.record(' foo ');
     expect(mockCtx.reply).toHaveBeenCalledTimes(1);

@@ -107,7 +107,8 @@ Complexity is assessed independently of query length, mutation risk, and the num
 - **Reply context** — swipe/reply to an earlier Telegram message from the bot or the user, and Jarvis includes a quoted version of that message as context for the new request.
 - **Progress messages** — Telegram shows transcription and agent progress states while work is running.
 - **Rich replies** — final answers are formatted for Telegram Markdown, with table normalization and long-message handling.
-- **Unsupported media guardrails** — photos, stickers, GIFs, video notes, and unknown message types are rejected with a clear text/audio/voice prompt.
+- **Native photo input** — direct JPEG photos and albums of up to 10 images are sent to Luna; image documents remain unsupported.
+- **Unsupported media guardrails** — stickers, GIFs, video notes, image documents, and unknown message types are rejected with a clear supported-input prompt.
 
 ### Conversation control
 

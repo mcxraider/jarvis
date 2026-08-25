@@ -281,12 +281,7 @@ describe('MessageHandlers forward buffering', () => {
       expect(combined.trimEnd().endsWith('summarize these')).toBe(true);
       expect(messageProcessor.processTextMessage.mock.calls[0][4]).toMatchObject({ forceFresh: true });
       expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(0);
-      expect(ctx.telegram.editMessageText).toHaveBeenCalledWith(
-        456,
-        77,
-        undefined,
-        expect.stringContaining('Sent 1 forwarded message'),
-      );
+      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
     });
 
     it('supports /send_forward@botname', async () => {

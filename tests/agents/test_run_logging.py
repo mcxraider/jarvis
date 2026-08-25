@@ -185,6 +185,23 @@ class RunFileLogWritingTests(TestCase):
         self.assertNotIn("secret-ciphertext", content)
         self.assertIn("[redacted encrypted reasoning]", content)
 
+    def test_all_log_paths_redact_image_data_urls(self) -> None:
+        import tempfile
+
+        image_url = "data:image/jpeg;base64,private-pixels"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = run_logging.Path(tmp) / "run.log"
+            log = run_logging.RunFileLog(path, background=False)
+            log.write_header(value=image_url)
+            log.write_line("test", f"payload={image_url}")
+            log.write_messages_dump("images", [{"image_url": image_url}])
+            log.write_footer(value=image_url)
+            content = path.read_text(encoding="utf-8")
+
+        self.assertNotIn("data:image", content)
+        self.assertNotIn("private-pixels", content)
+        self.assertIn("[redacted image data]", content)
+
 
 class FileLoggingTracerTests(TestCase):
     def _tracer(self, tmp: str):
@@ -306,3 +323,39 @@ class RunJarvisFileLoggingTests(TestCase):
             files, result = self._run(tmp, enabled=False)
             self.assertEqual(files, [])
             self.assertNotIn("run_log_path", result)
+
+
+class _ImageCapturingClient:
+    """Fake LLM that records whether images kwarg was received."""
+
+    def __init__(self, response: Dict[str, Any]):
+        self.response = response
+        self.tracer = NULL_TRACE
+        self.received_images: Optional[Any] = None
+
+    def create_message(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        self.received_images = kwargs.get("images")
+        return dict(self.response)
+
+
+class RunJarvisImageForwardingTests(TestCase):
+    def test_images_reach_agent_client_on_invoke(self) -> None:
+        images = [{"image_url": "data:image/jpeg;base64,/9j/2Q==", "detail": "auto"}]
+        agent = _ImageCapturingClient({"role": "assistant", "content": "I see it."})
+        with mock.patch(
+            "agents.agent_api.app.graph.builder.require_vision_provider"
+        ):
+            builder.run_jarvis(
+                user_prompt="What is this?",
+                agent_client=agent,
+                todoist_client=_FakeTodoistClient(),
+                tracer=NULL_TRACE,
+                thread_id="img-test-001",
+                images=images,
+            )
+        self.assertEqual(agent.received_images, tuple(images))

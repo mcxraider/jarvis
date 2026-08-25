@@ -461,31 +461,25 @@ describe('MessageProcessorService', () => {
     });
   });
 
-  it('routes photo messages through the text processor with image context', async () => {
+  it('routes photo messages through the text processor with transient image input', async () => {
     const photoSpy = jest.spyOn(service, 'processPhotoMessage').mockResolvedValue({ response: 'photo response' } as any);
+    const images = [{ image_url: 'data:image/jpeg;base64,/9j/2Q==' as const, detail: 'auto' as const }];
 
     await expect(
       service.processMessage(
         {
           type: 'photo',
-          content: 'file-id-123',
+          content: 'unused',
           caption: 'Look at this note',
-          width: 800,
-          height: 600,
-          fileSize: 12345,
+          images,
         },
         7,
       ),
     ).resolves.toHaveProperty('response', 'photo response');
 
     expect(photoSpy).toHaveBeenCalledWith(
-      {
-        fileId: 'file-id-123',
-        caption: 'Look at this note',
-        width: 800,
-        height: 600,
-        fileSize: 12345,
-      },
+      'Look at this note',
+      images,
       7,
       {},
     );

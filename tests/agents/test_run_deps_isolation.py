@@ -82,6 +82,19 @@ def test_configured_tracer_does_not_replace_direct_call_fallback() -> None:
     assert [event[0] for event in captured_tracer.events] == ["graph.confirm"]
 
 
+def test_image_dependencies_are_not_exposed_by_repr() -> None:
+    deps = RunDeps(
+        images=(
+            {
+                "image_url": "data:image/jpeg;base64,private-pixels",
+                "detail": "auto",
+            },
+        )
+    )
+
+    assert "data:image" not in repr(deps)
+
+
 def test_compiled_node_receives_isolated_runnable_config_dependencies() -> None:
     captured_tracer = _RecordingTracer()
     configured_tracers = {name: _RecordingTracer() for name in ("alpha", "beta")}

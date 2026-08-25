@@ -36,8 +36,8 @@ class TracePrinter:
         """
         return
 
-    def narration(self, text: str) -> None:
-        """Emit intermediate model narration text to the user."""
+    def reasoning_summary(self, text: str) -> None:
+        """Emit intermediate model reasoning summary text to the user."""
         return
 
     def payload(self, stage: str, label: str, value: Any, limit: int = 900) -> None:
@@ -91,10 +91,10 @@ class UserProgressTracePrinter(TracePrinter):
         self._last_progress_key = progress_key
         self.progress_callback({"fact": fact})
 
-    def narration(self, text: str) -> None:
+    def reasoning_summary(self, text: str) -> None:
         if not text or not text.strip():
             return
-        self.progress_callback({"narration": text})
+        self.progress_callback({"reasoning_summary": text})
 
 
 __all__ = ["ProgressCallback", "TracePrinter", "UserProgressTracePrinter", "NULL_TRACE"]

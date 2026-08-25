@@ -29,6 +29,8 @@ from agents.agent_api.app.llm.provider import (
     validate_reasoning_for_profile,
 )
 
+OPENAI_VISION_MODEL = "gpt-5.6-luna"
+
 
 @dataclass(frozen=True)
 class ResponsesCall:
@@ -172,6 +174,34 @@ def serialize_responses_input(
     return serialized
 
 
+def _attach_images(
+    serialized: list[dict[str, Any]], images: Sequence[Mapping[str, str]]
+) -> list[dict[str, Any]]:
+    if not images:
+        return serialized
+    for item in reversed(serialized):
+        if item.get("role") != "user":
+            continue
+        text = item.get("content")
+        if not isinstance(text, str):
+            raise LLMProviderError(
+                "configuration", "Image input requires a text user message."
+            )
+        item["content"] = [
+            {"type": "input_text", "text": text},
+            *(
+                {
+                    "type": "input_image",
+                    "image_url": image["image_url"],
+                    "detail": "auto",
+                }
+                for image in images
+            ),
+        ]
+        return serialized
+    raise LLMProviderError("configuration", "Image input requires a user message.")
+
+
 def build_responses_call(
     profile: OpenAIResponsesProfile,
     *,
@@ -187,8 +217,11 @@ def build_responses_call(
     reasoning_effort: str | None = None,
     tool_choice: str | Mapping[str, Any] | None = None,
     timeout_seconds: float | None = None,
+    images: Sequence[Mapping[str, str]] = (),
 ) -> ResponsesCall:
-    requested_model = validate_model_for_profile(profile, model or profile.model)
+    requested_model = validate_model_for_profile(
+        profile, OPENAI_VISION_MODEL if images else model or profile.model
+    )
     effort = validate_reasoning_for_profile(profile, reasoning_effort)
     output_tokens = (
         profile.max_output_tokens if max_output_tokens is None else max_output_tokens
@@ -206,9 +239,9 @@ def build_responses_call(
         )
     params: dict[str, Any] = {
         "model": requested_model,
-        "input": serialize_responses_input(messages),
+        "input": _attach_images(serialize_responses_input(messages), images),
         "max_output_tokens": output_tokens,
-        "reasoning": {"effort": effort, "context": "current_turn"},
+        "reasoning": {"effort": effort, "context": "current_turn", "summary": "auto"},
         "include": ["reasoning.encrypted_content"],
         "parallel_tool_calls": True,
         "store": False,
@@ -358,15 +391,15 @@ def normalize_response(
             "OpenAI Responses final_answer cannot accompany unresolved function calls.",
         )
 
-    commentary: list[str] = []
     content_parts: list[str] = []
     for phase, text in message_outputs:
         if not text:
             continue
-        if phase == "commentary" or (phase is None and calls):
-            commentary.append(text)
-        else:
-            content_parts.append(text)
+        if phase == "commentary":
+            continue
+        if phase is None and calls:
+            continue
+        content_parts.append(text)
 
     content = "\n".join(content_parts)
     refusal = "\n".join(part for part in refusals if part) or None
@@ -407,11 +440,11 @@ def normalize_response(
         returned_model=returned_model,
         provider_request_id=request_id,
         refusal=refusal,
-        commentary=tuple(commentary),
     )
 
 
 __all__ = [
+    "OPENAI_VISION_MODEL",
     "ResponsesCall",
     "build_responses_call",
     "normalize_response",

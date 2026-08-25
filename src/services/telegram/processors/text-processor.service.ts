@@ -17,13 +17,13 @@ import {
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { classifyError } from '../errors/classified-error';
 import type { ReplyContextData } from '../reply-context';
+import type { AgentImage } from '../../../types/agent.types';
 
 const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_WAITING_TTL_MS = 30 * 60 * 1000;
 
 export interface TextProcessorResult {
   response: string;
-  reasoningContent?: string;
   /** Whether the backend returned a terminal envelope or transport delivery is uncertain. */
   delivery?: LangGraphDelivery;
   /** The producing request lost gate ownership; callers must not emit response or HITL UI. */
@@ -53,6 +53,8 @@ export interface TextProcessorOptions {
   // running (not just waiting on the user), the request is refused rather than started
   // concurrently — see abandonIfWaiting().
   forceFresh?: boolean;
+  /** Request-scoped only; never copied into gate, pending, or checkpoint state. */
+  images?: AgentImage[];
 }
 
 export interface PendingPausePresentation {
@@ -137,6 +139,7 @@ export class TextProcessorService {
             alreadyRunning: true,
             onPendingPauseAccepted: options.onPendingPauseAccepted,
             pendingPauseAcceptedNotified: options.pendingPauseAcceptedNotified,
+            images: options.images,
           },
         );
       }
@@ -184,9 +187,11 @@ export class TextProcessorService {
         }
 
         if (gateStatus === 'running') {
-          const buffered = await this.conversationGate
-            .setBufferedMessageIfActiveRequestId(gateKey, gateSnapshot.requestId, normalizedText)
-            .catch(() => false);
+          const buffered = options?.images
+            ? false
+            : await this.conversationGate
+              .setBufferedMessageIfActiveRequestId(gateKey, gateSnapshot.requestId, normalizedText)
+              .catch(() => false);
           logger.info('conversation_gate.blocked', { ...logContext, gateKey });
           return {
             response: buffered
@@ -213,7 +218,11 @@ export class TextProcessorService {
               activeRequestId,
               gateSnapshot.requestId,
               onProgress,
-              { onPendingPauseAccepted: options?.onPendingPauseAccepted, replyContext: options?.replyContext },
+              {
+                onPendingPauseAccepted: options?.onPendingPauseAccepted,
+                replyContext: options?.replyContext,
+                images: options?.images,
+              },
             );
           }
         }
@@ -249,6 +258,7 @@ export class TextProcessorService {
             },
         requestId: activeRequestId,
         replyContext: options?.replyContext,
+        images: options?.images,
       };
       const bound = await this.conversationGate.setActiveRequestId(gateKey, activeRequestId);
       if (!bound) return this.suppressedResult();
@@ -273,7 +283,7 @@ export class TextProcessorService {
         });
         return {
           response: agentResponse.response,
-          reasoningContent: agentResponse.reasoningContent,
+
           delivery: agentResponse.delivery,
           threadId: agentResponse.threadId || undefined,
           consumedInterruptType: supersededInterruptType,
@@ -330,7 +340,6 @@ export class TextProcessorService {
 
       return {
         response,
-        reasoningContent: agentResponse.reasoningContent,
         interruptType: resultInterruptType,
         threadId: agentResponse.threadId,
         settlementRequestId: resultInterruptType ? activeRequestId : undefined,
@@ -428,6 +437,7 @@ export class TextProcessorService {
       onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
       pendingPauseAcceptedNotified?: boolean;
       replyContext?: ReplyContextData;
+      images?: AgentImage[];
     },
   ): Promise<TextProcessorResult> {
     if (options?.alreadyRunning) {
@@ -496,6 +506,7 @@ export class TextProcessorService {
           },
       requestId: activeRequestId,
       threadId: pending.threadId,
+      images: options?.images,
     };
 
     try {
@@ -526,7 +537,7 @@ export class TextProcessorService {
         });
         return {
           response: agentResponse.response,
-          reasoningContent: agentResponse.reasoningContent,
+
           delivery: agentResponse.delivery,
           threadId: agentResponse.threadId || pending.threadId,
         };
@@ -569,7 +580,6 @@ export class TextProcessorService {
 
       return {
         response,
-        reasoningContent: agentResponse.reasoningContent,
         interruptType: resultInterruptType,
         threadId: agentResponse.threadId,
         settlementRequestId: resultInterruptType ? activeRequestId : undefined,

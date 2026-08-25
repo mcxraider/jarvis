@@ -1,10 +1,55 @@
 """Pydantic schemas for the Jarvis FastAPI contract."""
 
-from typing import Any, Dict, List, Literal, Optional
+import base64
+import binascii
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AfterValidator, BaseModel, Field, PrivateAttr, model_validator
 
 from agents.agent_api.app.user_context.identity import TelegramIdentity
+
+
+MAX_IMAGE_COUNT = 10
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+JPEG_DATA_URL_PREFIX = "data:image/jpeg;base64,"
+
+
+class ImageInput(BaseModel):
+    image_url: str
+    detail: Literal["auto"]
+    _decoded_len: int = PrivateAttr(default=0)
+
+    @model_validator(mode="after")
+    def _validate_and_cache(self) -> "ImageInput":
+        if not self.image_url.startswith(JPEG_DATA_URL_PREFIX):
+            raise ValueError("image_url must be a JPEG Base64 data URL")
+        try:
+            decoded = base64.b64decode(
+                self.image_url[len(JPEG_DATA_URL_PREFIX) :], validate=True
+            )
+        except (binascii.Error, ValueError) as error:
+            raise ValueError("image_url must contain valid Base64") from error
+        if not decoded:
+            raise ValueError("image_url must not be empty")
+        self._decoded_len = len(decoded)
+        return self
+
+    @property
+    def decoded_bytes(self) -> int:
+        return self._decoded_len
+
+
+def _validate_images(images: List[ImageInput]) -> List[ImageInput]:
+    if sum(image.decoded_bytes for image in images) > MAX_IMAGE_BYTES:
+        raise ValueError("images must not exceed 10 MiB decoded")
+    return images
+
+
+ImageInputs = Annotated[
+    List[ImageInput],
+    Field(min_length=1, max_length=MAX_IMAGE_COUNT),
+    AfterValidator(_validate_images),
+]
 
 
 class LegacyIdentityInput(BaseModel):
@@ -125,6 +170,7 @@ class InvokeRequest(IdentityRequestMixin):
     thread_id: Optional[str] = None
     allow_mutations: Optional[bool] = None
     reply_context: Optional[ReplyContext] = None
+    images: Optional[ImageInputs] = None
 
 
 class ResumeRequest(IdentityRequestMixin):
@@ -134,6 +180,7 @@ class ResumeRequest(IdentityRequestMixin):
     source: Optional[str] = None
     request_id: Optional[str] = None
     allow_mutations: Optional[bool] = None
+    images: Optional[ImageInputs] = None
 
 
 class BulkInvokeRequest(IdentityRequestMixin):
@@ -149,7 +196,6 @@ class AgentResponse(BaseModel):
     status: Literal["completed", "interrupted", "failed"]
     thread_id: str
     response: str
-    reasoning_content: Optional[str] = None
     interrupt: Optional[Dict[str, Any]] = None
     tool_results: List[Dict[str, Any]] = Field(default_factory=list)
     error: Optional[str] = None

@@ -489,13 +489,15 @@ describe('MessageHandlers', () => {
     expect(ctx.reply).not.toHaveBeenCalledWith('stale audio', expect.anything());
   });
 
-  it('rejects photos with a helpful reply', async () => {
+  it('downloads the largest photo variant and sends caption plus pixels', async () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 1, 2, 0xff, 0xd9]);
     const fileService = {
       isAudioFile: jest.fn(),
       getFileUrl: jest.fn(),
+      downloadFile: jest.fn().mockResolvedValue(jpeg),
     } as any;
     const messageProcessor = {
-      processPhotoMessage: jest.fn(),
+      processPhotoMessage: jest.fn().mockResolvedValue({ response: 'photo response' }),
       processAudioDocument: jest.fn(),
       processAudioMessage: jest.fn(),
     } as any;
@@ -513,11 +515,165 @@ describe('MessageHandlers', () => {
 
     await handlers.handlePhoto(ctx);
 
-    expect(messageProcessor.processPhotoMessage).not.toHaveBeenCalled();
-    expect(activityService.recordActivity).toHaveBeenCalledWith('message_unknown');
-    expect(ctx.reply).toHaveBeenCalledWith(
-      'Images are currently not supported - please send a text message, a voice note, or an audio file.',
+    expect(fileService.downloadFile).toHaveBeenCalledWith('large', 10 * 1024 * 1024);
+    expect(messageProcessor.processPhotoMessage).toHaveBeenCalledWith(
+      'Whiteboard photo',
+      [{ image_url: `data:image/jpeg;base64,${jpeg.toString('base64')}`, detail: 'auto' }],
+      123,
+      expect.objectContaining({ messageType: 'photo' }),
+      expect.any(Function),
+      expect.objectContaining({ onPendingPauseAccepted: expect.any(Function) }),
     );
+    expect(activityService.recordActivity).toHaveBeenCalledWith('message_photo');
+    expect(ctx.reply).toHaveBeenCalledWith('photo response', { parse_mode: 'MarkdownV2' });
+  });
+
+  it('uses the exact standalone fallback for a captionless photo', async () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    const { handlers, messageProcessor } = createHandlers({
+      fileService: { downloadFile: jest.fn().mockResolvedValue(jpeg) },
+      messageProcessor: {
+        processPhotoMessage: jest.fn().mockResolvedValue({ response: 'done' }),
+      },
+    });
+    const ctx = createContext({
+      message_id: 8,
+      photo: [{ file_id: 'photo-secret', width: 1, height: 1 }],
+    });
+
+    await handlers.handlePhoto(ctx);
+
+    expect(messageProcessor.processPhotoMessage.mock.calls[0][0]).toBe('help me with this image.');
+  });
+
+  it('never passes file IDs or Base64 pixels to the async logger', async () => {
+    const info = jest.spyOn(logger, 'info').mockImplementation();
+    const error = jest.spyOn(logger, 'error').mockImplementation();
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    const { handlers } = createHandlers({
+      fileService: { downloadFile: jest.fn().mockResolvedValue(jpeg) },
+      messageProcessor: { processPhotoMessage: jest.fn().mockResolvedValue({ response: 'done' }) },
+    });
+    const ctx = createContext({
+      message_id: 8,
+      caption: 'caption',
+      photo: [{ file_id: 'private-telegram-file-id', width: 1, height: 1 }],
+    });
+
+    await handlers.handlePhoto(ctx);
+
+    const logged = JSON.stringify([...info.mock.calls, ...error.mock.calls]);
+    expect(logged).not.toContain('private-telegram-file-id');
+    expect(logged).not.toContain(jpeg.toString('base64'));
+    expect(logged).not.toContain('data:image');
+  });
+
+  it('debounces, deduplicates, sorts, and dispatches an album once', async () => {
+    jest.useFakeTimers();
+    try {
+      const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+      const fileService = { downloadFile: jest.fn().mockResolvedValue(jpeg) };
+      const messageProcessor = {
+        processPhotoMessage: jest.fn().mockResolvedValue({ response: 'album done' }),
+      };
+      const { handlers } = createHandlers({ fileService, messageProcessor });
+      const second = createContext({
+        message_id: 20,
+        media_group_id: 'album-secret',
+        caption: 'second',
+        photo: [{ file_id: 'file-20', width: 20, height: 20 }],
+      });
+      const first = createContext({
+        message_id: 10,
+        media_group_id: 'album-secret',
+        caption: 'first',
+        photo: [{ file_id: 'file-10', width: 10, height: 10 }],
+      });
+      const late = createContext({
+        message_id: 30,
+        media_group_id: 'album-secret',
+        photo: [{ file_id: 'file-30', width: 30, height: 30 }],
+      });
+
+      await handlers.handlePhoto(second);
+      await handlers.handlePhoto(first);
+      await handlers.handlePhoto(first);
+      await jest.advanceTimersByTimeAsync(1499);
+      expect(messageProcessor.processPhotoMessage).not.toHaveBeenCalled();
+      await handlers.handlePhoto(late);
+      await jest.advanceTimersByTimeAsync(1499);
+      expect(messageProcessor.processPhotoMessage).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1);
+      await Promise.resolve();
+
+      expect(fileService.downloadFile.mock.calls.map(([fileId]: [string]) => fileId))
+        .toEqual(['file-10', 'file-20', 'file-30']);
+      expect(messageProcessor.processPhotoMessage).toHaveBeenCalledTimes(1);
+      expect(messageProcessor.processPhotoMessage.mock.calls[0][0]).toBe('first\nsecond');
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['running', undefined],
+    ['waiting_for_clarification', 'confirm'],
+  ])('rejects %s photo state before downloading', async (status, interruptType) => {
+    const fileService = { downloadFile: jest.fn() };
+    const messageProcessor = { processPhotoMessage: jest.fn() };
+    const gateStore = { getSnapshot: jest.fn().mockResolvedValue({ status, requestId: 'pending-1' }) };
+    const pendingStore = makePendingStore({
+      get: jest.fn().mockResolvedValue({ requestId: 'pending-1', interruptType }),
+    });
+    const { handlers } = createHandlers({ fileService, messageProcessor, gateStore, pendingStore });
+    const ctx = createContext({
+      message_id: 9,
+      caption: 'private caption',
+      photo: [{ file_id: 'private-file-id', width: 1, height: 1 }],
+    });
+
+    await handlers.handlePhoto(ctx);
+
+    expect(fileService.downloadFile).not.toHaveBeenCalled();
+    expect(messageProcessor.processPhotoMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects a partially failed album once without submitting pixels', async () => {
+    jest.useFakeTimers();
+    try {
+      const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+      const fileService = {
+        downloadFile: jest.fn()
+          .mockResolvedValueOnce(jpeg)
+          .mockRejectedValueOnce(new Error('unavailable secret-file-id')),
+      };
+      const messageProcessor = { processPhotoMessage: jest.fn() };
+      const { handlers } = createHandlers({ fileService, messageProcessor });
+      const first = createContext({
+        message_id: 1,
+        media_group_id: 'failed-album',
+        photo: [{ file_id: 'file-1', width: 1, height: 1 }],
+      });
+      const second = createContext({
+        message_id: 2,
+        media_group_id: 'failed-album',
+        photo: [{ file_id: 'file-2', width: 2, height: 2 }],
+      });
+
+      await handlers.handlePhoto(first);
+      await handlers.handlePhoto(second);
+      await jest.advanceTimersByTimeAsync(1500);
+      await Promise.resolve();
+
+      expect(messageProcessor.processPhotoMessage).not.toHaveBeenCalled();
+      expect(first.reply).toHaveBeenCalledTimes(2); // progress plus one terminal error
+      expect(first.reply).toHaveBeenLastCalledWith(expect.stringContaining("couldn't process"));
+      expect(second.reply).not.toHaveBeenCalled();
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
   });
 
   it('rejects stickers with a helpful reply', async () => {
@@ -571,7 +727,7 @@ describe('MessageHandlers', () => {
     expect(messageProcessor.processAudioDocument).not.toHaveBeenCalled();
     expect(activityService.recordActivity).not.toHaveBeenCalled();
     expect(ctx.reply).toHaveBeenCalledWith(
-      'I only process audio files, voice notes, and text messages. Please send one of those.',
+      'I process text, direct photos, voice notes, and audio files. Image documents are not supported — please re-send the image as a photo (not as a file).',
     );
   });
 

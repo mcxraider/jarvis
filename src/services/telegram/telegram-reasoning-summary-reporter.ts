@@ -3,7 +3,7 @@ import { logger } from '../../utils/logger';
 import type { LogContext } from '../../utils/logger';
 import { toTelegramMarkdownV2 } from './formatters/telegram-markdown';
 
-export class TelegramNarrationReporter {
+export class TelegramReasoningSummaryReporter {
   private messageId?: number;
   private completed = false;
   private lastText?: string;
@@ -34,7 +34,7 @@ export class TelegramNarrationReporter {
         );
       }
     } catch (err: any) {
-      logger.warn('narration.paint.failed', { ...this.logContext, error: err.message });
+      logger.warn('reasoning_summary.paint.failed', { ...this.logContext, error: err.message });
     }
   }
 
@@ -45,7 +45,7 @@ export class TelegramNarrationReporter {
       try {
         await this.ctx.telegram.deleteMessage(this.ctx.chat!.id, this.messageId);
       } catch (err: any) {
-        logger.warn('narration.delete.failed', { ...this.logContext, error: err.message });
+        logger.warn('reasoning_summary.delete.failed', { ...this.logContext, error: err.message });
       }
     }
   }

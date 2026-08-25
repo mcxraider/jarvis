@@ -9,6 +9,7 @@ from agents.agent_api.app.api.routes.invoke import (
     _call_runner,
     run_agent_request,
     runtime_checkpointer,
+    require_image_provider,
     stream_agent_run,
     stream_final_response,
 )
@@ -30,6 +31,7 @@ async def resume(
     http_request: FastAPIRequest,
     x_jarvis_agent_key: Optional[str] = Header(default=None),
 ) -> AgentResponse:
+    require_image_provider(request.images)
     ctx = await apply_request_gate_async(
         "resume",
         request,
@@ -57,6 +59,7 @@ async def resume(
             request_id=request.request_id,
             run_control=run_control,
             checkpointer=runtime_checkpointer(http_request),
+            images=[image.model_dump() for image in request.images or ()],
         )
 
     return await run_agent_request(
@@ -77,6 +80,7 @@ async def resume_stream(
     http_request: FastAPIRequest,
     x_jarvis_agent_key: Optional[str] = Header(default=None),
 ) -> StreamingResponse:
+    require_image_provider(request.images)
     ctx = await apply_request_gate_async(
         "resume",
         request,
@@ -104,6 +108,7 @@ async def resume_stream(
             request_id=request.request_id,
             run_control=run_control,
             checkpointer=runtime_checkpointer(http_request),
+            images=[image.model_dump() for image in request.images or ()],
         )
 
     return await stream_agent_run(

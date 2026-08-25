@@ -4,6 +4,48 @@
 
 import { z } from 'zod';
 
+export const MAX_AGENT_IMAGE_COUNT = 10;
+export const MAX_AGENT_IMAGE_BYTES = 10 * 1024 * 1024;
+const JPEG_DATA_URL_PREFIX = 'data:image/jpeg;base64,';
+
+export const AgentImageSchema = z.object({
+  image_url: z.string().superRefine((value, context) => {
+    if (!value.startsWith(JPEG_DATA_URL_PREFIX)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Only JPEG data URLs are supported' });
+      return;
+    }
+    const encoded = value.slice(JPEG_DATA_URL_PREFIX.length);
+    if (!encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Image data must be valid Base64' });
+      return;
+    }
+    const decoded = Buffer.from(encoded, 'base64');
+    if (decoded.toString('base64') !== encoded) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Image data must be valid Base64' });
+    }
+  }),
+  detail: z.literal('auto'),
+}).strict();
+
+export const AgentImagesSchema = z
+  .array(AgentImageSchema)
+  .min(1)
+  .max(MAX_AGENT_IMAGE_COUNT)
+  .superRefine((images, context) => {
+    const totalBytes = images.reduce((total, image) => {
+      const encoded = image.image_url.slice(JPEG_DATA_URL_PREFIX.length);
+      return total + Buffer.from(encoded, 'base64').length;
+    }, 0);
+    if (totalBytes > MAX_AGENT_IMAGE_BYTES) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Images exceed the 10 MiB limit' });
+    }
+  });
+
+export type AgentImage = {
+  image_url: `data:image/jpeg;base64,${string}`;
+  detail: 'auto';
+};
+
 export const TelegramIdentitySchema = z.object({
   telegram_id: z.number().int().positive(),
   username: z.string().optional(),
@@ -37,7 +79,6 @@ export const AgentResponseSchema = z.object({
   status: z.enum(['completed', 'interrupted', 'failed']),
   thread_id: z.string(),
   response: z.string(),
-  reasoning_content: z.string().nullish(),
   interrupt: LangGraphInterruptSchema.nullish(),
   tool_results: z.array(z.record(z.unknown())).nullish(),
   error: z.string().nullish(),
@@ -132,8 +173,8 @@ export const StreamProgressEventSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
-export const StreamNarrationEventSchema = z.object({
-  type: z.literal('narration'),
+export const StreamReasoningSummaryEventSchema = z.object({
+  type: z.literal('reasoning_summary'),
   sequence: z.number().int().positive(),
   text: z.string(),
 });
@@ -145,7 +186,7 @@ export const StreamFinalEventSchema = z.object({
 
 export const StreamEventSchema = z.discriminatedUnion('type', [
   StreamProgressEventSchema,
-  StreamNarrationEventSchema,
+  StreamReasoningSummaryEventSchema,
   StreamFinalEventSchema,
 ]);
 
@@ -157,6 +198,6 @@ export type AgentRuntimeLimits = z.infer<typeof AgentRuntimeLimitsSchema>;
 export type AgentHealthDetail = z.infer<typeof AgentHealthDetailSchema>;
 export type ProgressFact = z.infer<typeof ProgressFactSchema>;
 export type StreamProgressEvent = z.infer<typeof StreamProgressEventSchema>;
-export type StreamNarrationEvent = z.infer<typeof StreamNarrationEventSchema>;
+export type StreamReasoningSummaryEvent = z.infer<typeof StreamReasoningSummaryEventSchema>;
 export type StreamFinalEvent = z.infer<typeof StreamFinalEventSchema>;
 export type StreamEvent = z.infer<typeof StreamEventSchema>;

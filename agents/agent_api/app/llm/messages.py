@@ -41,6 +41,7 @@ def _validated_responses_item(value: Any) -> dict[str, Any]:
             )
         if item.get("summary") is not None and not isinstance(item["summary"], list):
             raise ValueError("OpenAI reasoning summary must be a list")
+        item.pop("summary", None)
         return item
     if item_type == "function_call":
         required = ("id", "call_id", "name", "arguments")
@@ -104,7 +105,11 @@ class OpenAIResponsesContinuation:
 
     @classmethod
     def from_items(cls, items: Sequence[Any]) -> "OpenAIResponsesContinuation":
-        validated = tuple(_validated_responses_item(item) for item in items)
+        validated = tuple(
+            item
+            for item in (_validated_responses_item(raw) for raw in items)
+            if not (item.get("type") == "message" and item.get("phase") == "commentary")
+        )
         return cls(
             items_json=tuple(
                 json.dumps(item, sort_keys=True, separators=(",", ":"))
@@ -276,10 +281,9 @@ def _canonical_message(value: Any) -> CanonicalMessage:
                 raise _checkpoint_error("Assistant continuation must be an object.")
             continuation_provider = typed_continuation.get("provider")
             if continuation_provider == LLMProvider.DEEPSEEK.value:
-                typed_reasoning = typed_continuation.get("reasoning_content")
-                if reasoning_content is not None and reasoning_content != typed_reasoning:
-                    raise _checkpoint_error("Conflicting DeepSeek continuation metadata.")
-                reasoning_content = typed_reasoning
+                # Legacy DeepSeek orchestrator checkpoint: discard reasoning,
+                # preserve tool calls, continue through current OpenAI orchestrator.
+                pass
             elif continuation_provider == LLMProvider.OPENAI.value:
                 if typed_continuation.get("protocol") != OPENAI_RESPONSES_CONTINUATION_PROTOCOL:
                     raise _checkpoint_error("Unsupported OpenAI Responses protocol.")
@@ -304,12 +308,9 @@ def _canonical_message(value: Any) -> CanonicalMessage:
             else:
                 raise _checkpoint_error("Unsupported assistant continuation provider.")
         if reasoning_content is not None and calls and continuation is None:
-            if not isinstance(reasoning_content, str):
-                raise _checkpoint_error("DeepSeek reasoning_content must be a string.")
-            try:
-                continuation = DeepSeekContinuation(reasoning_content=reasoning_content)
-            except ValueError as error:
-                raise _checkpoint_error(str(error)) from error
+            # Legacy DeepSeek orchestrator checkpoint: discard reasoning,
+            # preserve tool calls, continue through current OpenAI orchestrator.
+            pass
         try:
             return CanonicalAssistantMessage(
                 content=_content(_read(value, "content"), role=role),

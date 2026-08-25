@@ -16,7 +16,7 @@ import {
   LangGraphInterruptSchema,
   StreamEventSchema,
   StreamFinalEventSchema,
-  StreamNarrationEventSchema,
+  StreamReasoningSummaryEventSchema,
   StreamProgressEventSchema,
 } from '../../src/types/agent.types';
 
@@ -97,14 +97,14 @@ describe('Agent API contract — StreamEventSchema', () => {
     }
   });
 
-  it('accepts the shared narration fixture', () => {
-    const data = loadFixture('stream-narration.json');
-    const result = StreamNarrationEventSchema.safeParse(data);
+  it('accepts the shared reasoning_summary fixture', () => {
+    const data = loadFixture('stream-reasoning-summary.json');
+    const result = StreamReasoningSummaryEventSchema.safeParse(data);
 
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data).toEqual({
-        type: 'narration',
+        type: 'reasoning_summary',
         sequence: 2,
         text: 'I found the matching tasks and am checking their dates.',
       });
@@ -112,15 +112,15 @@ describe('Agent API contract — StreamEventSchema', () => {
   });
 
   it.each([
-    ['missing text', { type: 'narration', sequence: 2 }],
-    ['missing sequence', { type: 'narration', text: 'working' }],
-    ['non-string text', { type: 'narration', sequence: 2, text: 42 }],
+    ['missing text', { type: 'reasoning_summary', sequence: 2 }],
+    ['missing sequence', { type: 'reasoning_summary', text: 'working' }],
+    ['non-string text', { type: 'reasoning_summary', sequence: 2, text: 42 }],
     ['invalid type', { type: 'commentary', sequence: 2, text: 'working' }],
-    ['negative sequence', { type: 'narration', sequence: -1, text: 'working' }],
-    ['zero sequence', { type: 'narration', sequence: 0, text: 'working' }],
-    ['fractional sequence', { type: 'narration', sequence: 1.5, text: 'working' }],
-  ])('rejects narration with %s', (_label, data) => {
-    expect(StreamNarrationEventSchema.safeParse(data).success).toBe(false);
+    ['negative sequence', { type: 'reasoning_summary', sequence: -1, text: 'working' }],
+    ['zero sequence', { type: 'reasoning_summary', sequence: 0, text: 'working' }],
+    ['fractional sequence', { type: 'reasoning_summary', sequence: 1.5, text: 'working' }],
+  ])('rejects reasoning_summary with %s', (_label, data) => {
+    expect(StreamReasoningSummaryEventSchema.safeParse(data).success).toBe(false);
   });
 
   it('StreamProgressEventSchema validates stage and message', () => {

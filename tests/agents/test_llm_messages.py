@@ -22,7 +22,7 @@ TOOL_CALL = {
 }
 
 
-def test_deepseek_continuation_round_trips_and_openai_strips_it():
+def test_deepseek_continuation_discarded_on_checkpoint_load():
     batch = CanonicalMessageBatch(
         messages=(
             CanonicalAssistantMessage(
@@ -39,11 +39,10 @@ def test_deepseek_continuation_round_trips_and_openai_strips_it():
 
     restored = canonicalize_messages(batch.to_checkpoint())
 
-    assert restored == batch
-    assert serialize_messages(LLMProvider.DEEPSEEK, restored)[0][
-        "reasoning_content"
-    ] == "private reasoning"
-    assert "reasoning_content" not in serialize_messages(LLMProvider.OPENAI, restored)[0]
+    # DeepSeek continuation is discarded on load (legacy bridge)
+    assert restored.messages[0].continuation is None
+    assert restored.messages[0].content == "I will look that up."
+    assert restored.messages[0].tool_calls == batch.messages[0].tool_calls
 
 
 def test_legacy_deepseek_and_openai_output_fields_are_allowlisted():
@@ -58,10 +57,11 @@ def test_legacy_deepseek_and_openai_output_fields_are_allowlisted():
         }
     ]
 
+    # DeepSeek reasoning_content is discarded during canonicalization (legacy bridge)
     deepseek = serialize_messages(LLMProvider.DEEPSEEK, legacy)[0]
     openai = serialize_messages(LLMProvider.OPENAI, legacy)[0]
 
-    assert set(deepseek) == {"role", "content", "tool_calls", "reasoning_content"}
+    assert set(deepseek) == {"role", "content", "tool_calls"}
     assert set(openai) == {"role", "content", "tool_calls"}
 
 

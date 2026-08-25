@@ -65,8 +65,8 @@ class _ProviderTrace(TracePrinter):
     def progress(self, fact: Dict[str, Any]) -> None:
         self._delegate.progress(fact)
 
-    def narration(self, text: str) -> None:
-        self._delegate.narration(text)
+    def reasoning_summary(self, text: str) -> None:
+        self._delegate.reasoning_summary(text)
 
     def payload(self, stage: str, label: str, value: Any, limit: int = 900) -> None:
         return

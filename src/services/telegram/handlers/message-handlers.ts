@@ -16,7 +16,7 @@ import {
 } from '../formatters/telegram-rich';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
-import { TelegramNarrationReporter } from '../telegram-narration-reporter';
+import { TelegramReasoningSummaryReporter } from '../telegram-reasoning-summary-reporter';
 import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service';
 import {
   PendingPausePresentation,
@@ -35,6 +35,32 @@ import {
   formatForwardContext,
   ForwardBufferStore,
 } from '../forward-buffer.store';
+import {
+  AgentImage,
+  MAX_AGENT_IMAGE_BYTES,
+  MAX_AGENT_IMAGE_COUNT,
+} from '../../../types/agent.types';
+
+const PHOTO_FALLBACK_PROMPT = 'help me with this image.';
+const ALBUM_QUIET_MS = 1500;
+const PHOTO_ERROR =
+  "I couldn't process that image or album. Send 1–10 JPEG photos totaling no more than 10 MB, then try again.";
+
+interface PhotoItem {
+  messageId: number;
+  fileId: string;
+  caption?: string;
+  width: number;
+  height: number;
+}
+
+interface PendingAlbum {
+  ctx: Context;
+  items: Map<number, PhotoItem>;
+  timer: ReturnType<typeof setTimeout>;
+  logContext: LogContext;
+  startedAt: number;
+}
 
 export class MessageHandlers {
   constructor(
@@ -53,6 +79,8 @@ export class MessageHandlers {
   // updates — without serialization each one would race on the missing confirmation id
   // and post its own reply.
   private readonly confirmationChains = new Map<string, Promise<void>>();
+  private readonly pendingAlbums = new Map<string, PendingAlbum>();
+  private readonly recentlyFlushedAlbums = new Map<string, number>();
 
   // Consumes forwarded messages before any command or message handler runs (installed
   // as a bot.use middleware). Returns true when the message was a forward (buffered or
@@ -226,12 +254,7 @@ export class MessageHandlers {
 
     if (confirmationId !== undefined && ctx.chat) {
       await ctx.telegram
-        .editMessageText(
-          ctx.chat.id,
-          confirmationId,
-          undefined,
-          `📤 Sent ${messages.length} forwarded message${messages.length === 1 ? '' : 's'}.`,
-        )
+        .deleteMessage(ctx.chat.id, confirmationId)
         .catch(() => undefined);
     }
 
@@ -364,37 +387,58 @@ export class MessageHandlers {
     options?: { forceFresh?: boolean; replyContext?: import('../reply-context').ReplyContextData },
   ): Promise<void> {
     const userId = ctx.from?.id;
+    await this.runWithAgentProgress(
+      ctx,
+      logContext,
+      startedAt,
+      (onProgress, onPendingPauseAccepted) => this.messageProcessor.processTextMessage(
+        text,
+        userId,
+        logContext,
+        onProgress,
+        { ...options, onPendingPauseAccepted },
+      ),
+      'Something went wrong processing your message. Please try again.',
+      'message',
+    );
+  }
+
+  private async runWithAgentProgress(
+    ctx: Context,
+    logContext: LogContext,
+    startedAt: number,
+    processFn: (
+      onProgress: (event: LangGraphProgressEvent, signal?: AbortSignal) => Promise<void>,
+      onPendingPauseAccepted: (presentation: PendingPausePresentation) => Promise<void>,
+    ) => Promise<TextProcessorResult>,
+    errorMessage: string,
+    resultKind: 'message' | 'photo',
+  ): Promise<void> {
+    const userId = ctx.from?.id;
     const progressReporter = new TelegramProgressReporter(ctx, logContext);
-    const narrationReporter = new TelegramNarrationReporter(ctx, logContext);
+    const summaryReporter = new TelegramReasoningSummaryReporter(ctx, logContext);
     let lastProgressStage = '';
 
     try {
       await progressReporter.start();
-      const result = await this.messageProcessor.processTextMessage(
-        text,
-        userId,
-        logContext,
+      const result = await processFn(
         async (event: LangGraphProgressEvent, signal?: AbortSignal) => {
-          if (event.narration) {
-            await narrationReporter.record(event.narration);
+          if (event.reasoningSummary) {
+            await summaryReporter.record(event.reasoningSummary);
             return;
           }
           lastProgressStage = event.stage;
           await progressReporter.record(event, signal);
         },
-        {
-          ...options,
-          onPendingPauseAccepted: (presentation) =>
-            this.resolvePausePresentation(ctx, presentation, logContext),
-        },
+        (presentation) => this.resolvePausePresentation(ctx, presentation, logContext),
       );
-      await narrationReporter.complete();
+      await summaryReporter.complete();
       await progressReporter.complete(this.completionStatus(lastProgressStage));
       if (result.suppressed) {
         logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
         return;
       }
-      if (!this.claimTerminalReply(logContext, 'message_result')) return;
+      if (!this.claimTerminalReply(logContext, `${resultKind}_result`)) return;
       await this.sendResult(ctx, result, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
@@ -404,14 +448,16 @@ export class MessageHandlers {
     } catch (error) {
       logger.error('telegram.message.failed', {
         ...logContext,
-        error: (error as Error).message,
+        ...(resultKind === 'photo'
+          ? { errorType: error instanceof Error ? error.name : 'UnknownError' }
+          : { error: (error as Error).message }),
         userId,
         durationMs: Date.now() - startedAt,
       });
-      await narrationReporter.complete();
+      await summaryReporter.complete();
       await progressReporter.complete('Something went wrong');
-      if (this.claimTerminalReply(logContext, 'message_error')) {
-        await ctx.reply('Something went wrong processing your message. Please try again.');
+      if (this.claimTerminalReply(logContext, `${resultKind}_error`)) {
+        await ctx.reply(errorMessage);
       }
     }
   }
@@ -433,16 +479,173 @@ export class MessageHandlers {
     await this.processAudioFile(ctx, ctx.message.audio, 'audio');
   }
 
-  // Photo handler: images are not supported (forwarded photos with captions are
-  // consumed by the forward middleware before reaching here). Reject with a helpful
-  // message, mirroring the sticker/GIF/video-note handlers.
   async handlePhoto(ctx: Context): Promise<void> {
     if (!ctx.message || !('photo' in ctx.message)) return;
-    await this.rejectUnsupportedMedia(
-      ctx,
-      'photo',
-      'Images are currently not supported - please send a text message, a voice note, or an audio file.',
+    const message = ctx.message;
+    const largest = message.photo.reduce((best, candidate) =>
+      candidate.width * candidate.height > best.width * best.height ? candidate : best,
     );
+    const item: PhotoItem = {
+      messageId: message.message_id,
+      fileId: largest.file_id,
+      caption: message.caption,
+      width: largest.width,
+      height: largest.height,
+    };
+    const logContext = this.createLogContext(ctx, 'photo');
+    this.activityService.recordActivity('message_photo');
+
+    if (!message.media_group_id) {
+      await this.processPhotoItems(ctx, [item], logContext, Date.now());
+      return;
+    }
+
+    const key = `${ctx.chat?.id}:${ctx.from?.id}:${message.media_group_id}`;
+    this.pruneStaleAlbumEntries();
+    let album = this.pendingAlbums.get(key);
+    if (!album) {
+      if (this.recentlyFlushedAlbums.has(key)) {
+        this.recentlyFlushedAlbums.delete(key);
+        void ctx.reply(
+          'Some photos from your album arrived late and were processed separately. Re-send the album if that’s not what you intended.',
+        );
+      }
+      album = {
+        ctx,
+        items: new Map(),
+        timer: setTimeout(() => undefined, ALBUM_QUIET_MS),
+        logContext,
+        startedAt: Date.now(),
+      };
+      this.pendingAlbums.set(key, album);
+    }
+    if (album.items.has(item.messageId)) return;
+    album.items.set(item.messageId, item);
+    clearTimeout(album.timer);
+    if (album.items.size >= MAX_AGENT_IMAGE_COUNT) {
+      void this.flushAlbum(key).catch((error) => this.logAlbumFailure(album!, error));
+    } else {
+      album.timer = setTimeout(
+        () => void this.flushAlbum(key).catch((error) => this.logAlbumFailure(album!, error)),
+        ALBUM_QUIET_MS,
+      );
+    }
+  }
+
+  private async flushAlbum(key: string): Promise<void> {
+    const album = this.pendingAlbums.get(key);
+    if (!album) return;
+    this.pendingAlbums.delete(key);
+    this.recentlyFlushedAlbums.set(key, Date.now());
+    clearTimeout(album.timer);
+    const items = [...album.items.values()].sort((a, b) => a.messageId - b.messageId);
+    album.items.clear();
+    await this.processPhotoItems(album.ctx, items, album.logContext, album.startedAt);
+  }
+
+  private pruneStaleAlbumEntries(): void {
+    const cutoff = Date.now() - 10_000;
+    for (const [k, ts] of this.recentlyFlushedAlbums) {
+      if (ts < cutoff) this.recentlyFlushedAlbums.delete(k);
+    }
+  }
+
+  private logAlbumFailure(album: PendingAlbum, error: unknown): void {
+    logger.error('telegram.photo.album_dispatch_failed', {
+      ...album.logContext,
+      errorType: error instanceof Error ? error.name : 'UnknownError',
+    });
+  }
+
+  private async processPhotoItems(
+    ctx: Context,
+    items: PhotoItem[],
+    logContext: LogContext,
+    startedAt: number,
+  ): Promise<void> {
+    if (!(await this.canAcceptPhoto(ctx, logContext))) return;
+    const captions = items.map((item) => item.caption?.trim()).filter(Boolean) as string[];
+    const message = captions.join('\n') || PHOTO_FALLBACK_PROMPT;
+    const replied = ctx.message && 'reply_to_message' in ctx.message
+      ? ctx.message.reply_to_message
+      : undefined;
+    const replyContext = formatReplyContext(replied, ctx.botInfo?.id);
+
+    await this.runWithAgentProgress(
+      ctx,
+      logContext,
+      startedAt,
+      async (onProgress, onPendingPauseAccepted) => {
+        if (items.length < 1 || items.length > MAX_AGENT_IMAGE_COUNT) throw new Error('Invalid image count');
+        let remaining = MAX_AGENT_IMAGE_BYTES;
+        let decodedBytes = 0;
+        const images: AgentImage[] = [];
+        for (const item of items) {
+          const buffer = await this.fileService.downloadFile(item.fileId, remaining);
+          if (!this.isJpeg(buffer)) throw new Error('Telegram photo is not a valid JPEG');
+          remaining -= buffer.length;
+          decodedBytes += buffer.length;
+          images.push({
+            image_url: `data:image/jpeg;base64,${buffer.toString('base64')}`,
+            detail: 'auto',
+          });
+        }
+        logger.info('telegram.photo.downloaded', {
+          ...logContext,
+          imageCount: images.length,
+          decodedBytes,
+          dimensions: items.map(({ width, height }) => `${width}x${height}`),
+          hasCaption: captions.length > 0,
+          durationMs: Date.now() - startedAt,
+        });
+        return this.messageProcessor.processPhotoMessage(
+          message,
+          images,
+          ctx.from?.id,
+          logContext,
+          onProgress,
+          { replyContext, onPendingPauseAccepted },
+        );
+      },
+      PHOTO_ERROR,
+      'photo',
+    );
+  }
+
+  private async canAcceptPhoto(ctx: Context, logContext: LogContext): Promise<boolean> {
+    if (!this.conversationGate) return true;
+    let snapshot;
+    try {
+      snapshot = await this.conversationGate.getSnapshot(this.gateKey(ctx));
+    } catch {
+      await ctx.reply(PHOTO_ERROR);
+      return false;
+    }
+    if (snapshot.status === 'running') {
+      logger.info('conversation_gate.photo_blocked', { ...logContext, gateStatus: snapshot.status });
+      await ctx.reply("I'm still working on your previous request. Please wait.");
+      return false;
+    }
+    if (snapshot.status === 'waiting_for_clarification') {
+      const pending = await this.pendingStore.get(this.gateKey(ctx)).catch(() => undefined);
+      if (!pending || pending.requestId !== snapshot.requestId || pending.interruptType === 'confirm') {
+        await ctx.reply(
+          pending?.interruptType === 'confirm'
+            ? 'You have a pending approval. Please use the existing Approve or Decline buttons.'
+            : PHOTO_ERROR,
+        );
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private isJpeg(buffer: Buffer): boolean {
+    return buffer.length >= 4
+      && buffer[0] === 0xff
+      && buffer[1] === 0xd8
+      && buffer[buffer.length - 2] === 0xff
+      && buffer[buffer.length - 1] === 0xd9;
   }
 
   async handleSticker(ctx: Context): Promise<void> {
@@ -488,7 +691,7 @@ export class MessageHandlers {
         fileName: document.file_name,
       });
       await ctx.reply(
-        'I only process audio files, voice notes, and text messages. Please send one of those.',
+        'I process text, direct photos, voice notes, and audio files. Image documents are not supported — please re-send the image as a photo (not as a file).',
       );
       return;
     }
@@ -566,7 +769,7 @@ export class MessageHandlers {
     });
     this.activityService.recordActivity('message_unknown');
 
-    await ctx.reply('Whats up guys! I can only process text, voice notes, and audio files. Please send one of those.');
+    await ctx.reply('Whats up guys! I can process text, direct photos, voice notes, and audio files.');
   }
 
   private async processAudioFile(ctx: Context, audioFile: any, messageType: string): Promise<void> {
@@ -626,7 +829,7 @@ export class MessageHandlers {
     errorMessage: string,
   ): Promise<void> {
     const progressReporter = new TelegramProgressReporter(ctx, logContext);
-    const narrationReporter = new TelegramNarrationReporter(ctx, logContext);
+    const summaryReporter = new TelegramReasoningSummaryReporter(ctx, logContext);
     let lastProgressStage = '';
 
     try {
@@ -635,15 +838,15 @@ export class MessageHandlers {
         progressReporter,
         () => progressReporter.beginAgentPhase(),
         async (event: LangGraphProgressEvent, signal?: AbortSignal) => {
-          if (event.narration) {
-            await narrationReporter.record(event.narration);
+          if (event.reasoningSummary) {
+            await summaryReporter.record(event.reasoningSummary);
             return;
           }
           lastProgressStage = event.stage;
           await progressReporter.record(event, signal);
         },
       );
-      await narrationReporter.complete();
+      await summaryReporter.complete();
       await progressReporter.complete(this.completionStatus(lastProgressStage));
       if (result.suppressed) {
         logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
@@ -663,7 +866,7 @@ export class MessageHandlers {
         userId,
         durationMs: Date.now() - startedAt,
       });
-      await narrationReporter.complete();
+      await summaryReporter.complete();
       await progressReporter.complete('Something went wrong');
       if (this.claimTerminalReply(logContext, 'audio_error')) {
         await ctx.reply(errorMessage);

@@ -15,6 +15,7 @@ import {
 import { buildConversationKey, mapTelegramUserId } from './conversation-key';
 import type { ReplyContextData } from './reply-context';
 import { PendingClarificationStore } from './pending-clarification.store';
+import type { AgentImage } from '../../types/agent.types';
 
 const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_WAITING_TTL_MS = 30 * 60 * 1000;
@@ -234,40 +235,29 @@ export class MessageProcessorService {
   }
 
   async processPhotoMessage(
-    photoContext: {
-      fileId: string;
-      caption?: string;
-      width?: number;
-      height?: number;
-      fileSize?: number;
-    },
+    message: string,
+    images: AgentImage[],
     userId?: number,
     logContext: LogContext = {},
-    options?: { onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void> },
+    onProgress?: LangGraphProgressCallback,
+    options?: {
+      replyContext?: ReplyContextData;
+      onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
+    },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
       userId,
       messageType: 'photo',
       processor: 'TextProcessorService',
-      fileId: photoContext.fileId,
-      hasCaption: !!photoContext.caption?.trim(),
+      imageCount: images.length,
+      hasCaption: message !== 'help me with this image.',
     });
 
-    const caption = photoContext.caption?.trim();
-    const contextualMessage = [
-      'Telegram image attachment received.',
-      'Available context:',
-      `- File id: ${photoContext.fileId}`,
-      photoContext.width && photoContext.height ? `- Dimensions: ${photoContext.width}x${photoContext.height}` : undefined,
-      photoContext.fileSize ? `- File size: ${photoContext.fileSize} bytes` : undefined,
-      caption ? `- Caption: ${caption}` : '- Caption: none',
-      'Please respond using the caption and metadata that were provided.',
-    ]
-      .filter(Boolean)
-      .join('\n');
-
-    return this.textProcessor.processTextMessage(contextualMessage, userId, logContext, undefined, options);
+    return this.textProcessor.processTextMessage(message, userId, logContext, onProgress, {
+      ...options,
+      images,
+    });
   }
 
   async processMessage(
@@ -280,6 +270,7 @@ export class MessageProcessorService {
       width?: number;
       height?: number;
       fileSize?: number;
+      images?: AgentImage[];
     },
     userId?: number,
     logContext: LogContext = {},
@@ -310,14 +301,10 @@ export class MessageProcessorService {
         );
 
       case 'photo':
+        if (!messageData.images) throw new Error('Photo processing requires image data');
         return this.processPhotoMessage(
-          {
-            fileId: messageData.content,
-            caption: messageData.caption,
-            width: messageData.width,
-            height: messageData.height,
-            fileSize: messageData.fileSize,
-          },
+          messageData.caption?.trim() || 'help me with this image.',
+          messageData.images,
           userId,
           logContext,
         );

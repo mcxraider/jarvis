@@ -26,7 +26,7 @@ describe('CommandHandlers', () => {
     } as any;
   }
 
-  it('returns help text advertising all commands and no image support', async () => {
+  it('returns help text advertising commands and direct photo support', async () => {
     const ctx = createContext();
     const activityService = createActivityService();
     const statusService = {
@@ -41,8 +41,8 @@ describe('CommandHandlers', () => {
     for (const command of ['/start', '/help', '/status', '/cancel', '/new']) {
       expect(helpText).toContain(command);
     }
-    // Images are no longer accepted, so /help must not offer them as a capability.
-    expect(helpText).not.toMatch(/send a photo/i);
+    expect(helpText).toMatch(/Photos.+up to 10 photos/i);
+    expect(helpText).toMatch(/image documents.+rejected/i);
     expect(ctx.reply).toHaveBeenCalledWith(expect.any(String), { parse_mode: 'MarkdownV2' });
   });
 
