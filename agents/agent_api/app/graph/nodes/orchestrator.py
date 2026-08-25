@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
-from langsmith import traceable
+from langsmith import traceable, tracing_context
 from langsmith.wrappers import wrap_openai
 from openai import (
     APIConnectionError,
@@ -71,7 +71,16 @@ from agents.agent_api.app.llm.provider import (
     validate_model_for_profile,
     validate_reasoning_for_profile,
 )
-from agents.agent_api.app.llm.responses import build_responses_call, normalize_response
+from agents.agent_api.app.llm.responses import (
+    build_responses_call,
+    normalize_response,
+)
+from agents.agent_api.app.llm.streaming import (
+    consume_async_response_stream,
+    consume_response_stream,
+    is_summary_rejection,
+    strip_summary_from_params,
+)
 
 
 LLM_FAILURE_MESSAGE = "Jarvis could not reach the language model reliably. Please try again in a moment."
@@ -238,6 +247,17 @@ class LLMAgentClientError(RuntimeError):
         super().__init__(json.dumps(payload, sort_keys=True))
 
 
+def _model_trace_inputs(inputs: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep image payloads out of the outer LangSmith model span."""
+
+    safe = dict(inputs)
+    safe.pop("self", None)
+    images = safe.pop("images", ()) or ()
+    if images:
+        safe["image_count"] = len(images)
+    return safe
+
+
 class LLMAgentClient:
     """Request-bound provider-neutral Chat Completions client.
 
@@ -355,6 +375,7 @@ class LLMAgentClient:
     @traceable(
         name="llm_create_message",
         run_type="llm",
+        process_inputs=_model_trace_inputs,
     )
     def create_message(
         self,
@@ -366,6 +387,7 @@ class LLMAgentClient:
         request_timeout_seconds: Optional[float] = None,
         tracer: Optional[TracePrinter] = None,
         usage_accumulator: Optional[UsageSummary] = None,
+        images: tuple[dict[str, str], ...] = (),
     ) -> Dict[str, Any]:
         """Create one message while preserving the legacy synchronous result.
 
@@ -376,8 +398,7 @@ class LLMAgentClient:
 
         call_tracer = tracer or self.tracer
         call_usage = usage_accumulator if usage_accumulator is not None else self.usage
-        use_model = model or self.model
-        use_model = validate_model_for_profile(self.profile, use_model)
+        use_model = validate_model_for_profile(self.profile, model or self.model)
         use_effort = validate_reasoning_for_profile(
             self.profile, reasoning_effort or self.reasoning_effort
         )
@@ -414,8 +435,10 @@ class LLMAgentClient:
         attempts = 0
         request_started = time.monotonic()
 
+        summary_fallback_attempted = False
+
         def create_completion() -> Any:
-            nonlocal attempts
+            nonlocal attempts, summary_fallback_attempted
             attempts += 1
             attempt_started = time.monotonic()
             try:
@@ -429,8 +452,26 @@ class LLMAgentClient:
                         reasoning_effort=use_effort,
                         safety_identifier=self.safety_identifier,
                         timeout_seconds=use_timeout,
+                        images=images,
                     )
-                    return self.client.responses.create(**call.as_kwargs())
+                    kwargs = call.as_kwargs()
+                    with tracing_context(enabled=False):
+                        try:
+                            with self.client.responses.stream(**kwargs) as stream:
+                                return consume_response_stream(
+                                    stream,
+                                    on_summary=call_tracer.reasoning_summary,
+                                )
+                        except (APIStatusError,) as summary_err:
+                            if (
+                                not summary_fallback_attempted
+                                and is_summary_rejection(summary_err)
+                            ):
+                                summary_fallback_attempted = True
+                                fallback_kwargs = strip_summary_from_params(kwargs)
+                                with self.client.responses.stream(**fallback_kwargs) as stream:
+                                    return consume_response_stream(stream)
+                            raise
                 call = build_chat_completion_call(
                     self.profile,
                     model=use_model,
@@ -520,21 +561,20 @@ class LLMAgentClient:
             tool_calls=len(message.get("tool_calls") or []),
             has_content=bool(message.get("content")),
             has_reasoning=bool(result.message.continuation),
-            has_commentary=bool(result.commentary),
-            commentary_messages=len(result.commentary) or None,
+            reasoning_summary_requested=isinstance(self.profile, OpenAIResponsesProfile),
+            reasoning_summary_fallback=summary_fallback_attempted,
             prompt_tokens=turn_usage.prompt_tokens or None,
             completion_tokens=turn_usage.completion_tokens or None,
             total_tokens=turn_usage.total_tokens or None,
             cached_tokens=turn_usage.cached_tokens or None,
             cache_hit_rate=cache_hit_rate,
         )
-        for commentary in result.commentary:
-            call_tracer.narration(commentary)
         return message
 
     @traceable(
         name="llm_create_message_async",
         run_type="llm",
+        process_inputs=_model_trace_inputs,
     )
     async def async_create_message(
         self,
@@ -547,6 +587,7 @@ class LLMAgentClient:
         tracer: Optional[TracePrinter] = None,
         usage_accumulator: Optional[UsageSummary] = None,
         async_client: Optional[Any] = None,
+        images: tuple[dict[str, str], ...] = (),
     ) -> Dict[str, Any]:
         """Async counterpart using the shared transport by default.
 
@@ -562,8 +603,7 @@ class LLMAgentClient:
             or self.async_client
             or get_shared_async_agent_client()
         )
-        use_model = model or self.model
-        use_model = validate_model_for_profile(self.profile, use_model)
+        use_model = validate_model_for_profile(self.profile, model or self.model)
         use_effort = validate_reasoning_for_profile(
             self.profile, reasoning_effort or self.reasoning_effort
         )
@@ -599,9 +639,10 @@ class LLMAgentClient:
         )
         attempts = 0
         request_started = time.monotonic()
+        summary_fallback_attempted = False
 
         async def create_completion() -> Any:
-            nonlocal attempts
+            nonlocal attempts, summary_fallback_attempted
             attempts += 1
             attempt_started = time.monotonic()
             try:
@@ -615,8 +656,26 @@ class LLMAgentClient:
                         reasoning_effort=use_effort,
                         safety_identifier=self.safety_identifier,
                         timeout_seconds=use_timeout,
+                        images=images,
                     )
-                    return await provider_client.responses.create(**call.as_kwargs())
+                    kwargs = call.as_kwargs()
+                    with tracing_context(enabled=False):
+                        try:
+                            async with provider_client.responses.stream(**kwargs) as stream:
+                                return await consume_async_response_stream(
+                                    stream,
+                                    on_summary=call_tracer.reasoning_summary,
+                                )
+                        except (APIStatusError,) as summary_err:
+                            if (
+                                not summary_fallback_attempted
+                                and is_summary_rejection(summary_err)
+                            ):
+                                summary_fallback_attempted = True
+                                fallback_kwargs = strip_summary_from_params(kwargs)
+                                async with provider_client.responses.stream(**fallback_kwargs) as stream:
+                                    return await consume_async_response_stream(stream)
+                            raise
                 call = build_chat_completion_call(
                     self.profile,
                     model=use_model,
@@ -707,16 +766,14 @@ class LLMAgentClient:
             tool_calls=len(message.get("tool_calls") or []),
             has_content=bool(message.get("content")),
             has_reasoning=bool(result.message.continuation),
-            has_commentary=bool(result.commentary),
-            commentary_messages=len(result.commentary) or None,
+            reasoning_summary_requested=isinstance(self.profile, OpenAIResponsesProfile),
+            reasoning_summary_fallback=summary_fallback_attempted,
             prompt_tokens=turn_usage.prompt_tokens or None,
             completion_tokens=turn_usage.completion_tokens or None,
             total_tokens=turn_usage.total_tokens or None,
             cached_tokens=turn_usage.cached_tokens or None,
             cache_hit_rate=cache_hit_rate,
         )
-        for commentary in result.commentary:
-            call_tracer.narration(commentary)
         return message
 
     @staticmethod
@@ -1320,6 +1377,7 @@ def create_agent_node(
                 model=model_override,
                 reasoning_effort=effort_override,
             )
+        run_images = deps.images if deps is not None else ()
         try:
             if isinstance(run_agent_client, LLMAgentClient):
                 if run_agent_client.async_client is not None:
@@ -1332,6 +1390,7 @@ def create_agent_node(
                         tracer=run_tracer,
                         usage_accumulator=run_usage_accumulator,
                         async_client=run_agent_client.async_client,
+                        images=run_images,
                     )
                 else:
                     assistant_message = await bounded_to_thread(
@@ -1343,6 +1402,7 @@ def create_agent_node(
                         request_timeout_seconds=timeout_override,
                         tracer=run_tracer,
                         usage_accumulator=run_usage_accumulator,
+                        images=run_images,
                     )
             else:
                 # Preserve duck-typed test/CLI clients while keeping their
@@ -1353,21 +1413,29 @@ def create_agent_node(
                     None,
                 )
                 if inspect.iscoroutinefunction(async_create_message):
+                    kwargs = {
+                        "model": model_override,
+                        "reasoning_effort": effort_override,
+                        "request_timeout_seconds": timeout_override,
+                    }
+                    if run_images:
+                        kwargs["images"] = run_images
                     assistant_message = await async_create_message(
-                        messages,
-                        tool_schemas,
-                        model=model_override,
-                        reasoning_effort=effort_override,
-                        request_timeout_seconds=timeout_override,
+                        messages, tool_schemas, **kwargs
                     )
                 else:
+                    kwargs = {
+                        "model": model_override,
+                        "reasoning_effort": effort_override,
+                        "request_timeout_seconds": timeout_override,
+                    }
+                    if run_images:
+                        kwargs["images"] = run_images
                     assistant_message = await bounded_to_thread(
                         run_agent_client.create_message,
                         messages,
                         tool_schemas,
-                        model=model_override,
-                        reasoning_effort=effort_override,
-                        request_timeout_seconds=timeout_override,
+                        **kwargs,
                     )
         except LLMAgentClientError as error:
             run_tracer.event(
@@ -1383,10 +1451,6 @@ def create_agent_node(
                 "next": "end",
             }
         messages.append(assistant_message)
-
-        _narration_content = assistant_message.get("content") or ""
-        if _narration_content.strip() and assistant_message.get("tool_calls"):
-            run_tracer.narration(_narration_content)
 
         final_response = ""
 
@@ -1426,18 +1490,10 @@ def create_agent_node(
             turn=turn_count + 1,
         )
 
-        continuation = assistant_message.get("continuation") or {}
-        raw_reasoning = (
-            assistant_message.get("reasoning_content")
-            or continuation.get("reasoning_content")
-            or None
-        )
-
         return {
             "messages": messages,
             "turn_count": turn_count + 1,
             "final_response": final_response,
-            "reasoning_content": raw_reasoning,
             "selected_tool_names": selected_tool_names,
             "active_domains": active_domains,
             "router_outcome": (

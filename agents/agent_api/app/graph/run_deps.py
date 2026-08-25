@@ -32,6 +32,9 @@ class RunDeps:
     forced_model: Optional[str] = None
     forced_reasoning_effort: Optional[str] = None
     run_control: Any = None
+    images: tuple[dict[str, str], ...] = field(
+        default_factory=tuple, repr=False, compare=False
+    )
 
     _tool_node: Any = field(default=None, init=False, repr=False, compare=False)
 

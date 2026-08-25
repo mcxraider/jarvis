@@ -38,6 +38,7 @@ FLUSH_INTERVAL_EVENTS = 50
 BACKPRESSURE_THRESHOLD = 5
 MAX_PAYLOAD_BYTES = 64_000
 MAX_STRING_LENGTH = 8_000
+_DATA_IMAGE_URL_RE = re.compile(r"data:image(?:/[^\s\"']*)?", re.IGNORECASE)
 
 logger = logging.getLogger(__name__)
 _log_writer_pool = concurrent.futures.ThreadPoolExecutor(
@@ -385,6 +386,8 @@ def _redact_checkpoint_secrets(value: Any) -> Any:
         return [_redact_checkpoint_secrets(item) for item in value]
     if isinstance(value, tuple):
         return tuple(_redact_checkpoint_secrets(item) for item in value)
+    if isinstance(value, str):
+        return _DATA_IMAGE_URL_RE.sub("[redacted image data]", value)
     return value
 
 
@@ -488,6 +491,7 @@ class RunFileLog:
         self._flush_to_disk(self._snapshot_buffer())
 
     def _append(self, text: str, *, preserve: bool = False) -> None:
+        text = _DATA_IMAGE_URL_RE.sub("[redacted image data]", text)
         entry = text + "\n"
         entry_bytes = len(entry.encode("utf-8"))
         if entry_bytes > MAX_PAYLOAD_BYTES:

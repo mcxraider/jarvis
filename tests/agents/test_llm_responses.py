@@ -2,13 +2,22 @@
 
 import os
 import asyncio
+import inspect
+import pathlib
 from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from openai import OpenAI
+from openai.types.responses import ResponseReasoningSummaryTextDeltaEvent
 from openai.types.responses.response_create_params import (
     ResponseCreateParamsNonStreaming,
+)
+
+from agents.agent_api.app.api.schemas import MAX_IMAGE_BYTES, MAX_IMAGE_COUNT
+from agents.agent_api.app.llm.streaming import (
+    consume_async_response_stream,
+    consume_response_stream,
 )
 
 from agents.agent_api.app.llm.messages import canonicalize_messages, serialize_messages
@@ -25,8 +34,10 @@ from agents.agent_api.app.llm.responses import (
 from agents.agent_api.app.graph.nodes.orchestrator import (
     LLMAgentClient,
     LLMAgentClientError,
+    _model_trace_inputs,
 )
 from agents.agent_api.app.tracing import UserProgressTracePrinter
+from agents.agent_api.app.graph import builder
 
 
 def _profile() -> OpenAIResponsesProfile:
@@ -57,6 +68,51 @@ TOOLS = [
         },
     }
 ]
+IMAGES = (
+    {
+        "image_url": "data:image/jpeg;base64,/9j/2Q==",
+        "detail": "auto",
+    },
+)
+
+
+class _MockStream:
+    def __init__(self, response):
+        self._response = response
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        pass
+
+    def __iter__(self):
+        return iter([])
+
+    def get_final_response(self):
+        return self._response
+
+
+class _MockAsyncStream:
+    def __init__(self, response):
+        self._response = response
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        pass
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        raise StopAsyncIteration
+
+    # Async, matching openai's AsyncResponseStream. A sync double here hides a
+    # missing `await` in consume_async_response_stream.
+    async def get_final_response(self):
+        return self._response
 
 
 def _tool_response(*, encrypted_content: str | None = "encrypted-reasoning"):
@@ -144,7 +200,7 @@ def test_builds_medium_stateless_request_with_flat_function_tools():
     request = call.as_kwargs()
 
     assert request["model"] == "gpt-5.6-luna"
-    assert request["reasoning"] == {"effort": "medium", "context": "current_turn"}
+    assert request["reasoning"] == {"effort": "medium", "context": "current_turn", "summary": "auto"}
     assert request["store"] is False
     assert request["include"] == ["reasoning.encrypted_content"]
     assert request["parallel_tool_calls"] is True
@@ -168,11 +224,61 @@ def test_builds_medium_stateless_request_with_flat_function_tools():
         assert forbidden not in request
 
 
+def test_builds_pinned_multimodal_request_on_latest_user_turn():
+    call = build_responses_call(
+        replace(_profile(), model="gpt-5.6"),
+        model="gpt-5.6-mini",
+        messages=[
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "Which one?"},
+            {"role": "user", "content": "caption"},
+        ],
+        images=IMAGES,
+    )
+    request = call.as_kwargs()
+
+    assert request["model"] == "gpt-5.6-luna"
+    assert request["store"] is False
+    assert request["include"] == ["reasoning.encrypted_content"]
+    assert request["input"][0]["content"] == "first"
+    assert request["input"][-1]["content"] == [
+        {"type": "input_text", "text": "caption"},
+        {"type": "input_image", **IMAGES[0]},
+    ]
+
+
+def test_model_trace_inputs_replace_pixels_with_safe_count():
+    processed = _model_trace_inputs(
+        {"self": object(), "messages": [{"role": "user", "content": "caption"}], "images": IMAGES}
+    )
+
+    assert processed["image_count"] == 1
+    assert "data:image" not in repr(processed)
+
+
+def test_image_run_rejects_non_responses_provider_before_graph(monkeypatch):
+    compile_graph = MagicMock()
+    monkeypatch.setattr(
+        builder, "settings", replace(builder.settings, orchestrator_llm=object())
+    )
+    monkeypatch.setattr(builder, "get_or_compile_graph", compile_graph)
+
+    with pytest.raises(LLMProviderError, match="OpenAI Responses provider"):
+        asyncio.run(
+            builder.run_jarvis_async(
+                user_prompt="caption",
+                images=list(IMAGES),
+                checkpointer=object(),
+            )
+        )
+
+    compile_graph.assert_not_called()
+
+
 def test_normalizes_parallel_calls_usage_and_checkpoint_replay():
     result = normalize_response(_tool_response(), _profile())
 
     assert result.message.content == ""
-    assert result.commentary == ("I will check that.",)
     assert [call.id for call in result.message.tool_calls] == ["call_1", "call_2"]
     assert result.finish_reason == "tool_calls"
     assert result.provider_request_id == "resp_1"
@@ -194,21 +300,20 @@ def test_normalizes_parallel_calls_usage_and_checkpoint_replay():
 
     assert [item.get("type") for item in replay[1:]] == [
         "reasoning",
-        "message",
         "function_call",
         "function_call",
         "function_call_output",
         "function_call_output",
     ]
     assert replay[1]["encrypted_content"] == "encrypted-reasoning"
-    assert replay[2]["phase"] == "commentary"
+    assert "summary" not in replay[1]
     assert [item.get("call_id") for item in replay[-2:]] == ["call_1", "call_2"]
     deepseek_history = serialize_messages(LLMProvider.DEEPSEEK, restored)
     assert "continuation" not in deepseek_history[1]
     assert "reasoning_content" not in deepseek_history[1]
 
 
-def test_partitions_multiple_commentary_messages_from_final_answer():
+def test_discards_commentary_messages_keeps_final_answer():
     result = normalize_response(
         {
             "id": "resp_mixed",
@@ -262,18 +367,16 @@ def test_partitions_multiple_commentary_messages_from_final_answer():
         _profile(),
     )
 
-    assert result.commentary == ("Checking the logs.", "I found the race.")
     assert result.message.content == "Use a generation key."
     assert result.message.continuation is None
 
 
-def test_unphased_tool_message_remains_backward_compatible_commentary():
+def test_unphased_tool_preamble_discarded_with_tool_calls():
     response = _tool_response()
     response["output"][1].pop("phase")
 
     result = normalize_response(response, _profile())
 
-    assert result.commentary == ("I will check that.",)
     assert result.message.content == ""
 
 
@@ -408,7 +511,6 @@ def test_refusal_is_explicit_and_not_a_successful_answer():
 
     assert result.refusal == "Cannot help."
     assert result.message.content == ""
-    assert result.commentary == ()
 
 
 def _text_response(text: str = "OpenAI works."):
@@ -431,7 +533,7 @@ def _text_response(text: str = "OpenAI works."):
 
 def test_orchestrator_sync_dispatches_responses_not_chat():
     sdk = MagicMock()
-    sdk.responses.create.return_value = _text_response()
+    sdk.responses.stream.return_value = _MockStream(_text_response())
     client = LLMAgentClient(
         profile=_profile(), client=sdk, safety_identifier="b" * 64
     )
@@ -441,84 +543,24 @@ def test_orchestrator_sync_dispatches_responses_not_chat():
     )
 
     assert result == {"role": "assistant", "content": "OpenAI works."}
-    sdk.responses.create.assert_called_once()
+    sdk.responses.stream.assert_called_once()
     sdk.chat.completions.create.assert_not_called()
-    assert sdk.responses.create.call_args.kwargs["reasoning"] == {
+    assert sdk.responses.stream.call_args.kwargs["reasoning"] == {
         "effort": "medium",
         "context": "current_turn",
+        "summary": "auto",
     }
     assert client.usage.records[0].provider.value == "openai"
 
 
-def test_orchestrator_sync_emits_openai_commentary_without_checkpointing_it():
-    sdk = MagicMock()
-    sdk.responses.create.return_value = {
-        "id": "resp_mixed",
-        "status": "completed",
-        "model": "gpt-5.6-luna",
-        "output": [
-            {
-                "type": "message",
-                "id": "msg_commentary",
-                "status": "completed",
-                "role": "assistant",
-                "phase": "commentary",
-                "content": [
-                    {"type": "output_text", "text": "Checking now.", "annotations": []}
-                ],
-            },
-            {
-                "type": "message",
-                "id": "msg_final",
-                "status": "completed",
-                "role": "assistant",
-                "phase": "final_answer",
-                "content": [
-                    {"type": "output_text", "text": "All clear.", "annotations": []}
-                ],
-            },
-        ],
-    }
-    events = []
-    tracer = UserProgressTracePrinter(events.append, enabled=False)
-    client = LLMAgentClient(
-        profile=_profile(), client=sdk, safety_identifier="e" * 64
-    )
-
-    result = client.create_message(
-        messages=[{"role": "user", "content": "Check"}],
-        tools=[],
-        tracer=tracer,
-    )
-
-    assert result == {"role": "assistant", "content": "All clear."}
-    assert events == [{"narration": "Checking now."}]
-
-
-def test_invalid_openai_output_emits_no_commentary():
-    sdk = MagicMock()
-    response = _text_response("Do not show this.")
-    response["output"][0]["phase"] = "invalid"
-    sdk.responses.create.return_value = response
-    events = []
-    tracer = UserProgressTracePrinter(events.append, enabled=False)
-    client = LLMAgentClient(
-        profile=_profile(), client=sdk, safety_identifier="f" * 64
-    )
-
-    with pytest.raises(LLMAgentClientError):
-        client.create_message(
-            messages=[{"role": "user", "content": "Check"}],
-            tools=[],
-            tracer=tracer,
-        )
-
-    assert events == []
 
 
 def test_orchestrator_tool_loop_replays_checkpointed_output_items():
     sdk = MagicMock()
-    sdk.responses.create.side_effect = [_tool_response(), _text_response("Both done.")]
+    sdk.responses.stream.side_effect = [
+        _MockStream(_tool_response()),
+        _MockStream(_text_response("Both done.")),
+    ]
     client = LLMAgentClient(
         profile=_profile(), client=sdk, safety_identifier="d" * 64
     )
@@ -535,10 +577,9 @@ def test_orchestrator_tool_loop_replays_checkpointed_output_items():
     final = client.create_message(messages=messages, tools=TOOLS)
 
     assert final == {"role": "assistant", "content": "Both done."}
-    replay = sdk.responses.create.call_args_list[1].kwargs["input"]
+    replay = sdk.responses.stream.call_args_list[1].kwargs["input"]
     assert [item.get("type") for item in replay[1:]] == [
         "reasoning",
-        "message",
         "function_call",
         "function_call",
         "function_call_output",
@@ -547,10 +588,42 @@ def test_orchestrator_tool_loop_replays_checkpointed_output_items():
     assert len(client.usage.records) == 2
 
 
+def test_orchestrator_tool_loop_reattaches_images_without_mutating_history():
+    sdk = MagicMock()
+    sdk.responses.stream.side_effect = [
+        _MockStream(_tool_response()),
+        _MockStream(_text_response("Seen.")),
+    ]
+    client = LLMAgentClient(
+        profile=replace(_profile(), model="gpt-5.6"),
+        client=sdk,
+        safety_identifier="d" * 64,
+    )
+    messages = [{"role": "user", "content": "Read this"}]
+
+    assistant = client.create_message(messages=messages, tools=TOOLS, images=IMAGES)
+    messages.extend(
+        [
+            assistant,
+            {"role": "tool", "content": "one", "tool_call_id": "call_1"},
+            {"role": "tool", "content": "two", "tool_call_id": "call_2"},
+        ]
+    )
+    client.create_message(messages=messages, tools=TOOLS, images=IMAGES)
+
+    assert messages[0] == {"role": "user", "content": "Read this"}
+    for call in sdk.responses.stream.call_args_list:
+        assert call.kwargs["model"] == "gpt-5.6-luna"
+        assert call.kwargs["input"][0]["content"][1] == {
+            "type": "input_image",
+            **IMAGES[0],
+        }
+
+
 def test_orchestrator_async_dispatches_responses_not_chat():
     sync_sdk = MagicMock()
     async_sdk = MagicMock()
-    async_sdk.responses.create = AsyncMock(return_value=_text_response("Async works."))
+    async_sdk.responses.stream.return_value = _MockAsyncStream(_text_response("Async works."))
     async_sdk.chat.completions.create = AsyncMock()
     client = LLMAgentClient(
         profile=_profile(),
@@ -568,35 +641,284 @@ def test_orchestrator_async_dispatches_responses_not_chat():
     )
 
     assert result == {"role": "assistant", "content": "Async works."}
-    async_sdk.responses.create.assert_awaited_once()
+    async_sdk.responses.stream.assert_called_once()
     async_sdk.chat.completions.create.assert_not_awaited()
 
 
-def test_orchestrator_async_emits_openai_commentary_once():
-    sync_sdk = MagicMock()
-    async_sdk = MagicMock()
-    async_sdk.responses.create = AsyncMock(return_value=_tool_response())
-    events = []
-    tracer = UserProgressTracePrinter(events.append, enabled=False)
+def test_summary_fallback_on_rejection():
+    from openai import BadRequestError
+
+    sdk = MagicMock()
+    rejection = BadRequestError(
+        message="Parameter reasoning.summary is not supported for this model.",
+        response=MagicMock(status_code=400),
+        body={"message": "Parameter reasoning.summary is not supported for this model."},
+    )
+
+    def _stream_side_effect(**kwargs):
+        if kwargs.get("reasoning", {}).get("summary"):
+            raise rejection
+        return _MockStream(_text_response("Fallback works."))
+
+    sdk.responses.stream.side_effect = _stream_side_effect
     client = LLMAgentClient(
-        profile=_profile(),
-        client=sync_sdk,
+        profile=_profile(), client=sdk, safety_identifier="b" * 64
+    )
+
+    result = client.create_message(
+        messages=[{"role": "user", "content": "Hello"}], tools=[]
+    )
+
+    assert result == {"role": "assistant", "content": "Fallback works."}
+    assert sdk.responses.stream.call_count == 2
+    fallback_kwargs = sdk.responses.stream.call_args_list[1]
+    assert "summary" not in fallback_kwargs.kwargs.get("reasoning", {})
+
+
+# --- async Responses transport ------------------------------------------------
+# Every image/stream test above drives the *sync* _MockStream. That blind spot
+# hid a missing `await` on AsyncResponseStream.get_final_response, which turned
+# every OpenAI Responses turn into "did not complete: unknown". These tests
+# mirror the sync coverage onto the async transport.
+
+
+def _summary_delta(summary_index: int, delta: str, sequence: int):
+    return ResponseReasoningSummaryTextDeltaEvent(
+        delta=delta,
+        item_id="rs_1",
+        output_index=0,
+        sequence_number=sequence,
+        summary_index=summary_index,
+        type="response.reasoning_summary_text.delta",
+    )
+
+
+class _EventStream:
+    """Sync stream double that yields real SDK events before completing."""
+
+    def __init__(self, response, events):
+        self._response = response
+        self._events = list(events)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        pass
+
+    def __iter__(self):
+        return iter(self._events)
+
+    def get_final_response(self):
+        return self._response
+
+
+class _AsyncEventStream(_EventStream):
+    """Async counterpart. get_final_response is async, matching the real SDK."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        pass
+
+    def __aiter__(self):
+        self._cursor = iter(self._events)
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._cursor)
+        except StopIteration:
+            raise StopAsyncIteration
+
+    async def get_final_response(self):
+        return self._response
+
+
+def test_stream_doubles_match_sdk_sync_async_contract():
+    """A sync double for an async SDK method silently swallows missing awaits."""
+    from openai.lib.streaming.responses import AsyncResponseStream, ResponseStream
+
+    assert not inspect.iscoroutinefunction(ResponseStream.get_final_response)
+    assert inspect.iscoroutinefunction(AsyncResponseStream.get_final_response)
+    assert not inspect.iscoroutinefunction(_MockStream.get_final_response)
+    assert inspect.iscoroutinefunction(_MockAsyncStream.get_final_response)
+    assert not inspect.iscoroutinefunction(_EventStream.get_final_response)
+    assert inspect.iscoroutinefunction(_AsyncEventStream.get_final_response)
+
+
+def test_async_stream_consumption_matches_sync_summaries_and_response():
+    deltas = [_summary_delta(0, "Checking ", 1), _summary_delta(0, "your tasks.", 2)]
+    sync_emitted: list[str] = []
+    async_emitted: list[str] = []
+
+    sync_response = consume_response_stream(
+        _EventStream(_text_response("Done."), deltas), on_summary=sync_emitted.append
+    )
+    async_response = asyncio.run(
+        consume_async_response_stream(
+            _AsyncEventStream(_text_response("Done."), deltas),
+            on_summary=async_emitted.append,
+        )
+    )
+
+    assert async_response == sync_response == _text_response("Done.")
+    assert async_emitted == sync_emitted
+    assert async_emitted[-1] == "Checking your tasks."
+
+
+def test_async_image_run_pins_vision_model_and_attaches_image():
+    async_sdk = MagicMock()
+    async_sdk.responses.stream.return_value = _MockAsyncStream(_text_response("A cat."))
+    async_sdk.chat.completions.create = AsyncMock()
+    client = LLMAgentClient(
+        profile=replace(_profile(), model="gpt-5.6"),
+        client=MagicMock(),
         async_client=async_sdk,
-        safety_identifier="1" * 64,
+        safety_identifier="e" * 64,
     )
 
     result = asyncio.run(
         client.async_create_message(
-            messages=[{"role": "user", "content": "Look it up"}],
-            tools=TOOLS,
-            tracer=tracer,
+            messages=[{"role": "user", "content": "what is this?"}],
+            tools=[],
+            async_client=async_sdk,
+            images=IMAGES,
+        )
+    )
+
+    assert result == {"role": "assistant", "content": "A cat."}
+    kwargs = async_sdk.responses.stream.call_args.kwargs
+    assert kwargs["model"] == "gpt-5.6-luna"
+    assert kwargs["input"][-1]["content"] == [
+        {"type": "input_text", "text": "what is this?"},
+        {"type": "input_image", **IMAGES[0]},
+    ]
+    async_sdk.chat.completions.create.assert_not_awaited()
+
+
+def test_async_tool_loop_reattaches_images_without_mutating_history():
+    async_sdk = MagicMock()
+    async_sdk.responses.stream.side_effect = [
+        _MockAsyncStream(_tool_response()),
+        _MockAsyncStream(_text_response("Seen.")),
+    ]
+    client = LLMAgentClient(
+        profile=replace(_profile(), model="gpt-5.6"),
+        client=MagicMock(),
+        async_client=async_sdk,
+        safety_identifier="e" * 64,
+    )
+    messages = [{"role": "user", "content": "Read this"}]
+
+    async def _tool_loop():
+        assistant = await client.async_create_message(
+            messages=messages, tools=TOOLS, async_client=async_sdk, images=IMAGES
+        )
+        messages.extend(
+            [
+                assistant,
+                {"role": "tool", "content": "one", "tool_call_id": "call_1"},
+                {"role": "tool", "content": "two", "tool_call_id": "call_2"},
+            ]
+        )
+        return await client.async_create_message(
+            messages=messages, tools=TOOLS, async_client=async_sdk, images=IMAGES
+        )
+
+    final = asyncio.run(_tool_loop())
+
+    assert final == {"role": "assistant", "content": "Seen."}
+    assert messages[0] == {"role": "user", "content": "Read this"}
+    for call in async_sdk.responses.stream.call_args_list:
+        assert call.kwargs["model"] == "gpt-5.6-luna"
+        # Exactly one image per turn: re-attached, never accumulated.
+        assert [part["type"] for part in call.kwargs["input"][0]["content"]] == [
+            "input_text",
+            "input_image",
+        ]
+
+
+def test_async_summary_fallback_on_rejection_still_returns_a_response():
+    from openai import BadRequestError
+
+    async_sdk = MagicMock()
+    rejection = BadRequestError(
+        message="Parameter reasoning.summary is not supported for this model.",
+        response=MagicMock(status_code=400),
+        body={"message": "Parameter reasoning.summary is not supported for this model."},
+    )
+
+    def _stream_side_effect(**kwargs):
+        if kwargs.get("reasoning", {}).get("summary"):
+            raise rejection
+        return _MockAsyncStream(_text_response("Fallback works."))
+
+    async_sdk.responses.stream.side_effect = _stream_side_effect
+    client = LLMAgentClient(
+        profile=_profile(),
+        client=MagicMock(),
+        async_client=async_sdk,
+        safety_identifier="e" * 64,
+    )
+
+    result = asyncio.run(
+        client.async_create_message(
+            messages=[{"role": "user", "content": "Hello"}],
+            tools=[],
             async_client=async_sdk,
         )
     )
 
-    assert result["content"] == ""
-    assert len(result["tool_calls"]) == 2
-    assert events == [{"narration": "I will check that."}]
+    assert result == {"role": "assistant", "content": "Fallback works."}
+    assert async_sdk.responses.stream.call_count == 2
+    assert "summary" not in async_sdk.responses.stream.call_args_list[1].kwargs.get(
+        "reasoning", {}
+    )
+
+
+def test_async_image_failure_reports_provider_error_not_unknown():
+    """A genuine truncation must not be reported as the generic 'unknown'."""
+    truncated = {
+        "id": "resp_1",
+        "status": "incomplete",
+        "incomplete_details": {"reason": "max_output_tokens"},
+        "model": "gpt-5.6-luna",
+        "output": [],
+    }
+    async_sdk = MagicMock()
+    async_sdk.responses.stream.return_value = _MockAsyncStream(truncated)
+    client = LLMAgentClient(
+        profile=_profile(),
+        client=MagicMock(),
+        async_client=async_sdk,
+        safety_identifier="e" * 64,
+    )
+
+    with pytest.raises(LLMAgentClientError) as excinfo:
+        asyncio.run(
+            client.async_create_message(
+                messages=[{"role": "user", "content": "describe"}],
+                tools=[],
+                async_client=async_sdk,
+                images=IMAGES,
+            )
+        )
+
+    assert "max_output_tokens" in excinfo.value.payload["message"]
+    assert "unknown" not in excinfo.value.payload["message"]
+
+
+def test_api_and_telegram_agree_on_image_count_and_size_limits():
+    """A TS-side accept that the Python schema rejects is a 422 the user sees."""
+    ts_types = (
+        pathlib.Path(__file__).resolve().parents[2] / "src" / "types" / "agent.types.ts"
+    ).read_text()
+
+    assert f"MAX_AGENT_IMAGE_COUNT = {MAX_IMAGE_COUNT};" in ts_types
+    assert "MAX_AGENT_IMAGE_BYTES = 10 * 1024 * 1024;" in ts_types
+    assert MAX_IMAGE_BYTES == 10 * 1024 * 1024
 
 
 @pytest.mark.skipif(

@@ -8,7 +8,7 @@ OpenAI request from accidentally inheriting DeepSeek-only fields.
 import math
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Literal, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 
 class LLMProvider(str, Enum):
@@ -182,6 +182,16 @@ def validate_reasoning_for_profile(
     return normalized
 
 
+def require_vision_provider(
+    profile: LLMProviderProfile, images: Any
+) -> None:
+    """Reject image input unless the provider supports vision."""
+    if images and not isinstance(profile, OpenAIResponsesProfile):
+        raise LLMProviderError(
+            "configuration", "Photo input requires the OpenAI Responses provider."
+        )
+
+
 def validate_profile(profile: LLMProviderProfile) -> LLMProviderProfile:
     """Validate fields shared by profiles constructed outside configuration."""
 
@@ -226,6 +236,7 @@ __all__ = [
     "OpenAIChatProfile",
     "OpenAIReasoningEffort",
     "OpenAIResponsesProfile",
+    "require_vision_provider",
     "validate_model_for_profile",
     "validate_model_for_provider",
     "validate_profile",

@@ -58,7 +58,7 @@ describe('TelegramProgressReporter', () => {
       sequence: 1,
       deliveredAtMs: expect.any(Number),
     }));
-    await reporter.complete('Done');
+    await reporter.complete();
   });
 
   it('does not log a successful render when all delivery transports fail', async () => {
@@ -74,7 +74,7 @@ describe('TelegramProgressReporter', () => {
       'telegram.progress.rendered',
       expect.anything(),
     );
-    await reporter.complete('Something went wrong');
+    await reporter.complete();
   });
 
   it('uses semantic facts and respects the four-second render floor', async () => {
@@ -93,7 +93,7 @@ describe('TelegramProgressReporter', () => {
     expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
       123, 77, undefined, 'Pulling up Calendar…', { parse_mode: 'MarkdownV2' },
     );
-    await reporter.complete('Done');
+    await reporter.complete();
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(123, 77);
   });
 
@@ -122,7 +122,7 @@ describe('TelegramProgressReporter', () => {
         expect.stringContaining('Thinking — taking longer than expected…'),
       ]),
     );
-    await reporter.complete('Done');
+    await reporter.complete();
   });
 
   it('does not send unchanged keepalives for a persistent plain status', async () => {
@@ -137,7 +137,7 @@ describe('TelegramProgressReporter', () => {
     expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
       123, 77, undefined, 'Thinking — taking a little longer…', { parse_mode: 'MarkdownV2' },
     );
-    await reporter.complete('Done');
+    await reporter.complete();
   });
 
   it('ingests later graph phases while a Telegram refresh is blocked', async () => {
@@ -170,7 +170,7 @@ describe('TelegramProgressReporter', () => {
     expect(ctx.telegram.callApi).toHaveBeenCalledTimes(3);
     expect(ctx.telegram.callApi.mock.calls[2][1].rich_message.markdown)
       .toContain('Pulling up Calendar…');
-    await reporter.complete('Done');
+    await reporter.complete();
   });
 
   it('falls back to plain once and stops rich keepalives after a draft failure', async () => {
@@ -190,7 +190,7 @@ describe('TelegramProgressReporter', () => {
     await jest.advanceTimersByTimeAsync(1);
     expect(ctx.telegram.editMessageText).toHaveBeenCalledTimes(1);
     expect(ctx.telegram.callApi).toHaveBeenCalledTimes(2);
-    await reporter.complete('Done');
+    await reporter.complete();
   });
 
   it('recreates a plain status when Telegram no longer has the original message', async () => {
@@ -208,7 +208,7 @@ describe('TelegramProgressReporter', () => {
     expect(ctx.reply).toHaveBeenLastCalledWith(
       'Thinking — taking a little longer…', { parse_mode: 'MarkdownV2' },
     );
-    await reporter.complete('Done');
+    await reporter.complete();
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(123, 78);
   });
 
@@ -222,7 +222,7 @@ describe('TelegramProgressReporter', () => {
     await jest.advanceTimersByTimeAsync(45_000);
     expect(ctx.telegram.editMessageText).toHaveBeenCalledTimes(1);
     expect(ctx.reply).toHaveBeenCalledTimes(1);
-    await reporter.complete('Done');
+    await reporter.complete();
   });
 
   it('drains an in-flight plain render and emits nothing after completion', async () => {
@@ -234,7 +234,7 @@ describe('TelegramProgressReporter', () => {
 
     const start = reporter.start();
     await Promise.resolve();
-    const completion = reporter.complete('Done');
+    const completion = reporter.complete();
     resolveReply({ message_id: 88 });
     await Promise.all([start, completion]);
 
@@ -261,6 +261,6 @@ describe('TelegramProgressReporter', () => {
     expect(ctx.telegram.editMessageText).toHaveBeenCalledTimes(1);
     expect(ctx.telegram.editMessageText.mock.calls[0][3])
       .toBe('Thinking — taking a little longer…');
-    await reporter.complete('Done');
+    await reporter.complete();
   });
 });

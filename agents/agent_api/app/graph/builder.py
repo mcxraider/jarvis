@@ -40,6 +40,7 @@ from agents.agent_api.app.graph.nodes.orchestrator import (
     create_agent_node,
     get_shared_agent_client,
 )
+from agents.agent_api.app.llm.provider import require_vision_provider
 from agents.agent_api.app.router.model_router import ModelRouter, create_default_model_router
 from agents.agent_api.app.graph.nodes.prepare_confirm import create_prepare_confirm_node
 from agents.agent_api.app.graph.nodes.summarize import create_summarize_node
@@ -617,6 +618,7 @@ async def run_jarvis_async(
     idempotency_store: Optional[IdempotencyStore] = None,
     run_control: Optional[RunControl] = None,
     reply_context: Optional[dict] = None,
+    images: Optional[list[dict[str, str]]] = None,
 ) -> JarvisState:
     """Run the full Jarvis graph natively on the caller's event loop.
 
@@ -627,6 +629,7 @@ async def run_jarvis_async(
 
     if clarification_reply is not None and not thread_id:
         raise ValueError("thread_id is required when resuming with clarification_reply.")
+    require_vision_provider(settings.orchestrator_llm, images)
     if identity is None and telegram_user_id is not None:
         identity = telegram_identity(
             telegram_user_id,
@@ -811,6 +814,7 @@ async def run_jarvis_async(
         forced_model=resolved_config.forced_model,
         forced_reasoning_effort=resolved_config.forced_reasoning_effort,
         run_control=run_control,
+        images=tuple(images or ()),
     )
     app = get_or_compile_graph(checkpointer)
     config = {
@@ -878,6 +882,9 @@ async def run_jarvis_async(
         if run_log is not None:
             await bounded_to_thread(run_log.write_crash, exc)
         raise
+    finally:
+        run_deps.images = ()
+        images = None
     result = enrich_interrupt_status(result, thread_id)
 
     # Production LLM clients write into the explicitly run-scoped
@@ -985,6 +992,7 @@ def run_jarvis(
     tool_selector: Optional[ToolSelector] = None,
     idempotency_store: Optional[IdempotencyStore] = None,
     run_control: Optional[RunControl] = None,
+    images: Optional[list[dict[str, str]]] = None,
 ) -> JarvisState:
     """Synchronous CLI/test adapter around :func:`run_jarvis_async`.
 
@@ -1027,6 +1035,7 @@ def run_jarvis(
         tool_selector=tool_selector,
         idempotency_store=idempotency_store,
         run_control=run_control,
+        images=images,
     )
     with _SYNC_RUNNER_LOCK:
         if _SYNC_RUNNER is None:

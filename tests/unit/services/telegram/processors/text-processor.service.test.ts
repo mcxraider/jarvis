@@ -105,6 +105,61 @@ describe('TextProcessorService', () => {
     expect(agentClient.resume).not.toHaveBeenCalled();
   });
 
+  it('never buffers an image caption while another request is running', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const gateKey = buildConversationKey(42, 'telegram:42', 100);
+    await gateStore.tryAcquire(gateKey, 60000, 100, 'active-request');
+    const setBuffered = jest.spyOn(gateStore, 'setBufferedMessageIfActiveRequestId');
+    const agentClient = { invoke: jest.fn(), resume: jest.fn() };
+    const service = createService(agentClient, new MemoryPendingClarificationStore(), gateStore);
+
+    const result = await service.processTextMessage(
+      'private caption',
+      42,
+      { chatId: 100 },
+      undefined,
+      { images: [{ image_url: 'data:image/jpeg;base64,/9j/2Q==', detail: 'auto' }] },
+    );
+
+    expect(result.blocked).toBe(true);
+    expect(setBuffered).not.toHaveBeenCalled();
+    expect(agentClient.invoke).not.toHaveBeenCalled();
+  });
+
+  it('attaches transient images when a photo resumes clarification', async () => {
+    const agentClient = {
+      invoke: jest.fn().mockResolvedValue({
+        status: 'interrupted',
+        threadId: 'thread-image',
+        response: 'Show me the item.',
+        interrupt: { type: 'clarify' },
+        toolResults: [],
+      }),
+      resume: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'thread-image',
+        response: 'Thanks.',
+        toolResults: [],
+      }),
+    };
+    const service = createService(agentClient);
+    const images = [{ image_url: 'data:image/jpeg;base64,/9j/2Q==' as const, detail: 'auto' as const }];
+    await service.processTextMessage('Which one?', 42, { chatId: 100, requestId: 'first' });
+
+    await service.processTextMessage(
+      'this one',
+      42,
+      { chatId: 100, requestId: 'second' },
+      undefined,
+      { images },
+    );
+
+    expect(agentClient.resume).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'this one', threadId: 'thread-image', images }),
+      expect.any(Object),
+    );
+  });
+
   it('rejects whitespace-only text without calling or acquiring resources for the agent', async () => {
     const agentClient = {
       invoke: jest.fn(),
@@ -992,55 +1047,4 @@ describe('TextProcessorService', () => {
     });
   });
 
-  describe('reasoning_content propagation', () => {
-    it('propagates reasoningContent from agent response to result', async () => {
-      process.env.TELEGRAM_USER_MAP = '701122767:jerry';
-      const agentClient = {
-        invoke: jest.fn().mockResolvedValue({
-          status: 'completed',
-          delivery: 'terminal',
-          threadId: 'thread-r',
-          response: 'Answer.',
-          reasoningContent: 'I thought about it.',
-          toolResults: [],
-        }),
-        resume: jest.fn(),
-      };
-      const service = createService(agentClient);
-
-      const result = await service.processTextMessage('hello', 701122767, {
-        requestId: 'tg_r',
-        chatId: 100,
-        messageId: 1,
-        telegramUsername: 'jerry',
-      });
-
-      expect(result.reasoningContent).toBe('I thought about it.');
-      expect(result.response).toBe('Answer.');
-    });
-
-    it('leaves reasoningContent undefined when agent omits it', async () => {
-      process.env.TELEGRAM_USER_MAP = '701122767:jerry';
-      const agentClient = {
-        invoke: jest.fn().mockResolvedValue({
-          status: 'completed',
-          delivery: 'terminal',
-          threadId: 'thread-r',
-          response: 'Answer.',
-          toolResults: [],
-        }),
-        resume: jest.fn(),
-      };
-      const service = createService(agentClient);
-
-      const result = await service.processTextMessage('hello', 701122767, {
-        requestId: 'tg_r',
-        chatId: 100,
-        messageId: 1,
-        telegramUsername: 'jerry',
-      });
-
-      expect(result.reasoningContent).toBeUndefined();
-    });
-  });
 });

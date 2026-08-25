@@ -6,6 +6,7 @@ to ensure the Python layer and TypeScript layer agree on the API contract.
 Run with: pytest tests/agents/test_contract.py -v
 """
 
+import base64
 import json
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from agents.agent_api.app.api.schemas import (
 )
 
 FIXTURES = Path(__file__).resolve().parent.parent / "contract" / "fixtures"
+JPEG_URL = "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff\xd9").decode()
 
 
 def load_fixture(name: str) -> dict:
@@ -29,6 +31,45 @@ def load_fixture(name: str) -> dict:
 
 
 class TestInvokeRequest:
+    def test_accepts_valid_images(self):
+        request = InvokeRequest.model_validate(
+            {
+                "message": "What is this?",
+                "user_id": "user_123",
+                "images": [{"image_url": JPEG_URL, "detail": "auto"}],
+            }
+        )
+        assert request.images and request.images[0].image_url == JPEG_URL
+
+    @pytest.mark.parametrize(
+        "images",
+        [
+            [{"image_url": "data:image/png;base64,/9j/2Q==", "detail": "auto"}],
+            [{"image_url": "data:image/jpeg;base64,not-base64", "detail": "auto"}],
+            [{"image_url": JPEG_URL, "detail": "high"}],
+            [],
+            [{"image_url": JPEG_URL, "detail": "auto"}] * 11,
+        ],
+    )
+    def test_rejects_invalid_images(self, images):
+        with pytest.raises(ValidationError):
+            InvokeRequest.model_validate(
+                {"message": "What is this?", "user_id": "user_123", "images": images}
+            )
+
+    def test_rejects_images_over_aggregate_limit(self):
+        oversized = "data:image/jpeg;base64," + base64.b64encode(
+            b"x" * (10 * 1024 * 1024 + 1)
+        ).decode()
+        with pytest.raises(ValidationError, match="10 MiB"):
+            InvokeRequest.model_validate(
+                {
+                    "message": "What is this?",
+                    "user_id": "user_123",
+                    "images": [{"image_url": oversized, "detail": "auto"}],
+                }
+            )
+
     def test_accepts_invoke_request_fixture(self):
         data = load_fixture("invoke-request.json")
         req = InvokeRequest.model_validate(data)
@@ -125,6 +166,17 @@ class TestInvokeRequest:
 
 
 class TestResumeRequest:
+    def test_accepts_valid_images(self):
+        request = ResumeRequest.model_validate(
+            {
+                "thread_id": "thread_abc123",
+                "message": "This one",
+                "user_id": "user_123",
+                "images": [{"image_url": JPEG_URL, "detail": "auto"}],
+            }
+        )
+        assert request.images and request.images[0].detail == "auto"
+
     def test_accepts_resume_request_fixture(self):
         data = load_fixture("resume-request.json")
         req = ResumeRequest.model_validate(data)

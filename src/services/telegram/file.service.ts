@@ -28,16 +28,15 @@ export class FileService {
       }
       return `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
     } catch (error) {
-      logger.error('Error getting file URL', {
-        error: (error as Error).message,
-        fileId
+      logger.error('telegram.file.resolve_failed', {
+        errorType: error instanceof Error ? error.name : 'UnknownError',
       });
-      throw new Error(`Failed to get file URL: ${(error as Error).message}`);
+      throw new Error('Telegram file is unavailable');
     }
   }
 
   // Downloads the full file content as a Buffer by first resolving the URL, then fetching.
-  async downloadFile(fileId: string): Promise<Buffer> {
+  async downloadFile(fileId: string, maxBytes = Number.POSITIVE_INFINITY): Promise<Buffer> {
     try {
       const fileUrl = await this.getFileUrl(fileId);
       const response = await fetch(fileUrl);
@@ -46,13 +45,42 @@ export class FileService {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      return Buffer.from(await response.arrayBuffer());
+      const contentLength = Number(response.headers?.get?.('content-length'));
+      if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+        throw new Error('Telegram file exceeds byte limit');
+      }
+      if (!Number.isFinite(maxBytes)) return Buffer.from(await response.arrayBuffer());
+      if (!response.body) throw new Error('Telegram file response was incomplete');
+
+      const reader = response.body.getReader();
+      const chunks: Buffer[] = [];
+      let total = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          total += value.byteLength;
+          if (total > maxBytes) {
+            await reader.cancel();
+            throw new Error('Telegram file exceeds byte limit');
+          }
+          chunks.push(Buffer.from(value));
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      return Buffer.concat(chunks, total);
     } catch (error) {
-      logger.error('Error downloading file', {
-        error: (error as Error).message,
-        fileId
+      const message = error instanceof Error ? error.message : '';
+      logger.error('telegram.file.download_failed', {
+        errorType: error instanceof Error ? error.name : 'UnknownError',
+        oversized: message === 'Telegram file exceeds byte limit',
       });
-      throw error;
+      throw new Error(
+        message === 'Telegram file exceeds byte limit'
+          ? message
+          : 'Telegram file download failed',
+      );
     }
   }
 }

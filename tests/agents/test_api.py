@@ -30,6 +30,25 @@ class JarvisApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
 
+    def test_image_validation_error_does_not_echo_payload(self) -> None:
+        response = self.client.post(
+            "/invoke",
+            json={
+                "message": "caption",
+                "user_id": "jerry",
+                "images": [
+                    {
+                        "image_url": "data:image/jpeg;base64,private-invalid-pixels",
+                        "detail": "auto",
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertNotIn("data:image", response.text)
+        self.assertNotIn("private-invalid-pixels", response.text)
+
     def test_fastapi_lifespan_drains_run_logs_on_shutdown(self) -> None:
         with patch("agents.agent_api.app.db.verify_database_runtime"), \
             patch("agents.agent_api.app.db.close_pool"), \
@@ -512,7 +531,6 @@ class JarvisApiTests(unittest.TestCase):
                 "status": "completed",
                 "thread_id": "thread-1",
                 "response": "Done.",
-                "reasoning_content": None,
                 "interrupt": None,
                 "tool_results": [{"tool_name": "add_todoist_task"}],
                 "error": None,
@@ -593,6 +611,41 @@ class JarvisApiTests(unittest.TestCase):
         self.assertEqual(response.json()["response"], "Awaited.")
         run.assert_awaited_once()
         self.assertIn("checkpointer", run.await_args.kwargs)
+
+    def test_invoke_and_resume_forward_images_only_to_runner(self) -> None:
+        image = {
+            "image_url": "data:image/jpeg;base64,/9j/2Q==",
+            "detail": "auto",
+        }
+        completed = self._completed()
+        with patch(
+            "agents.agent_api.app.api.routes.invoke.run_jarvis",
+            return_value=completed,
+        ) as invoke_run:
+            response = self.client.post(
+                "/invoke",
+                json={"message": "caption", "user_id": "jerry", "images": [image]},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(invoke_run.call_args.kwargs["images"], [image])
+        self.assertNotIn("data:image", invoke_run.call_args.kwargs["user_prompt"])
+
+        with patch(
+            "agents.agent_api.app.api.routes.resume.run_jarvis",
+            return_value={**completed, "thread_id": "thread-hitl"},
+        ) as resume_run:
+            response = self.client.post(
+                "/resume",
+                json={
+                    "thread_id": "thread-hitl",
+                    "message": "this one",
+                    "user_id": "jerry",
+                    "images": [image],
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(resume_run.call_args.kwargs["images"], [image])
+        self.assertEqual(resume_run.call_args.kwargs["clarification_reply"], "this one")
 
     def test_invoke_interrupted(self) -> None:
         interrupt = {

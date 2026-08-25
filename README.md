@@ -1,6 +1,6 @@
 # Jarvis
 
-A personal Telegram assistant built on a Python LangGraph agent that manages Todoist tasks through natural language.
+A multi-user Telegram assistant built on a Python LangGraph agent that manages Todoist tasks and Google Calendar events through natural language, voice, and photos.
 
 ## Architecture
 
@@ -64,11 +64,11 @@ Every graph node is stateless. Persistence and external IO live in shared single
 | **Checkpointer** | Graph state persistence (PG, Redis, or Memory) |
 | **Idempotency** | Claim/complete to prevent duplicate Todoist mutations |
 | **Request gate** | API auth, source resolution, ownership checks, request idempotency, and thread quota |
-| **Tool system** | Registry and dispatch for all Todoist tools |
+| **Tool system** | Registry and dispatch for Todoist and Google Calendar tools |
 | **Query router** | Domain classification, tool narrowing, prompt slimming, and safe fallback |
 | **DB pool** | Connection threads and usage tracking |
 | **Observability** | LangSmith tracing and structured logs |
-| **External APIs** | DeepSeek or OpenAI (LLM) and Todoist (task CRUD) |
+| **External APIs** | DeepSeek or OpenAI (LLM), Todoist (task CRUD), Google Calendar (event CRUD) |
 
 ## Router configuration
 
@@ -105,9 +105,10 @@ Complexity is assessed independently of query length, mutation risk, and the num
 - **Voice mode** — send a Telegram voice note; Jarvis transcribes it, echoes the transcription, then runs the same agent flow as text.
 - **Audio files** — send OGG, MP3, WAV, M4A, or other Telegram audio/document uploads with audio MIME types for transcription and action.
 - **Reply context** — swipe/reply to an earlier Telegram message from the bot or the user, and Jarvis includes a quoted version of that message as context for the new request.
-- **Progress messages** — Telegram shows transcription and agent progress states while work is running.
+- **Progress messages** — Telegram shows transcription, agent progress states, and streamed reasoning summaries while work is running.
 - **Rich replies** — final answers are formatted for Telegram Markdown, with table normalization and long-message handling.
-- **Unsupported media guardrails** — photos, stickers, GIFs, video notes, and unknown message types are rejected with a clear text/audio/voice prompt.
+- **Native photo input** — direct JPEG photos and albums of up to 10 images are described by the OpenAI vision model (Luna) and forwarded to the agent; image documents remain unsupported.
+- **Unsupported media guardrails** — stickers, GIFs, video notes, image documents, and unknown message types are rejected with a clear supported-input prompt.
 
 ### Conversation control
 

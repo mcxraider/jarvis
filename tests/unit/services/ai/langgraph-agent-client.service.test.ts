@@ -102,7 +102,6 @@ describe('LangGraphAgentClient', () => {
       delivery: 'terminal',
       threadId: 'thread-1',
       response: 'Done.',
-      reasoningContent: undefined,
       interrupt: undefined,
       toolResults: [{ tool_name: 'add_todoist_task' }],
       error: undefined,
@@ -175,6 +174,35 @@ describe('LangGraphAgentClient', () => {
         }),
       }),
     );
+  });
+
+  it('serializes identical image fields for standard and streaming requests without logging pixels', async () => {
+    const final = {
+      status: 'completed',
+      thread_id: 'thread-image',
+      response: 'Seen.',
+    };
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce({ ok: true, text: jest.fn().mockResolvedValue(JSON.stringify(final)) })
+      .mockResolvedValueOnce({
+        ok: true,
+        body: streamBody([{ type: 'final', response: final }]),
+      });
+    global.fetch = fetchMock as any;
+    const info = jest.spyOn(logger, 'info').mockImplementation();
+    const image = { image_url: 'data:image/jpeg;base64,/9j/2Q==' as const, detail: 'auto' as const };
+    const request = { message: 'read this', userId: 'local-user', images: [image] };
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    await client.invoke(request);
+    await client.invoke(request, {}, jest.fn());
+
+    const standardPayload = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const streamPayload = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
+    expect(standardPayload.images).toEqual([image]);
+    expect(streamPayload.images).toEqual([image]);
+    expect(streamPayload).toEqual(standardPayload);
+    expect(JSON.stringify(info.mock.calls)).not.toContain('/9j/2Q==');
   });
 
   it.each(['cancelled', 'mutation_in_flight', 'already_finished', 'not_found'] as const)(
@@ -366,11 +394,11 @@ describe('LangGraphAgentClient', () => {
     );
   });
 
-  it('dispatches narration and semantic progress in sequence without dispatching final', async () => {
+  it('dispatches reasoning_summary and semantic progress in sequence without dispatching final', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       body: streamBody([
-        { type: 'narration', sequence: 1, text: 'I found the matching tasks.' },
+        { type: 'reasoning_summary', sequence: 1, text: 'I found the matching tasks.' },
         {
           type: 'progress',
           sequence: 2,
@@ -399,9 +427,9 @@ describe('LangGraphAgentClient', () => {
     expect(onProgress.mock.calls.map(([event]) => event)).toEqual([
       {
         sequence: 1,
-        stage: 'narration',
+        stage: 'reasoning_summary',
         message: 'I found the matching tasks.',
-        narration: 'I found the matching tasks.',
+        reasoningSummary: 'I found the matching tasks.',
       },
       {
         sequence: 2,
@@ -1496,72 +1524,4 @@ describe('LangGraphAgentClient', () => {
     });
   });
 
-  describe('reasoning_content propagation', () => {
-    it('normalizes reasoning_content into reasoningContent', async () => {
-      const fetchMock = jest.fn().mockResolvedValue({
-        ok: true,
-        text: jest.fn().mockResolvedValue(
-          JSON.stringify({
-            status: 'completed',
-            thread_id: 'thread-r',
-            response: 'Here you go.',
-            reasoning_content: 'The user wants a greeting.',
-          }),
-        ),
-      });
-      global.fetch = fetchMock as any;
-
-      const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
-      const result = await client.invoke({ message: 'hi', userId: 'u1' });
-
-      expect(result.reasoningContent).toBe('The user wants a greeting.');
-      expect(result.response).toBe('Here you go.');
-    });
-
-    it('leaves reasoningContent undefined when absent from backend', async () => {
-      const fetchMock = jest.fn().mockResolvedValue({
-        ok: true,
-        text: jest.fn().mockResolvedValue(
-          JSON.stringify({
-            status: 'completed',
-            thread_id: 'thread-r',
-            response: 'Done.',
-          }),
-        ),
-      });
-      global.fetch = fetchMock as any;
-
-      const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
-      const result = await client.invoke({ message: 'hi', userId: 'u1' });
-
-      expect(result.reasoningContent).toBeUndefined();
-    });
-
-    it('propagates reasoning_content through streamed final event', async () => {
-      const finalEvent = {
-        type: 'final',
-        response: {
-          status: 'completed',
-          thread_id: 'thread-s',
-          response: 'Streamed answer.',
-          reasoning_content: 'Streamed reasoning.',
-        },
-      };
-
-      global.fetch = jest.fn().mockResolvedValue({
-        ok: true,
-        body: streamBody([finalEvent]),
-        headers: new Headers({ 'content-type': 'application/x-ndjson' }),
-      }) as any;
-
-      const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
-      const result = await client.invoke(
-        { message: 'test', userId: 'u1' },
-        {},
-        () => {},
-      );
-
-      expect(result.reasoningContent).toBe('Streamed reasoning.');
-    });
-  });
 });

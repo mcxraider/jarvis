@@ -4,7 +4,10 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from agents.agent_api.app.api.routes.cancel import router as cancel_router
 from agents.agent_api.app.api.routes.health import router as health_router
@@ -295,6 +298,23 @@ async def lifespan(_app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.api_title, lifespan=lifespan)
+
+    @app.exception_handler(RequestValidationError)
+    async def safe_validation_error(
+        _request: Request, error: RequestValidationError
+    ) -> JSONResponse:
+        # Strip ``input`` when it's large or contains data-URI blobs.
+        # Small inputs are preserved for debugging normal validation failures.
+        detail = []
+        for item in error.errors():
+            raw_input = item.get("input")
+            if raw_input is not None:
+                s = str(raw_input)
+                if len(s) > 256 or "data:" in s:
+                    item = {k: v for k, v in item.items() if k != "input"}
+            detail.append(item)
+        return JSONResponse(status_code=422, content={"detail": jsonable_encoder(detail)})
+
     app.include_router(health_router)
     app.include_router(invoke_router)
     app.include_router(resume_router)

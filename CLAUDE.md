@@ -4,7 +4,7 @@ Guidance for coding agents working in this repository.
 
 ## Project
 
-Jarvis is a multi-user Telegram assistant for task and calendar management. The TypeScript service owns Telegram, audio transcription, streaming progress, and HITL inline-button callbacks. Text is forwarded to the Python LangGraph agent API, which owns DeepSeek calls, domain routing, model routing, HITL interrupts, Todoist tool execution, and Google Calendar tool execution.
+Jarvis is a multi-user Telegram assistant for task and calendar management. The TypeScript service owns Telegram, audio transcription, photo description (OpenAI vision), streaming progress, reasoning-summary display, and HITL inline-button callbacks. Text is forwarded to the Python LangGraph agent API, which owns LLM calls (DeepSeek Chat Completions + OpenAI Responses), domain routing, model routing, HITL interrupts, Todoist tool execution, and Google Calendar tool execution.
 
 Active tool domains: Todoist, Google Calendar.
 Placeholder stubs only (not active): Gmail, Notion, Apple Calendar, Apple Notes, GitHub, Google Drive.
@@ -67,7 +67,9 @@ Telegram update
   -> MessageProcessorService (gate-aware orchestrator, running/waiting TTLs)
   -> TextProcessorService (invoke/resume/force-fresh, gate lifecycle)
   -> LangGraphAgentClient (streaming NDJSON: /invoke/stream, /resume/stream)
+  -> deliverProgress()  ← 5s per-callback budget, single shared kill switch
   -> TelegramProgressReporter (ephemeral status line via ProgressNarrator)
+  -> TelegramReasoningSummaryReporter (coalesced reasoning-summary message)
   -> Python FastAPI /invoke or /resume (agents/agent_api/app/api/routes/)
   -> request_gate middleware (auth, rate_limit, idempotency, admission, thread_ownership)
   -> graph/builder.py: run_jarvis / run_jarvis_async
@@ -75,7 +77,7 @@ Telegram update
      - RuntimeContextSnapshot resolver (identity, secrets/Vault, domains, prefs)
      - domain router (LLM classifier → fast_path/cache/LLM fallback)
      - model_router (rule-based DeepSeek model + reasoning effort selection)
-  -> orchestrator node (DeepSeek via RunDeps)
+  -> orchestrator node (LLM via RunDeps)
   -> validate_entities node (prior-read ID verification, hallucination guard)
   -> tools node (safe calls via ToolDispatcher, concurrent execution)
   -> summarize node (condenses large tool outputs)
@@ -140,7 +142,7 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 - `telegram-bot.service.ts` — Telegraf lifecycle, auth middleware, webhook registration, global error boundary
 - `telegram-menu.registry.ts` — Telegram commands menu (autocomplete): `/new`, `/cancel`, `/help`
 - `telegram-progress-reporter.ts` — ephemeral Telegram status line transport (rich draft or MarkdownV2 edit)
-- `telegram-narration-reporter.ts` — sends/edits a single narration message (MarkdownV2 formatted), simpler sibling of progress reporter
+- `telegram-reasoning-summary-reporter.ts` — ephemeral reasoning-summary message (coalesced pump, 1s edit cadence, auto-deleted on completion)
 - `progress-narrator.ts` — reduces streaming ProgressFact events + elapsed time into user-facing copy
 - `forward-buffer.store.ts` — in-memory buffer for user-forwarded messages, accumulated per conversation until dispatched
 - `message-processor.service.ts` — gate-aware pipeline orchestrator
@@ -172,6 +174,7 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 
 - `telegram-rich.ts` — Bot API 10.1 rich messages with MarkdownV2 fallback
 - `telegram-markdown.ts` — standard Markdown → Telegram MarkdownV2 conversion
+- `telegram-errors.ts` — shared Telegram error predicates (`isMessageNotModified`, `isMessageMissing`)
 - `message-splitter.ts` — splits at paragraph/line/word boundaries for 4096-char limit
 - `tool-result-formatter.ts` — success count or bulleted failure list
 
@@ -202,6 +205,14 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 - `studio.py` — LangGraph Studio graph entrypoint
 - `service.py` — legacy compatibility aggregator (re-exports public surface)
 
+#### `llm/`
+
+- `provider.py` — validated, immutable LLM provider profiles (DeepSeek Chat Completions + OpenAI Responses dialects)
+- `chat.py` — typed Chat Completions request/response/usage boundary
+- `messages.py` — versioned canonical messages and provider-specific serialization
+- `responses.py` — typed OpenAI Responses request, continuation, and response boundary
+- `streaming.py` — OpenAI Responses streaming with bounded reasoning-summary accumulation (`SummaryAccumulator`)
+
 #### `graph/`
 
 - `builder.py` — `create_jarvis_graph`, `run_jarvis`/`run_jarvis_async`, state init, usage persistence
@@ -218,7 +229,7 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 
 #### `graph/nodes/`
 
-- `orchestrator.py` — DeepSeek agent node (`DeepSeekAgentClient`, `create_agent_node`)
+- `orchestrator.py` — LLM agent node (`LLMAgentClient`, `create_agent_node`)
 - `tools.py` — tool execution node (delegates to `ToolDispatcher`)
 - `hitl.py` — human-in-the-loop clarification interrupt
 - `confirm.py` — confirmation interrupt node (pauses run, awaits approve/decline)

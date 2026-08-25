@@ -7,6 +7,7 @@ import { PendingClarificationRecord, PendingClarificationStore } from '../pendin
 import { ConversationGateStore } from '../conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
+import { TelegramReasoningSummaryReporter } from '../telegram-reasoning-summary-reporter';
 import { TerminalReplyStore } from '../terminal-reply.store';
 
 const CONFIRM_PREFIX = 'confirm:';
@@ -65,6 +66,7 @@ export class CallbackHandler {
       telegramFirstName: ctx.from?.first_name,
     };
     const progress = new TelegramProgressReporter(ctx, logContext);
+    const summaryReporter = new TelegramReasoningSummaryReporter(ctx, logContext);
     let priorPendingSnapshot: PendingClarificationRecord | undefined;
     let newPendingSnapshot: PendingClarificationRecord | undefined;
 
@@ -148,6 +150,10 @@ export class CallbackHandler {
             });
             return;
           }
+          if (event.reasoningSummary) {
+            summaryReporter.record(event.reasoningSummary);
+            return;
+          }
           await progress.record(event, signal);
         },
       );
@@ -156,7 +162,8 @@ export class CallbackHandler {
         // The decision may still be executing remotely. Preserve this running
         // generation, its active request id, and the prior pending record so an
         // automatic replay cannot duplicate a confirmed mutation.
-        await progress.complete('Something went wrong').catch((error) => {
+        await summaryReporter.complete();
+        await progress.complete().catch((error) => {
           logger.warn('telegram.callback.confirm.ambiguous_progress_failed', {
             ...logContext,
             gateKey,
@@ -181,10 +188,6 @@ export class CallbackHandler {
         return;
       }
 
-      const completionStatus = agentResponse.status === 'interrupted'
-        ? (agentResponse.interrupt?.type === 'confirm' ? 'Paused for confirmation' : 'Paused for clarification')
-        : 'Done';
-
       if (agentResponse.status === 'interrupted' && agentResponse.threadId) {
         const interruptType = agentResponse.interrupt?.type === 'confirm' ? 'confirm' : 'clarify';
         const transitionedToWaiting = await this.conversationGate.transitionToWaitingIfActiveRequestId(
@@ -193,7 +196,8 @@ export class CallbackHandler {
           this.waitingTtlMs,
         );
         if (!transitionedToWaiting) {
-          await progress.complete('Done');
+          await summaryReporter.complete();
+          await progress.complete();
           logger.info('telegram.callback.confirm.settlement_skipped_stale_owner', {
             ...logContext,
             gateKey,
@@ -207,7 +211,8 @@ export class CallbackHandler {
           await this.conversationGate.releaseIfActiveRequestId(gateKey, requestId).catch(() => ({
             released: false,
           }));
-          await progress.complete('Done');
+          await summaryReporter.complete();
+          await progress.complete();
           return;
         }
         newPendingSnapshot = this.buildPendingRecord(
@@ -220,7 +225,8 @@ export class CallbackHandler {
           interruptType,
         );
         await this.pendingStore.save(newPendingSnapshot);
-        await progress.complete(completionStatus);
+        await summaryReporter.complete();
+        await progress.complete();
         if (!(await this.isCurrentPromptOwner(gateKey, agentResponse.threadId, requestId))) {
           await this.pendingStore
             .clearIfMatches(gateKey, newPendingSnapshot, 'failed')
@@ -305,7 +311,8 @@ export class CallbackHandler {
           .releaseIfActiveRequestId(gateKey, requestId)
           .catch(() => ({ released: false, bufferedMessage: undefined }));
         if (!release.released) {
-          await progress.complete('Done');
+          await summaryReporter.complete();
+          await progress.complete();
           logger.info('telegram.callback.confirm.settlement_skipped_stale_owner', {
             ...logContext,
             gateKey,
@@ -313,7 +320,8 @@ export class CallbackHandler {
           return;
         }
         await this.pendingStore.clearIfMatches(gateKey, pending, 'completed').catch(() => false);
-        await progress.complete(completionStatus);
+        await summaryReporter.complete();
+        await progress.complete();
         const buffered = release.bufferedMessage;
 
         if (agentResponse.response) {
@@ -356,14 +364,16 @@ export class CallbackHandler {
         }
       }
       if (!restoredWaiting && !releasedOwnedGate) {
-        await progress.complete('Done');
+        await summaryReporter.complete();
+        await progress.complete();
         logger.info('telegram.callback.confirm.error_suppressed_stale_owner', {
           ...logContext,
           gateKey,
         });
         return;
       }
-      await progress.complete('Something went wrong');
+      await summaryReporter.complete();
+      await progress.complete();
       logger.error('telegram.callback.confirm.failed', {
         requestId,
         userId,

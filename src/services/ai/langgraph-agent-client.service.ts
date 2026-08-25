@@ -9,6 +9,8 @@ import { LogContext, logger } from '../../utils/logger';
 import {
   AgentHealthDetail,
   AgentHealthDetailSchema,
+  AgentImage,
+  AgentImagesSchema,
   AgentResponseSchema,
   ProgressFact,
   TelegramIdentityPayload,
@@ -39,7 +41,6 @@ export interface LangGraphAgentResponse {
   delivery: LangGraphDelivery;
   threadId: string;
   response: string;
-  reasoningContent?: string;
   interrupt?: import('../../types/agent.types').LangGraphInterrupt;
   toolResults: Record<string, unknown>[];
   error?: string;
@@ -53,7 +54,7 @@ export interface LangGraphProgressEvent {
   stage: string;
   message: string;
   fact?: ProgressFact;
-  narration?: string;
+  reasoningSummary?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -80,6 +81,7 @@ export interface LangGraphAgentRequest {
   requestId?: string;
   threadId?: string;
   replyContext?: { role: 'assistant' | 'user'; message: string };
+  images?: AgentImage[];
 }
 
 export interface LangGraphAgentClientConfig {
@@ -753,12 +755,12 @@ export class LangGraphAgentClient {
     }
 
     const event = result.data;
-    if (event.type === 'narration') {
+    if (event.type === 'reasoning_summary') {
       await onProgress({
         sequence: event.sequence,
-        stage: 'narration',
+        stage: 'reasoning_summary',
         message: event.text,
-        narration: event.text,
+        reasoningSummary: event.text,
       });
       return finalResponse;
     }
@@ -846,6 +848,7 @@ export class LangGraphAgentClient {
       request_id: request.requestId,
       thread_id: request.threadId,
       reply_context: request.replyContext,
+      images: request.images === undefined ? undefined : AgentImagesSchema.parse(request.images),
     };
   }
 
@@ -854,7 +857,6 @@ export class LangGraphAgentClient {
     status?: string;
     thread_id?: string;
     response?: string;
-    reasoning_content?: string | null;
     interrupt?: import('../../types/agent.types').LangGraphInterrupt | null;
     tool_results?: Record<string, unknown>[] | null;
     error?: string | null;
@@ -866,7 +868,6 @@ export class LangGraphAgentClient {
       delivery: 'terminal',
       threadId: body.thread_id || '',
       response: body.response || 'Jarvis could not complete that request.',
-      reasoningContent: body.reasoning_content ?? undefined,
       interrupt: body.interrupt ?? undefined,
       toolResults: body.tool_results || [],
       error: body.error ?? undefined,

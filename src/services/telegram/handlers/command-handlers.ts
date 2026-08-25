@@ -74,7 +74,8 @@ export class CommandHandlers {
       `* Forwards — forward messages from other chats, then /send_forward\n` +
       `* Voice — send a voice note and I'll transcribe + act on it\n` +
       `* Audio files — OGG, MP3, WAV, M4A supported\n` +
-      `* Unsupported media — images, stickers, GIFs, and Telebubbles are rejected`;
+      `* Photos — send one JPEG photo or an album of up to 10 photos\n` +
+      `* Unsupported media — image documents, stickers, GIFs, and Telebubbles are rejected`;
 
     await sendFinalReply(ctx, helpMessage, { userId });
   }

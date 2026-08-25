@@ -37,6 +37,7 @@ from agents.agent_api.app.middleware.request_gate import (
     apply_request_gate_async,
 )
 from agents.agent_api.app.graph.run_control import RunControl, RunPhase
+from agents.agent_api.app.llm.provider import LLMProviderError, require_vision_provider
 from agents.agent_api.app.service import (
     NULL_TRACE,
     JarvisState,
@@ -45,6 +46,7 @@ from agents.agent_api.app.service import (
 from agents.agent_api.app.tracing import UserProgressTracePrinter
 
 router = APIRouter()
+
 
 STREAM_WORKER_DRAIN_TIMEOUT_SECONDS = 5.0
 STREAM_QUEUE_MAX = 256
@@ -115,6 +117,13 @@ async def drain_stream_workers(
 request_source = idempotency.request_source
 
 
+def require_image_provider(images: Any) -> None:
+    try:
+        require_vision_provider(settings.orchestrator_llm, images)
+    except LLMProviderError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 def parse_error_details(error: str) -> Optional[Dict[str, Any]]:
     try:
         parsed = json.loads(error)
@@ -126,7 +135,6 @@ def parse_error_details(error: str) -> Optional[Dict[str, Any]]:
 def to_response(result: JarvisState) -> AgentResponse:
     thread_id = str(result.get("thread_id") or "")
     tool_results = result.get("tool_results", [])
-    reasoning = result.get("reasoning_content") or None
 
     if result.get("interrupted"):
         interrupt = result.get("interrupt_payload", {})
@@ -141,7 +149,6 @@ def to_response(result: JarvisState) -> AgentResponse:
             status="interrupted",
             thread_id=thread_id,
             response=question,
-            reasoning_content=reasoning,
             interrupt=interrupt,
             tool_results=tool_results,
         )
@@ -165,7 +172,6 @@ def to_response(result: JarvisState) -> AgentResponse:
         status="completed",
         thread_id=thread_id,
         response=str(result.get("final_response") or ""),
-        reasoning_content=reasoning,
         tool_results=tool_results,
     )
 
@@ -466,11 +472,11 @@ async def stream_agent_run(
             if consumer_closed.is_set() or events.full():
                 return
             sequence += 1
-            if "narration" in progress:
+            if "reasoning_summary" in progress:
                 event: Dict[str, Any] = {
-                    "type": "narration",
+                    "type": "reasoning_summary",
                     "sequence": sequence,
-                    "text": progress["narration"],
+                    "text": progress["reasoning_summary"],
                 }
             else:
                 event = {
@@ -550,6 +556,7 @@ async def invoke(
     http_request: FastAPIRequest,
     x_jarvis_agent_key: Optional[str] = Header(default=None),
 ) -> AgentResponse:
+    require_image_provider(request.images)
     ctx = await apply_request_gate_async(
         "invoke",
         request,
@@ -581,6 +588,7 @@ async def invoke(
             run_control=run_control,
             checkpointer=runtime_checkpointer(http_request),
             reply_context=reply_ctx,
+            images=[image.model_dump() for image in request.images or ()],
         )
 
     return await run_agent_request(
@@ -601,6 +609,7 @@ async def invoke_stream(
     http_request: FastAPIRequest,
     x_jarvis_agent_key: Optional[str] = Header(default=None),
 ) -> StreamingResponse:
+    require_image_provider(request.images)
     ctx = await apply_request_gate_async(
         "invoke",
         request,
@@ -631,6 +640,7 @@ async def invoke_stream(
             run_control=run_control,
             checkpointer=runtime_checkpointer(http_request),
             reply_context=reply_ctx,
+            images=[image.model_dump() for image in request.images or ()],
         )
 
     return await stream_agent_run(
