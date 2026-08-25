@@ -9,6 +9,7 @@ import {
   renderThinkingLabel,
   sendRichDraft,
 } from './formatters/telegram-rich';
+import { isMessageMissing, isMessageNotModified } from './formatters/telegram-errors';
 import {
   PROGRESS_DELIVERY_RETRY_MS,
   PROGRESS_RICH_REFRESH_MS,
@@ -58,9 +59,7 @@ export class TelegramProgressReporter {
     this.requestPump();
   }
 
-  async complete(
-    _status: 'Done' | 'Paused for confirmation' | 'Paused for clarification' | 'Something went wrong',
-  ): Promise<void> {
+  async complete(): Promise<void> {
     if (this.completed) return;
     this.completed = true;
     this.clearTimer();
@@ -231,11 +230,3 @@ export class TelegramProgressReporter {
   }
 }
 
-function isMessageNotModified(error: unknown): boolean {
-  return /message is not modified/i.test(error instanceof Error ? error.message : String(error));
-}
-
-function isMessageMissing(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /message to edit not found|message_id_invalid|message not found/i.test(message);
-}

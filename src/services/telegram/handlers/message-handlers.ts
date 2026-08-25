@@ -417,23 +417,22 @@ export class MessageHandlers {
     const userId = ctx.from?.id;
     const progressReporter = new TelegramProgressReporter(ctx, logContext);
     const summaryReporter = new TelegramReasoningSummaryReporter(ctx, logContext);
-    let lastProgressStage = '';
+
 
     try {
       await progressReporter.start();
       const result = await processFn(
         async (event: LangGraphProgressEvent, signal?: AbortSignal) => {
           if (event.reasoningSummary) {
-            await summaryReporter.record(event.reasoningSummary);
+            summaryReporter.record(event.reasoningSummary);
             return;
           }
-          lastProgressStage = event.stage;
           await progressReporter.record(event, signal);
         },
         (presentation) => this.resolvePausePresentation(ctx, presentation, logContext),
       );
       await summaryReporter.complete();
-      await progressReporter.complete(this.completionStatus(lastProgressStage));
+      await progressReporter.complete();
       if (result.suppressed) {
         logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
         return;
@@ -455,7 +454,7 @@ export class MessageHandlers {
         durationMs: Date.now() - startedAt,
       });
       await summaryReporter.complete();
-      await progressReporter.complete('Something went wrong');
+      await progressReporter.complete();
       if (this.claimTerminalReply(logContext, `${resultKind}_error`)) {
         await ctx.reply(errorMessage);
       }
@@ -830,7 +829,7 @@ export class MessageHandlers {
   ): Promise<void> {
     const progressReporter = new TelegramProgressReporter(ctx, logContext);
     const summaryReporter = new TelegramReasoningSummaryReporter(ctx, logContext);
-    let lastProgressStage = '';
+
 
     try {
       await progressReporter.startTranscribing();
@@ -839,15 +838,14 @@ export class MessageHandlers {
         () => progressReporter.beginAgentPhase(),
         async (event: LangGraphProgressEvent, signal?: AbortSignal) => {
           if (event.reasoningSummary) {
-            await summaryReporter.record(event.reasoningSummary);
+            summaryReporter.record(event.reasoningSummary);
             return;
           }
-          lastProgressStage = event.stage;
           await progressReporter.record(event, signal);
         },
       );
       await summaryReporter.complete();
-      await progressReporter.complete(this.completionStatus(lastProgressStage));
+      await progressReporter.complete();
       if (result.suppressed) {
         logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
         return;
@@ -867,7 +865,7 @@ export class MessageHandlers {
         durationMs: Date.now() - startedAt,
       });
       await summaryReporter.complete();
-      await progressReporter.complete('Something went wrong');
+      await progressReporter.complete();
       if (this.claimTerminalReply(logContext, 'audio_error')) {
         await ctx.reply(errorMessage);
       }
@@ -1172,19 +1170,4 @@ export class MessageHandlers {
     }
   }
 
-  private completionStatus(
-    lastProgressStage: string,
-  ): 'Done' | 'Paused for confirmation' | 'Paused for clarification' {
-    if (lastProgressStage === 'paused_confirm') {
-      return 'Paused for confirmation';
-    }
-    if (
-      lastProgressStage === 'paused_clarify' ||
-      lastProgressStage === 'paused' ||
-      lastProgressStage.includes('clarification')
-    ) {
-      return 'Paused for clarification';
-    }
-    return 'Done';
-  }
 }
