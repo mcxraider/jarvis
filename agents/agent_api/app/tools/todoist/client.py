@@ -33,6 +33,35 @@ DEFAULT_COMMENT_LIMIT = 10
 TODOIST_COLLECTION_LIMIT_MAX = 200
 TODOIST_COMMENT_LIMIT_MAX = 10
 
+_STRIP_RESPONSE_FIELDS = frozenset({
+    "user_id",
+    "added_by_uid",
+    "assigned_by_uid",
+    "responsible_uid",
+    "is_collapsed",
+    "is_deleted",
+    "child_order",
+    "order_key",
+    "day_order",
+    "note_count",
+    "completed_count",
+    "postponed_count",
+    "updated_at",
+    "added_at",
+    "completed_at",
+    "completed_by_uid",
+})
+
+
+def _strip_response_fields(obj):
+    """Remove noise fields from Todoist responses to reduce LLM context tokens."""
+    if isinstance(obj, dict):
+        return {k: _strip_response_fields(v) for k, v in obj.items() if k not in _STRIP_RESPONSE_FIELDS}
+    if isinstance(obj, list):
+        return [_strip_response_fields(item) for item in obj]
+    return obj
+
+
 # Path segments that look like Todoist resource identifiers (task/section/project
 # IDs are numeric or alphanumeric strings). Collapse them to {id} so traces never
 # carry raw identifiers, even if input-hiding is later disabled.
@@ -304,9 +333,8 @@ class TodoistApiClient:
         return clone
 
     def _filter_response(self, url: str, parsed: Any) -> Any:
-        if self._response_filter is None:
-            return parsed
-        return self._response_filter(url, parsed)
+        result = parsed if self._response_filter is None else self._response_filter(url, parsed)
+        return _strip_response_fields(result)
 
     def _authorize_task_mutation(self, task_id: Any) -> None:
         """Fail closed on project restrictions before mutating a task by id."""

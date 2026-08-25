@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
 from langsmith import traceable, tracing_context
+from langsmith.run_helpers import get_current_run_tree
 from langsmith.wrappers import wrap_openai
 from openai import (
     APIConnectionError,
@@ -436,6 +437,12 @@ class LLMAgentClient:
         request_started = time.monotonic()
 
         summary_fallback_attempted = False
+        captured_summary = None
+
+        def _on_summary(text: str) -> None:
+            nonlocal captured_summary
+            captured_summary = text
+            call_tracer.reasoning_summary(text)
 
         def create_completion() -> Any:
             nonlocal attempts, summary_fallback_attempted
@@ -460,7 +467,7 @@ class LLMAgentClient:
                             with self.client.responses.stream(**kwargs) as stream:
                                 return consume_response_stream(
                                     stream,
-                                    on_summary=call_tracer.reasoning_summary,
+                                    on_summary=_on_summary,
                                 )
                         except (APIStatusError,) as summary_err:
                             if (
@@ -517,6 +524,16 @@ class LLMAgentClient:
             message = CanonicalMessageBatch(
                 messages=(result.message,)
             ).to_checkpoint()["messages"][0]
+
+            rt = get_current_run_tree()
+            if rt:
+                trace_meta: Dict[str, Any] = {}
+                if captured_summary:
+                    trace_meta["reasoning_summary"] = captured_summary
+                if message.get("tool_calls"):
+                    trace_meta["tool_calls"] = message["tool_calls"]
+                if trace_meta:
+                    rt.add_metadata(trace_meta)
         except Exception as error:
             total_elapsed_ms = round((time.monotonic() - request_started) * 1000, 1)
             payload = self._failure_payload(
@@ -640,6 +657,12 @@ class LLMAgentClient:
         attempts = 0
         request_started = time.monotonic()
         summary_fallback_attempted = False
+        captured_summary_async = None
+
+        def _on_summary_async(text: str) -> None:
+            nonlocal captured_summary_async
+            captured_summary_async = text
+            call_tracer.reasoning_summary(text)
 
         async def create_completion() -> Any:
             nonlocal attempts, summary_fallback_attempted
@@ -664,7 +687,7 @@ class LLMAgentClient:
                             async with provider_client.responses.stream(**kwargs) as stream:
                                 return await consume_async_response_stream(
                                     stream,
-                                    on_summary=call_tracer.reasoning_summary,
+                                    on_summary=_on_summary_async,
                                 )
                         except (APIStatusError,) as summary_err:
                             if (
@@ -722,6 +745,16 @@ class LLMAgentClient:
             message = CanonicalMessageBatch(
                 messages=(result.message,)
             ).to_checkpoint()["messages"][0]
+
+            rt = get_current_run_tree()
+            if rt:
+                trace_meta: Dict[str, Any] = {}
+                if captured_summary_async:
+                    trace_meta["reasoning_summary"] = captured_summary_async
+                if message.get("tool_calls"):
+                    trace_meta["tool_calls"] = message["tool_calls"]
+                if trace_meta:
+                    rt.add_metadata(trace_meta)
         except Exception as error:
             total_elapsed_ms = round((time.monotonic() - request_started) * 1000, 1)
             payload = self._failure_payload(

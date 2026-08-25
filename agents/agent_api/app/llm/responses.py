@@ -241,7 +241,7 @@ def build_responses_call(
         "model": requested_model,
         "input": _attach_images(serialize_responses_input(messages), images),
         "max_output_tokens": output_tokens,
-        "reasoning": {"effort": effort, "context": "current_turn", "summary": "auto"},
+        "reasoning": {"effort": effort, "context": "current_turn", "summary": "concise"},
         "include": ["reasoning.encrypted_content"],
         "parallel_tool_calls": True,
         "store": False,

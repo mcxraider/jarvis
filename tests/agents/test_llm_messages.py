@@ -9,6 +9,7 @@ from agents.agent_api.app.llm.messages import (
     CanonicalMessageBatch,
     CanonicalToolCall,
     DeepSeekContinuation,
+    OpenAIResponsesContinuation,
     canonicalize_messages,
     serialize_messages,
 )
@@ -63,6 +64,44 @@ def test_legacy_deepseek_and_openai_output_fields_are_allowlisted():
 
     assert set(deepseek) == {"role", "content", "tool_calls"}
     assert set(openai) == {"role", "content", "tool_calls"}
+
+
+def test_replayed_reasoning_item_keeps_summary_key_required_by_the_api():
+    """`summary` is Required[] on ResponseReasoningItemParam.
+
+    Dropping the key makes OpenAI reject every post-tool-call turn with a 400,
+    so it must survive replay — emptied, not deleted, since the summary text
+    itself is display-only and must not be sent back.
+    """
+    from openai.types.responses.response_reasoning_item_param import (
+        ResponseReasoningItemParam,
+    )
+
+    continuation = OpenAIResponsesContinuation.from_items(
+        [
+            {
+                "type": "reasoning",
+                "id": "rs_1",
+                "encrypted_content": "encrypted-reasoning",
+                "status": "completed",
+                "summary": [{"type": "summary_text", "text": "Checking your tasks."}],
+            },
+            {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "lookup",
+                "arguments": '{"id":"one"}',
+                "status": "completed",
+            },
+        ]
+    )
+    reasoning = continuation.output_items()[0]
+
+    assert "summary" in ResponseReasoningItemParam.__annotations__
+    assert reasoning["summary"] == []
+    assert reasoning["encrypted_content"] == "encrypted-reasoning"
+    assert "Checking your tasks." not in repr(reasoning)
 
 
 def test_text_only_reasoning_is_output_metadata_not_a_continuation():

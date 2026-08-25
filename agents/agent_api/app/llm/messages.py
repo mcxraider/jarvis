@@ -41,7 +41,10 @@ def _validated_responses_item(value: Any) -> dict[str, Any]:
             )
         if item.get("summary") is not None and not isinstance(item["summary"], list):
             raise ValueError("OpenAI reasoning summary must be a list")
-        item.pop("summary", None)
+        # `summary` is Required[] on ResponseReasoningItemParam, so the key must
+        # survive replay or the API 400s the whole turn. Empty it rather than drop
+        # it: the summary text is display-only and must not be sent back.
+        item["summary"] = []
         return item
     if item_type == "function_call":
         required = ("id", "call_id", "name", "arguments")

@@ -200,7 +200,11 @@ def test_builds_medium_stateless_request_with_flat_function_tools():
     request = call.as_kwargs()
 
     assert request["model"] == "gpt-5.6-luna"
-    assert request["reasoning"] == {"effort": "medium", "context": "current_turn", "summary": "auto"}
+    assert request["reasoning"] == {
+        "effort": "medium",
+        "context": "current_turn",
+        "summary": "concise",
+    }
     assert request["store"] is False
     assert request["include"] == ["reasoning.encrypted_content"]
     assert request["parallel_tool_calls"] is True
@@ -306,7 +310,8 @@ def test_normalizes_parallel_calls_usage_and_checkpoint_replay():
         "function_call_output",
     ]
     assert replay[1]["encrypted_content"] == "encrypted-reasoning"
-    assert "summary" not in replay[1]
+    # Key required by the API, emptied so no summary text is replayed.
+    assert replay[1]["summary"] == []
     assert [item.get("call_id") for item in replay[-2:]] == ["call_1", "call_2"]
     deepseek_history = serialize_messages(LLMProvider.DEEPSEEK, restored)
     assert "continuation" not in deepseek_history[1]
@@ -548,7 +553,7 @@ def test_orchestrator_sync_dispatches_responses_not_chat():
     assert sdk.responses.stream.call_args.kwargs["reasoning"] == {
         "effort": "medium",
         "context": "current_turn",
-        "summary": "auto",
+        "summary": "concise",
     }
     assert client.usage.records[0].provider.value == "openai"
 
