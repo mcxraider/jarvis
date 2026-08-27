@@ -8,7 +8,7 @@ const FORWARD_ORIGIN = {
   sender_user: { first_name: 'Alice' },
 };
 
-const REJECTION_TEXT = 'I can only buffer forwarded text, or photos and files with captions.';
+const REJECTION_TEXT = 'I can only buffer forwarded text and photos. Voice, video, and sticker forwards are not supported.';
 
 function makePendingStore() {
   return {
@@ -34,14 +34,23 @@ describe('MessageHandlers forward buffering', () => {
     } as any;
   }
 
-  function createHandlers(options: { gateStore?: any; forwardBuffer?: MemoryForwardBufferStore } = {}) {
+  function createHandlers(options: { gateStore?: any; forwardBuffer?: MemoryForwardBufferStore; fileService?: any } = {}) {
     const messageProcessor = {
       processTextMessage: jest.fn().mockResolvedValue({ response: 'processed text' }),
+      processPhotoMessage: jest.fn().mockResolvedValue({ response: 'processed photo' }),
       abandonConversation: jest.fn().mockResolvedValue('abandoned'),
     };
     const forwardBuffer = options.forwardBuffer ?? new MemoryForwardBufferStore();
+    // JPEG SOI + padding + EOI markers for a valid-looking buffer
+    const fakeJpeg = Buffer.alloc(16);
+    fakeJpeg[0] = 0xff; fakeJpeg[1] = 0xd8; fakeJpeg[14] = 0xff; fakeJpeg[15] = 0xd9;
+    const fileService = options.fileService ?? {
+      isAudioFile: jest.fn(),
+      getFileUrl: jest.fn(),
+      downloadFile: jest.fn().mockResolvedValue(fakeJpeg),
+    };
     const handlers = new MessageHandlers(
-      { isAudioFile: jest.fn(), getFileUrl: jest.fn() } as any,
+      fileService as any,
       messageProcessor as any,
       { recordActivity: jest.fn() } as any,
       makePendingStore(),
@@ -49,7 +58,7 @@ describe('MessageHandlers forward buffering', () => {
       options.gateStore,
       forwardBuffer,
     );
-    return { handlers, messageProcessor, forwardBuffer };
+    return { handlers, messageProcessor, forwardBuffer, fileService };
   }
 
   describe('maybeBufferForward (middleware entry point)', () => {
@@ -158,30 +167,35 @@ describe('MessageHandlers forward buffering', () => {
       expect(forwardBuffer.peek((handlers as any).gateKey(ctx))[0].text).toBe('[file: report.pdf] Q3 numbers');
     });
 
-    it('rejects a captionless forwarded photo', async () => {
+    it('buffers a captionless forwarded photo with fileId', async () => {
       const { handlers, forwardBuffer } = createHandlers();
       const ctx = createContext({
-        photo: [{ file_id: 'p1' }],
+        photo: [{ file_id: 'p1', width: 100, height: 100 }, { file_id: 'p2', width: 800, height: 600 }],
         forward_origin: FORWARD_ORIGIN,
         message_id: 10,
       });
 
       await expect(handlers.maybeBufferForward(ctx)).resolves.toBe(true);
-      expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(0);
-      expect(ctx.reply).toHaveBeenCalledWith(REJECTION_TEXT);
+      const key = (handlers as any).gateKey(ctx);
+      expect(forwardBuffer.count(key)).toBe(1);
+      const msg = forwardBuffer.peek(key)[0];
+      expect(msg.text).toBe('[photo]');
+      expect(msg.fileId).toBe('p2'); // picks largest variant
     });
 
-    it('silently consumes captionless album items instead of spamming rejections', async () => {
-      const { handlers } = createHandlers();
+    it('buffers captionless album photo items with fileId', async () => {
+      const { handlers, forwardBuffer } = createHandlers();
       const ctx = createContext({
-        photo: [{ file_id: 'p1' }],
+        photo: [{ file_id: 'p1', width: 640, height: 480 }],
         media_group_id: 'album-1',
         forward_origin: FORWARD_ORIGIN,
         message_id: 11,
       });
 
       await expect(handlers.maybeBufferForward(ctx)).resolves.toBe(true);
-      expect(ctx.reply).not.toHaveBeenCalled();
+      const key = (handlers as any).gateKey(ctx);
+      expect(forwardBuffer.count(key)).toBe(1);
+      expect(forwardBuffer.peek(key)[0]).toMatchObject({ text: '[photo]', fileId: 'p1' });
     });
 
     it('rejects forwarded voice notes instead of transcribing them', async () => {
@@ -308,6 +322,54 @@ describe('MessageHandlers forward buffering', () => {
       expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
       expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(1);
       expect(ctx.reply).toHaveBeenLastCalledWith(expect.stringContaining('still finishing'));
+    });
+
+    it('downloads buffered photos and dispatches via processPhotoMessage', async () => {
+      const { handlers, messageProcessor, fileService, forwardBuffer } = createHandlers();
+      const ctx = createContext({
+        photo: [{ file_id: 'pic1', width: 800, height: 600 }],
+        forward_origin: FORWARD_ORIGIN,
+        message_id: 40,
+      });
+      await handlers.maybeBufferForward(ctx);
+      expect(forwardBuffer.peek((handlers as any).gateKey(ctx))[0].fileId).toBe('pic1');
+
+      ctx.message = { text: '/send_forward describe this', message_id: 41 };
+      await handlers.handleSendForward(ctx);
+
+      expect(fileService.downloadFile).toHaveBeenCalledWith('pic1', expect.any(Number));
+      expect(messageProcessor.processPhotoMessage).toHaveBeenCalledTimes(1);
+      const [text, images] = messageProcessor.processPhotoMessage.mock.calls[0];
+      expect(text).toContain('describe this');
+      expect(text).toContain('[photo]');
+      expect(images).toHaveLength(1);
+      expect(images[0].image_url).toMatch(/^data:image\/jpeg;base64,/);
+      expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
+      expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(0);
+    });
+
+    it('falls back to text dispatch when photo download fails', async () => {
+      const fileService = {
+        isAudioFile: jest.fn(),
+        getFileUrl: jest.fn(),
+        downloadFile: jest.fn().mockRejectedValue(new Error('expired')),
+      };
+      const { handlers, messageProcessor, forwardBuffer } = createHandlers({ fileService });
+      const ctx = createContext({
+        photo: [{ file_id: 'expired1', width: 200, height: 200 }],
+        forward_origin: FORWARD_ORIGIN,
+        message_id: 42,
+      });
+      await handlers.maybeBufferForward(ctx);
+
+      ctx.message = { text: '/send_forward summarize', message_id: 43 };
+      await handlers.handleSendForward(ctx);
+
+      // Still dispatches (with empty images) via processPhotoMessage
+      expect(messageProcessor.processPhotoMessage).toHaveBeenCalledTimes(1);
+      const [, images] = messageProcessor.processPhotoMessage.mock.calls[0];
+      expect(images).toHaveLength(0);
+      expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(0);
     });
   });
 

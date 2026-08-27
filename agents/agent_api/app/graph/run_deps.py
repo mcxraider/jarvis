@@ -35,6 +35,9 @@ class RunDeps:
     images: tuple[dict[str, str], ...] = field(
         default_factory=tuple, repr=False, compare=False
     )
+    prior_image_batches: tuple[tuple[dict[str, str], ...], ...] | None = field(
+        default=None, repr=False, compare=False
+    )
 
     _tool_node: Any = field(default=None, init=False, repr=False, compare=False)
 

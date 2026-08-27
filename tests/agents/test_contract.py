@@ -177,6 +177,64 @@ class TestResumeRequest:
         )
         assert request.images and request.images[0].detail == "auto"
 
+    def test_accepts_prior_image_batches_with_empty_turns(self):
+        request = ResumeRequest.model_validate(
+            {
+                "thread_id": "thread_abc123",
+                "message": "This one",
+                "user_id": "user_123",
+                "prior_image_batches": [
+                    [{"image_url": JPEG_URL, "detail": "auto"}],
+                    [],
+                ],
+            }
+        )
+        assert request.prior_image_batches is not None
+        assert len(request.prior_image_batches) == 2
+        assert request.prior_image_batches[1] == []
+
+    def test_rejects_invalid_image_in_prior_batches(self):
+        with pytest.raises(ValidationError):
+            ResumeRequest.model_validate(
+                {
+                    "thread_id": "thread_abc123",
+                    "message": "This one",
+                    "user_id": "user_123",
+                    "prior_image_batches": [[
+                        {"image_url": "data:image/jpeg;base64,not-base64", "detail": "auto"}
+                    ]],
+                }
+            )
+
+    def test_rejects_cumulative_image_count_across_prior_and_current(self):
+        with pytest.raises(ValidationError, match="10 images"):
+            ResumeRequest.model_validate(
+                {
+                    "thread_id": "thread_abc123",
+                    "message": "This one",
+                    "user_id": "user_123",
+                    "prior_image_batches": [
+                        [{"image_url": JPEG_URL, "detail": "auto"}] * 10
+                    ],
+                    "images": [{"image_url": JPEG_URL, "detail": "auto"}],
+                }
+            )
+
+    def test_rejects_cumulative_decoded_bytes_across_batches(self):
+        half = "data:image/jpeg;base64," + base64.b64encode(
+            b"x" * (5 * 1024 * 1024 + 1)
+        ).decode()
+        with pytest.raises(ValidationError, match="10 MiB"):
+            ResumeRequest.model_validate(
+                {
+                    "thread_id": "thread_abc123",
+                    "message": "This one",
+                    "user_id": "user_123",
+                    "prior_image_batches": [[{"image_url": half, "detail": "auto"}]],
+                    "images": [{"image_url": half, "detail": "auto"}],
+                }
+            )
+
     def test_accepts_resume_request_fixture(self):
         data = load_fixture("resume-request.json")
         req = ResumeRequest.model_validate(data)

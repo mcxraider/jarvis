@@ -11,6 +11,7 @@ from agents.agent_api.app.user_context.identity import TelegramIdentity
 
 MAX_IMAGE_COUNT = 10
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MAX_IMAGE_BATCHES = 20
 JPEG_DATA_URL_PREFIX = "data:image/jpeg;base64,"
 
 
@@ -50,6 +51,21 @@ ImageInputs = Annotated[
     Field(min_length=1, max_length=MAX_IMAGE_COUNT),
     AfterValidator(_validate_images),
 ]
+
+ImageBatch = Annotated[List[ImageInput], Field(max_length=MAX_IMAGE_COUNT)]
+PriorImageBatches = Annotated[
+    List[ImageBatch], Field(max_length=MAX_IMAGE_BATCHES)
+]
+
+
+def _validate_cumulative_images(
+    images: Optional[ImageInputs], prior: Optional[PriorImageBatches]
+) -> None:
+    all_images = [*(images or ()), *(image for batch in prior or () for image in batch)]
+    if len(all_images) > MAX_IMAGE_COUNT:
+        raise ValueError("image history must not exceed 10 images")
+    if sum(image.decoded_bytes for image in all_images) > MAX_IMAGE_BYTES:
+        raise ValueError("image history must not exceed 10 MiB decoded")
 
 
 class LegacyIdentityInput(BaseModel):
@@ -181,6 +197,12 @@ class ResumeRequest(IdentityRequestMixin):
     request_id: Optional[str] = None
     allow_mutations: Optional[bool] = None
     images: Optional[ImageInputs] = None
+    prior_image_batches: Optional[PriorImageBatches] = None
+
+    @model_validator(mode="after")
+    def validate_image_history(self) -> "ResumeRequest":
+        _validate_cumulative_images(self.images, self.prior_image_batches)
+        return self
 
 
 class BulkInvokeRequest(IdentityRequestMixin):

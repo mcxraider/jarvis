@@ -4,13 +4,16 @@ import {
   PostgresPendingClarificationStore,
 } from '../../../../src/services/telegram/pending-clarification.store';
 
-function makeRecord(overrides: Partial<PendingClarificationRecord> = {}): PendingClarificationRecord {
+function makeRecord(
+  overrides: Partial<PendingClarificationRecord> = {},
+): PendingClarificationRecord {
   const now = Date.now();
   return {
     pendingKey: 'telegram:abc123',
     threadId: 'thread-1',
     question: 'Confirm deletion?',
     userId: 'user-1',
+    imageBatches: [[]],
     status: 'pending',
     createdAt: now,
     updatedAt: now,
@@ -36,6 +39,27 @@ describe('MemoryPendingClarificationStore', () => {
     expect(retrieved?.interruptType).toBe('clarify');
   });
 
+  it('defensively copies nested image batches and clears them on expiry', async () => {
+    const store = new MemoryPendingClarificationStore();
+    const image = {
+      image_url: 'data:image/jpeg;base64,/9j/2Q==' as const,
+      detail: 'auto' as const,
+    };
+    const record = makeRecord({ imageBatches: [[image]], requestId: 'request-current' });
+    await store.save(record);
+    record.imageBatches![0][0].image_url = 'data:image/jpeg;base64,/9j/2g==';
+    const firstRead = await store.get(record.pendingKey);
+    expect(firstRead?.imageBatches?.[0][0].image_url).toBe('data:image/jpeg;base64,/9j/2Q==');
+    firstRead!.imageBatches![0].length = 0;
+    expect((await store.get(record.pendingKey))?.imageBatches?.[0][0].image_url).toBe(
+      'data:image/jpeg;base64,/9j/2Q==',
+    );
+    expect(
+      (await store.expireIfMatches(record.pendingKey, { requestId: 'request-current' }))
+        ?.imageBatches,
+    ).toEqual([]);
+  });
+
   it('returns undefined for an expired record', async () => {
     const store = new MemoryPendingClarificationStore();
     const record = makeRecord({ expiresAt: Date.now() - 1 });
@@ -54,20 +78,29 @@ describe('MemoryPendingClarificationStore', () => {
     await store.save(record);
 
     expect(await store.get(record.pendingKey)).toBeUndefined();
-    await expect(store.expireIfMatches(record.pendingKey, {
-      requestId: 'request-stale',
-    })).resolves.toBeUndefined();
+    await expect(
+      store.expireIfMatches(record.pendingKey, {
+        requestId: 'request-stale',
+      }),
+    ).resolves.toBeUndefined();
 
-    await expect(store.expireIfMatches(record.pendingKey, {
-      requestId: 'request-current',
-    })).resolves.toEqual(expect.objectContaining({
-      requestId: 'request-current',
-      promptMessageId: 77,
-      status: 'expired',
-    }));
-    await expect(store.expireIfMatches(record.pendingKey, {
-      requestId: 'request-current',
-    })).resolves.toBeUndefined();
+    await expect(
+      store.expireIfMatches(record.pendingKey, {
+        requestId: 'request-current',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        requestId: 'request-current',
+        promptMessageId: 77,
+        imageBatches: [],
+        status: 'expired',
+      }),
+    );
+    await expect(
+      store.expireIfMatches(record.pendingKey, {
+        requestId: 'request-current',
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it('allows a gate owner to claim an orphaned pending generation without a token', async () => {
@@ -94,14 +127,18 @@ describe('MemoryPendingClarificationStore', () => {
     await store.save(oldSnapshot);
     await store.save(makeRecord({ threadId: 'thread-new', requestId: 'request-new' }));
 
-    await expect(store.clearIfMatches(oldSnapshot.pendingKey, oldSnapshot, 'failed')).resolves.toBe(false);
+    await expect(store.clearIfMatches(oldSnapshot.pendingKey, oldSnapshot, 'failed')).resolves.toBe(
+      false,
+    );
     expect((await store.get(oldSnapshot.pendingKey))?.requestId).toBe('request-new');
 
-    await expect(store.clearIfMatches(
-      oldSnapshot.pendingKey,
-      { threadId: 'thread-new', requestId: 'request-new' },
-      'completed',
-    )).resolves.toBe(true);
+    await expect(
+      store.clearIfMatches(
+        oldSnapshot.pendingKey,
+        { threadId: 'thread-new', requestId: 'request-new' },
+        'completed',
+      ),
+    ).resolves.toBe(true);
     expect(await store.get(oldSnapshot.pendingKey)).toBeUndefined();
   });
 
@@ -161,11 +198,13 @@ describe('MemoryPendingClarificationStore', () => {
     const store = new MemoryPendingClarificationStore();
     await store.save(makeRecord({ threadId: 'thread-new', requestId: 'request-new' }));
 
-    await expect(store.attachClarificationMessageIdIfMatches(
-      'telegram:abc123',
-      { threadId: 'thread-old', requestId: 'request-old' },
-      909,
-    )).resolves.toBe(false);
+    await expect(
+      store.attachClarificationMessageIdIfMatches(
+        'telegram:abc123',
+        { threadId: 'thread-old', requestId: 'request-old' },
+        909,
+      ),
+    ).resolves.toBe(false);
     expect((await store.get('telegram:abc123'))?.clarificationMessageId).toBeUndefined();
   });
 
@@ -173,25 +212,31 @@ describe('MemoryPendingClarificationStore', () => {
     const store = new MemoryPendingClarificationStore();
     await store.save(makeRecord({ threadId: 'thread-new', requestId: 'request-new' }));
 
-    await expect(store.attachPromptMessageIdIfMatches(
-      'telegram:abc123',
-      { threadId: 'thread-old', requestId: 'request-old' },
-      707,
-    )).resolves.toBe(false);
-    await expect(store.attachPromptMessageIdIfMatches(
-      'telegram:abc123',
-      { threadId: 'thread-new', requestId: 'request-new' },
-      808,
-    )).resolves.toBe(true);
+    await expect(
+      store.attachPromptMessageIdIfMatches(
+        'telegram:abc123',
+        { threadId: 'thread-old', requestId: 'request-old' },
+        707,
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      store.attachPromptMessageIdIfMatches(
+        'telegram:abc123',
+        { threadId: 'thread-new', requestId: 'request-new' },
+        808,
+      ),
+    ).resolves.toBe(true);
     expect((await store.get('telegram:abc123'))?.promptMessageId).toBe(808);
   });
 
   it('does not retain stale presentation ids when a record is replaced', async () => {
     const store = new MemoryPendingClarificationStore();
-    await store.save(makeRecord({
-      clarificationMessageId: 11,
-      promptMessageId: 12,
-    }));
+    await store.save(
+      makeRecord({
+        clarificationMessageId: 11,
+        promptMessageId: 12,
+      }),
+    );
     await store.save(makeRecord({ threadId: 'thread-new' }));
 
     const retrieved = await store.get('telegram:abc123');
@@ -212,40 +257,104 @@ describe('MemoryPendingClarificationStore', () => {
 });
 
 describe('PostgresPendingClarificationStore expiry claim', () => {
+  it('validates image batches on read and writes them through the upsert', async () => {
+    const store = new PostgresPendingClarificationStore('postgres://example.invalid/jarvis');
+    const now = new Date();
+    const imageBatches = [
+      [
+        {
+          image_url: 'data:image/jpeg;base64,/9j/2Q==' as const,
+          detail: 'auto' as const,
+        },
+      ],
+      [],
+    ];
+    const query = jest.fn().mockResolvedValue({
+      rowCount: 1,
+      rows: [
+        {
+          pending_key: 'telegram:abc123',
+          thread_id: 'thread-1',
+          question: 'Which?',
+          telegram_user_id: 123,
+          chat_id: '456',
+          user_id: 'user-1',
+          request_id: 'request-current',
+          interrupt_type: 'clarify',
+          clarification_message_id: null,
+          prompt_message_id: null,
+          image_batches: imageBatches,
+          status: 'pending',
+          created_at: now,
+          updated_at: now,
+          expires_at: new Date(now.getTime() + 60000),
+        },
+      ],
+    });
+    (store as any).pool = { query };
+
+    expect((await store.get('telegram:abc123'))?.imageBatches).toEqual(imageBatches);
+    await store.save(makeRecord({ imageBatches }));
+    expect(query.mock.calls[1][0]).toContain('image_batches = EXCLUDED.image_batches');
+    expect(query.mock.calls[1][1]).toContain(JSON.stringify(imageBatches));
+  });
+
+  it('clears durable image data on terminal update paths', async () => {
+    const store = new PostgresPendingClarificationStore('postgres://example.invalid/jarvis');
+    const query = jest.fn().mockResolvedValue({ rowCount: 1, rows: [] });
+    (store as any).pool = { query };
+
+    await store.clear('key', 'completed');
+    await store.clearIfMatches('key', { threadId: 'thread', requestId: 'request' }, 'failed');
+    await store.clearAllForUser(42, 'superseded');
+    await store.sweepExpired();
+
+    expect(query.mock.calls.every(([sql]) => sql.includes("image_batches = '[]'::jsonb"))).toBe(
+      true,
+    );
+  });
+
   it('uses a null-safe generation predicate and returns expired prompt metadata', async () => {
     const store = new PostgresPendingClarificationStore('postgres://example.invalid/jarvis');
     const now = new Date();
     const query = jest.fn().mockResolvedValue({
       rowCount: 1,
-      rows: [{
-        pending_key: 'telegram:abc123',
-        thread_id: 'thread-1',
-        question: 'Confirm deletion?',
-        telegram_user_id: 123,
-        chat_id: '456',
-        user_id: 'user-1',
-        request_id: 'request-current',
-        interrupt_type: 'confirm',
-        clarification_message_id: null,
-        prompt_message_id: '77',
-        status: 'expired',
-        created_at: now,
-        updated_at: now,
-        expires_at: now,
-      }],
+      rows: [
+        {
+          pending_key: 'telegram:abc123',
+          thread_id: 'thread-1',
+          question: 'Confirm deletion?',
+          telegram_user_id: 123,
+          chat_id: '456',
+          user_id: 'user-1',
+          request_id: 'request-current',
+          interrupt_type: 'confirm',
+          clarification_message_id: null,
+          prompt_message_id: '77',
+          status: 'expired',
+          created_at: now,
+          updated_at: now,
+          expires_at: now,
+        },
+      ],
     });
     (store as any).pool = { query };
 
-    await expect(store.expireIfMatches('telegram:abc123', {
-      requestId: 'request-current',
-    })).resolves.toEqual(expect.objectContaining({
-      requestId: 'request-current',
-      promptMessageId: 77,
-      status: 'expired',
-    }));
+    await expect(
+      store.expireIfMatches('telegram:abc123', {
+        requestId: 'request-current',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        requestId: 'request-current',
+        promptMessageId: 77,
+        status: 'expired',
+      }),
+    );
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining('request_id IS NOT DISTINCT FROM $3'),
       ['telegram:abc123', false, 'request-current'],
     );
+    expect(query.mock.calls[0][0]).toContain("image_batches = '[]'::jsonb");
   });
 });

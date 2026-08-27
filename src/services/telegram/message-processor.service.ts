@@ -241,6 +241,7 @@ export class MessageProcessorService {
     logContext: LogContext = {},
     onProgress?: LangGraphProgressCallback,
     options?: {
+      forceFresh?: boolean;
       replyContext?: ReplyContextData;
       onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
     },

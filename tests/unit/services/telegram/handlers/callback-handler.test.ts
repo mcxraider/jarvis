@@ -35,6 +35,9 @@ async function setupWaitingGate(
   userId = 42,
   chatId = 100,
   threadId = 'tg_abc_msg123',
+  imageBatches?: NonNullable<
+    import('../../../../../src/services/telegram/pending-clarification.store').PendingClarificationRecord['imageBatches']
+  >,
 ) {
   const gateKey = getGateKey(userId, chatId);
   const requestId = `waiting-${threadId}`;
@@ -50,6 +53,7 @@ async function setupWaitingGate(
     userId: `telegram:${userId}`,
     requestId,
     interruptType: 'confirm',
+    imageBatches,
     status: 'pending',
     createdAt: now,
     updatedAt: now,
@@ -77,7 +81,12 @@ describe('CallbackHandler', () => {
     const gateStore = new MemoryConversationGateStore();
     await setupWaitingGate(gateStore, pendingStore);
 
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
 
     await handler.handleCallbackQuery(ctx);
@@ -90,6 +99,7 @@ describe('CallbackHandler', () => {
           telegramId: 42,
           username: 'tester',
         },
+        priorImageBatches: undefined,
       }),
       expect.objectContaining({
         threadId: 'tg_abc_msg123',
@@ -124,7 +134,12 @@ describe('CallbackHandler', () => {
       }),
     };
     await setupWaitingGate(gateStore, pendingStore);
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
 
     await handler.handleCallbackQuery(makeCtx('confirm:approve:tg_abc_msg123'));
 
@@ -138,11 +153,18 @@ describe('CallbackHandler', () => {
     const gateStore = new MemoryConversationGateStore();
     const gateKey = getGateKey();
     let resolveResume!: (response: any) => void;
-    const resume = jest.fn().mockReturnValue(new Promise((resolve) => {
-      resolveResume = resolve;
-    }));
+    const resume = jest.fn().mockReturnValue(
+      new Promise((resolve) => {
+        resolveResume = resolve;
+      }),
+    );
     await setupWaitingGate(gateStore, pendingStore);
-    const handler = new CallbackHandler({ resume } as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      { resume } as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
 
     const handling = handler.handleCallbackQuery(ctx);
@@ -178,11 +200,18 @@ describe('CallbackHandler', () => {
     const gateStore = new MemoryConversationGateStore();
     const gateKey = getGateKey();
     let rejectResume!: (error: Error) => void;
-    const resume = jest.fn().mockReturnValue(new Promise((_resolve, reject) => {
-      rejectResume = reject;
-    }));
+    const resume = jest.fn().mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectResume = reject;
+      }),
+    );
     await setupWaitingGate(gateStore, pendingStore);
-    const handler = new CallbackHandler({ resume } as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      { resume } as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
 
     const handling = handler.handleCallbackQuery(ctx);
@@ -212,7 +241,12 @@ describe('CallbackHandler', () => {
     const gateStore = new MemoryConversationGateStore();
     await setupWaitingGate(gateStore, pendingStore);
 
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:decline:tg_abc_msg123');
 
     await handler.handleCallbackQuery(ctx);
@@ -244,7 +278,12 @@ describe('CallbackHandler', () => {
     const pendingStore = new MemoryPendingClarificationStore();
     const gateStore = new MemoryConversationGateStore();
     await setupWaitingGate(gateStore, pendingStore);
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx(`confirm:${decision}:tg_abc_msg123`);
     ctx.telegram.callApi = jest.fn().mockResolvedValue({ message_id: 900 });
 
@@ -271,9 +310,15 @@ describe('CallbackHandler', () => {
     const pendingStore = new MemoryPendingClarificationStore();
     const gateStore = new MemoryConversationGateStore();
     await setupWaitingGate(gateStore, pendingStore);
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
-    ctx.telegram.callApi = jest.fn()
+    ctx.telegram.callApi = jest
+      .fn()
       .mockRejectedValueOnce(new Error('rich unsupported'))
       .mockResolvedValue(undefined);
 
@@ -287,7 +332,12 @@ describe('CallbackHandler', () => {
     const agentClient = { resume: jest.fn() };
     const pendingStore = new MemoryPendingClarificationStore();
     const gateStore = new MemoryConversationGateStore();
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('some_other_action:data');
 
     await handler.handleCallbackQuery(ctx);
@@ -300,7 +350,12 @@ describe('CallbackHandler', () => {
     const agentClient = { resume: jest.fn() };
     const pendingStore = new MemoryPendingClarificationStore();
     const gateStore = new MemoryConversationGateStore();
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
 
     const ctx = makeCtx('confirm:approve:');
     await handler.handleCallbackQuery(ctx);
@@ -312,7 +367,12 @@ describe('CallbackHandler', () => {
     const agentClient = { resume: jest.fn() };
     const pendingStore = new MemoryPendingClarificationStore();
     const gateStore = new MemoryConversationGateStore();
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
 
     await handler.handleCallbackQuery(ctx);
@@ -346,7 +406,12 @@ describe('CallbackHandler', () => {
       expiresAt: now + 30 * 60 * 1000,
     });
 
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
 
     await handler.handleCallbackQuery(ctx);
@@ -383,7 +448,12 @@ describe('CallbackHandler', () => {
       });
       return getSnapshot(key);
     });
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
 
     await handler.handleCallbackQuery(ctx);
@@ -401,7 +471,12 @@ describe('CallbackHandler', () => {
     const gateStore = new MemoryConversationGateStore();
     await setupWaitingGate(gateStore, pendingStore, 42, 100, 'tg_user_expected');
 
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_user_other');
 
     await handler.handleCallbackQuery(ctx);
@@ -432,7 +507,12 @@ describe('CallbackHandler', () => {
       expiresAt: now + 30 * 60 * 1000,
     });
 
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_user_expected', 42, 100);
 
     await handler.handleCallbackQuery(ctx);
@@ -449,7 +529,12 @@ describe('CallbackHandler', () => {
     const gateStore = new MemoryConversationGateStore();
     await setupWaitingGate(gateStore, pendingStore);
 
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
 
     await handler.handleCallbackQuery(ctx);
@@ -480,7 +565,12 @@ describe('CallbackHandler', () => {
     const pendingStore = new MemoryPendingClarificationStore();
     const gateStore = new MemoryConversationGateStore();
     await setupWaitingGate(gateStore, pendingStore);
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
 
     await handler.handleCallbackQuery(ctx);
@@ -490,11 +580,13 @@ describe('CallbackHandler', () => {
     expect(snapshot.status).toBe('running');
     expect(snapshot.requestId).toMatch(/^cb_/);
     expect(await gateStore.getActiveRequestId(gateKey)).toBe(snapshot.requestId);
-    expect(await pendingStore.get(gateKey)).toEqual(expect.objectContaining({
-      threadId: 'tg_abc_msg123',
-      requestId: 'waiting-tg_abc_msg123',
-      status: 'pending',
-    }));
+    expect(await pendingStore.get(gateKey)).toEqual(
+      expect.objectContaining({
+        threadId: 'tg_abc_msg123',
+        requestId: 'waiting-tg_abc_msg123',
+        status: 'pending',
+      }),
+    );
     expect(ctx.reply.mock.calls.flat().join(' ')).toContain('may still be running');
   });
 
@@ -511,7 +603,12 @@ describe('CallbackHandler', () => {
     const gateStore = new MemoryConversationGateStore();
     await setupWaitingGate(gateStore, pendingStore);
 
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
 
     await handler.handleCallbackQuery(ctx);
@@ -534,9 +631,18 @@ describe('CallbackHandler', () => {
     };
     const pendingStore = new MemoryPendingClarificationStore();
     const gateStore = new MemoryConversationGateStore();
-    await setupWaitingGate(gateStore, pendingStore);
+    const image = {
+      image_url: 'data:image/jpeg;base64,/9j/2Q==' as const,
+      detail: 'auto' as const,
+    };
+    await setupWaitingGate(gateStore, pendingStore, 42, 100, 'tg_abc_msg123', [[image]]);
 
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
 
     await handler.handleCallbackQuery(ctx);
@@ -545,6 +651,12 @@ describe('CallbackHandler', () => {
     const pending = await pendingStore.get(gateKey);
     expect(pending).not.toBeNull();
     expect(pending!.interruptType).toBe('clarify');
+    expect(pending!.imageBatches).toEqual([[image]]);
+    expect(agentClient.resume).toHaveBeenCalledWith(
+      expect.objectContaining({ priorImageBatches: [[image]] }),
+      expect.any(Object),
+      expect.any(Function),
+    );
     expect(pending!.threadId).toBe('tg_abc_msg123');
     expect(await gateStore.getStatus(gateKey)).toBe('waiting_for_clarification');
   });
@@ -570,7 +682,12 @@ describe('CallbackHandler', () => {
       await gateStore.tryAcquire(getGateKey(), 60_000, undefined, 'request-new');
       await committedSave(record);
     });
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
 
     await handler.handleCallbackQuery(makeCtx('confirm:approve:tg_abc_msg123'));
 
@@ -595,7 +712,12 @@ describe('CallbackHandler', () => {
     const gateStore = new MemoryConversationGateStore();
     await setupWaitingGate(gateStore, pendingStore);
 
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
 
     await handler.handleCallbackQuery(ctx);
@@ -621,9 +743,15 @@ describe('CallbackHandler', () => {
     const pendingStore = new MemoryPendingClarificationStore();
     const gateStore = new MemoryConversationGateStore();
     await setupWaitingGate(gateStore, pendingStore);
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
-    ctx.telegram.callApi = jest.fn()
+    ctx.telegram.callApi = jest
+      .fn()
       .mockResolvedValueOnce({ message_id: 900 })
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce({ message_id: 901 });
@@ -653,14 +781,19 @@ describe('CallbackHandler', () => {
     const pendingStore = new MemoryPendingClarificationStore();
     const gateStore = new MemoryConversationGateStore();
     await setupWaitingGate(gateStore, pendingStore);
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
     ctx.telegram.callApi = jest.fn().mockResolvedValue({ message_id: 909 });
 
     await handler.handleCallbackQuery(ctx);
 
-    const reInterruptPromptIndex = ctx.reply.mock.calls.findIndex(
-      (call: unknown[]) => Boolean((call[1] as any)?.reply_markup?.inline_keyboard),
+    const reInterruptPromptIndex = ctx.reply.mock.calls.findIndex((call: unknown[]) =>
+      Boolean((call[1] as any)?.reply_markup?.inline_keyboard),
     );
     expect(reInterruptPromptIndex).toBeGreaterThanOrEqual(0);
   });
@@ -678,8 +811,15 @@ describe('CallbackHandler', () => {
     const pendingStore = new MemoryPendingClarificationStore();
     const gateStore = new MemoryConversationGateStore();
     await setupWaitingGate(gateStore, pendingStore);
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
-    jest.spyOn(handler as any, 'sendConfirmReply').mockRejectedValue(new Error('Telegram unavailable'));
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
+    jest
+      .spyOn(handler as any, 'sendConfirmReply')
+      .mockRejectedValue(new Error('Telegram unavailable'));
 
     await handler.handleCallbackQuery(makeCtx('confirm:approve:tg_abc_msg123'));
 
@@ -706,7 +846,12 @@ describe('CallbackHandler', () => {
       await committedSave(record);
       throw new Error('connection lost after commit');
     });
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
 
     await handler.handleCallbackQuery(makeCtx('confirm:approve:tg_abc_msg123'));
 
@@ -728,7 +873,12 @@ describe('CallbackHandler', () => {
     const pendingStore = new MemoryPendingClarificationStore();
     const gateStore = new MemoryConversationGateStore();
     await setupWaitingGate(gateStore, pendingStore);
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
     ctx.reply.mockImplementation(async (_text: string, options?: any) => {
       if (options?.reply_markup?.inline_keyboard) {
@@ -778,10 +928,18 @@ describe('CallbackHandler', () => {
     const pendingStore = new MemoryPendingClarificationStore();
     const gateStore = new MemoryConversationGateStore();
     await setupWaitingGate(gateStore, pendingStore);
-    const handler = new CallbackHandler(agentClient as any, pendingStore, gateStore, createTerminalReplyStore());
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
     const ctx = makeCtx('confirm:approve:tg_abc_msg123');
     ctx.telegram.callApi = jest.fn().mockImplementation(async (method: string, payload: any) => {
-      if (method === 'sendRichMessage' && String(payload?.rich_message?.markdown).includes('<details open>')) {
+      if (
+        method === 'sendRichMessage' &&
+        String(payload?.rich_message?.markdown).includes('<details open>')
+      ) {
         const owned = await gateStore.getSnapshot(getGateKey());
         await gateStore.releaseIfWaitingRequestId(getGateKey(), owned.requestId);
         await gateStore.tryAcquire(getGateKey(), 60000, undefined, 'request-new');

@@ -2,8 +2,17 @@
 
 import copy
 import json
+import logging
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence, cast
+from typing import Any, Mapping, Sequence, TypedDict, cast
+
+logger = logging.getLogger(__name__)
+
+
+class ImageContext(TypedDict):
+    images: Sequence[Mapping[str, str]]
+    prior_batches: Sequence[Sequence[Mapping[str, str]]] | None
+
 
 from openai.types.responses.response_create_params import (
     ResponseCreateParamsNonStreaming,
@@ -174,32 +183,88 @@ def serialize_responses_input(
     return serialized
 
 
-def _attach_images(
-    serialized: list[dict[str, Any]], images: Sequence[Mapping[str, str]]
-) -> list[dict[str, Any]]:
-    if not images:
-        return serialized
-    for item in reversed(serialized):
-        if item.get("role") != "user":
-            continue
-        text = item.get("content")
-        if not isinstance(text, str):
-            raise LLMProviderError(
-                "configuration", "Image input requires a text user message."
-            )
-        item["content"] = [
-            {"type": "input_text", "text": text},
-            *(
+def _build_user_content(
+    text: str,
+    images: Sequence[Mapping[str, str]],
+    *,
+    first_label: int,
+) -> list[dict[str, str]]:
+    content: list[dict[str, str]] = []
+    for label, image in enumerate(images, start=first_label):
+        content.extend(
+            (
+                {"type": "input_text", "text": f"Image {label}:"},
                 {
                     "type": "input_image",
                     "image_url": image["image_url"],
                     "detail": "auto",
-                }
-                for image in images
-            ),
-        ]
-        return serialized
-    raise LLMProviderError("configuration", "Image input requires a user message.")
+                },
+            )
+        )
+    content.append({"type": "input_text", "text": text})
+    return content
+
+
+def _attach_image_batches(
+    serialized: list[dict[str, Any]],
+    *,
+    prior_image_batches: Sequence[Sequence[Mapping[str, str]]] | None,
+    images: Sequence[Mapping[str, str]],
+) -> list[dict[str, Any]]:
+    user_items = [item for item in serialized if item.get("role") == "user"]
+    if prior_image_batches is None:
+        if not images:
+            return serialized
+        if not user_items:
+            raise LLMProviderError(
+                "configuration", "Image input requires a user message."
+            )
+        batches = [images]
+        targets = [user_items[-1]]
+    else:
+        batches = list(prior_image_batches)
+        if len(user_items) == len(batches) + 1:
+            batches.append(images)
+        elif len(user_items) != len(batches) or images:
+            # ponytail: graceful fallback — flatten all images onto last user message
+            logger.warning(
+                "image_batch_mismatch: user_items=%d batches=%d, falling back to last-message attachment",
+                len(user_items),
+                len(batches),
+            )
+            all_images = [img for batch in prior_image_batches for img in batch]
+            if images:
+                all_images.extend(images)
+            if all_images and user_items:
+                batches = [all_images]
+                targets = [user_items[-1]]
+            else:
+                return serialized
+            next_label = 1
+            for item, batch in zip(targets, batches):
+                if not batch:
+                    continue
+                text = item.get("content")
+                if not isinstance(text, str):
+                    return serialized
+                item["content"] = _build_user_content(text, batch, first_label=next_label)
+                next_label += len(batch)
+            return serialized
+        targets = user_items
+
+    next_label = 1
+    for item, batch in zip(targets, batches):
+        if not batch:
+            continue
+        text = item.get("content")
+        if not isinstance(text, str):
+            raise LLMProviderError(
+                "incompatible_checkpoint",
+                "Image input requires text user-message content.",
+            )
+        item["content"] = _build_user_content(text, batch, first_label=next_label)
+        next_label += len(batch)
+    return serialized
 
 
 def build_responses_call(
@@ -217,10 +282,13 @@ def build_responses_call(
     reasoning_effort: str | None = None,
     tool_choice: str | Mapping[str, Any] | None = None,
     timeout_seconds: float | None = None,
-    images: Sequence[Mapping[str, str]] = (),
+    image_context: ImageContext | None = None,
 ) -> ResponsesCall:
+    images = image_context["images"] if image_context else ()
+    prior_image_batches = image_context["prior_batches"] if image_context else None
+    has_images = bool(images) or any(prior_image_batches or ())
     requested_model = validate_model_for_profile(
-        profile, OPENAI_VISION_MODEL if images else model or profile.model
+        profile, OPENAI_VISION_MODEL if has_images else model or profile.model
     )
     effort = validate_reasoning_for_profile(profile, reasoning_effort)
     output_tokens = (
@@ -239,7 +307,11 @@ def build_responses_call(
         )
     params: dict[str, Any] = {
         "model": requested_model,
-        "input": _attach_images(serialize_responses_input(messages), images),
+        "input": _attach_image_batches(
+            serialize_responses_input(messages),
+            prior_image_batches=prior_image_batches,
+            images=images,
+        ),
         "max_output_tokens": output_tokens,
         "reasoning": {"effort": effort, "context": "current_turn", "summary": "concise"},
         "include": ["reasoning.encrypted_content"],

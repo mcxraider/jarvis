@@ -182,7 +182,8 @@ describe('LangGraphAgentClient', () => {
       thread_id: 'thread-image',
       response: 'Seen.',
     };
-    const fetchMock = jest.fn()
+    const fetchMock = jest
+      .fn()
       .mockResolvedValueOnce({ ok: true, text: jest.fn().mockResolvedValue(JSON.stringify(final)) })
       .mockResolvedValueOnce({
         ok: true,
@@ -190,7 +191,10 @@ describe('LangGraphAgentClient', () => {
       });
     global.fetch = fetchMock as any;
     const info = jest.spyOn(logger, 'info').mockImplementation();
-    const image = { image_url: 'data:image/jpeg;base64,/9j/2Q==' as const, detail: 'auto' as const };
+    const image = {
+      image_url: 'data:image/jpeg;base64,/9j/2Q==' as const,
+      detail: 'auto' as const,
+    };
     const request = { message: 'read this', userId: 'local-user', images: [image] };
     const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
 
@@ -202,6 +206,45 @@ describe('LangGraphAgentClient', () => {
     expect(standardPayload.images).toEqual([image]);
     expect(streamPayload.images).toEqual([image]);
     expect(streamPayload).toEqual(standardPayload);
+    expect(JSON.stringify(info.mock.calls)).not.toContain('/9j/2Q==');
+  });
+
+  it('serializes prior image batches for standard and streaming resumes with safe metrics', async () => {
+    const final = { status: 'completed', thread_id: 'thread-image', response: 'Seen.' };
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({ ok: true, text: jest.fn().mockResolvedValue(JSON.stringify(final)) })
+      .mockResolvedValueOnce({ ok: true, body: streamBody([{ type: 'final', response: final }]) });
+    global.fetch = fetchMock as any;
+    const info = jest.spyOn(logger, 'info').mockImplementation();
+    const image = {
+      image_url: 'data:image/jpeg;base64,/9j/2Q==' as const,
+      detail: 'auto' as const,
+    };
+    const request = {
+      message: 'this one',
+      userId: 'local-user',
+      threadId: 'thread-image',
+      priorImageBatches: [[image], []],
+      images: [image],
+    };
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    await client.resume(request);
+    await client.resume(request, {}, jest.fn());
+
+    for (const call of fetchMock.mock.calls) {
+      const payload = JSON.parse(call[1].body);
+      expect(payload.prior_image_batches).toEqual([[image], []]);
+      expect(payload.images).toEqual([image]);
+    }
+    expect(
+      info.mock.calls.some(
+        ([, fields]) =>
+          (fields as Record<string, unknown>).imageCount === 2 &&
+          (fields as Record<string, unknown>).imageBytes === 8,
+      ),
+    ).toBe(true);
     expect(JSON.stringify(info.mock.calls)).not.toContain('/9j/2Q==');
   });
 
@@ -251,12 +294,18 @@ describe('LangGraphAgentClient', () => {
   it('aborts a cancellation request after five seconds', async () => {
     jest.useFakeTimers();
     try {
-      global.fetch = jest.fn().mockImplementation((_url, init: RequestInit) =>
-        new Promise((_resolve, reject) => {
-          init.signal?.addEventListener('abort', () => {
-            reject(new DOMException('The operation was aborted', 'AbortError'));
-          }, { once: true });
-        })) as any;
+      global.fetch = jest.fn().mockImplementation(
+        (_url, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener(
+              'abort',
+              () => {
+                reject(new DOMException('The operation was aborted', 'AbortError'));
+              },
+              { once: true },
+            );
+          }),
+      ) as any;
       const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
 
       const cancellation = client.cancelRun('telegram:123', 'request-1');
@@ -315,9 +364,7 @@ describe('LangGraphAgentClient', () => {
     }) as any;
     const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
 
-    await expect(
-      client.invoke({ message: 'hello', userId: 'local-user' }),
-    ).resolves.toEqual(
+    await expect(client.invoke({ message: 'hello', userId: 'local-user' })).resolves.toEqual(
       expect.objectContaining({
         status: 'failed',
         delivery: 'ambiguous',
@@ -334,9 +381,7 @@ describe('LangGraphAgentClient', () => {
     }) as any;
     const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
 
-    await expect(
-      client.invoke({ message: 'hello', userId: 'local-user' }),
-    ).resolves.toEqual(
+    await expect(client.invoke({ message: 'hello', userId: 'local-user' })).resolves.toEqual(
       expect.objectContaining({
         status: 'failed',
         delivery: 'ambiguous',
@@ -563,7 +608,11 @@ describe('LangGraphAgentClient', () => {
       'http://localhost:8000/invoke/stream',
       expect.any(Object),
     );
-    expect(fetchMock).toHaveBeenNthCalledWith(2, 'http://localhost:8000/invoke', expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:8000/invoke',
+      expect.any(Object),
+    );
   });
 
   it('does not fall back after an ambiguous stream setup failure without a request id', async () => {
@@ -589,11 +638,7 @@ describe('LangGraphAgentClient', () => {
     global.fetch = fetchMock as any;
     const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
 
-    const result = await client.invoke(
-      { message: 'hello', userId: 'local-user' },
-      {},
-      jest.fn(),
-    );
+    const result = await client.invoke({ message: 'hello', userId: 'local-user' }, {}, jest.fn());
 
     expect(result).toEqual(
       expect.objectContaining({
@@ -902,11 +947,7 @@ describe('LangGraphAgentClient', () => {
 
       const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
 
-      const result = await client.invoke(
-        { message: 'hello', userId: 'local-user' },
-        {},
-        jest.fn(),
-      );
+      const result = await client.invoke({ message: 'hello', userId: 'local-user' }, {}, jest.fn());
 
       expect(result).toEqual(
         expect.objectContaining({
@@ -1167,7 +1208,9 @@ describe('LangGraphAgentClient', () => {
       const fetchMock = jest.fn().mockImplementation((_url: string, init: RequestInit) => {
         return new Promise((_resolve, reject) => {
           init.signal?.addEventListener('abort', () => {
-            reject(init.signal?.reason ?? new DOMException('The operation was aborted', 'AbortError'));
+            reject(
+              init.signal?.reason ?? new DOMException('The operation was aborted', 'AbortError'),
+            );
           });
         });
       });
@@ -1523,5 +1566,4 @@ describe('LangGraphAgentClient', () => {
       expect(harness.signal?.aborted).toBe(false);
     });
   });
-
 });

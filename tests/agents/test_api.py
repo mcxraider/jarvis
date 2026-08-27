@@ -640,11 +640,15 @@ class JarvisApiTests(unittest.TestCase):
                     "thread_id": "thread-hitl",
                     "message": "this one",
                     "user_id": "jerry",
+                    "prior_image_batches": [[image], []],
                     "images": [image],
                 },
             )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(resume_run.call_args.kwargs["images"], [image])
+        self.assertEqual(
+            resume_run.call_args.kwargs["prior_image_batches"], [[image], []]
+        )
         self.assertEqual(resume_run.call_args.kwargs["clarification_reply"], "this one")
 
     def test_invoke_interrupted(self) -> None:

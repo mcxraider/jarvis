@@ -73,6 +73,7 @@ from agents.agent_api.app.llm.provider import (
     validate_reasoning_for_profile,
 )
 from agents.agent_api.app.llm.responses import (
+    ImageContext,
     build_responses_call,
     normalize_response,
 )
@@ -253,9 +254,13 @@ def _model_trace_inputs(inputs: Dict[str, Any]) -> Dict[str, Any]:
 
     safe = dict(inputs)
     safe.pop("self", None)
-    images = safe.pop("images", ()) or ()
-    if images:
-        safe["image_count"] = len(images)
+    ctx = safe.pop("image_context", None)
+    if ctx:
+        images = ctx.get("images") or ()
+        prior = ctx.get("prior_batches") or ()
+        image_count = len(images) + sum(len(batch) for batch in prior)
+        if image_count:
+            safe["image_count"] = image_count
     return safe
 
 
@@ -388,7 +393,7 @@ class LLMAgentClient:
         request_timeout_seconds: Optional[float] = None,
         tracer: Optional[TracePrinter] = None,
         usage_accumulator: Optional[UsageSummary] = None,
-        images: tuple[dict[str, str], ...] = (),
+        image_context: "ImageContext | None" = None,
     ) -> Dict[str, Any]:
         """Create one message while preserving the legacy synchronous result.
 
@@ -459,7 +464,7 @@ class LLMAgentClient:
                         reasoning_effort=use_effort,
                         safety_identifier=self.safety_identifier,
                         timeout_seconds=use_timeout,
-                        images=images,
+                        image_context=image_context,
                     )
                     kwargs = call.as_kwargs()
                     with tracing_context(enabled=False):
@@ -604,7 +609,7 @@ class LLMAgentClient:
         tracer: Optional[TracePrinter] = None,
         usage_accumulator: Optional[UsageSummary] = None,
         async_client: Optional[Any] = None,
-        images: tuple[dict[str, str], ...] = (),
+        image_context: "ImageContext | None" = None,
     ) -> Dict[str, Any]:
         """Async counterpart using the shared transport by default.
 
@@ -679,7 +684,7 @@ class LLMAgentClient:
                         reasoning_effort=use_effort,
                         safety_identifier=self.safety_identifier,
                         timeout_seconds=use_timeout,
-                        images=images,
+                        image_context=image_context,
                     )
                     kwargs = call.as_kwargs()
                     with tracing_context(enabled=False):
@@ -1411,6 +1416,14 @@ def create_agent_node(
                 reasoning_effort=effort_override,
             )
         run_images = deps.images if deps is not None else ()
+        run_prior_image_batches = (
+            deps.prior_image_batches if deps is not None else None
+        )
+        run_image_context: ImageContext | None = (
+            ImageContext(images=run_images, prior_batches=run_prior_image_batches)
+            if run_images or run_prior_image_batches
+            else None
+        )
         try:
             if isinstance(run_agent_client, LLMAgentClient):
                 if run_agent_client.async_client is not None:
@@ -1423,7 +1436,7 @@ def create_agent_node(
                         tracer=run_tracer,
                         usage_accumulator=run_usage_accumulator,
                         async_client=run_agent_client.async_client,
-                        images=run_images,
+                        image_context=run_image_context,
                     )
                 else:
                     assistant_message = await bounded_to_thread(
@@ -1435,7 +1448,7 @@ def create_agent_node(
                         request_timeout_seconds=timeout_override,
                         tracer=run_tracer,
                         usage_accumulator=run_usage_accumulator,
-                        images=run_images,
+                        image_context=run_image_context,
                     )
             else:
                 # Preserve duck-typed test/CLI clients while keeping their
@@ -1451,8 +1464,8 @@ def create_agent_node(
                         "reasoning_effort": effort_override,
                         "request_timeout_seconds": timeout_override,
                     }
-                    if run_images:
-                        kwargs["images"] = run_images
+                    if run_image_context is not None:
+                        kwargs["image_context"] = run_image_context
                     assistant_message = await async_create_message(
                         messages, tool_schemas, **kwargs
                     )
@@ -1462,8 +1475,8 @@ def create_agent_node(
                         "reasoning_effort": effort_override,
                         "request_timeout_seconds": timeout_override,
                     }
-                    if run_images:
-                        kwargs["images"] = run_images
+                    if run_image_context is not None:
+                        kwargs["image_context"] = run_image_context
                     assistant_message = await bounded_to_thread(
                         run_agent_client.create_message,
                         messages,

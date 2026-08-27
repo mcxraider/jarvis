@@ -619,6 +619,7 @@ async def run_jarvis_async(
     run_control: Optional[RunControl] = None,
     reply_context: Optional[dict] = None,
     images: Optional[list[dict[str, str]]] = None,
+    prior_image_batches: Optional[list[list[dict[str, str]]]] = None,
 ) -> JarvisState:
     """Run the full Jarvis graph natively on the caller's event loop.
 
@@ -629,7 +630,8 @@ async def run_jarvis_async(
 
     if clarification_reply is not None and not thread_id:
         raise ValueError("thread_id is required when resuming with clarification_reply.")
-    require_vision_provider(settings.orchestrator_llm, images)
+    if images or any(prior_image_batches or ()):
+        require_vision_provider(settings.orchestrator_llm, True)
     if identity is None and telegram_user_id is not None:
         identity = telegram_identity(
             telegram_user_id,
@@ -815,6 +817,11 @@ async def run_jarvis_async(
         forced_reasoning_effort=resolved_config.forced_reasoning_effort,
         run_control=run_control,
         images=tuple(images or ()),
+        prior_image_batches=(
+            tuple(tuple(batch) for batch in prior_image_batches)
+            if prior_image_batches is not None
+            else None
+        ),
     )
     app = get_or_compile_graph(checkpointer)
     config = {
@@ -884,7 +891,9 @@ async def run_jarvis_async(
         raise
     finally:
         run_deps.images = ()
+        run_deps.prior_image_batches = None
         images = None
+        prior_image_batches = None
     result = enrich_interrupt_status(result, thread_id)
 
     # Production LLM clients write into the explicitly run-scoped
@@ -993,6 +1002,7 @@ def run_jarvis(
     idempotency_store: Optional[IdempotencyStore] = None,
     run_control: Optional[RunControl] = None,
     images: Optional[list[dict[str, str]]] = None,
+    prior_image_batches: Optional[list[list[dict[str, str]]]] = None,
 ) -> JarvisState:
     """Synchronous CLI/test adapter around :func:`run_jarvis_async`.
 
@@ -1036,6 +1046,7 @@ def run_jarvis(
         idempotency_store=idempotency_store,
         run_control=run_control,
         images=images,
+        prior_image_batches=prior_image_batches,
     )
     with _SYNC_RUNNER_LOCK:
         if _SYNC_RUNNER is None:

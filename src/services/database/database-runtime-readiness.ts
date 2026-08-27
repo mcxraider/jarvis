@@ -52,9 +52,7 @@ export async function verifyDatabaseRuntime(
       .filter((row) => row.relation === null)
       .map((row) => row.table_name);
     if (missingTables.length > 0) {
-      throw new Error(
-        `Database migrations are incomplete; missing: ${missingTables.join(', ')}`,
-      );
+      throw new Error(`Database migrations are incomplete; missing: ${missingTables.join(', ')}`);
     }
 
     await pool.query(`
@@ -68,7 +66,8 @@ export async function verifyDatabaseRuntime(
     // proves the table exists and lets a partially migrated deployment start before
     // its first real Telegram request fails.
     await pool.query(`
-      SELECT pending_key, request_id, clarification_message_id, prompt_message_id
+      SELECT pending_key, request_id, clarification_message_id, prompt_message_id,
+             image_batches
       FROM public.telegram_pending_clarifications
       LIMIT 0
     `);

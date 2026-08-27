@@ -7,6 +7,7 @@
 
 import { LogContext, logger } from '../../utils/logger';
 import {
+  AgentImageBatchesSchema,
   AgentHealthDetail,
   AgentHealthDetailSchema,
   AgentImage,
@@ -22,10 +23,7 @@ export type LangGraphAgentStatus = 'completed' | 'interrupted' | 'failed';
 export type LangGraphDelivery = 'terminal' | 'ambiguous';
 export type LangGraphInterruptType = 'clarify' | 'confirm';
 export type LangGraphCancelOutcome =
-  | 'cancelled'
-  | 'mutation_in_flight'
-  | 'already_finished'
-  | 'not_found';
+  'cancelled' | 'mutation_in_flight' | 'already_finished' | 'not_found';
 
 export type { LangGraphInterrupt } from '../../types/agent.types';
 
@@ -82,6 +80,7 @@ export interface LangGraphAgentRequest {
   threadId?: string;
   replyContext?: { role: 'assistant' | 'user'; message: string };
   images?: AgentImage[];
+  priorImageBatches?: AgentImage[][];
 }
 
 export interface LangGraphAgentClientConfig {
@@ -251,6 +250,7 @@ export class LangGraphAgentClient {
         hasTelegramIdentity: request.telegramIdentity !== undefined,
         hasThreadId: !!request.threadId,
         threadId: request.threadId,
+        ...this.imageStats(request),
       });
 
       const response = await this.fetchWithRetry(
@@ -344,6 +344,7 @@ export class LangGraphAgentClient {
         hasTelegramIdentity: request.telegramIdentity !== undefined,
         hasThreadId: !!request.threadId,
         threadId: request.threadId,
+        ...this.imageStats(request),
       });
 
       const response = await this.fetchWithRetry(
@@ -831,10 +832,32 @@ export class LangGraphAgentClient {
     return headers;
   }
 
+  private imageStats(request: LangGraphAgentRequest): Record<string, number> {
+    const images = [...(request.priorImageBatches?.flat() ?? []), ...(request.images ?? [])];
+    if (!images.length) return {};
+    return {
+      imageCount: images.length,
+      imageBytes: images.reduce((total, image) => {
+        const encoded = image.image_url.split(',', 2)[1] ?? '';
+        const padding = encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0;
+        return total + Math.floor((encoded.length * 3) / 4) - padding;
+      }, 0),
+    };
+  }
+
   // Converts the TypeScript-shaped request to the snake_case payload the Python API expects.
   private toPayload(
     request: LangGraphAgentRequest & { threadId?: string },
   ): Record<string, unknown> {
+    const images =
+      request.images === undefined ? undefined : AgentImagesSchema.parse(request.images);
+    const priorImageBatches =
+      request.priorImageBatches === undefined
+        ? undefined
+        : AgentImageBatchesSchema.parse(request.priorImageBatches);
+    if (priorImageBatches !== undefined) {
+      AgentImageBatchesSchema.parse([[...priorImageBatches.flat(), ...(images ?? [])]]);
+    }
     return {
       message: request.message,
       user_id: request.userId,
@@ -848,7 +871,8 @@ export class LangGraphAgentClient {
       request_id: request.requestId,
       thread_id: request.threadId,
       reply_context: request.replyContext,
-      images: request.images === undefined ? undefined : AgentImagesSchema.parse(request.images),
+      images,
+      prior_image_batches: priorImageBatches,
     };
   }
 

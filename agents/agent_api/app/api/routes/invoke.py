@@ -117,9 +117,9 @@ async def drain_stream_workers(
 request_source = idempotency.request_source
 
 
-def require_image_provider(images: Any) -> None:
+def require_image_provider(has_images: bool) -> None:
     try:
-        require_vision_provider(settings.orchestrator_llm, images)
+        require_vision_provider(settings.orchestrator_llm, has_images)
     except LLMProviderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -556,7 +556,7 @@ async def invoke(
     http_request: FastAPIRequest,
     x_jarvis_agent_key: Optional[str] = Header(default=None),
 ) -> AgentResponse:
-    require_image_provider(request.images)
+    require_image_provider(bool(request.images))
     ctx = await apply_request_gate_async(
         "invoke",
         request,
@@ -609,7 +609,7 @@ async def invoke_stream(
     http_request: FastAPIRequest,
     x_jarvis_agent_key: Optional[str] = Header(default=None),
 ) -> StreamingResponse:
-    require_image_provider(request.images)
+    require_image_provider(bool(request.images))
     ctx = await apply_request_gate_async(
         "invoke",
         request,

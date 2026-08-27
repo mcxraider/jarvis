@@ -41,7 +41,6 @@ import {
   MAX_AGENT_IMAGE_COUNT,
 } from '../../../types/agent.types';
 
-const PHOTO_FALLBACK_PROMPT = 'help me with this image.';
 const ALBUM_QUIET_MS = 1500;
 const PHOTO_ERROR =
   "I couldn't process that image or album. Send 1–10 JPEG photos totaling no more than 10 MB, then try again.";
@@ -95,21 +94,24 @@ export class MessageHandlers {
 
     const logContext = this.createLogContext(ctx, 'forward');
     let text: string | undefined;
+    let fileId: string | undefined;
     if (typeof message.text === 'string') {
       text = message.text;
     } else if (typeof message.caption === 'string' && ('photo' in message || 'document' in message)) {
-      // Only photos and files carry their captions into the buffer. Captioned audio,
-      // video, and GIF forwards are rejected below: buffering just the caption would
-      // silently drop the media the user actually wanted acted on.
       const prefix = 'photo' in message
         ? '[photo] '
         : `[file: ${(message.document as { file_name?: string })?.file_name ?? 'unnamed'}] `;
       text = prefix + message.caption;
+    } else if ('photo' in message) {
+      const photos = message.photo as Array<{ file_id: string; width: number; height: number }>;
+      const largest = photos.reduce((best, c) =>
+        c.width * c.height > best.width * best.height ? c : best,
+      );
+      text = '[photo]';
+      fileId = largest.file_id;
     }
 
     if (!text || !text.trim()) {
-      // Forwarding an album delivers one update per item but the caption usually sits
-      // on a single item — rejecting every captionless sibling would spam the chat.
       if (typeof message.media_group_id === 'string') {
         logger.info('telegram.forward.rejected', {
           ...logContext,
@@ -120,7 +122,7 @@ export class MessageHandlers {
       }
       logger.info('telegram.forward.rejected', { ...logContext, reason: 'no_text' });
       await ctx.reply(
-        'I can only buffer forwarded text, or photos and files with captions.',
+        'I can only buffer forwarded text and photos. Voice, video, and sticker forwards are not supported.',
       );
       return true;
     }
@@ -132,6 +134,7 @@ export class MessageHandlers {
       forwardedAt: origin.forwardedAt,
       receivedAt: new Date(),
       text,
+      ...(fileId && { fileId }),
     });
 
     if (!result.ok) {
@@ -246,10 +249,17 @@ export class MessageHandlers {
     const combined = formatForwardContext(messages, resolvedInstruction);
     const confirmationId = this.forwardBuffer.getConfirmationMessageId(gateKey);
     this.forwardBuffer.clear(gateKey);
+
+    const photoFileIds = messages
+      .map((m) => m.fileId)
+      .filter((id): id is string => Boolean(id))
+      .slice(0, MAX_AGENT_IMAGE_COUNT);
+
     logger.info('telegram.forward.dispatched', {
       ...logContext,
       count: messages.length,
       totalChars: combined.length,
+      imageCount: photoFileIds.length,
     });
 
     if (confirmationId !== undefined && ctx.chat) {
@@ -258,9 +268,44 @@ export class MessageHandlers {
         .catch(() => undefined);
     }
 
-    // forceFresh: dispatching a batch of forwards is semantically a new request; it
-    // abandons any pending clarification the same way /new does.
-    await this.runFreshText(ctx, combined, logContext, startedAt, { forceFresh: true });
+    if (photoFileIds.length === 0) {
+      await this.runFreshText(ctx, combined, logContext, startedAt, { forceFresh: true });
+      return;
+    }
+
+    // Download buffered photos and dispatch with images alongside the text context.
+    await this.runWithAgentProgress(
+      ctx,
+      logContext,
+      startedAt,
+      async (onProgress, onPendingPauseAccepted) => {
+        let remaining = MAX_AGENT_IMAGE_BYTES;
+        const images: AgentImage[] = [];
+        for (const fid of photoFileIds) {
+          try {
+            const buffer = await this.fileService.downloadFile(fid, remaining);
+            if (!this.isJpeg(buffer)) continue;
+            remaining -= buffer.length;
+            images.push({
+              image_url: `data:image/jpeg;base64,${buffer.toString('base64')}`,
+              detail: 'auto',
+            });
+          } catch {
+            logger.warn('telegram.forward.photo_download_failed', { ...logContext, fileId: fid });
+          }
+        }
+        return this.messageProcessor.processPhotoMessage(
+          combined,
+          images.length > 0 ? images : [],
+          ctx.from?.id,
+          logContext,
+          onProgress,
+          { forceFresh: true, onPendingPauseAccepted },
+        );
+      },
+      'Something went wrong processing your forwarded messages. Please try again.',
+      'photo',
+    );
   }
 
   private gateKey(ctx: Context): string {
@@ -564,7 +609,8 @@ export class MessageHandlers {
   ): Promise<void> {
     if (!(await this.canAcceptPhoto(ctx, logContext))) return;
     const captions = items.map((item) => item.caption?.trim()).filter(Boolean) as string[];
-    const message = captions.join('\n') || PHOTO_FALLBACK_PROMPT;
+    const message = captions.join('\n') ||
+      (items.length === 1 ? 'help me with this image.' : 'help me with these images.');
     const replied = ctx.message && 'reply_to_message' in ctx.message
       ? ctx.message.reply_to_message
       : undefined;

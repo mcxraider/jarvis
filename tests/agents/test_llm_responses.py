@@ -27,6 +27,7 @@ from agents.agent_api.app.llm.provider import (
     OpenAIResponsesProfile,
 )
 from agents.agent_api.app.llm.responses import (
+    ImageContext,
     build_responses_call,
     normalize_response,
     serialize_responses_input,
@@ -237,7 +238,7 @@ def test_builds_pinned_multimodal_request_on_latest_user_turn():
             {"role": "assistant", "content": "Which one?"},
             {"role": "user", "content": "caption"},
         ],
-        images=IMAGES,
+        image_context=ImageContext(images=IMAGES, prior_batches=None),
     )
     request = call.as_kwargs()
 
@@ -246,17 +247,119 @@ def test_builds_pinned_multimodal_request_on_latest_user_turn():
     assert request["include"] == ["reasoning.encrypted_content"]
     assert request["input"][0]["content"] == "first"
     assert request["input"][-1]["content"] == [
+        {"type": "input_text", "text": "Image 1:"},
+        {"type": "input_image", "image_url": IMAGES[0]["image_url"], "detail": "auto"},
         {"type": "input_text", "text": "caption"},
-        {"type": "input_image", **IMAGES[0]},
     ]
 
 
 def test_model_trace_inputs_replace_pixels_with_safe_count():
     processed = _model_trace_inputs(
-        {"self": object(), "messages": [{"role": "user", "content": "caption"}], "images": IMAGES}
+        {
+            "self": object(),
+            "messages": [{"role": "user", "content": "caption"}],
+            "image_context": ImageContext(images=IMAGES, prior_batches=None),
+        }
     )
 
     assert processed["image_count"] == 1
+    assert "data:image" not in repr(processed)
+
+
+def test_multimodal_batches_are_labeled_globally_with_text_last():
+    image_2 = {**IMAGES[0], "image_url": "data:image/jpeg;base64,/9j/2g=="}
+    call = build_responses_call(
+        _profile(),
+        messages=[
+            {"role": "user", "content": "original"},
+            {"role": "assistant", "content": "Which one?"},
+            {"role": "user", "content": "second turn"},
+            {"role": "assistant", "content": "More detail?"},
+            {"role": "user", "content": "current"},
+        ],
+        image_context=ImageContext(images=(image_2,), prior_batches=[IMAGES, ()]),
+    ).as_kwargs()
+
+    user_items = [item for item in call["input"] if item.get("role") == "user"]
+    assert user_items[0]["content"] == [
+        {"type": "input_text", "text": "Image 1:"},
+        {"type": "input_image", "image_url": IMAGES[0]["image_url"], "detail": "auto"},
+        {"type": "input_text", "text": "original"},
+    ]
+    assert user_items[1]["content"] == "second turn"
+    assert user_items[2]["content"] == [
+        {"type": "input_text", "text": "Image 2:"},
+        {"type": "input_image", "image_url": image_2["image_url"], "detail": "auto"},
+        {"type": "input_text", "text": "current"},
+    ]
+    assert call["model"] == "gpt-5.6-luna"
+
+
+def test_historical_images_pin_vision_model_for_confirmation_resume():
+    call = build_responses_call(
+        replace(_profile(), model="gpt-5.6"),
+        model="gpt-5.6-mini",
+        messages=[{"role": "user", "content": "original"}],
+        image_context=ImageContext(images=(), prior_batches=[IMAGES]),
+    ).as_kwargs()
+
+    assert call["model"] == "gpt-5.6-luna"
+    assert call["input"][0]["content"][-1] == {
+        "type": "input_text",
+        "text": "original",
+    }
+
+
+def test_image_batch_history_mismatch_falls_back_to_last_message():
+    call = build_responses_call(
+        _profile(),
+        messages=[{"role": "user", "content": "only"}],
+        image_context=ImageContext(images=(), prior_batches=[IMAGES, ()]),
+    ).as_kwargs()
+
+    user_items = [item for item in call["input"] if item.get("role") == "user"]
+    assert len(user_items) == 1
+    assert user_items[0]["content"] == [
+        {"type": "input_text", "text": "Image 1:"},
+        {"type": "input_image", "image_url": IMAGES[0]["image_url"], "detail": "auto"},
+        {"type": "input_text", "text": "only"},
+    ]
+
+
+def test_hitl_resume_reconstructs_exact_original_multimodal_prefix():
+    original_messages = [
+        {"role": "system", "content": "system"},
+        {"role": "user", "content": "original"},
+    ]
+    initial = build_responses_call(
+        _profile(),
+        messages=original_messages,
+        image_context=ImageContext(images=IMAGES, prior_batches=None),
+    ).as_kwargs()["input"]
+    resumed_messages = [
+        *original_messages,
+        {"role": "assistant", "content": "Which one?"},
+        {"role": "user", "content": "the second"},
+    ]
+    resumed = build_responses_call(
+        _profile(),
+        messages=resumed_messages,
+        image_context=ImageContext(images=(), prior_batches=[IMAGES]),
+    ).as_kwargs()["input"]
+
+    assert resumed[:2] == initial
+    assert resumed[-1] == {"role": "user", "content": "the second"}
+    assert original_messages[1]["content"] == "original"
+
+
+def test_model_trace_inputs_count_current_and_historical_images():
+    processed = _model_trace_inputs(
+        {
+            "image_context": ImageContext(images=IMAGES, prior_batches=[IMAGES, ()]),
+        }
+    )
+
+    assert processed == {"image_count": 2}
     assert "data:image" not in repr(processed)
 
 
@@ -272,6 +375,25 @@ def test_image_run_rejects_non_responses_provider_before_graph(monkeypatch):
             builder.run_jarvis_async(
                 user_prompt="caption",
                 images=list(IMAGES),
+                checkpointer=object(),
+            )
+        )
+
+    compile_graph.assert_not_called()
+
+
+def test_historical_image_run_rejects_non_responses_provider_before_graph(monkeypatch):
+    compile_graph = MagicMock()
+    monkeypatch.setattr(
+        builder, "settings", replace(builder.settings, orchestrator_llm=object())
+    )
+    monkeypatch.setattr(builder, "get_or_compile_graph", compile_graph)
+
+    with pytest.raises(LLMProviderError, match="OpenAI Responses provider"):
+        asyncio.run(
+            builder.run_jarvis_async(
+                user_prompt="confirmation",
+                prior_image_batches=[list(IMAGES)],
                 checkpointer=object(),
             )
         )
@@ -605,8 +727,9 @@ def test_orchestrator_tool_loop_reattaches_images_without_mutating_history():
         safety_identifier="d" * 64,
     )
     messages = [{"role": "user", "content": "Read this"}]
+    ctx = ImageContext(images=IMAGES, prior_batches=None)
 
-    assistant = client.create_message(messages=messages, tools=TOOLS, images=IMAGES)
+    assistant = client.create_message(messages=messages, tools=TOOLS, image_context=ctx)
     messages.extend(
         [
             assistant,
@@ -614,14 +737,15 @@ def test_orchestrator_tool_loop_reattaches_images_without_mutating_history():
             {"role": "tool", "content": "two", "tool_call_id": "call_2"},
         ]
     )
-    client.create_message(messages=messages, tools=TOOLS, images=IMAGES)
+    client.create_message(messages=messages, tools=TOOLS, image_context=ctx)
 
     assert messages[0] == {"role": "user", "content": "Read this"}
     for call in sdk.responses.stream.call_args_list:
         assert call.kwargs["model"] == "gpt-5.6-luna"
         assert call.kwargs["input"][0]["content"][1] == {
             "type": "input_image",
-            **IMAGES[0],
+            "image_url": IMAGES[0]["image_url"],
+            "detail": "auto",
         }
 
 
@@ -789,7 +913,7 @@ def test_async_image_run_pins_vision_model_and_attaches_image():
             messages=[{"role": "user", "content": "what is this?"}],
             tools=[],
             async_client=async_sdk,
-            images=IMAGES,
+            image_context=ImageContext(images=IMAGES, prior_batches=None),
         )
     )
 
@@ -797,8 +921,9 @@ def test_async_image_run_pins_vision_model_and_attaches_image():
     kwargs = async_sdk.responses.stream.call_args.kwargs
     assert kwargs["model"] == "gpt-5.6-luna"
     assert kwargs["input"][-1]["content"] == [
+        {"type": "input_text", "text": "Image 1:"},
+        {"type": "input_image", "image_url": IMAGES[0]["image_url"], "detail": "auto"},
         {"type": "input_text", "text": "what is this?"},
-        {"type": "input_image", **IMAGES[0]},
     ]
     async_sdk.chat.completions.create.assert_not_awaited()
 
@@ -816,10 +941,11 @@ def test_async_tool_loop_reattaches_images_without_mutating_history():
         safety_identifier="e" * 64,
     )
     messages = [{"role": "user", "content": "Read this"}]
+    ctx = ImageContext(images=IMAGES, prior_batches=None)
 
     async def _tool_loop():
         assistant = await client.async_create_message(
-            messages=messages, tools=TOOLS, async_client=async_sdk, images=IMAGES
+            messages=messages, tools=TOOLS, async_client=async_sdk, image_context=ctx
         )
         messages.extend(
             [
@@ -829,7 +955,7 @@ def test_async_tool_loop_reattaches_images_without_mutating_history():
             ]
         )
         return await client.async_create_message(
-            messages=messages, tools=TOOLS, async_client=async_sdk, images=IMAGES
+            messages=messages, tools=TOOLS, async_client=async_sdk, image_context=ctx
         )
 
     final = asyncio.run(_tool_loop())
@@ -838,10 +964,10 @@ def test_async_tool_loop_reattaches_images_without_mutating_history():
     assert messages[0] == {"role": "user", "content": "Read this"}
     for call in async_sdk.responses.stream.call_args_list:
         assert call.kwargs["model"] == "gpt-5.6-luna"
-        # Exactly one image per turn: re-attached, never accumulated.
         assert [part["type"] for part in call.kwargs["input"][0]["content"]] == [
             "input_text",
             "input_image",
+            "input_text",
         ]
 
 
@@ -907,7 +1033,7 @@ def test_async_image_failure_reports_provider_error_not_unknown():
                 messages=[{"role": "user", "content": "describe"}],
                 tools=[],
                 async_client=async_sdk,
-                images=IMAGES,
+                image_context=ImageContext(images=IMAGES, prior_batches=None),
             )
         )
 

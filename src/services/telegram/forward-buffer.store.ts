@@ -13,6 +13,7 @@ export interface ForwardedMessage {
   forwardedAt: Date; // when the message was originally sent (forward_origin.date)
   receivedAt: Date; // when the user forwarded it to Jarvis (drives TTL)
   text: string;
+  fileId?: string; // Telegram photo file_id for captionless forwarded photos
 }
 
 export type PushResult =

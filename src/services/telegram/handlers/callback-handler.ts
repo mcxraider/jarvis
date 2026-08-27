@@ -1,9 +1,15 @@
 import { Context } from 'telegraf';
 import { createRequestId, logger, LogContext } from '../../../utils/logger';
-import { LangGraphAgentClient, LangGraphAgentResponse } from '../../ai/langgraph-agent-client.service';
+import {
+  LangGraphAgentClient,
+  LangGraphAgentResponse,
+} from '../../ai/langgraph-agent-client.service';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { sendClarificationReplyWithReceipt, sendFinalReply } from '../formatters/telegram-rich';
-import { PendingClarificationRecord, PendingClarificationStore } from '../pending-clarification.store';
+import {
+  PendingClarificationRecord,
+  PendingClarificationStore,
+} from '../pending-clarification.store';
 import { ConversationGateStore } from '../conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
@@ -25,9 +31,11 @@ export class CallbackHandler {
     private readonly terminalReplyStore: TerminalReplyStore,
   ) {
     const runningTtl = Number(process.env.TELEGRAM_GATE_RUNNING_TTL_MS);
-    this.runningTtlMs = Number.isFinite(runningTtl) && runningTtl > 0 ? runningTtl : DEFAULT_RUNNING_TTL_MS;
+    this.runningTtlMs =
+      Number.isFinite(runningTtl) && runningTtl > 0 ? runningTtl : DEFAULT_RUNNING_TTL_MS;
     const waitingTtl = Number(process.env.TELEGRAM_GATE_WAITING_TTL_MS);
-    this.waitingTtlMs = Number.isFinite(waitingTtl) && waitingTtl > 0 ? waitingTtl : DEFAULT_WAITING_TTL_MS;
+    this.waitingTtlMs =
+      Number.isFinite(waitingTtl) && waitingTtl > 0 ? waitingTtl : DEFAULT_WAITING_TTL_MS;
   }
 
   async handleCallbackQuery(ctx: Context): Promise<void> {
@@ -74,7 +82,11 @@ export class CallbackHandler {
       const pending = await this.pendingStore.get(gateKey);
       if (!pending) {
         await ctx.answerCbQuery('This action has expired.');
-        try { await ctx.editMessageReplyMarkup(undefined); } catch { /* best-effort strip, non-critical */ }
+        try {
+          await ctx.editMessageReplyMarkup(undefined);
+        } catch {
+          /* best-effort strip, non-critical */
+        }
         return;
       }
       priorPendingSnapshot = pending;
@@ -93,8 +105,8 @@ export class CallbackHandler {
 
       const waitingSnapshot = await this.conversationGate.getSnapshot(gateKey);
       if (
-        waitingSnapshot.status !== 'waiting_for_clarification'
-        || pending.requestId !== waitingSnapshot.requestId
+        waitingSnapshot.status !== 'waiting_for_clarification' ||
+        pending.requestId !== waitingSnapshot.requestId
       ) {
         await ctx.answerCbQuery('Already processing your decision.');
         return;
@@ -118,7 +130,11 @@ export class CallbackHandler {
 
       await ctx.answerCbQuery(decision === 'approve' ? 'Approved!' : 'Declined.');
 
-      try { await ctx.deleteMessage(); } catch { /* best-effort delete, non-critical */ }
+      try {
+        await ctx.deleteMessage();
+      } catch {
+        /* best-effort delete, non-critical */
+      }
 
       const statusEmoji = decision === 'approve' ? '✅' : '❌';
       const statusText = decision === 'approve' ? 'Approved' : 'Declined';
@@ -139,6 +155,7 @@ export class CallbackHandler {
           },
           requestId,
           threadId,
+          priorImageBatches: pending.imageBatches?.length ? pending.imageBatches : undefined,
         },
         logContext,
         async (event, signal) => {
@@ -190,11 +207,12 @@ export class CallbackHandler {
 
       if (agentResponse.status === 'interrupted' && agentResponse.threadId) {
         const interruptType = agentResponse.interrupt?.type === 'confirm' ? 'confirm' : 'clarify';
-        const transitionedToWaiting = await this.conversationGate.transitionToWaitingIfActiveRequestId(
-          gateKey,
-          requestId,
-          this.waitingTtlMs,
-        );
+        const transitionedToWaiting =
+          await this.conversationGate.transitionToWaitingIfActiveRequestId(
+            gateKey,
+            requestId,
+            this.waitingTtlMs,
+          );
         if (!transitionedToWaiting) {
           await summaryReporter.complete();
           await progress.complete();
@@ -223,6 +241,7 @@ export class CallbackHandler {
           chatId,
           requestId,
           interruptType,
+          pending.imageBatches?.length ? pending.imageBatches : undefined,
         );
         await this.pendingStore.save(newPendingSnapshot);
         await summaryReporter.complete();
@@ -250,11 +269,9 @@ export class CallbackHandler {
           }
         } else {
           if (this.terminalReplyStore.claim(requestId, 'callback_interrupt')) {
-            const receipt = await sendClarificationReplyWithReceipt(
-              ctx,
-              agentResponse.response,
-              { requestId },
-            );
+            const receipt = await sendClarificationReplyWithReceipt(ctx, agentResponse.response, {
+              requestId,
+            });
             promptMessageId = receipt.messageId;
             collapsibleClarificationMessageId = receipt.collapsibleMessageId;
           }
@@ -387,7 +404,6 @@ export class CallbackHandler {
     }
   }
 
-
   private async sendConfirmReply(
     ctx: Context,
     text: string,
@@ -422,6 +438,7 @@ export class CallbackHandler {
     chatId: number | undefined,
     requestId: string,
     interruptType: 'confirm' | 'clarify' = 'confirm',
+    imageBatches?: PendingClarificationRecord['imageBatches'],
   ): PendingClarificationRecord {
     const now = Date.now();
     const record: PendingClarificationRecord = {
@@ -433,6 +450,7 @@ export class CallbackHandler {
       userId: internalUserId,
       requestId,
       interruptType,
+      imageBatches,
       status: 'pending',
       createdAt: now,
       updatedAt: now,
@@ -450,10 +468,12 @@ export class CallbackHandler {
       this.conversationGate.getSnapshot(gateKey).catch(() => undefined),
       this.pendingStore.get(gateKey).catch(() => undefined),
     ]);
-    return gateSnapshot?.status === 'waiting_for_clarification'
-      && gateSnapshot.requestId === requestId
-      && pending?.threadId === threadId
-      && pending.requestId === requestId;
+    return (
+      gateSnapshot?.status === 'waiting_for_clarification' &&
+      gateSnapshot.requestId === requestId &&
+      pending?.threadId === threadId &&
+      pending.requestId === requestId
+    );
   }
 
   private async deleteStalePrompt(

@@ -17,10 +17,12 @@ import {
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { classifyError } from '../errors/classified-error';
 import type { ReplyContextData } from '../reply-context';
-import type { AgentImage } from '../../../types/agent.types';
+import { AgentImageBatchesSchema, type AgentImage } from '../../../types/agent.types';
 
 const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_WAITING_TTL_MS = 30 * 60 * 1000;
+const IMAGE_HISTORY_LIMIT_MESSAGE =
+  'You can send up to 10 images totaling 10 MiB for this request. Send a text clarification or start a new request.';
 
 export interface TextProcessorResult {
   response: string;
@@ -156,7 +158,8 @@ export class TextProcessorService {
         if (abandon.outcome === 'running') {
           logger.info('conversation_gate.force_fresh_blocked', { ...logContext, gateKey });
           return {
-            response: "I'm still finishing your previous request — try /new again in a moment, or /cancel.",
+            response:
+              "I'm still finishing your previous request — try /new again in a moment, or /cancel.",
             blocked: true,
           };
         }
@@ -190,8 +193,12 @@ export class TextProcessorService {
           const buffered = options?.images
             ? false
             : await this.conversationGate
-              .setBufferedMessageIfActiveRequestId(gateKey, gateSnapshot.requestId, normalizedText)
-              .catch(() => false);
+                .setBufferedMessageIfActiveRequestId(
+                  gateKey,
+                  gateSnapshot.requestId,
+                  normalizedText,
+                )
+                .catch(() => false);
           logger.info('conversation_gate.blocked', { ...logContext, gateKey });
           return {
             response: buffered
@@ -250,12 +257,13 @@ export class TextProcessorService {
         message,
         userId: internalUserId,
         source: 'telegram',
-        telegramIdentity: userId === undefined
-          ? undefined
-          : {
-              telegramId: userId,
-              username: logContext.telegramUsername,
-            },
+        telegramIdentity:
+          userId === undefined
+            ? undefined
+            : {
+                telegramId: userId,
+                username: logContext.telegramUsername,
+              },
         requestId: activeRequestId,
         replyContext: options?.replyContext,
         images: options?.images,
@@ -296,6 +304,7 @@ export class TextProcessorService {
 
       let buffered: string | undefined;
       let ownershipSettled = false;
+      const imageBatches = options?.images?.length ? [options.images] : undefined;
       if (agentResponse.status === 'interrupted') {
         ownershipSettled = await this.handleInterrupt(
           gateKey,
@@ -304,13 +313,10 @@ export class TextProcessorService {
           userId,
           requestContext,
           activeRequestId,
+          imageBatches,
         );
       } else {
-        const release = await this.releaseGateWithBuffer(
-          gateKey,
-          requestContext,
-          activeRequestId,
-        );
+        const release = await this.releaseGateWithBuffer(gateKey, requestContext, activeRequestId);
         ownershipSettled = release.released;
         buffered = release.bufferedMessage;
       }
@@ -322,7 +328,9 @@ export class TextProcessorService {
       }
       const resultInterruptType: PendingInterruptType | undefined =
         agentResponse.status === 'interrupted'
-          ? agentResponse.interrupt?.type === 'confirm' ? 'confirm' : 'clarify'
+          ? agentResponse.interrupt?.type === 'confirm'
+            ? 'confirm'
+            : 'clarify'
           : undefined;
 
       logger.info('text_processor.completed', {
@@ -355,7 +363,7 @@ export class TextProcessorService {
         if (ownedActiveRequestId) {
           const release = await this.conversationGate
             .releaseIfActiveRequestId(gateKey, ownedActiveRequestId)
-            .catch(e => {
+            .catch((e) => {
               logger.error('conversation_gate.release_failed', {
                 ...logContext,
                 error: (e as Error).message,
@@ -389,7 +397,10 @@ export class TextProcessorService {
   //   'abandoned' — gate released and pending marked 'superseded'
   //   'idle'      — nothing to abandon
   // Single source of truth for /new's abandon step (used by forceFresh and bare /new).
-  async abandonConversation(userId: number | undefined, logContext: LogContext = {}): Promise<AbandonOutcome> {
+  async abandonConversation(
+    userId: number | undefined,
+    logContext: LogContext = {},
+  ): Promise<AbandonOutcome> {
     const internalUserId = mapTelegramUserId(userId);
     const gateKey = buildConversationKey(userId, internalUserId, logContext.chatId);
     return (await this.abandonIfWaiting(gateKey, logContext)).outcome;
@@ -409,7 +420,9 @@ export class TextProcessorService {
         .releaseIfWaitingRequestId(gateKey, snapshot.requestId)
         .catch(() => ({ released: false }));
       if (!release.released) return { outcome: 'running' };
-      await this.pendingClarificationStore.clearIfMatches(gateKey, pending, 'superseded').catch(() => false);
+      await this.pendingClarificationStore
+        .clearIfMatches(gateKey, pending, 'superseded')
+        .catch(() => false);
       logger.info('conversation_gate.superseded', { ...logContext, gateKey });
       return {
         outcome: 'abandoned',
@@ -440,6 +453,26 @@ export class TextProcessorService {
       images?: AgentImage[];
     },
   ): Promise<TextProcessorResult> {
+    const priorImageBatches = pending.imageBatches?.length ? pending.imageBatches : undefined;
+    const nextImageBatches =
+      pending.interruptType === 'clarify' && (priorImageBatches || options?.images?.length)
+        ? [...(priorImageBatches ?? []), options?.images ?? []]
+        : priorImageBatches;
+    if (nextImageBatches !== undefined && !AgentImageBatchesSchema.safeParse(nextImageBatches).success) {
+      if (options?.alreadyRunning) {
+        const restored = await this.conversationGate
+          .transitionToWaitingIfActiveRequestId(
+            gateKey,
+            activeRequestId,
+            this.waitingTtlMs,
+            pending.requestId,
+          )
+          .catch(() => false);
+        if (!restored) return this.suppressedResult();
+      }
+      return { response: IMAGE_HISTORY_LIMIT_MESSAGE };
+    }
+
     if (options?.alreadyRunning) {
       const bound = await this.conversationGate.setActiveRequestId(gateKey, activeRequestId);
       if (!bound) return this.suppressedResult();
@@ -458,7 +491,8 @@ export class TextProcessorService {
         if (!restored) return this.suppressedResult();
       }
       return {
-        response: 'You have a pending approval. Please tap ✓ Approve or ✗ Decline in the previous message, reply *yes* or *no* to decide, or send `/new <message>` to start over.',
+        response:
+          'You have a pending approval. Please tap ✓ Approve or ✗ Decline in the previous message, reply *yes* or *no* to decide, or send `/new <message>` to start over.',
       };
     }
 
@@ -498,15 +532,17 @@ export class TextProcessorService {
       message: text,
       userId: internalUserId,
       source: 'telegram',
-      telegramIdentity: userId === undefined
-        ? undefined
-        : {
-            telegramId: userId,
-            username: logContext.telegramUsername,
-          },
+      telegramIdentity:
+        userId === undefined
+          ? undefined
+          : {
+              telegramId: userId,
+              username: logContext.telegramUsername,
+            },
       requestId: activeRequestId,
       threadId: pending.threadId,
-      images: options?.images,
+      priorImageBatches: priorImageBatches || undefined,
+      images: pending.interruptType === 'clarify' ? options?.images : undefined,
     };
 
     try {
@@ -553,18 +589,17 @@ export class TextProcessorService {
           userId,
           requestContext,
           activeRequestId,
+          nextImageBatches,
           () => this.pendingClarificationStore.clearIfMatches(gateKey, pending, 'completed'),
         );
       } else {
-        const release = await this.releaseGateWithBuffer(
-          gateKey,
-          requestContext,
-          activeRequestId,
-        );
+        const release = await this.releaseGateWithBuffer(gateKey, requestContext, activeRequestId);
         ownershipSettled = release.released;
         buffered = release.bufferedMessage;
         if (release.released) {
-          await this.pendingClarificationStore.clearIfMatches(gateKey, pending, 'completed').catch(() => false);
+          await this.pendingClarificationStore
+            .clearIfMatches(gateKey, pending, 'completed')
+            .catch(() => false);
         }
       }
       if (!ownershipSettled) return this.suppressedResult();
@@ -575,7 +610,9 @@ export class TextProcessorService {
       }
       const resultInterruptType: PendingInterruptType | undefined =
         agentResponse.status === 'interrupted'
-          ? agentResponse.interrupt?.type === 'confirm' ? 'confirm' : 'clarify'
+          ? agentResponse.interrupt?.type === 'confirm'
+            ? 'confirm'
+            : 'clarify'
           : undefined;
 
       return {
@@ -584,18 +621,16 @@ export class TextProcessorService {
         threadId: agentResponse.threadId,
         settlementRequestId: resultInterruptType ? activeRequestId : undefined,
         bufferedMessage: buffered,
-        consumedInterruptType: ownershipSettled && !pausePresentationHandled
-          ? pending.interruptType
-          : undefined,
-        consumedPromptMessageId: ownershipSettled && !pausePresentationHandled
-          ? pending.promptMessageId
-          : undefined,
-        consumedClarificationMessageId: ownershipSettled && !pausePresentationHandled
-          ? pending.clarificationMessageId
-          : undefined,
-        consumedClarificationQuestion: ownershipSettled && !pausePresentationHandled
-          ? pending.question
-          : undefined,
+        consumedInterruptType:
+          ownershipSettled && !pausePresentationHandled ? pending.interruptType : undefined,
+        consumedPromptMessageId:
+          ownershipSettled && !pausePresentationHandled ? pending.promptMessageId : undefined,
+        consumedClarificationMessageId:
+          ownershipSettled && !pausePresentationHandled
+            ? pending.clarificationMessageId
+            : undefined,
+        consumedClarificationQuestion:
+          ownershipSettled && !pausePresentationHandled ? pending.question : undefined,
         resolvedPendingPause: ownershipSettled,
       };
     } catch (error) {
@@ -619,6 +654,7 @@ export class TextProcessorService {
     userId: number | undefined,
     logContext: LogContext,
     expectedRequestId: string,
+    imageBatches: AgentImage[][] | undefined,
     beforeSave?: () => Promise<boolean>,
   ): Promise<boolean> {
     const interruptType: PendingInterruptType =
@@ -631,6 +667,7 @@ export class TextProcessorService {
       userId,
       logContext,
       interruptType,
+      imageBatches,
     );
     try {
       const transitioned = await this.conversationGate.transitionToWaitingIfActiveRequestId(
@@ -670,20 +707,17 @@ export class TextProcessorService {
         return true;
       }
       if (
-        gateSnapshot.status !== 'waiting_for_clarification'
-        || gateSnapshot.requestId !== expectedRequestId
-        || persistedPending?.threadId !== pendingRecord.threadId
-        || persistedPending.requestId !== pendingRecord.requestId
+        gateSnapshot.status !== 'waiting_for_clarification' ||
+        gateSnapshot.requestId !== expectedRequestId ||
+        persistedPending?.threadId !== pendingRecord.threadId ||
+        persistedPending.requestId !== pendingRecord.requestId
       ) {
         if (
-          gateSnapshot.status === 'waiting_for_clarification'
-          && gateSnapshot.requestId === expectedRequestId
+          gateSnapshot.status === 'waiting_for_clarification' &&
+          gateSnapshot.requestId === expectedRequestId
         ) {
           try {
-            await this.conversationGate.releaseIfWaitingRequestId(
-              gateKey,
-              expectedRequestId,
-            );
+            await this.conversationGate.releaseIfWaitingRequestId(gateKey, expectedRequestId);
           } catch (error) {
             // Keep the exact token when cleanup storage is unavailable. The
             // caller must not compare-clear it to NULL in its outer finally.
@@ -706,17 +740,24 @@ export class TextProcessorService {
         });
         return false;
       }
-      logger.info('conversation_gate.transition_to_waiting', { ...logContext, gateKey, interruptType });
+      logger.info('conversation_gate.transition_to_waiting', {
+        ...logContext,
+        gateKey,
+        interruptType,
+      });
       return true;
     } catch (error) {
       const release = await this.conversationGate
         .releaseIfActiveRequestId(gateKey, expectedRequestId)
         .catch(() => ({ released: false }));
       if (release.released) {
-        await this.pendingClarificationStore.clearIfMatches(gateKey, pendingRecord, 'failed').catch(() => false);
+        await this.pendingClarificationStore
+          .clearIfMatches(gateKey, pendingRecord, 'failed')
+          .catch(() => false);
       }
       logger.error('conversation_gate.interrupt_save_failed', {
-        ...logContext, error: (error as Error).message,
+        ...logContext,
+        error: (error as Error).message,
       });
       return false;
     }
@@ -729,8 +770,11 @@ export class TextProcessorService {
   ): Promise<GateReleaseResult> {
     const release = await this.conversationGate
       .releaseIfActiveRequestId(gateKey, expectedRequestId)
-      .catch(e => {
-        logger.error('conversation_gate.release_failed', { ...logContext, error: (e as Error).message });
+      .catch((e) => {
+        logger.error('conversation_gate.release_failed', {
+          ...logContext,
+          error: (e as Error).message,
+        });
         return { released: false, bufferedMessage: undefined };
       });
     logger.info(
@@ -752,7 +796,9 @@ export class TextProcessorService {
       return await this.conversationGate.getSnapshot(gateKey);
     } catch (error) {
       logger.error('conversation_gate.store_error', {
-        gateKey, error: (error as Error).message, strategy: 'fail_closed',
+        gateKey,
+        error: (error as Error).message,
+        strategy: 'fail_closed',
       });
       return { status: 'running' };
     }
@@ -779,12 +825,18 @@ export class TextProcessorService {
     };
   }
 
-  private async safeAcquireGate(gateKey: string, requestId: string, chatId?: number): Promise<boolean> {
+  private async safeAcquireGate(
+    gateKey: string,
+    requestId: string,
+    chatId?: number,
+  ): Promise<boolean> {
     try {
       return await this.conversationGate.tryAcquire(gateKey, this.runningTtlMs, chatId, requestId);
     } catch (error) {
       logger.error('conversation_gate.acquire_error', {
-        gateKey, error: (error as Error).message, strategy: 'fail_closed',
+        gateKey,
+        error: (error as Error).message,
+        strategy: 'fail_closed',
       });
       return false;
     }
@@ -794,7 +846,11 @@ export class TextProcessorService {
     return { response: '', suppressed: true };
   }
 
-  private pendingKey(telegramUserId: number | undefined, internalUserId: string, logContext: LogContext = {}): string {
+  private pendingKey(
+    telegramUserId: number | undefined,
+    internalUserId: string,
+    logContext: LogContext = {},
+  ): string {
     return buildConversationKey(telegramUserId, internalUserId, logContext.chatId);
   }
 
@@ -806,6 +862,7 @@ export class TextProcessorService {
     telegramUserId: number | undefined,
     logContext: LogContext,
     interruptType: PendingInterruptType = 'clarify',
+    imageBatches?: AgentImage[][],
   ): PendingClarificationRecord {
     const now = Date.now();
     return {
@@ -817,6 +874,7 @@ export class TextProcessorService {
       userId: internalUserId,
       requestId: logContext.requestId,
       interruptType,
+      imageBatches,
       status: 'pending',
       createdAt: now,
       updatedAt: now,
@@ -842,5 +900,4 @@ export class TextProcessorService {
     const declineTokens = new Set(['no', 'n', 'decline', 'cancel']);
     return approveTokens.has(normalized) || declineTokens.has(normalized);
   }
-
 }

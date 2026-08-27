@@ -6,26 +6,38 @@ import { z } from 'zod';
 
 export const MAX_AGENT_IMAGE_COUNT = 10;
 export const MAX_AGENT_IMAGE_BYTES = 10 * 1024 * 1024;
+export const MAX_AGENT_IMAGE_BATCHES = 20;
 const JPEG_DATA_URL_PREFIX = 'data:image/jpeg;base64,';
 
-export const AgentImageSchema = z.object({
-  image_url: z.string().superRefine((value, context) => {
-    if (!value.startsWith(JPEG_DATA_URL_PREFIX)) {
-      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Only JPEG data URLs are supported' });
-      return;
-    }
-    const encoded = value.slice(JPEG_DATA_URL_PREFIX.length);
-    if (!encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) {
-      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Image data must be valid Base64' });
-      return;
-    }
-    const decoded = Buffer.from(encoded, 'base64');
-    if (decoded.toString('base64') !== encoded) {
-      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Image data must be valid Base64' });
-    }
-  }),
-  detail: z.literal('auto'),
-}).strict();
+export const AgentImageSchema = z
+  .object({
+    image_url: z.string().superRefine((value, context) => {
+      if (!value.startsWith(JPEG_DATA_URL_PREFIX)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Only JPEG data URLs are supported',
+        });
+        return;
+      }
+      const encoded = value.slice(JPEG_DATA_URL_PREFIX.length);
+      if (!encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Image data must be valid Base64',
+        });
+        return;
+      }
+      const decoded = Buffer.from(encoded, 'base64');
+      if (decoded.toString('base64') !== encoded) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Image data must be valid Base64',
+        });
+      }
+    }),
+    detail: z.literal('auto'),
+  })
+  .strict();
 
 export const AgentImagesSchema = z
   .array(AgentImageSchema)
@@ -38,6 +50,26 @@ export const AgentImagesSchema = z
     }, 0);
     if (totalBytes > MAX_AGENT_IMAGE_BYTES) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: 'Images exceed the 10 MiB limit' });
+    }
+  });
+
+export const AgentImageBatchesSchema = z
+  .array(z.array(AgentImageSchema).max(MAX_AGENT_IMAGE_COUNT))
+  .max(MAX_AGENT_IMAGE_BATCHES)
+  .superRefine((batches, context) => {
+    const images = batches.flat();
+    if (images.length > MAX_AGENT_IMAGE_COUNT) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Image history exceeds 10 images' });
+    }
+    const totalBytes = images.reduce((total, image) => {
+      const encoded = image.image_url.slice(JPEG_DATA_URL_PREFIX.length);
+      return total + Buffer.from(encoded, 'base64').length;
+    }, 0);
+    if (totalBytes > MAX_AGENT_IMAGE_BYTES) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Image history exceeds the 10 MiB limit',
+      });
     }
   });
 

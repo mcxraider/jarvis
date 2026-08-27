@@ -8,8 +8,13 @@
 
 import { Pool } from 'pg';
 import { logger } from '../../utils/logger';
+import { AgentImage, AgentImageBatchesSchema } from '../../types/agent.types';
 
-export type PendingClarificationStatus = 'pending' | 'completed' | 'failed' | 'expired' | 'superseded';
+const parseImageBatches = (value: unknown): AgentImage[][] =>
+  AgentImageBatchesSchema.parse(value) as AgentImage[][];
+
+export type PendingClarificationStatus =
+  'pending' | 'completed' | 'failed' | 'expired' | 'superseded';
 
 // Two interrupt flavors from the LangGraph agent:
 //   - 'clarify': agent needs more information before proceeding
@@ -29,6 +34,7 @@ export interface PendingClarificationRecord {
   clarificationMessageId?: number;
   // Telegram message_id of any delivered HITL prompt, including confirmations and plain fallbacks.
   promptMessageId?: number;
+  imageBatches?: AgentImage[][];
   status: PendingClarificationStatus;
   createdAt: number;
   updatedAt: number;
@@ -92,15 +98,18 @@ export class MemoryPendingClarificationStore implements PendingClarificationStor
       return undefined;
     }
 
-    return record;
+    return this.clone(record);
   }
 
   async save(record: PendingClarificationRecord): Promise<void> {
-    this.records.set(record.pendingKey, {
-      ...record,
-      status: 'pending',
-      updatedAt: Date.now(),
-    });
+    this.records.set(
+      record.pendingKey,
+      this.clone({
+        ...record,
+        status: 'pending',
+        updatedAt: Date.now(),
+      }),
+    );
   }
 
   async attachClarificationMessageId(pendingKey: string, messageId: number): Promise<void> {
@@ -118,9 +127,9 @@ export class MemoryPendingClarificationStore implements PendingClarificationStor
   ): Promise<boolean> {
     const record = this.records.get(pendingKey);
     if (
-      record?.status !== 'pending'
-      || record.threadId !== expected.threadId
-      || record.requestId !== expected.requestId
+      record?.status !== 'pending' ||
+      record.threadId !== expected.threadId ||
+      record.requestId !== expected.requestId
     ) {
       return false;
     }
@@ -136,9 +145,9 @@ export class MemoryPendingClarificationStore implements PendingClarificationStor
   ): Promise<boolean> {
     const record = this.records.get(pendingKey);
     if (
-      record?.status !== 'pending'
-      || record.threadId !== expected.threadId
-      || record.requestId !== expected.requestId
+      record?.status !== 'pending' ||
+      record.threadId !== expected.threadId ||
+      record.requestId !== expected.requestId
     ) {
       return false;
     }
@@ -147,7 +156,10 @@ export class MemoryPendingClarificationStore implements PendingClarificationStor
     return true;
   }
 
-  async clear(pendingKey: string, _status: Exclude<PendingClarificationStatus, 'pending'>): Promise<void> {
+  async clear(
+    pendingKey: string,
+    _status: Exclude<PendingClarificationStatus, 'pending'>,
+  ): Promise<void> {
     this.records.delete(pendingKey);
   }
 
@@ -170,15 +182,16 @@ export class MemoryPendingClarificationStore implements PendingClarificationStor
   ): Promise<PendingClarificationRecord | undefined> {
     const record = this.records.get(pendingKey);
     if (
-      record?.status !== 'pending'
-      || (expected !== undefined && record.requestId !== expected.requestId)
+      record?.status !== 'pending' ||
+      (expected !== undefined && record.requestId !== expected.requestId)
     ) {
       return undefined;
     }
 
     this.records.delete(pendingKey);
     return {
-      ...record,
+      ...this.clone(record),
+      imageBatches: [],
       status: 'expired',
       updatedAt: Date.now(),
     };
@@ -206,12 +219,22 @@ export class MemoryPendingClarificationStore implements PendingClarificationStor
       }
     }
   }
+
+  private clone(record: PendingClarificationRecord): PendingClarificationRecord {
+    return {
+      ...record,
+      imageBatches: (record.imageBatches ?? []).map((batch) =>
+        batch.map((image) => ({ ...image })),
+      ),
+    };
+  }
 }
 
 // Postgres-backed implementation: durable across restarts and horizontally scalable.
 // Uses upsert (ON CONFLICT) to handle concurrent saves for the same pending key.
 // Schema changes are migration-owned; the runtime role intentionally has no DDL access.
 export class PostgresPendingClarificationStore implements PendingClarificationStore {
+  private static readonly CLEAR_IMAGES = "image_batches = '[]'::jsonb";
   private readonly pool: Pool;
 
   constructor(connectionString: string) {
@@ -234,7 +257,7 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
       `
         SELECT pending_key, thread_id, question, telegram_user_id, chat_id, user_id,
                request_id, interrupt_type, clarification_message_id, prompt_message_id,
-               status, created_at, updated_at, expires_at
+               image_batches, status, created_at, updated_at, expires_at
         FROM public.telegram_pending_clarifications
         WHERE pending_key = $1
           AND status = 'pending'
@@ -256,10 +279,10 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
       userId: row.user_id,
       requestId: row.request_id ?? undefined,
       interruptType: row.interrupt_type ?? undefined,
-      clarificationMessageId: row.clarification_message_id === null
-        ? undefined
-        : Number(row.clarification_message_id),
+      clarificationMessageId:
+        row.clarification_message_id === null ? undefined : Number(row.clarification_message_id),
       promptMessageId: row.prompt_message_id === null ? undefined : Number(row.prompt_message_id),
+      imageBatches: parseImageBatches(row.image_batches),
       status: row.status,
       createdAt: new Date(row.created_at).getTime(),
       updatedAt: new Date(row.updated_at).getTime(),
@@ -273,9 +296,9 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
         INSERT INTO public.telegram_pending_clarifications (
           pending_key, thread_id, question, telegram_user_id, chat_id, user_id,
           request_id, interrupt_type, clarification_message_id, prompt_message_id,
-          status, created_at, updated_at, expires_at
+          image_batches, status, created_at, updated_at, expires_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', $11, NOW(), $12)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, 'pending', $12, NOW(), $13)
         ON CONFLICT (pending_key)
         DO UPDATE SET
           thread_id = EXCLUDED.thread_id,
@@ -287,6 +310,7 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
           interrupt_type = EXCLUDED.interrupt_type,
           clarification_message_id = EXCLUDED.clarification_message_id,
           prompt_message_id = EXCLUDED.prompt_message_id,
+          image_batches = EXCLUDED.image_batches,
           status = 'pending',
           updated_at = NOW(),
           expires_at = EXCLUDED.expires_at
@@ -302,6 +326,7 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
         record.interruptType ?? null,
         record.clarificationMessageId ?? null,
         record.promptMessageId ?? null,
+        JSON.stringify(AgentImageBatchesSchema.parse(record.imageBatches ?? [])),
         new Date(record.createdAt),
         new Date(record.expiresAt),
       ],
@@ -363,11 +388,15 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
     return result.rowCount !== null && result.rowCount > 0;
   }
 
-  async clear(pendingKey: string, status: Exclude<PendingClarificationStatus, 'pending'>): Promise<void> {
+  async clear(
+    pendingKey: string,
+    status: Exclude<PendingClarificationStatus, 'pending'>,
+  ): Promise<void> {
     await this.pool.query(
       `
         UPDATE public.telegram_pending_clarifications
         SET status = $2,
+            ${PostgresPendingClarificationStore.CLEAR_IMAGES},
             updated_at = NOW()
         WHERE pending_key = $1
           AND status = 'pending'
@@ -385,6 +414,7 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
       `
         UPDATE public.telegram_pending_clarifications
         SET status = $4,
+            ${PostgresPendingClarificationStore.CLEAR_IMAGES},
             updated_at = NOW()
         WHERE pending_key = $1
           AND thread_id = $2
@@ -405,13 +435,14 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
       `
         UPDATE public.telegram_pending_clarifications
         SET status = 'expired',
+            ${PostgresPendingClarificationStore.CLEAR_IMAGES},
             updated_at = NOW()
         WHERE pending_key = $1
           AND status = 'pending'
           AND ($2::boolean OR request_id IS NOT DISTINCT FROM $3)
         RETURNING pending_key, thread_id, question, telegram_user_id, chat_id, user_id,
                   request_id, interrupt_type, clarification_message_id, prompt_message_id,
-                  status, created_at, updated_at, expires_at
+                  image_batches, status, created_at, updated_at, expires_at
       `,
       [pendingKey, expected === undefined, expected?.requestId ?? null],
     );
@@ -428,10 +459,10 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
       userId: row.user_id,
       requestId: row.request_id ?? undefined,
       interruptType: row.interrupt_type ?? undefined,
-      clarificationMessageId: row.clarification_message_id === null
-        ? undefined
-        : Number(row.clarification_message_id),
+      clarificationMessageId:
+        row.clarification_message_id === null ? undefined : Number(row.clarification_message_id),
       promptMessageId: row.prompt_message_id === null ? undefined : Number(row.prompt_message_id),
+      imageBatches: [],
       status: row.status,
       createdAt: new Date(row.created_at).getTime(),
       updatedAt: new Date(row.updated_at).getTime(),
@@ -447,6 +478,7 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
       `
         UPDATE public.telegram_pending_clarifications
         SET status = $2,
+            ${PostgresPendingClarificationStore.CLEAR_IMAGES},
             updated_at = NOW()
         WHERE telegram_user_id = $1
           AND status = 'pending'
@@ -460,6 +492,7 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
       `
         UPDATE public.telegram_pending_clarifications
         SET status = 'expired',
+            ${PostgresPendingClarificationStore.CLEAR_IMAGES},
             updated_at = NOW()
         WHERE status = 'pending'
           AND expires_at <= NOW()
@@ -480,7 +513,9 @@ export function createPendingClarificationStore(): PendingClarificationStore {
 
   if (configuredStore === 'postgres' || (!configuredStore && postgresDsn)) {
     if (!postgresDsn) {
-      throw new Error('TELEGRAM_PENDING_STORE=postgres requires TELEGRAM_PENDING_POSTGRES_DSN or DATABASE_URL');
+      throw new Error(
+        'TELEGRAM_PENDING_STORE=postgres requires TELEGRAM_PENDING_POSTGRES_DSN or DATABASE_URL',
+      );
     }
 
     logger.info('telegram.pending_store.configured', { store: 'postgres' });

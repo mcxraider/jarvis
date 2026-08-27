@@ -25,13 +25,24 @@ from agents.agent_api.app.tracing import UserProgressTracePrinter
 router = APIRouter()
 
 
+def _serialize_image_params(request: ResumeRequest) -> dict:
+    return {
+        "images": [image.model_dump() for image in request.images or ()],
+        "prior_image_batches": (
+            [[image.model_dump() for image in batch] for batch in request.prior_image_batches]
+            if request.prior_image_batches is not None
+            else None
+        ),
+    }
+
+
 @router.post("/resume", response_model=AgentResponse)
 async def resume(
     request: ResumeRequest,
     http_request: FastAPIRequest,
     x_jarvis_agent_key: Optional[str] = Header(default=None),
 ) -> AgentResponse:
-    require_image_provider(request.images)
+    require_image_provider(bool(request.images or any(request.prior_image_batches or ())))
     ctx = await apply_request_gate_async(
         "resume",
         request,
@@ -59,7 +70,7 @@ async def resume(
             request_id=request.request_id,
             run_control=run_control,
             checkpointer=runtime_checkpointer(http_request),
-            images=[image.model_dump() for image in request.images or ()],
+            **_serialize_image_params(request),
         )
 
     return await run_agent_request(
@@ -80,7 +91,7 @@ async def resume_stream(
     http_request: FastAPIRequest,
     x_jarvis_agent_key: Optional[str] = Header(default=None),
 ) -> StreamingResponse:
-    require_image_provider(request.images)
+    require_image_provider(bool(request.images or any(request.prior_image_batches or ())))
     ctx = await apply_request_gate_async(
         "resume",
         request,
@@ -108,7 +119,7 @@ async def resume_stream(
             request_id=request.request_id,
             run_control=run_control,
             checkpointer=runtime_checkpointer(http_request),
-            images=[image.model_dump() for image in request.images or ()],
+            **_serialize_image_params(request),
         )
 
     return await stream_agent_run(

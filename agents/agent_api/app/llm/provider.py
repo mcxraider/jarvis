@@ -183,10 +183,10 @@ def validate_reasoning_for_profile(
 
 
 def require_vision_provider(
-    profile: LLMProviderProfile, images: Any
+    profile: LLMProviderProfile, has_images: bool
 ) -> None:
     """Reject image input unless the provider supports vision."""
-    if images and not isinstance(profile, OpenAIResponsesProfile):
+    if has_images and not isinstance(profile, OpenAIResponsesProfile):
         raise LLMProviderError(
             "configuration", "Photo input requires the OpenAI Responses provider."
         )
