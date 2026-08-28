@@ -177,6 +177,16 @@ describe('MessageHandlers', () => {
     expect(ctx.reply).toHaveBeenCalledWith('processed text', { parse_mode: 'MarkdownV2' });
   });
 
+  it('renders Thinking… first for a plain text request', async () => {
+    const { handlers, messageProcessor } = createHandlers();
+    const ctx = createContext({ text: 'hello', message_id: 99 });
+
+    await handlers.handleText(ctx);
+
+    expect(messageProcessor.processTextMessage).toHaveBeenCalled();
+    expect(ctx.reply.mock.calls[0]).toEqual(['Thinking…', { parse_mode: 'MarkdownV2' }]);
+  });
+
   it('keeps a 129.7-second turn narrated and sends exactly one terminal clarification', async () => {
     jest.useFakeTimers();
     setRichMessagesEnabled(true);
@@ -411,7 +421,7 @@ describe('MessageHandlers', () => {
     );
     expect(messageProcessor.processAudioMessage).not.toHaveBeenCalled();
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_document');
-    expect(ctx.reply).toHaveBeenCalledWith('Thinking…', {
+    expect(ctx.reply).toHaveBeenCalledWith('Listening…', {
       parse_mode: 'MarkdownV2',
     });
     // The transcription is delivered as its own message after the transient status.
@@ -463,7 +473,7 @@ describe('MessageHandlers', () => {
     expect(ctx.reply).toHaveBeenCalledWith('🗣️: transcribed text', {
       parse_mode: 'MarkdownV2',
     });
-    expect(ctx.reply).toHaveBeenCalledWith('Thinking…', { parse_mode: 'MarkdownV2' });
+    expect(ctx.reply).toHaveBeenCalledWith('Listening…', { parse_mode: 'MarkdownV2' });
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
   });
 
@@ -526,6 +536,22 @@ describe('MessageHandlers', () => {
     );
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_photo');
     expect(ctx.reply).toHaveBeenCalledWith('photo response', { parse_mode: 'MarkdownV2' });
+  });
+
+  it('renders Analysing image… first for a standalone photo', async () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    const { handlers } = createHandlers({
+      fileService: { downloadFile: jest.fn().mockResolvedValue(jpeg) },
+      messageProcessor: { processPhotoMessage: jest.fn().mockResolvedValue({ response: 'done' }) },
+    });
+    const ctx = createContext({
+      message_id: 8,
+      photo: [{ file_id: 'photo-secret', width: 1, height: 1 }],
+    });
+
+    await handlers.handlePhoto(ctx);
+
+    expect(ctx.reply.mock.calls[0]).toEqual(['Analysing image…', { parse_mode: 'MarkdownV2' }]);
   });
 
   it('uses the exact standalone fallback for a captionless photo', async () => {
@@ -610,6 +636,38 @@ describe('MessageHandlers', () => {
         .toEqual(['file-10', 'file-20', 'file-30']);
       expect(messageProcessor.processPhotoMessage).toHaveBeenCalledTimes(1);
       expect(messageProcessor.processPhotoMessage.mock.calls[0][0]).toBe('first\nsecond');
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
+  });
+
+  it('renders Analysing images… first for an album', async () => {
+    jest.useFakeTimers();
+    try {
+      const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+      const fileService = { downloadFile: jest.fn().mockResolvedValue(jpeg) };
+      const messageProcessor = {
+        processPhotoMessage: jest.fn().mockResolvedValue({ response: 'album done' }),
+      };
+      const { handlers } = createHandlers({ fileService, messageProcessor });
+      const first = createContext({
+        message_id: 10,
+        media_group_id: 'album-seed',
+        photo: [{ file_id: 'file-10', width: 10, height: 10 }],
+      });
+      const second = createContext({
+        message_id: 11,
+        media_group_id: 'album-seed',
+        photo: [{ file_id: 'file-11', width: 11, height: 11 }],
+      });
+
+      await handlers.handlePhoto(first);
+      await handlers.handlePhoto(second);
+      await jest.advanceTimersByTimeAsync(1500);
+      await Promise.resolve();
+
+      expect(first.reply.mock.calls[0]).toEqual(['Analysing images…', { parse_mode: 'MarkdownV2' }]);
     } finally {
       jest.clearAllTimers();
       jest.useRealTimers();

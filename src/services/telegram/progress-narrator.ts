@@ -25,6 +25,20 @@ const DOMAIN_LABELS: Record<string, string> = {
 
 const ELAPSED_BANDS = [45_000, 75_000, 120_000] as const;
 
+export type TelegramInputKind = 'text' | 'image' | 'images' | 'audio' | 'forwarded';
+
+const SEED_LABELS: Record<TelegramInputKind, string> = {
+  text: 'Thinking…',
+  image: 'Analysing image…',
+  images: 'Analysing images…',
+  audio: 'Listening…',
+  forwarded: 'Reviewing forwarded messages…',
+};
+
+export function seedLabelForInputKind(kind: TelegramInputKind): string {
+  return SEED_LABELS[kind];
+}
+
 function domainLabel(domains: ProgressFact['domains']): string | undefined {
   if (!domains?.length) return undefined;
   return domains
@@ -48,14 +62,20 @@ export class ProgressNarrator {
     renderedAt: number;
   };
 
-  start(now = Date.now()): void {
+  start(seedLabel: string = 'Thinking…', now = Date.now()): void {
     this.startedAt = now;
-    this.baseLabel = 'Thinking…';
+    this.baseLabel = seedLabel;
     this.phase = 'request';
     this.sequence = undefined;
     this.latestSequence = undefined;
     this.baseRevision = 1;
     this.delivered = undefined;
+  }
+
+  /** Transitions from an input-specific seed (e.g. Listening…) to the generic Thinking… label. */
+  advanceToThinking(_now = Date.now()): void {
+    this.baseLabel = 'Thinking…';
+    this.baseRevision += 1;
   }
 
   record(fact: ProgressFact, sequence?: number): void {
@@ -157,7 +177,7 @@ export class ProgressNarrator {
   }
 
   private labelFor(fact: ProgressFact): string | undefined {
-    if (fact.phase === 'request') return 'Thinking…';
+    if (fact.phase === 'request') return undefined;
     if (fact.phase === 'routing') {
       const domains = domainLabel(fact.domains);
       return domains ? `Pulling up ${domains}…` : 'Planning the next steps…';

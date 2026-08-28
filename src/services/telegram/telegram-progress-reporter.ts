@@ -14,6 +14,8 @@ import {
   PROGRESS_DELIVERY_RETRY_MS,
   PROGRESS_RICH_REFRESH_MS,
   ProgressNarrator,
+  seedLabelForInputKind,
+  TelegramInputKind,
 } from './progress-narrator';
 
 type ProgressTransport = 'rich' | 'plain';
@@ -35,7 +37,11 @@ export class TelegramProgressReporter {
   private retryNotBefore?: number;
   private readonly narrator = new ProgressNarrator();
 
-  constructor(private readonly ctx: Context, private readonly logContext: LogContext = {}) {
+  constructor(
+    private readonly ctx: Context,
+    private readonly logContext: LogContext = {},
+    private readonly inputKind: TelegramInputKind = 'text',
+  ) {
     // Rich drafts are private-chat only. The undefined allowance keeps lightweight
     // unit-test contexts compatible while production Telegraf contexts have type.
     this.richActive = isRichMessagesEnabled()
@@ -45,13 +51,21 @@ export class TelegramProgressReporter {
   async start(): Promise<void> {
     if (this.started || this.completed) return;
     this.started = true;
-    this.narrator.start();
+    this.narrator.start(seedLabelForInputKind(this.inputKind));
     await this.ensurePump();
   }
 
   async startTranscribing(): Promise<void> { await this.start(); }
   async endTranscribing(): Promise<void> { return; }
-  async beginAgentPhase(): Promise<void> { await this.start(); }
+
+  async beginAgentPhase(): Promise<void> {
+    if (!this.started) {
+      await this.start();
+      return;
+    }
+    this.narrator.advanceToThinking();
+    this.requestPump();
+  }
 
   async record(event: LangGraphProgressEvent, signal?: AbortSignal): Promise<void> {
     if (this.completed || signal?.aborted || !event.fact) return;

@@ -16,6 +16,7 @@ import {
 } from '../formatters/telegram-rich';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
+import { TelegramInputKind } from '../progress-narrator';
 import { TelegramReasoningSummaryReporter } from '../telegram-reasoning-summary-reporter';
 import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service';
 import {
@@ -269,7 +270,7 @@ export class MessageHandlers {
     }
 
     if (photoFileIds.length === 0) {
-      await this.runFreshText(ctx, combined, logContext, startedAt, { forceFresh: true });
+      await this.runFreshText(ctx, combined, logContext, startedAt, { forceFresh: true }, 'forwarded');
       return;
     }
 
@@ -305,6 +306,7 @@ export class MessageHandlers {
       },
       'Something went wrong processing your forwarded messages. Please try again.',
       'photo',
+      'forwarded',
     );
   }
 
@@ -430,6 +432,7 @@ export class MessageHandlers {
     logContext: LogContext,
     startedAt: number,
     options?: { forceFresh?: boolean; replyContext?: import('../reply-context').ReplyContextData },
+    inputKind: TelegramInputKind = 'text',
   ): Promise<void> {
     const userId = ctx.from?.id;
     await this.runWithAgentProgress(
@@ -445,6 +448,7 @@ export class MessageHandlers {
       ),
       'Something went wrong processing your message. Please try again.',
       'message',
+      inputKind,
     );
   }
 
@@ -458,9 +462,10 @@ export class MessageHandlers {
     ) => Promise<TextProcessorResult>,
     errorMessage: string,
     resultKind: 'message' | 'photo',
+    inputKind: TelegramInputKind,
   ): Promise<void> {
     const userId = ctx.from?.id;
-    const progressReporter = new TelegramProgressReporter(ctx, logContext);
+    const progressReporter = new TelegramProgressReporter(ctx, logContext, inputKind);
     const summaryReporter = new TelegramReasoningSummaryReporter(ctx, logContext);
 
 
@@ -654,6 +659,7 @@ export class MessageHandlers {
       },
       PHOTO_ERROR,
       'photo',
+      items.length === 1 ? 'image' : 'images',
     );
   }
 
@@ -873,7 +879,7 @@ export class MessageHandlers {
     ) => Promise<TextProcessorResult>,
     errorMessage: string,
   ): Promise<void> {
-    const progressReporter = new TelegramProgressReporter(ctx, logContext);
+    const progressReporter = new TelegramProgressReporter(ctx, logContext, 'audio');
     const summaryReporter = new TelegramReasoningSummaryReporter(ctx, logContext);
 
 

@@ -263,4 +263,71 @@ describe('TelegramProgressReporter', () => {
       .toBe('Thinking — taking a little longer…');
     await reporter.complete();
   });
+
+  it.each([
+    ['image', 'Analysing image…'],
+    ['images', 'Analysing images…'],
+    ['audio', 'Listening…'],
+    ['forwarded', 'Reviewing forwarded messages…'],
+  ] as const)(
+    'seeds the %s input kind with its matching label on first paint',
+    async (inputKind, label) => {
+      const ctx = context('group');
+      const reporter = new TelegramProgressReporter(ctx, {}, inputKind);
+      await reporter.start();
+      expect(ctx.reply).toHaveBeenCalledWith(label, { parse_mode: 'MarkdownV2' });
+      await reporter.complete();
+    },
+  );
+
+  it('defaults to the Thinking… seed label when no input kind is given', async () => {
+    const ctx = context('group');
+    const reporter = new TelegramProgressReporter(ctx, { requestId: 'no-kind' });
+    await reporter.start();
+    expect(ctx.reply).toHaveBeenCalledWith('Thinking…', { parse_mode: 'MarkdownV2' });
+    await reporter.complete();
+  });
+
+  it('replays a Listening→Thinking transition on beginAgentPhase without a new draft or timer', async () => {
+    setRichMessagesEnabled(true);
+    const ctx = context('private');
+    const reporter = new TelegramProgressReporter(ctx, {}, 'audio');
+
+    await reporter.startTranscribing();
+    expect(ctx.telegram.callApi).toHaveBeenCalledTimes(1);
+    expect(ctx.telegram.callApi.mock.calls[0][1].rich_message.markdown).toContain('Listening…');
+
+    await jest.advanceTimersByTimeAsync(4_000);
+    const timerCountBeforeTransition = jest.getTimerCount();
+
+    await reporter.beginAgentPhase();
+    expect(jest.getTimerCount()).toBe(timerCountBeforeTransition);
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(ctx.telegram.callApi).toHaveBeenCalledTimes(2);
+    expect(ctx.telegram.callApi.mock.calls[1][1].rich_message.markdown).toContain('Thinking…');
+    const draftIds = ctx.telegram.callApi.mock.calls.map((call: any[]) => call[1].draft_id);
+    expect(new Set(draftIds).size).toBe(1);
+
+    await reporter.complete();
+  });
+
+  it('renders Thinking… via the plain path when beginAgentPhase fires after a rich fallback', async () => {
+    setRichMessagesEnabled(true);
+    const ctx = context('private');
+    ctx.telegram.callApi.mockRejectedValue(new Error('rich unavailable'));
+    const reporter = new TelegramProgressReporter(ctx, {}, 'audio');
+
+    await reporter.startTranscribing();
+    expect(ctx.reply).toHaveBeenCalledWith('Listening…', { parse_mode: 'MarkdownV2' });
+
+    await jest.advanceTimersByTimeAsync(4_000);
+    await reporter.beginAgentPhase();
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(ctx.telegram.editMessageText).toHaveBeenLastCalledWith(
+      123, 77, undefined, 'Thinking…', { parse_mode: 'MarkdownV2' },
+    );
+    await reporter.complete();
+  });
 });

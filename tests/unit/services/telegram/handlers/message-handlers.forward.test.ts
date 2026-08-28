@@ -298,6 +298,48 @@ describe('MessageHandlers forward buffering', () => {
       expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
     });
 
+    it('renders Reviewing forwarded messages… as the first reply for a text-only dispatch', async () => {
+      const { handlers, messageProcessor } = createHandlers();
+      const ctx = createContext({ text: 'meeting moved', forward_origin: FORWARD_ORIGIN, message_id: 50 });
+      await handlers.maybeBufferForward(ctx);
+
+      // Pre-dispatch buffered-confirmation reply is unaffected by this task.
+      expect(ctx.reply.mock.calls[0]).toEqual([expect.stringContaining('1 message buffered')]);
+      const replyCallsBeforeDispatch = ctx.reply.mock.calls.length;
+
+      ctx.message = { text: '/send_forward summarize', message_id: 51 };
+      await handlers.handleSendForward(ctx);
+
+      expect(messageProcessor.processTextMessage).toHaveBeenCalledTimes(1);
+      expect(ctx.reply.mock.calls[replyCallsBeforeDispatch]).toEqual([
+        'Reviewing forwarded messages…',
+        { parse_mode: 'MarkdownV2' },
+      ]);
+    });
+
+    it('renders Reviewing forwarded messages… as the first reply for a photo-bearing dispatch', async () => {
+      const { handlers, messageProcessor } = createHandlers();
+      const ctx = createContext({
+        photo: [{ file_id: 'pic1', width: 800, height: 600 }],
+        forward_origin: FORWARD_ORIGIN,
+        message_id: 52,
+      });
+      await handlers.maybeBufferForward(ctx);
+
+      // Pre-dispatch buffered-confirmation reply is unaffected by this task.
+      expect(ctx.reply.mock.calls[0]).toEqual([expect.stringContaining('1 message buffered')]);
+      const replyCallsBeforeDispatch = ctx.reply.mock.calls.length;
+
+      ctx.message = { text: '/send_forward describe this', message_id: 53 };
+      await handlers.handleSendForward(ctx);
+
+      expect(messageProcessor.processPhotoMessage).toHaveBeenCalledTimes(1);
+      expect(ctx.reply.mock.calls[replyCallsBeforeDispatch]).toEqual([
+        'Reviewing forwarded messages…',
+        { parse_mode: 'MarkdownV2' },
+      ]);
+    });
+
     it('supports /send_forward@botname', async () => {
       const { handlers, messageProcessor } = createHandlers();
       const ctx = createContext({ text: 'fwd', forward_origin: FORWARD_ORIGIN, message_id: 25 });
