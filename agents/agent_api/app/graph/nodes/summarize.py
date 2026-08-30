@@ -9,6 +9,7 @@ from collections import Counter
 from typing import Any, Dict, List, Optional, Set
 
 from langchain_core.runnables import RunnableConfig
+from langsmith.wrappers import wrap_openai
 from openai import (
     APIConnectionError,
     APIStatusError,
@@ -213,11 +214,15 @@ def get_shared_summarizer_client(
     with _shared_summarizer_client_lock:
         if _shared_summarizer_client is None:
             selected = profile or settings.summarizer_llm
-            _shared_summarizer_client = OpenAI(
-                api_key=selected.api_key,
-                base_url=selected.base_url,
-                timeout=selected.request_timeout_seconds,
-                max_retries=selected.sdk_max_retries,
+            _shared_summarizer_client = wrap_openai(
+                OpenAI(
+                    api_key=selected.api_key,
+                    base_url=selected.base_url,
+                    timeout=selected.request_timeout_seconds,
+                    max_retries=selected.sdk_max_retries,
+                ),
+                chat_name=f"summarize.llm.{selected.provider.value}",
+                completions_name=f"summarize.llm.{selected.provider.value}",
             )
         return _shared_summarizer_client
 
@@ -234,11 +239,15 @@ def get_shared_async_summarizer_client(
     with _shared_async_summarizer_client_lock:
         if _shared_async_summarizer_client is None:
             selected = profile or settings.summarizer_llm
-            _shared_async_summarizer_client = AsyncOpenAI(
-                api_key=selected.api_key,
-                base_url=selected.base_url,
-                timeout=selected.request_timeout_seconds,
-                max_retries=selected.sdk_max_retries,
+            _shared_async_summarizer_client = wrap_openai(
+                AsyncOpenAI(
+                    api_key=selected.api_key,
+                    base_url=selected.base_url,
+                    timeout=selected.request_timeout_seconds,
+                    max_retries=selected.sdk_max_retries,
+                ),
+                chat_name=f"summarize.llm.{selected.provider.value}",
+                completions_name=f"summarize.llm.{selected.provider.value}",
             )
         return _shared_async_summarizer_client
 

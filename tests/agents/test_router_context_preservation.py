@@ -17,7 +17,7 @@ from unittest.mock import patch
 os.environ["LANGSMITH_TRACING"] = "false"
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
-with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
+with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c, **_: c):
     from agents.agent_api.app.graph.nodes.orchestrator import create_agent_node
     from agents.agent_api.app.graph.nodes.validate_entities import (
         create_validate_entities_node,
@@ -40,7 +40,7 @@ class _CannedRouterClient:
 
     def __init__(self, decisions: Dict[str, RouterDecision]) -> None:
         self._decisions = decisions
-        self._default = RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")
+        self._default = RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low")
         self.seen_queries: List[str] = []
 
     def classify(self, query: str, snapshot: Any) -> RouterDecision:
@@ -118,7 +118,7 @@ class TestDomainMerging:
         """active_domains=["google_calendar"], router returns ["todoist"]
         → effective tools include both domains."""
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
-        router_client = _CannedRouterClient({"events": RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")})
+        router_client = _CannedRouterClient({"events": RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low")})
         selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
 
         schemas = selector.select_schemas(
@@ -147,7 +147,7 @@ class TestDomainMerging:
     def test_exit_clears_domains(self):
         """Router returns [] and reply contains "exit" → no merge, only ask_user."""
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
-        router_client = _CannedRouterClient({"exit": RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")})
+        router_client = _CannedRouterClient({"exit": RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low")})
         selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
 
         schemas = selector.select_schemas(
@@ -189,7 +189,7 @@ class TestOrchestratorActiveDomains:
     def test_active_domains_set_on_first_turn(self):
         """Turn 1 with router → active_domains populated from decision."""
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
-        decision = RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")
+        decision = RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], complexity="low")
         router_client = _CannedRouterClient({"google calendar": decision})
         selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
         client = _RecordingClient()
@@ -227,7 +227,7 @@ class TestOrchestratorActiveDomains:
         """On resume, the routing query sent to the selector includes the original prompt."""
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         # Router returns google_calendar when it sees "google calendar" in query
-        decision = RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")
+        decision = RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], complexity="low")
         router_client = _CannedRouterClient({"google calendar": decision})
         selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
         client = _RecordingClient()
@@ -295,7 +295,7 @@ class TestPromptSlimmingPinnedDomains:
         → system prompt includes Google Calendar instructions."""
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         # Router says todoist only for "next friday" reply
-        router_client = _CannedRouterClient({"google calendar": RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")})
+        router_client = _CannedRouterClient({"google calendar": RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], complexity="low")})
         selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
         client = _RecordingClient()
         node = create_agent_node(client, _registry(), max_agent_turns=20, tool_selector=selector)
@@ -431,7 +431,7 @@ class TestEndToEndContextPreservation:
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
 
         # --- Turn 1: initial request routes to google_calendar ---
-        decision_gcal = RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")
+        decision_gcal = RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], complexity="low")
         router_client = _CannedRouterClient({"google calendar": decision_gcal})
         selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
         client = _RecordingClient()
@@ -448,7 +448,7 @@ class TestEndToEndContextPreservation:
         # --- Turn 2 (resume): reply is "find events from this week" ---
         # Router would classify this as todoist (no explicit "google calendar")
         # but domain merge should preserve google_calendar
-        decision_todoist = RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")
+        decision_todoist = RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low")
         router_client_resume = _CannedRouterClient({
             "google calendar": decision_gcal,
             "find events": decision_todoist,
@@ -496,7 +496,7 @@ class TestEndToEndContextPreservation:
     def test_exit_clears_pinning_cleanly(self):
         """User says "exit" → domain merge is skipped, only ask_user remains."""
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
-        router_client = _CannedRouterClient({"exit": RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")})
+        router_client = _CannedRouterClient({"exit": RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low")})
         selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
 
         schemas = selector.select_schemas(

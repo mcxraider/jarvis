@@ -15,7 +15,7 @@ from unittest.mock import patch
 os.environ["LANGSMITH_TRACING"] = "false"
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
-with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
+with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c, **_: c):
     from agents.agent_api.app.graph.nodes.orchestrator import create_agent_node
 
 from agents.agent_api.app.graph.prompts.context import build_initial_messages
@@ -67,7 +67,6 @@ def _decision(complexity="low"):
         uncertain=False,
         candidate_domains=[],
         complexity=complexity,
-        reasoning="test",
     )
 
 

@@ -359,7 +359,9 @@ class LLMAgentClient:
                     base_url=self.base_url,
                     timeout=self.request_timeout_seconds,
                     max_retries=profile.sdk_max_retries,
-                )
+                ),
+                chat_name=f"orchestrator.llm.{profile.provider.value}",
+                completions_name=f"orchestrator.llm.{profile.provider.value}",
             )
         )
 
@@ -378,8 +380,173 @@ class LLMAgentClient:
         clone._owns_client = False
         return clone
 
+    def _resolve_call_params(
+        self,
+        *,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        model: Optional[str],
+        reasoning_effort: Optional[str],
+        request_timeout_seconds: Optional[float],
+        tracer: Optional[TracePrinter],
+        usage_accumulator: Optional[UsageSummary],
+        async_label: bool,
+    ):
+        """Resolve tracer/usage/model/effort/timeout and emit the request trace."""
+        call_tracer = tracer or self.tracer
+        call_usage = usage_accumulator if usage_accumulator is not None else self.usage
+        use_model = validate_model_for_profile(self.profile, model or self.model)
+        use_effort = validate_reasoning_for_profile(
+            self.profile, reasoning_effort or self.reasoning_effort
+        )
+        use_timeout = (
+            request_timeout_seconds
+            if request_timeout_seconds is not None
+            else self.request_timeout_seconds
+        )
+        call_tracer.event(
+            "agent.request",
+            "Calling language model (async)." if async_label else "Calling language model.",
+            provider=self.provider.value,
+            api_surface=(
+                "responses"
+                if isinstance(self.profile, OpenAIResponsesProfile)
+                else "chat_completions"
+            ),
+            model=use_model,
+            reasoning_effort=use_effort,
+            messages=len(messages),
+            tools=len(tools),
+            request_timeout_seconds=use_timeout,
+            sdk_max_retries=self.profile.sdk_max_retries,
+            max_retry_attempts=self.max_retry_attempts,
+            retry_max_delay_seconds=self.retry_max_delay_seconds,
+            max_tokens=self.profile.max_output_tokens,
+            thinking_enabled=(
+                self.profile.thinking_enabled
+                if isinstance(self.profile, DeepSeekProfile)
+                else False
+            ),
+            base_url=self.base_url,
+        )
+        return call_tracer, call_usage, use_model, use_effort, use_timeout
+
+    def _build_result(
+        self,
+        response: Any,
+        *,
+        use_model: str,
+        call_usage: UsageSummary,
+        captured_summary: Optional[str],
+    ):
+        """Normalize a completion, record usage, and build the checkpoint message."""
+        result = (
+            normalize_response(response, self.profile, requested_model=use_model)
+            if isinstance(self.profile, OpenAIResponsesProfile)
+            else normalize_chat_completion(
+                response, self.profile, requested_model=use_model
+            )
+        )
+        self._validate_result(result)
+        turn_usage = UsageSummary()
+        turn_usage.add_record(result.usage)
+        call_usage.add(turn_usage)
+        message = CanonicalMessageBatch(
+            messages=(result.message,)
+        ).to_checkpoint()["messages"][0]
+
+        rt = get_current_run_tree()
+        if rt:
+            trace_meta: Dict[str, Any] = {}
+            if captured_summary:
+                trace_meta["reasoning_summary"] = captured_summary
+            if message.get("tool_calls"):
+                trace_meta["tool_calls"] = message["tool_calls"]
+            if trace_meta:
+                rt.add_metadata(trace_meta)
+        return result, turn_usage, message
+
+    def _build_failure_payload(
+        self,
+        error: Exception,
+        attempts: int,
+        *,
+        call_tracer: TracePrinter,
+        use_timeout: float,
+        request_started: float,
+        async_label: bool,
+    ) -> Dict[str, Any]:
+        """Build the failure payload and emit the error trace; caller raises."""
+        total_elapsed_ms = round((time.monotonic() - request_started) * 1000, 1)
+        payload = self._failure_payload(
+            error,
+            attempts,
+            request_timeout_seconds=use_timeout,
+        )
+        payload["total_elapsed_ms"] = total_elapsed_ms
+        call_tracer.event(
+            "agent.error",
+            "Language-model async chat completion failed."
+            if async_label
+            else "Language-model chat completion failed.",
+            provider=self.provider.value,
+            error_type=payload["type"],
+            retryable=payload["retryable"],
+            attempts=payload["attempts"],
+            status_code=payload.get("status_code"),
+            provider_request_id=payload.get("provider_request_id"),
+            exception_type=payload.get("exception_type"),
+            exception_module=payload.get("exception_module"),
+            timeout_kind=payload.get("timeout_kind"),
+            base_url=payload.get("base_url"),
+            request_timeout_seconds=payload.get("request_timeout_seconds"),
+            sdk_max_retries=payload.get("sdk_max_retries"),
+            max_retry_attempts=payload.get("max_retry_attempts"),
+            retry_max_delay_seconds=payload.get("retry_max_delay_seconds"),
+            total_elapsed_ms=payload.get("total_elapsed_ms"),
+        )
+        return payload
+
+    def _trace_response(
+        self,
+        call_tracer: TracePrinter,
+        *,
+        result: Any,
+        message: Dict[str, Any],
+        turn_usage: UsageSummary,
+        use_model: str,
+        summary_fallback_attempted: bool,
+        async_label: bool,
+    ) -> None:
+        """Emit the assistant-response trace for a completed call."""
+        cache_hit_rate = (
+            round(turn_usage.cached_tokens / turn_usage.prompt_tokens * 100, 1)
+            if turn_usage.prompt_tokens > 0 and turn_usage.cached_tokens > 0
+            else None
+        )
+        call_tracer.event(
+            "agent.response",
+            "Received assistant message (async)."
+            if async_label
+            else "Received assistant message.",
+            provider=self.provider.value,
+            model=getattr(result, "returned_model", use_model),
+            provider_request_id=getattr(result, "provider_request_id", None),
+            has_tool_calls=bool(message.get("tool_calls")),
+            tool_calls=len(message.get("tool_calls") or []),
+            has_content=bool(message.get("content")),
+            has_reasoning=bool(result.message.continuation),
+            reasoning_summary_requested=isinstance(self.profile, OpenAIResponsesProfile),
+            reasoning_summary_fallback=summary_fallback_attempted,
+            prompt_tokens=turn_usage.prompt_tokens or None,
+            completion_tokens=turn_usage.completion_tokens or None,
+            total_tokens=turn_usage.total_tokens or None,
+            cached_tokens=turn_usage.cached_tokens or None,
+            cache_hit_rate=cache_hit_rate,
+        )
+
     @traceable(
-        name="llm_create_message",
+        name="orchestrator.llm",
         run_type="llm",
         process_inputs=_model_trace_inputs,
     )
@@ -402,41 +569,17 @@ class LLMAgentClient:
         ``client.usage``; both paths update only a run-local accumulator.
         """
 
-        call_tracer = tracer or self.tracer
-        call_usage = usage_accumulator if usage_accumulator is not None else self.usage
-        use_model = validate_model_for_profile(self.profile, model or self.model)
-        use_effort = validate_reasoning_for_profile(
-            self.profile, reasoning_effort or self.reasoning_effort
-        )
-        use_timeout = (
-            request_timeout_seconds
-            if request_timeout_seconds is not None
-            else self.request_timeout_seconds
-        )
-        call_tracer.event(
-            "agent.request",
-            "Calling language model.",
-            provider=self.provider.value,
-            api_surface=(
-                "responses"
-                if isinstance(self.profile, OpenAIResponsesProfile)
-                else "chat_completions"
-            ),
-            model=use_model,
-            reasoning_effort=use_effort,
-            messages=len(messages),
-            tools=len(tools),
-            request_timeout_seconds=use_timeout,
-            sdk_max_retries=self.profile.sdk_max_retries,
-            max_retry_attempts=self.max_retry_attempts,
-            retry_max_delay_seconds=self.retry_max_delay_seconds,
-            max_tokens=self.profile.max_output_tokens,
-            thinking_enabled=(
-                self.profile.thinking_enabled
-                if isinstance(self.profile, DeepSeekProfile)
-                else False
-            ),
-            base_url=self.base_url,
+        call_tracer, call_usage, use_model, use_effort, use_timeout = (
+            self._resolve_call_params(
+                messages=messages,
+                tools=tools,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                request_timeout_seconds=request_timeout_seconds,
+                tracer=tracer,
+                usage_accumulator=usage_accumulator,
+                async_label=False,
+            )
         )
         attempts = 0
         request_started = time.monotonic()
@@ -465,6 +608,7 @@ class LLMAgentClient:
                         safety_identifier=self.safety_identifier,
                         timeout_seconds=use_timeout,
                         image_context=image_context,
+                        vision_model=settings.openai_vision_model,
                     )
                     kwargs = call.as_kwargs()
                     with tracing_context(enabled=False):
@@ -514,87 +658,36 @@ class LLMAgentClient:
                 call_tracer,
                 request_timeout_seconds=use_timeout,
             )(create_completion)
-            # Read usage before the completion object is discarded.
-            result = (
-                normalize_response(response, self.profile, requested_model=use_model)
-                if isinstance(self.profile, OpenAIResponsesProfile)
-                else normalize_chat_completion(
-                    response, self.profile, requested_model=use_model
-                )
+            result, turn_usage, message = self._build_result(
+                response,
+                use_model=use_model,
+                call_usage=call_usage,
+                captured_summary=captured_summary,
             )
-            self._validate_result(result)
-            turn_usage = UsageSummary()
-            turn_usage.add_record(result.usage)
-            call_usage.add(turn_usage)
-            message = CanonicalMessageBatch(
-                messages=(result.message,)
-            ).to_checkpoint()["messages"][0]
-
-            rt = get_current_run_tree()
-            if rt:
-                trace_meta: Dict[str, Any] = {}
-                if captured_summary:
-                    trace_meta["reasoning_summary"] = captured_summary
-                if message.get("tool_calls"):
-                    trace_meta["tool_calls"] = message["tool_calls"]
-                if trace_meta:
-                    rt.add_metadata(trace_meta)
         except Exception as error:
-            total_elapsed_ms = round((time.monotonic() - request_started) * 1000, 1)
-            payload = self._failure_payload(
+            payload = self._build_failure_payload(
                 error,
                 attempts,
-                request_timeout_seconds=use_timeout,
-            )
-            payload["total_elapsed_ms"] = total_elapsed_ms
-            call_tracer.event(
-                "agent.error",
-                "Language-model chat completion failed.",
-                provider=self.provider.value,
-                error_type=payload["type"],
-                retryable=payload["retryable"],
-                attempts=payload["attempts"],
-                status_code=payload.get("status_code"),
-                provider_request_id=payload.get("provider_request_id"),
-                exception_type=payload.get("exception_type"),
-                exception_module=payload.get("exception_module"),
-                timeout_kind=payload.get("timeout_kind"),
-                base_url=payload.get("base_url"),
-                request_timeout_seconds=payload.get("request_timeout_seconds"),
-                sdk_max_retries=payload.get("sdk_max_retries"),
-                max_retry_attempts=payload.get("max_retry_attempts"),
-                retry_max_delay_seconds=payload.get("retry_max_delay_seconds"),
-                total_elapsed_ms=payload.get("total_elapsed_ms"),
+                call_tracer=call_tracer,
+                use_timeout=use_timeout,
+                request_started=request_started,
+                async_label=False,
             )
             raise LLMAgentClientError(payload) from error
 
-        cache_hit_rate = (
-            round(turn_usage.cached_tokens / turn_usage.prompt_tokens * 100, 1)
-            if turn_usage.prompt_tokens > 0 and turn_usage.cached_tokens > 0
-            else None
-        )
-        call_tracer.event(
-            "agent.response",
-            "Received assistant message.",
-            provider=self.provider.value,
-            model=getattr(result, "returned_model", use_model),
-            provider_request_id=getattr(result, "provider_request_id", None),
-            has_tool_calls=bool(message.get("tool_calls")),
-            tool_calls=len(message.get("tool_calls") or []),
-            has_content=bool(message.get("content")),
-            has_reasoning=bool(result.message.continuation),
-            reasoning_summary_requested=isinstance(self.profile, OpenAIResponsesProfile),
-            reasoning_summary_fallback=summary_fallback_attempted,
-            prompt_tokens=turn_usage.prompt_tokens or None,
-            completion_tokens=turn_usage.completion_tokens or None,
-            total_tokens=turn_usage.total_tokens or None,
-            cached_tokens=turn_usage.cached_tokens or None,
-            cache_hit_rate=cache_hit_rate,
+        self._trace_response(
+            call_tracer,
+            result=result,
+            message=message,
+            turn_usage=turn_usage,
+            use_model=use_model,
+            summary_fallback_attempted=summary_fallback_attempted,
+            async_label=False,
         )
         return message
 
     @traceable(
-        name="llm_create_message_async",
+        name="orchestrator.llm",
         run_type="llm",
         process_inputs=_model_trace_inputs,
     )
@@ -618,46 +711,22 @@ class LLMAgentClient:
         client-interface migration.
         """
 
-        call_tracer = tracer or self.tracer
-        call_usage = usage_accumulator if usage_accumulator is not None else self.usage
         provider_client = (
             async_client
             or self.async_client
             or get_shared_async_agent_client()
         )
-        use_model = validate_model_for_profile(self.profile, model or self.model)
-        use_effort = validate_reasoning_for_profile(
-            self.profile, reasoning_effort or self.reasoning_effort
-        )
-        use_timeout = (
-            request_timeout_seconds
-            if request_timeout_seconds is not None
-            else self.request_timeout_seconds
-        )
-        call_tracer.event(
-            "agent.request",
-            "Calling language model (async).",
-            provider=self.provider.value,
-            api_surface=(
-                "responses"
-                if isinstance(self.profile, OpenAIResponsesProfile)
-                else "chat_completions"
-            ),
-            model=use_model,
-            reasoning_effort=use_effort,
-            messages=len(messages),
-            tools=len(tools),
-            request_timeout_seconds=use_timeout,
-            sdk_max_retries=self.profile.sdk_max_retries,
-            max_retry_attempts=self.max_retry_attempts,
-            retry_max_delay_seconds=self.retry_max_delay_seconds,
-            max_tokens=self.profile.max_output_tokens,
-            thinking_enabled=(
-                self.profile.thinking_enabled
-                if isinstance(self.profile, DeepSeekProfile)
-                else False
-            ),
-            base_url=self.base_url,
+        call_tracer, call_usage, use_model, use_effort, use_timeout = (
+            self._resolve_call_params(
+                messages=messages,
+                tools=tools,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                request_timeout_seconds=request_timeout_seconds,
+                tracer=tracer,
+                usage_accumulator=usage_accumulator,
+                async_label=True,
+            )
         )
         attempts = 0
         request_started = time.monotonic()
@@ -685,6 +754,7 @@ class LLMAgentClient:
                         safety_identifier=self.safety_identifier,
                         timeout_seconds=use_timeout,
                         image_context=image_context,
+                        vision_model=settings.openai_vision_model,
                     )
                     kwargs = call.as_kwargs()
                     with tracing_context(enabled=False):
@@ -736,81 +806,31 @@ class LLMAgentClient:
             ):
                 with attempt:
                     response = await create_completion()
-            result = (
-                normalize_response(response, self.profile, requested_model=use_model)
-                if isinstance(self.profile, OpenAIResponsesProfile)
-                else normalize_chat_completion(
-                    response, self.profile, requested_model=use_model
-                )
+            result, turn_usage, message = self._build_result(
+                response,
+                use_model=use_model,
+                call_usage=call_usage,
+                captured_summary=captured_summary_async,
             )
-            self._validate_result(result)
-            turn_usage = UsageSummary()
-            turn_usage.add_record(result.usage)
-            call_usage.add(turn_usage)
-            message = CanonicalMessageBatch(
-                messages=(result.message,)
-            ).to_checkpoint()["messages"][0]
-
-            rt = get_current_run_tree()
-            if rt:
-                trace_meta: Dict[str, Any] = {}
-                if captured_summary_async:
-                    trace_meta["reasoning_summary"] = captured_summary_async
-                if message.get("tool_calls"):
-                    trace_meta["tool_calls"] = message["tool_calls"]
-                if trace_meta:
-                    rt.add_metadata(trace_meta)
         except Exception as error:
-            total_elapsed_ms = round((time.monotonic() - request_started) * 1000, 1)
-            payload = self._failure_payload(
+            payload = self._build_failure_payload(
                 error,
                 attempts,
-                request_timeout_seconds=use_timeout,
-            )
-            payload["total_elapsed_ms"] = total_elapsed_ms
-            call_tracer.event(
-                "agent.error",
-                "Language-model async chat completion failed.",
-                provider=self.provider.value,
-                error_type=payload["type"],
-                retryable=payload["retryable"],
-                attempts=payload["attempts"],
-                status_code=payload.get("status_code"),
-                provider_request_id=payload.get("provider_request_id"),
-                exception_type=payload.get("exception_type"),
-                exception_module=payload.get("exception_module"),
-                timeout_kind=payload.get("timeout_kind"),
-                base_url=payload.get("base_url"),
-                request_timeout_seconds=payload.get("request_timeout_seconds"),
-                sdk_max_retries=payload.get("sdk_max_retries"),
-                max_retry_attempts=payload.get("max_retry_attempts"),
-                retry_max_delay_seconds=payload.get("retry_max_delay_seconds"),
-                total_elapsed_ms=payload.get("total_elapsed_ms"),
+                call_tracer=call_tracer,
+                use_timeout=use_timeout,
+                request_started=request_started,
+                async_label=True,
             )
             raise LLMAgentClientError(payload) from error
 
-        cache_hit_rate = (
-            round(turn_usage.cached_tokens / turn_usage.prompt_tokens * 100, 1)
-            if turn_usage.prompt_tokens > 0 and turn_usage.cached_tokens > 0
-            else None
-        )
-        call_tracer.event(
-            "agent.response",
-            "Received assistant message (async).",
-            provider=self.provider.value,
-            model=getattr(result, "returned_model", use_model),
-            provider_request_id=getattr(result, "provider_request_id", None),
-            has_tool_calls=bool(message.get("tool_calls")),
-            tool_calls=len(message.get("tool_calls") or []),
-            has_content=bool(message.get("content")),
-            has_reasoning=bool(result.message.continuation),
-            reasoning_summary_requested=isinstance(self.profile, OpenAIResponsesProfile),
-            reasoning_summary_fallback=summary_fallback_attempted,
-            prompt_tokens=turn_usage.prompt_tokens or None,
-            completion_tokens=turn_usage.completion_tokens or None,
-            total_tokens=turn_usage.total_tokens or None,
-            cached_tokens=turn_usage.cached_tokens or None,
-            cache_hit_rate=cache_hit_rate,
+        self._trace_response(
+            call_tracer,
+            result=result,
+            message=message,
+            turn_usage=turn_usage,
+            use_model=use_model,
+            summary_fallback_attempted=summary_fallback_attempted,
+            async_label=True,
         )
         return message
 
@@ -1087,7 +1107,9 @@ def _get_shared_openai_client() -> OpenAI:
                     base_url=profile.base_url,
                     timeout=profile.request_timeout_seconds,
                     max_retries=profile.sdk_max_retries,
-                )
+                ),
+                chat_name=f"orchestrator.llm.{profile.provider.value}",
+                completions_name=f"orchestrator.llm.{profile.provider.value}",
             )
         return _shared_openai_client
 
@@ -1130,7 +1152,9 @@ def get_shared_async_agent_client() -> AsyncOpenAI:
                     base_url=profile.base_url,
                     timeout=profile.request_timeout_seconds,
                     max_retries=profile.sdk_max_retries,
-                )
+                ),
+                chat_name=f"orchestrator.llm.{profile.provider.value}",
+                completions_name=f"orchestrator.llm.{profile.provider.value}",
             )
         return _shared_async_agent_client
 

@@ -347,7 +347,7 @@ class TodoistApiClient:
             await self.async_request(f"{TODOIST_REST_BASE_URL}/tasks/{task_id}")
 
     @traceable(
-        name="todoist_api_request",
+        name="api.todoist",
         run_type="tool",
         process_inputs=_todoist_trace_inputs,
         process_outputs=_todoist_trace_outputs,
@@ -501,7 +501,7 @@ class TodoistApiClient:
         )
 
     @traceable(
-        name="todoist_api_async_request",
+        name="api.todoist",
         run_type="tool",
         process_inputs=_todoist_trace_inputs,
         process_outputs=_todoist_trace_outputs,

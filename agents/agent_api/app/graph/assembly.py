@@ -13,6 +13,7 @@ Routing model:
   ``route_by_next`` reads ``state["next"]``).
 """
 
+import functools
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
@@ -40,6 +41,17 @@ def _resolve(target: str) -> Any:
     return END if target == "end" else target
 
 
+def _named_router(node_name: str, router: Callable[[Any], str]) -> Callable[[Any], str]:
+    """Name the edge's LangSmith span after the node it routes out of."""
+
+    @functools.wraps(router)
+    def route(state: Any, *args: Any, **kwargs: Any) -> str:
+        return router(state, *args, **kwargs)
+
+    route.__name__ = f"{node_name}.route"
+    return route
+
+
 def build_graph(
     state_type: Any,
     node_specs: List[NodeSpec],
@@ -61,7 +73,7 @@ def build_graph(
             if not spec.route_map:
                 raise ValueError(f"Node '{spec.name}' has a router but no route_map.")
             mapping = {key: _resolve(target) for key, target in spec.route_map.items()}
-            workflow.add_conditional_edges(spec.name, spec.router, mapping)
+            workflow.add_conditional_edges(spec.name, _named_router(spec.name, spec.router), mapping)
         elif spec.static_route is not None:
             workflow.add_edge(spec.name, _resolve(spec.static_route))
 

@@ -2,6 +2,7 @@
 
 import json
 import os
+from unittest.mock import patch
 
 import pytest
 
@@ -351,3 +352,33 @@ class TestEdgeCases:
         assert result["tool_call_id"] == "missing_tool_call_id"
         assert result["success"] is True
         assert result["tool_name"] == "get_tasks"
+
+
+class TestDynamicSpanNaming:
+    """Task 3: execute_tool and async_execute_tool rename the active run span."""
+
+    def test_execute_tool_calls_name_current_run(self, dispatcher):
+        with patch(
+            "agents.agent_api.app.tools.dispatcher.name_current_run"
+        ) as mock_name:
+            dispatcher.execute_tool(
+                tool_call_id="call_x",
+                tool_name="get_tasks",
+                arguments={},
+            )
+        mock_name.assert_called_once_with("tool.get_tasks")
+
+    def test_async_execute_tool_calls_name_current_run(self, dispatcher):
+        import asyncio
+
+        with patch(
+            "agents.agent_api.app.tools.dispatcher.name_current_run"
+        ) as mock_name:
+            asyncio.run(
+                dispatcher.async_execute_tool(
+                    tool_call_id="call_y",
+                    tool_name="get_tasks",
+                    arguments={},
+                )
+            )
+        mock_name.assert_called_once_with("tool.get_tasks")

@@ -36,7 +36,7 @@ from agents.agent_api.app.tools.base import (
     tool_call_name,
 )
 from agents.agent_api.app.tools.errors import ClassifiedApiError
-from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
+from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter, name_current_run
 
 @dataclass
 class IdempotencyBatchContext:
@@ -214,7 +214,7 @@ class ToolDispatcher:
             )
         return await self.async_execute_tool(tool_call_id, tool_name, arguments)
 
-    @traceable(name="tool_execute_async", run_type="tool")
+    @traceable(name="tool", run_type="tool")
     async def async_execute_tool(
         self,
         tool_call_id: str,
@@ -223,6 +223,7 @@ class ToolDispatcher:
         idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Async equivalent of :meth:`execute_tool` with identical safety policy."""
+        name_current_run(f"tool.{tool_name}")
 
         owner_token: Optional[str] = None
         resolved_key: Optional[str] = None
@@ -629,7 +630,7 @@ class ToolDispatcher:
             )
 
     @traceable(
-        name="tool_execute",
+        name="tool",
         run_type="tool",
     )
     def execute_tool(
@@ -640,6 +641,7 @@ class ToolDispatcher:
         idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute one parsed tool call and return the Jarvis result envelope."""
+        name_current_run(f"tool.{tool_name}")
 
         owner_token: Optional[str] = None
         resolved_key: Optional[str] = None

@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 os.environ["LANGSMITH_TRACING"] = "false"
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
-with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
+with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c, **_: c):
     from agents.agent_api.app.graph.nodes.orchestrator import (
         DeepSeekAgentClient,
         UsageSummary,
@@ -117,7 +117,7 @@ class TestPromptSlimming:
     def test_decision_slims_system_prompt_to_routed_domain(self):
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_with_history(snapshot)
-        selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test"))
+        selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low"))
 
         client, _result = _run_node(state, selector)
 
@@ -129,7 +129,7 @@ class TestPromptSlimming:
         """Slimming rebuilds only messages[0]; the tool result must remain."""
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_with_history(snapshot)
-        selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test"))
+        selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low"))
 
         client, result = _run_node(state, selector)
 
@@ -143,7 +143,7 @@ class TestPromptSlimming:
     def test_empty_decision_slims_to_no_domain_fragments(self):
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_with_history(snapshot)
-        selector = FakeDecisionSelector(RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low", reasoning="test"))
+        selector = FakeDecisionSelector(RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low"))
 
         client, _result = _run_node(state, selector)
 
@@ -174,7 +174,7 @@ class TestOriginalQueryPreservation:
         snapshot = make_snapshot(active=("todoist",))
         state = _state_turn0(snapshot)
         original_user = state["messages"][-1]["content"]
-        selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test"))
+        selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low"))
 
         client, _result = _run_node(state, selector)
 
@@ -182,7 +182,7 @@ class TestOriginalQueryPreservation:
 
     def test_no_reply_context_keeps_raw_router_query(self):
         snapshot = make_snapshot(active=("todoist",))
-        selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test"))
+        selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low"))
 
         _run_node(_state_turn0(snapshot), selector)
 
@@ -197,7 +197,7 @@ class TestEndToEndThroughRealSelector:
         state = _state_turn0(snapshot)
         decision = RouterDecision(
             outcome="routed", domains=["todoist"], uncertain=False,
-            candidate_domains=[], complexity="low", reasoning="test",
+            candidate_domains=[], complexity="low",
         )
         selector = RouterToolSelector(
             router_client=_CannedRouterClient(decision),
@@ -235,7 +235,6 @@ class TestEndToEndThroughRealSelector:
                 uncertain=False,
                 candidate_domains=[],
                 complexity="low",
-                reasoning="task reply context",
             )
         )
         selector = RouterToolSelector(
@@ -266,7 +265,7 @@ class TestEndToEndThroughRealSelector:
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_turn0(snapshot, user_prompt="what's on my google calendar")
         selector = RouterToolSelector(
-            router_client=_CannedRouterClient(RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")),
+            router_client=_CannedRouterClient(RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], complexity="low")),
             snapshot=snapshot,
         )
 
@@ -283,7 +282,7 @@ class TestEndToEndThroughRealSelector:
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_turn0(snapshot, user_prompt="check my todoist calendar")
         selector = RouterToolSelector(
-            router_client=_CannedRouterClient(RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")),
+            router_client=_CannedRouterClient(RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low")),
             snapshot=snapshot,
         )
 
@@ -305,7 +304,6 @@ class TestEndToEndThroughRealSelector:
             uncertain=True,
             candidate_domains=["todoist", "google_calendar"],
             complexity="low",
-            reasoning="test",
         )
         selector = RouterToolSelector(
             router_client=_CannedRouterClient(decision),
@@ -330,7 +328,7 @@ class TestEndToEndThroughRealSelector:
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_turn0(snapshot)
         selector = RouterToolSelector(
-            router_client=_CannedRouterClient(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")),
+            router_client=_CannedRouterClient(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low")),
             snapshot=snapshot,
         )
 
@@ -358,7 +356,7 @@ class TestNoSlimming:
         state = _state_with_history(snapshot)
         state["runtime_context"] = {}  # no snapshot -> no slimming
         original_system = state["messages"][0]["content"]
-        selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test"))
+        selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low"))
 
         client, _result = _run_node(state, selector)
 
@@ -376,7 +374,6 @@ class TestComplexityModelRouting:
                 uncertain=False,
                 candidate_domains=[],
                 complexity="high",
-                reasoning="complex planning",
             )
         )
         client = RecordingClient()
@@ -423,7 +420,6 @@ class TestAsyncCompatibility:
                     uncertain=False,
                     candidate_domains=[],
                     complexity="low",
-                    reasoning="test",
                 )
             ),
             usage_accumulator=usage,
@@ -455,7 +451,6 @@ class TestAsyncCompatibility:
                     uncertain=False,
                     candidate_domains=[],
                     complexity="low",
-                    reasoning="test",
                 )
             ),
         )

@@ -467,3 +467,39 @@ class TestAsyncInfraLifecycle:
             assert cal_mod._shared_async_http_client is None
 
         asyncio.run(run())
+
+
+class TestGcalTraceInputs:
+    """Task 3: _gcal_trace_inputs leaks nothing sensitive."""
+
+    def test_keeps_operation_and_method_only(self):
+        from agents.agent_api.app.tools.google_calendar.client import _gcal_trace_inputs
+
+        fake_self = object()
+        result = _gcal_trace_inputs({
+            "self": fake_self,
+            "operation": "calendar.events.list",
+            "method": "GET",
+            "url": "https://www.googleapis.com/calendar/v3/calendars/user%40example.com/events",
+            "params": {"timeMin": "2026-08-01T00:00:00Z"},
+            "json_body": {"summary": "secret meeting"},
+            "request": object(),
+        })
+
+        assert result == {"operation": "calendar.events.list", "method": "GET"}
+        # url, params, json_body, request, self must not appear
+        for banned in ("url", "params", "json_body", "request", "self"):
+            assert banned not in result
+
+    def test_execute_shape_no_method_does_not_raise(self):
+        """_execute signature has no 'method' arg — process_inputs must not raise."""
+        from agents.agent_api.app.tools.google_calendar.client import _gcal_trace_inputs
+
+        result = _gcal_trace_inputs({
+            "self": object(),
+            "request": object(),
+            "operation": "calendar.calendars.list",
+        })
+
+        assert result == {"operation": "calendar.calendars.list"}
+        assert "method" not in result

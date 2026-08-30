@@ -74,7 +74,7 @@ from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
 # Cap the classifier's output. It only ever returns a small JSON object
-# (outcome, domains, uncertainty, complexity, and short reasoning), so a tight
+# (outcome, domains, uncertainty, and complexity), so a tight
 # ceiling keeps the call fast and cheap without ever truncating a valid decision.
 _ROUTER_MAX_TOKENS = 400
 _ROUTER_SDK_MAX_RETRIES = 0
@@ -101,6 +101,7 @@ def _build_router_openai_client(
     api_key: str,
     base_url: str,
     request_timeout_seconds: float,
+    provider: str,
 ) -> OpenAI:
     return wrap_openai(
         OpenAI(
@@ -108,7 +109,9 @@ def _build_router_openai_client(
             base_url=base_url,
             timeout=request_timeout_seconds,
             max_retries=_ROUTER_SDK_MAX_RETRIES,
-        )
+        ),
+        chat_name=f"domain_router.classify.{provider}",
+        completions_name=f"domain_router.classify.{provider}",
     )
 
 
@@ -117,6 +120,7 @@ def _build_async_router_openai_client(
     api_key: str,
     base_url: str,
     request_timeout_seconds: float,
+    provider: str,
 ) -> AsyncOpenAI:
     return wrap_openai(
         AsyncOpenAI(
@@ -124,7 +128,9 @@ def _build_async_router_openai_client(
             base_url=base_url,
             timeout=request_timeout_seconds,
             max_retries=_ROUTER_SDK_MAX_RETRIES,
-        )
+        ),
+        chat_name=f"domain_router.classify.{provider}",
+        completions_name=f"domain_router.classify.{provider}",
     )
 
 
@@ -146,6 +152,7 @@ def get_shared_router_openai_client() -> OpenAI:
                 api_key=api_key,
                 base_url=ROUTER_BASE_URL,
                 request_timeout_seconds=ROUTER_REQUEST_TIMEOUT_SECONDS,
+                provider=settings.router_llm.provider.value,
             )
         return _shared_router_openai_client
 
@@ -168,6 +175,7 @@ def get_shared_async_router_openai_client() -> AsyncOpenAI:
                 api_key=api_key,
                 base_url=ROUTER_BASE_URL,
                 request_timeout_seconds=ROUTER_REQUEST_TIMEOUT_SECONDS,
+                provider=settings.router_llm.provider.value,
             )
         return _shared_async_router_openai_client
 
@@ -297,6 +305,7 @@ class RouterClient:
                 api_key=self.api_key,
                 base_url=base_url,
                 request_timeout_seconds=request_timeout_seconds,
+                provider=self.profile.provider.value,
             )
             self._owns_sync_client = True
         self._async_client = async_client
@@ -429,6 +438,7 @@ class RouterClient:
                         api_key=self.api_key,
                         base_url=self.base_url,
                         request_timeout_seconds=self.request_timeout_seconds,
+                        provider=self.profile.provider.value,
                     )
                     self._owns_async_client = True
             return self._async_client
@@ -438,7 +448,7 @@ class RouterClient:
         return reasoning_effort.strip().lower() not in {"", "off", "none", "disabled"}
 
     @traceable(
-        name="router_classify",
+        name="domain_router.classify",
         run_type="llm",
     )
     def classify(
@@ -594,7 +604,7 @@ class RouterClient:
         )
         return decision
 
-    @traceable(name="router_classify_async", run_type="llm")
+    @traceable(name="domain_router.classify", run_type="llm")
     async def async_classify(
         self,
         query: str,

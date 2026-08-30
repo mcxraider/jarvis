@@ -29,7 +29,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, RateLimi
 
 # Patch wrap_openai before importing the client so it does not decorate the
 # OpenAI client with actual LangSmith instrumentation during tests.
-with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
+with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c, **_: c):
     from agents.agent_api.app.router import client as router_client_module
     from agents.agent_api.app.router.client import (
         RouterClient,
@@ -53,7 +53,7 @@ from tests.agents.runtime_helpers import make_snapshot
 
 NO_SLEEP = lambda _: None  # noqa: E731 — skip real delays in retry loops
 
-VALID_DECISION_JSON = '{"outcome": "routed", "domains": ["todoist"], "uncertain": false, "candidate_domains": [], "complexity": "low", "reasoning": "task"}'
+VALID_DECISION_JSON = '{"outcome": "routed", "domains": ["todoist"], "uncertain": false, "candidate_domains": [], "complexity": "low"}'
 
 SNAPSHOT = make_snapshot()
 
@@ -132,7 +132,7 @@ def make_status_error(status_code: int, message: str = "Error", headers=None):
 
 def build_client(max_retry_attempts=2):
     """Build an explicit DeepSeek RouterClient, patching wrap_openai."""
-    with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
+    with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c, **_: c):
         client = RouterClient(
             api_key="test-key",
             model="deepseek-v4-flash",
@@ -172,7 +172,7 @@ class TestMissingApiKey:
         """No key argument, no ROUTER_API_KEY constant, no env -> RuntimeError."""
         monkeypatch.setattr("agents.agent_api.app.router.client.ROUTER_API_KEY", None)
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-        with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
+        with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c, **_: c):
             with pytest.raises(RuntimeError, match="required to run the router"):
                 RouterClient(api_key=None)
 
@@ -343,7 +343,7 @@ class TestInvalidResponses:
         client = build_client(max_retry_attempts=3)
         missing_complexity = (
             '{"outcome": "routed", "domains": ["todoist"], "uncertain": false, '
-            '"candidate_domains": [], "reasoning": "task"}'
+            '"candidate_domains": []}'
         )
         with patch.object(
             client.client.chat.completions,
@@ -452,7 +452,7 @@ class TestSuccessfulDecision:
             "create",
             return_value=make_response(
                 content='{"outcome": "routed", "domains": ["todoist", "google_calendar"], '
-                '"uncertain": false, "candidate_domains": [], "complexity": "low", "reasoning": "spans both"}'
+                '"uncertain": false, "candidate_domains": [], "complexity": "low"}'
             ),
         ):
             decision = classify(client)
@@ -460,13 +460,29 @@ class TestSuccessfulDecision:
         assert decision.domains == ["todoist", "google_calendar"]
         assert decision.outcome == "routed"
 
+    def test_legacy_reasoning_is_discarded(self):
+        client = build_client()
+        legacy = (
+            '{"outcome": "routed", "domains": ["todoist"], '
+            '"uncertain": false, "candidate_domains": [], "complexity": "low", '
+            '"reasoning": "legacy explanation"}'
+        )
+        with patch.object(
+            client.client.chat.completions,
+            "create",
+            return_value=make_response(content=legacy),
+        ):
+            decision = classify(client)
+
+        assert "reasoning" not in decision.model_dump()
+
     def test_empty_domains_is_valid(self):
         """A greeting routes to no domain -> empty list, not an error."""
         client = build_client()
         with patch.object(
             client.client.chat.completions,
             "create",
-            return_value=make_response(content='{"outcome": "conversation", "domains": [], "uncertain": false, "candidate_domains": [], "complexity": "low", "reasoning": "greeting"}'),
+            return_value=make_response(content='{"outcome": "conversation", "domains": [], "uncertain": false, "candidate_domains": [], "complexity": "low"}'),
         ):
             decision = classify(client)
         assert decision.domains == []
@@ -600,7 +616,7 @@ class TestSuccessfulDecision:
         assert user_payload["value"] == "User request:\nadd buy milk"
 
     def test_openai_client_receives_configured_timeout_and_disables_sdk_retries(self):
-        with patch("agents.agent_api.app.router.client.wrap_openai", side_effect=lambda c: c):
+        with patch("agents.agent_api.app.router.client.wrap_openai", side_effect=lambda c, **_: c):
             with patch("agents.agent_api.app.router.client.OpenAI") as openai_cls:
                 RouterClient(api_key="test-key", request_timeout_seconds=5.0)
         assert openai_cls.call_args.kwargs["timeout"] == 5.0
@@ -655,7 +671,7 @@ class TestSharedRouterTransports:
         monkeypatch.setattr(router_client_module, "ROUTER_API_KEY", "test-key")
         sdk_client = MagicMock()
         with patch.object(router_client_module, "OpenAI", return_value=sdk_client) as openai_cls, patch.object(
-            router_client_module, "wrap_openai", side_effect=lambda value: value
+            router_client_module, "wrap_openai", side_effect=lambda value, **_: value
         ):
             first = get_shared_router_client()
             second = get_shared_router_client()
@@ -673,7 +689,7 @@ class TestSharedRouterTransports:
         with patch.object(
             router_client_module, "AsyncOpenAI", return_value=sdk_client
         ) as openai_cls, patch.object(
-            router_client_module, "wrap_openai", side_effect=lambda value: value
+            router_client_module, "wrap_openai", side_effect=lambda value, **_: value
         ):
             first = get_shared_async_router_openai_client()
             second = get_shared_async_router_openai_client()
@@ -793,3 +809,18 @@ class TestConcurrentRequestIsolation:
             for payload in second_tracer.payloads
             if payload["label"] == "user_prompt"
         )
+
+
+def test_wrap_openai_receives_domain_router_span_names():
+    """wrap_openai is called with domain_router.classify.<provider> span names."""
+    spy = MagicMock(side_effect=lambda c, **_: c)
+    with (
+        patch("agents.agent_api.app.router.client.wrap_openai", spy),
+        patch("agents.agent_api.app.router.client.OpenAI", return_value=MagicMock()),
+    ):
+        RouterClient(api_key="test-key")
+    assert spy.called
+    call_kwargs = spy.call_args[1]
+    assert call_kwargs["chat_name"].startswith("domain_router.classify.")
+    assert call_kwargs["completions_name"].startswith("domain_router.classify.")
+    assert call_kwargs["chat_name"] == call_kwargs["completions_name"]

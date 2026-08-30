@@ -22,7 +22,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, RateLimi
 
 # Patch wrap_openai before importing the client so it does not decorate the
 # OpenAI client with actual LangSmith instrumentation during tests.
-with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
+with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c, **_: c):
     from agents.agent_api.app.graph.nodes.orchestrator import (
         DEEPSEEK_MAX_TOKENS,
         DEEPSEEK_REASONING_EFFORT,
@@ -149,7 +149,7 @@ def make_read_timeout_error():
 
 def build_client(max_retry_attempts=3):
     """Build a DeepSeekAgentClient with test defaults, patching wrap_openai."""
-    with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
+    with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c, **_: c):
         client = DeepSeekAgentClient(
             api_key="test-key",
             reasoning_effort="high",
@@ -189,7 +189,7 @@ class TestMissingApiKey:
             reasoning_effort="high",
             thinking_enabled=True,
         )
-        with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c: c):
+        with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c, **_: c):
             with pytest.raises(RuntimeError, match="DEEPSEEK API key is required"):
                 DeepSeekAgentClient(profile=profile)
 
@@ -548,7 +548,7 @@ class TestSharedSdkClients:
             ) as async_openai_cls,
             patch(
                 "agents.agent_api.app.graph.nodes.orchestrator.wrap_openai",
-                side_effect=lambda client: client,
+                side_effect=lambda client, **_: client,
             ),
         ):
             first = get_shared_agent_client(tracer=first_tracer)
@@ -587,7 +587,7 @@ class TestSharedSdkClients:
             ) as async_openai_cls,
             patch(
                 "agents.agent_api.app.graph.nodes.orchestrator.wrap_openai",
-                side_effect=lambda client: client,
+                side_effect=lambda client, **_: client,
             ),
         ):
             assert get_shared_async_agent_client() is first_sdk
@@ -622,7 +622,7 @@ class TestSharedSdkClients:
             ) as openai_cls,
             patch(
                 "agents.agent_api.app.graph.nodes.orchestrator.wrap_openai",
-                side_effect=lambda client: client,
+                side_effect=lambda client, **_: client,
             ),
         ):
             threads = [threading.Thread(target=get_binding) for _ in range(4)]
@@ -853,3 +853,22 @@ class TestOpenAIProviderIntegration:
             )
         assert raised.value.payload["type"] == "invalid_response"
         assert raised.value.payload["provider"] == "openai"
+
+
+def test_wrap_openai_receives_orchestrator_span_names(monkeypatch):
+    """wrap_openai is called with orchestrator.llm.<provider> span names."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    close_shared_agent_client()
+    spy = MagicMock(side_effect=lambda c, **_: c)
+    with (
+        patch("agents.agent_api.app.graph.nodes.orchestrator.wrap_openai", spy),
+        patch("agents.agent_api.app.graph.nodes.orchestrator.OpenAI", return_value=MagicMock()),
+    ):
+        from agents.agent_api.app.graph.nodes.orchestrator import _get_shared_openai_client
+        _get_shared_openai_client()
+    close_shared_agent_client()
+    assert spy.called
+    call_kwargs = spy.call_args[1]
+    assert call_kwargs["chat_name"].startswith("orchestrator.llm.")
+    assert call_kwargs["completions_name"].startswith("orchestrator.llm.")
+    assert call_kwargs["chat_name"] == call_kwargs["completions_name"]

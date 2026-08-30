@@ -4,11 +4,17 @@ Guidance for coding agents working in this repository.
 
 ## Project
 
-Jarvis is a multi-user Telegram assistant for task and calendar management. The TypeScript service owns Telegram, audio transcription, photo description (OpenAI vision), streaming progress, reasoning-summary display, and HITL inline-button callbacks. Text is forwarded to the Python LangGraph agent API, which owns LLM calls (DeepSeek Chat Completions + OpenAI Responses), domain routing, model routing, HITL interrupts, Todoist tool execution, and Google Calendar tool execution.
+Jarvis is a multi-user Telegram assistant for task and calendar management. The TypeScript service owns Telegram, audio transcription, image intake (album batching, JPEG validation, base64 hand-off), streaming progress, reasoning-summary display, and HITL inline-button callbacks. Text and images are forwarded to the Python LangGraph agent API, which owns LLM calls, domain routing, model routing, HITL interrupts, Todoist tool execution, and Google Calendar tool execution.
+
+`README.md` is the architecture narrative (diagram, request gate order, guard descriptions) and is kept current — read it before large changes. This file is the map of *where things live*.
 
 Active tool domains: Todoist, Google Calendar.
 Placeholder stubs only (not active): Gmail, Notion, Apple Calendar, Apple Notes, GitHub, Google Drive.
 Not in scope: MCP child-process infrastructure, tool-search experiments.
+
+### LLM providers
+
+`LLM_PROVIDER` defaults to **`openai`** (OpenAI Responses dialect). DeepSeek Chat Completions is the operational rollback override, not the default — do not assume DeepSeek when reading model/pricing/reasoning code. Per-role overrides (orchestrator, summarizer, router) inherit `LLM_PROVIDER` unless explicitly set; requests carrying images use `OPENAI_VISION_MODEL`. `pricing.py` carries token-rate tables for both providers, with OpenAI split into `standard` / `long_context` tiers.
 
 ## Commands
 
@@ -23,9 +29,16 @@ npm run lint
 npm run lint:fix
 npm run clean
 
+# Python (from project root, venv active)
+pytest tests/agents/
+
 # Agent CLI (for local testing without Telegram)
 npm run agent
 # or directly: python3 agents/agent_api/app/runner.py
+
+# Both servers together / stop them
+./scripts/start_servers.sh
+./scripts/kill_servers.sh
 
 # Supabase local
 npm run db:start
@@ -70,7 +83,8 @@ Telegram update
   -> deliverProgress()  ← 5s per-callback budget, single shared kill switch
   -> TelegramProgressReporter (ephemeral status line via ProgressNarrator)
   -> TelegramReasoningSummaryReporter (coalesced reasoning-summary message)
-  -> Python FastAPI /invoke or /resume (agents/agent_api/app/api/routes/)
+  -> Python FastAPI /invoke, /invoke/stream, /invoke-bulk, /resume, /resume/stream
+     (agents/agent_api/app/api/routes/)
   -> request_gate middleware (auth, rate_limit, idempotency, admission, thread_ownership)
   -> graph/builder.py: run_jarvis / run_jarvis_async
   -> pre-graph DI setup (injected into RunDeps, not graph nodes):
@@ -91,27 +105,44 @@ Telegram update
 ### Graph Node Topology
 
 ```text
-ENTRY -> agent
+ENTRY -> orchestrator
          |-- (error) ------------------> END
-         |-- (ask_user tool call?) --> hitl --> agent
+         |-- (ask_user tool call?) --> clarify --> orchestrator
          |-- (has tool calls) ------> validate_entities
          |-- (no tool calls) -------> END
 
 validate_entities
          |-- (all IDs verified, safe only) --> tools
          |-- (risky calls present) ----------> prepare_confirm
-         |-- (hallucinated IDs) -------------> agent (error feedback)
+         |-- (hallucinated IDs) -------------> orchestrator (error feedback)
 
 tools
-         |-- (large result) --> summarize --> agent
-         |-- (normal result) -> agent
+         |-- (large result) --> summarize --> orchestrator
+         |-- (normal result) -> orchestrator
 
 prepare_confirm --> confirm
-         |-- (user approves) --> executor --> agent
+         |-- (user approves) --> executor --> orchestrator
          |-- (user declines) --> END
 ```
 
-Audio messages are transcribed then routed through the same `TextProcessorService`, so typed and spoken requests share the Python LangGraph path.
+Node keys are literally `graph.*` in `builder.py` (`graph.orchestrator`, `graph.clarify`, `graph.validate_entities`, `graph.tools`, `graph.summarize`, `graph.prepare_confirm`, `graph.confirm`, `graph.executor`). The ASCII diagrams above omit the prefix for readability. Note `graph.clarify` is the node key; the implementation file is still `graph/nodes/hitl.py`.
+
+### Input channels
+
+All four channels converge on the same Python graph path:
+
+- **Text** → `TextProcessorService` → `/invoke`.
+- **Voice / audio** → Whisper transcription → same `TextProcessorService`.
+- **Photos** → `MessageHandlers.handlePhoto` buffers Telegram `media_group_id` albums for `ALBUM_QUIET_MS` (1.5s), then downloads and JPEG-validates each file into `AgentImage[]` (data-URL base64) → `MessageProcessorService.processPhotoMessage`. Bounds live in `src/types/agent.types.ts`: `MAX_AGENT_IMAGE_COUNT` (10), `MAX_AGENT_IMAGE_BYTES` (10 MB total per turn), `MAX_AGENT_IMAGE_BATCHES` (20). Images sent during a HITL pause are persisted as `image_batches` on `telegram_pending_clarifications` so a resume replays them.
+- **Forwards** → buffered in `forward-buffer.store.ts` until `/forward <instruction>` dispatches them as one combined turn (text + any buffered photos), always force-fresh.
+
+### Tracing
+
+LangSmith tracing is wired at three layers — keep new code consistent with it:
+
+- `tracing.py` — `name_current_run()` renames the active run; `TracePrinter` / `UserProgressTracePrinter` emit progress facts.
+- `graph/assembly.py` — `_named_router()` wraps each conditional edge so it traces as `<node>.route`.
+- `wrap_openai` / `@traceable` on the LLM and API boundaries: `graph/nodes/orchestrator.py`, `graph/nodes/summarize.py`, `router/client.py`, `tools/dispatcher.py`, `tools/todoist/client.py`, `tools/google_calendar/client.py`. Tool spans are named dynamically from the tool call.
 
 > **Note:** `agents/jarvis.py` and `agents/api.py` are legacy compatibility shims. All real logic lives in `agents/agent_api/app/`.
 
@@ -123,7 +154,7 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 - `src/server.ts` — Express server: `/ping`, `/health`, webhook mount, graceful shutdown
 - `src/config/turn-timeout.config.ts` — timeout ladder (overall, stream-idle, Telegraf handler) with env overrides
 - `src/controllers/webhook.controller.ts` — `POST /webhook/:secret` route factory
-- `src/types/agent.types.ts` — Zod schemas: `AgentResponseSchema`, `StreamEventSchema`, `ProgressFactSchema`, `AgentHealthDetailSchema`
+- `src/types/agent.types.ts` — Zod schemas + image limits: `AgentImageSchema`/`AgentImagesSchema`/`AgentImageBatchesSchema`, `MAX_AGENT_IMAGE_*`, `AgentResponseSchema`, `StreamEventSchema` (discriminated union of progress / reasoning-summary / final), `ProgressFactSchema`, `AgentHealthDetailSchema`, `LangGraphInterruptSchema`, `TelegramIdentitySchema`
 - `src/types/telegram.types.ts` — `TelegramConfig` interface
 
 #### `src/services/ai/`
@@ -132,6 +163,7 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 - `agent-contract-readiness.ts` — startup barrier: verifies timeout ladder invariants against agent `/health/detail`
 - `whisper.service.ts` — audio transcription via Groq Whisper large-v3 (download, validate, convert, retry, quality metrics)
 - `groq-transcription-error.ts` — structured error with category, retryable flag, provider metadata
+- `index.ts` — barrel re-exporting the client, Whisper service, and transcription error
 
 #### `src/services/database/`
 
@@ -140,14 +172,14 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 #### `src/services/telegram/`
 
 - `telegram-bot.service.ts` — Telegraf lifecycle, auth middleware, webhook registration, global error boundary
-- `telegram-menu.registry.ts` — Telegram commands menu (autocomplete): `/new`, `/cancel`, `/help`
+- `telegram-menu.registry.ts` — Telegram commands menu (autocomplete): `/new`, `/cancel`, `/help`, `/forward`
 - `telegram-progress-reporter.ts` — ephemeral Telegram status line transport (rich draft or MarkdownV2 edit)
 - `telegram-reasoning-summary-reporter.ts` — ephemeral reasoning-summary message (coalesced pump, 1s edit cadence, auto-deleted on completion)
 - `progress-narrator.ts` — reduces streaming ProgressFact events + elapsed time into user-facing copy
 - `forward-buffer.store.ts` — in-memory buffer for user-forwarded messages, accumulated per conversation until dispatched
 - `message-processor.service.ts` — gate-aware pipeline orchestrator
 - `conversation-gate.store.ts` — per-conversation serialization (idle/running/waiting); Postgres-backed
-- `pending-clarification.store.ts` — HITL interrupt state persistence; Postgres-backed
+- `pending-clarification.store.ts` — HITL interrupt state persistence incl. queued `imageBatches`; Postgres-backed
 - `terminal-reply.store.ts` — in-memory deduplication ledger (prevents double-reply on Telegraf watchdog)
 - `user-authorization.store.ts` — DB-backed auth (`telegram_identities` + `users`), emergency deny, `last_seen_at`
 - `conversation-key.ts` — SHA-256 conversation keys, `mapTelegramUserId()`
@@ -161,8 +193,8 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 ##### `src/services/telegram/handlers/`
 
 - `telegram-handlers.ts` — registration coordinator (wires commands, callbacks, message types)
-- `command-handlers.ts` — `/start`, `/help`, `/status`, `/cancel`, `/new`
-- `message-handlers.ts` — text, voice, audio, photo, document, unsupported media
+- `command-handlers.ts` — `/start`, `/help`, `/status`, `/cancel` only. `/help` also documents `/new` and `/forward`, whose handlers live in `message-handlers.ts`.
+- `message-handlers.ts` — text, voice, audio, photo (+album batching), document, unsupported media; plus `handleNew` (`/new`), `handleForward` (`/forward`), and `maybeBufferForward` (forward buffering)
 - `callback-handler.ts` — inline keyboard confirm/decline callbacks, resumes agent
 
 ##### `src/services/telegram/processors/`
@@ -195,12 +227,12 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 - `constants.py` — runtime constants derived from settings (model params, thresholds, tags)
 - `db.py` — PostgreSQL connection pool (`get_pool`, `close_pool`, `verify_database_runtime`)
 - `credentials.py` — `IntegrationCredential`, Vault resolution
-- `pricing.py` — token cost/usage accounting (DeepSeek pricing tables)
+- `pricing.py` — token cost/usage accounting; OpenAI (`standard`/`long_context` tiers) + DeepSeek rate tables, each stamped with a `*_PRICING_AS_OF` date
 - `run_logging.py` — `RunFileLog`, `FileLoggingTracer`, flush/shutdown helpers
 - `errors.py` — API key validation, shared exception types
 - `async_offload.py` — bounded `asyncio.to_thread` with per-loop semaphore and cancellation safety
 - `post_run.py` — bounded FIFO queue for non-critical post-run DB writes
-- `tracing.py` — `TracePrinter`, `ProgressCallback` protocol
+- `tracing.py` — `TracePrinter`, `UserProgressTracePrinter`, `name_current_run()`, `ProgressCallback` protocol
 - `runner.py` — local CLI runner (terminal prompts, HITL via input())
 - `studio.py` — LangGraph Studio graph entrypoint
 - `service.py` — legacy compatibility aggregator (re-exports public surface)
@@ -216,7 +248,7 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 #### `graph/`
 
 - `builder.py` — `create_jarvis_graph`, `run_jarvis`/`run_jarvis_async`, state init, usage persistence
-- `assembly.py` — declarative `NodeSpec` dataclass + `build_graph()` compiler
+- `assembly.py` — declarative `NodeSpec` dataclass, `build_graph()` compiler, `_named_router()` edge-span naming
 - `state.py` — `JarvisState` TypedDict + interrupt enrichment
 - `edges.py` — routing functions: `route_after_agent`, `route_after_tools`, `route_after_confirm`, `route_by_next`
 - `risk.py` — deterministic risk classification, `partition_tool_calls()` (risky vs safe)
@@ -231,7 +263,7 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 
 - `orchestrator.py` — LLM agent node (`LLMAgentClient`, `create_agent_node`)
 - `tools.py` — tool execution node (delegates to `ToolDispatcher`)
-- `hitl.py` — human-in-the-loop clarification interrupt
+- `hitl.py` — human-in-the-loop clarification interrupt (registered as node `graph.clarify`)
 - `confirm.py` — confirmation interrupt node (pauses run, awaits approve/decline)
 - `prepare_confirm.py` — freezes risky calls into `held_calls`, enriches with context
 - `executor.py` — post-approval execution: hash-binding guard, sequential dispatch, circuit breaker
@@ -268,7 +300,7 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 
 - `client.py` — `RouterClient`: LLM classifier for domain routing
 - `prompt.py` — `RouterDecision`, `RouterOutcome`, `QueryComplexity`, prompt templates
-- `model_router.py` — `ModelRouter`: rule-based model/reasoning selection (zero network)
+- `model_router.py` — `ModelRouter`: rule-based model/reasoning/timeout selection, zero network. Strongest-signal-wins rule order: `uncertain_or_high_complexity` → `empty_domains` → `medium_complexity_or_multi_domain` → `simple_certain_single_domain`, else default. Adding a rule means adding it in the right position, not appending.
 - `cache.py` — `RouterCache`: LRU+TTL process-local cache for router decisions
 - `fast_path.py` — regex-based deterministic fast path (no LLM call for unambiguous queries)
 
@@ -281,11 +313,11 @@ Audio messages are transcribed then routed through the same `TextProcessorServic
 
 #### `api/`
 
-- `routes/invoke.py` — POST `/invoke` (main agent invocation)
-- `routes/resume.py` — POST `/resume` (HITL resume)
-- `routes/health.py` — GET `/health`
+- `routes/invoke.py` — POST `/invoke`, `/invoke/stream` (NDJSON), `/invoke-bulk`
+- `routes/resume.py` — POST `/resume`, `/resume/stream` (HITL resume)
+- `routes/health.py` — GET `/health` (liveness/readiness), `/health/detail` (timeout ladder + dependency checks consumed by `agent-contract-readiness.ts`)
 - `routes/cancel.py` — POST `/runs/cancel` (run cancellation)
-- `schemas.py` — Pydantic request/response models
+- `schemas.py` — Pydantic request/response models (`AgentResponse`, `BulkAgentResponse`, `CancelResponse`, `DetailedHealthResponse`)
 - `active_runs.py` — `ActiveRunRegistry`: identity-safe registry of in-flight runs with deadlines
 - `admission.py` — `RunAdmission`: process-wide bounded semaphore for concurrent runs
 - `request_idempotency.py` — request-level idempotency coordination (key generation, claim orchestration)
@@ -329,7 +361,7 @@ Key tables: `public.users`, `public.telegram_identities`, `public.user_preferenc
 
 Migrations live in `supabase/migrations/`. Use `npm run db:*` scripts for local Supabase management.
 
-Notable migrations include: multi-user foundation, integration connections, user preferences versioning, usage cost tracking, thread quota middleware, daily usage snapshots, daily rate-limit resets, runtime state cleanup, gate active-request tracking, preferences v1 extension, and user domain-specific comments.
+Notable migrations include: multi-user foundation, integration connections, user preferences versioning, usage cost tracking, thread quota middleware, daily usage snapshots, daily rate-limit resets, runtime state cleanup, gate active-request tracking, preferences v1 extension, user domain-specific comments, Google Calendar task routing, provider usage call identity, extended reasoning effort for OpenAI Responses, and pending-clarification image batches (`20260827090000`, latest).
 
 ## Logging
 
@@ -411,9 +443,14 @@ tests/
 │   ├── test_*.py                  # graph, routing, tools, user context, resilience, multi-user e2e
 │   └── conftest.py
 ├── data/                          # test fixtures
-│   ├── router_evals/             # per-user router evaluation fixtures
-│   └── router_users/
-└── helpers/                       # shared test utilities
+│   ├── router_evals/              # per-user router evaluation fixtures
+│   ├── router_users/
+│   ├── router_queries.py
+│   └── stress_tests.csv
+├── helpers/                       # shared test utilities (test-run-logger.ts)
+├── conftest.py                    # pytest root config
+├── setup.ts                       # jest setup
+└── send-telegram-*.ts             # manual Telegram send scripts (npm run test:telegram-rich*)
 ```
 
 Jest config: `jest.config.js` (unit: `tests/unit/**/*.test.ts`), `jest.integration.config.js` (integration: `tests/integration/**/*.test.ts`).
@@ -445,7 +482,11 @@ Do not commit generated or local files:
 - `node_modules/`
 - `venv/`
 - `.env`
+- `__pycache__/`
+- Editor/Finder duplicates matching `* 2.ts`, `* 2.py`, `* 2.md`. Several exist untracked in the worktree (e.g. `src/services/telegram/telegram-reasoning-summary-reporter 2.ts`, `agents/agent_api/app/llm/streaming 2.py`). Never stage them, never edit them, and never treat them as source when searching.
 
-Keep `.env.sample` committed.
+Keep `.env.sample` committed; add any new env var there in the same change that reads it.
+
+Working notes live in `plans/` (forward-looking implementation plans) and `reports/` (audits, feature write-ups, architecture snapshots). Put new design or audit documents there, not at the repo root.
 
 Use the current flat ESLint config: `eslint.config.js`. Do not reintroduce `.eslintrc.json`.

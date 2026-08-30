@@ -209,7 +209,8 @@ def _log_usage(
                                 cached_input_tokens, cache_write_input_tokens,
                                 uncached_input_tokens, output_tokens,
                                 reasoning_tokens, request_input_tokens,
-                                pricing_tier, cost_usd, latency_ms
+                                pricing_tier, cost_usd,
+                                latency_ms
                             ) VALUES (
                                 public.resolve_user_id(%s), %s, 'llm_call',
                                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
@@ -383,7 +384,7 @@ def create_jarvis_graph(
 
     node_specs = [
         NodeSpec(
-            name="agent",
+            name="graph.orchestrator",
             node=create_agent_node(
                 agent_client,
                 registry,
@@ -395,48 +396,48 @@ def create_jarvis_graph(
             ),
             router=route_after_agent,
             route_map={
-                "hitl": "hitl",
-                "validate": "validate_entities",
+                "hitl": "graph.clarify",
+                "validate": "graph.validate_entities",
                 "end": "end",
             },
         ),
         NodeSpec(
-            name="validate_entities",
+            name="graph.validate_entities",
             node=create_validate_entities_node(tracer),
             router=route_by_next,
             route_map={
-                "tools": "tools",
-                "prepare_confirm": "prepare_confirm",
-                "agent": "agent",
+                "tools": "graph.tools",
+                "prepare_confirm": "graph.prepare_confirm",
+                "agent": "graph.orchestrator",
             },
         ),
         NodeSpec(
-            name="tools",
+            name="graph.tools",
             node=create_tools_node(tool_dispatcher, tracer),
             router=route_after_tools,
-            route_map={"agent": "agent", "summarize": "summarize"},
+            route_map={"agent": "graph.orchestrator", "summarize": "graph.summarize"},
         ),
-        NodeSpec(name="summarize", node=create_summarize_node(tracer), static_route="agent"),
-        NodeSpec(name="hitl", node=create_hitl_node(tracer), static_route="agent"),
+        NodeSpec(name="graph.summarize", node=create_summarize_node(tracer), static_route="graph.orchestrator"),
+        NodeSpec(name="graph.clarify", node=create_hitl_node(tracer), static_route="graph.orchestrator"),
         NodeSpec(
-            name="prepare_confirm",
+            name="graph.prepare_confirm",
             node=create_prepare_confirm_node(tracer),
-            static_route="confirm",
+            static_route="graph.confirm",
         ),
         NodeSpec(
-            name="confirm",
+            name="graph.confirm",
             node=create_confirm_node(tracer),
             router=route_after_confirm,
-            route_map={"approve": "executor", "decline": "end"},
+            route_map={"approve": "graph.executor", "decline": "end"},
         ),
         NodeSpec(
-            name="executor",
+            name="graph.executor",
             node=create_executor_node(tool_dispatcher, tracer),
-            static_route="agent",
+            static_route="graph.orchestrator",
         ),
     ]
 
-    return build_graph(JarvisState, node_specs, entry="agent", checkpointer=checkpointer)
+    return build_graph(JarvisState, node_specs, entry="graph.orchestrator", checkpointer=checkpointer)
 
 
 _compiled_graphs: dict[int, tuple[Any, Any]] = {}
@@ -796,6 +797,7 @@ async def run_jarvis_async(
         default_model=settings.model_router_default_model,
         default_reasoning=settings.model_router_default_reasoning,
         default_timeout_seconds=settings.model_router_default_timeout_seconds,
+        simple_reasoning=settings.model_router_simple_reasoning,
         complex_model=settings.model_router_complex_model,
         complex_reasoning=settings.model_router_complex_reasoning,
         complex_timeout_seconds=settings.model_router_complex_timeout_seconds,
@@ -846,7 +848,7 @@ async def run_jarvis_async(
         },
     }
     tracer.event(
-        "runtime.graph", "Compiled graph.", nodes="agent, validate_entities, hitl, tools"
+        "runtime.graph", "Compiled graph.", nodes="graph.orchestrator, graph.validate_entities, graph.clarify, graph.tools, graph.summarize, graph.prepare_confirm, graph.confirm, graph.executor"
     )
     # Native LangSmith tracing (LangGraph node spans + @traceable / wrap_openai
     # child spans) is governed by the LANGSMITH_TRACING env var. Tracing is

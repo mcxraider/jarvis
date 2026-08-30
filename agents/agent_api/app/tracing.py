@@ -3,6 +3,8 @@
 import json
 from typing import Any, Callable, Dict, Optional
 
+from langsmith.run_helpers import get_current_run_tree
+
 from agents.agent_api.app.constants import DEBUG_PAYLOADS, DEBUG_TRACE
 
 ProgressCallback = Callable[[Dict[str, Any]], None]
@@ -69,6 +71,19 @@ class TracePrinter:
 NULL_TRACE = TracePrinter(enabled=False)
 
 
+def name_current_run(name: str) -> None:
+    """Rename the active LangSmith span so trace names identify the actual work.
+
+    Best-effort: a no-op when tracing is disabled, and never raises into a request.
+    """
+    try:
+        run_tree = get_current_run_tree()
+        if run_tree is not None:
+            run_tree.name = name
+    except Exception:
+        pass
+
+
 class UserProgressTracePrinter(TracePrinter):
     """Trace printer that forwards graph-owned structured progress facts."""
 
@@ -97,4 +112,4 @@ class UserProgressTracePrinter(TracePrinter):
         self.progress_callback({"reasoning_summary": text})
 
 
-__all__ = ["ProgressCallback", "TracePrinter", "UserProgressTracePrinter", "NULL_TRACE"]
+__all__ = ["ProgressCallback", "TracePrinter", "UserProgressTracePrinter", "NULL_TRACE", "name_current_run"]

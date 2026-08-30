@@ -27,9 +27,28 @@ from agents.agent_api.app.tools.google_calendar.auth import (
     GoogleCalendarApiError,
     load_credentials,
 )
+from langsmith import traceable
+
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 logger = logging.getLogger(__name__)
+
+
+def _gcal_trace_inputs(inputs: dict) -> dict:
+    """Keep Calendar spans useful without recording IDs, URLs, or request bodies."""
+    result: dict = {"operation": inputs.get("operation", "")}
+    if "method" in inputs:
+        result["method"] = inputs["method"]
+    return result
+
+
+def _gcal_trace_outputs(output: object) -> dict:
+    """Never copy Calendar response content into LangSmith traces."""
+    return {
+        "has_result": output is not None,
+        "result_type": type(output).__name__,
+    }
+
 
 _MAX_ATTEMPTS = 3
 _HTTP_TIMEOUT_SECONDS = 30.0
@@ -357,6 +376,12 @@ class GoogleCalendarClient:
 
     # -- shared execution wrapper -------------------------------------------------
 
+    @traceable(
+        name="api.google_calendar",
+        run_type="tool",
+        process_inputs=_gcal_trace_inputs,
+        process_outputs=_gcal_trace_outputs,
+    )
     def _execute(self, request: Any, operation: str) -> Any:
         import httplib2
         from google_auth_httplib2 import AuthorizedHttp
@@ -655,6 +680,12 @@ class GoogleCalendarClient:
             self._async_token_manager = _AsyncTokenManager(self._credential_coordinator)
         return self._async_token_manager
 
+    @traceable(
+        name="api.google_calendar",
+        run_type="tool",
+        process_inputs=_gcal_trace_inputs,
+        process_outputs=_gcal_trace_outputs,
+    )
     async def _async_execute(
         self,
         method: str,

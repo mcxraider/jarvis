@@ -39,6 +39,15 @@ def _reset_shared_summarizer_clients():
     asyncio.run(close_shared_async_summarizer_client())
 
 
+@pytest.fixture(autouse=True)
+def _patch_summarize_wrap_openai():
+    with patch(
+        "agents.agent_api.app.graph.nodes.summarize.wrap_openai",
+        side_effect=lambda c, **_: c,
+    ):
+        yield
+
+
 # --- Extraction tests ---
 
 
@@ -703,3 +712,18 @@ def test_openai_summarizer_request_and_usage_are_provider_aware(monkeypatch):
     assert len(ledger.calls) == 1
     assert ledger.calls[0].provider.value == "openai"
     assert ledger.calls[0].cached_read_tokens == 10
+
+
+def test_wrap_openai_receives_summarize_span_names(monkeypatch):
+    """wrap_openai is called with summarize.llm.<provider> span names."""
+    spy = MagicMock(side_effect=lambda c, **_: c)
+    with (
+        patch("agents.agent_api.app.graph.nodes.summarize.wrap_openai", spy),
+        patch("agents.agent_api.app.graph.nodes.summarize.OpenAI", return_value=MagicMock()),
+    ):
+        get_shared_summarizer_client()
+    assert spy.called
+    call_kwargs = spy.call_args[1]
+    assert call_kwargs["chat_name"].startswith("summarize.llm.")
+    assert call_kwargs["completions_name"].startswith("summarize.llm.")
+    assert call_kwargs["chat_name"] == call_kwargs["completions_name"]
