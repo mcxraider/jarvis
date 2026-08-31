@@ -12,7 +12,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from agents.api import app
+from agents.agent_api.app.main import app
 from agents.agent_api.app.api import request_idempotency
 from agents.agent_api.app.api.request_idempotency import (
     RequestIdempotencyCoordinator,

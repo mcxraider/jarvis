@@ -116,7 +116,8 @@ describe('Confirm flow: text → buttons → callback → reply', () => {
     const { ctx } = await harness.pressButton(`confirm:approve:${THREAD_ID}`);
 
     expect(ctx.reply).toHaveBeenCalledWith(
-      'Something went wrong processing your decision. Please try again.',
+      expect.stringContaining('Something went wrong processing your decision'),
+      { parse_mode: 'MarkdownV2' },
     );
   });
 

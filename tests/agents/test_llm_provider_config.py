@@ -33,6 +33,7 @@ def _clean_llm_env(monkeypatch) -> None:
         "MODEL_ROUTER_DEFAULT_MODEL",
         "MODEL_ROUTER_COMPLEX_MODEL",
         "MODEL_ROUTER_DEFAULT_REASONING",
+        "MODEL_ROUTER_SIMPLE_REASONING",
         "MODEL_ROUTER_COMPLEX_REASONING",
         "MODEL_ROUTER_MULTI_DOMAIN_REASONING",
         "OPENAI_COMPLEX_MODEL",
@@ -64,6 +65,7 @@ def test_openai_luna_medium_is_default_and_profiles_are_frozen(monkeypatch):
     assert configured.model_router_default_model == "gpt-5.6-luna"
     assert configured.model_router_complex_model == "gpt-5.6-luna"
     assert configured.model_router_default_reasoning == "medium"
+    assert configured.model_router_simple_reasoning == "low"
     assert configured.model_router_complex_reasoning == "medium"
     assert configured.model_router_multi_domain_reasoning == "medium"
     assert "test-openai-key" not in repr(configured.orchestrator_llm)
@@ -103,6 +105,7 @@ def test_provider_parsing_normalizes_case_and_whitespace(monkeypatch, raw):
     assert configured.orchestrator_llm.model == "gpt-5.6-luna"
     assert configured.model_router_complex_model == "gpt-5.6-luna"
     assert configured.model_router_default_reasoning == "medium"
+    assert configured.model_router_simple_reasoning == "low"
 
 
 @pytest.mark.parametrize("raw", ["", "   ", "anthropic"])
@@ -180,7 +183,7 @@ def test_role_override_requires_its_provider_key_and_secret(monkeypatch):
 
 @pytest.mark.parametrize(
     ("router_enabled", "tool_selector"),
-    [("false", "router"), ("true", "static"), ("true", "keyword")],
+    [("false", "router"), ("true", "static")],
 )
 def test_inactive_router_override_does_not_require_unused_provider(
     monkeypatch, router_enabled, tool_selector
@@ -283,6 +286,7 @@ def test_openai_rejects_foreign_models_in_every_role(monkeypatch, name, value):
     "name",
     [
         "MODEL_ROUTER_DEFAULT_REASONING",
+        "MODEL_ROUTER_SIMPLE_REASONING",
         "MODEL_ROUTER_COMPLEX_REASONING",
         "MODEL_ROUTER_MULTI_DOMAIN_REASONING",
     ],

@@ -8,6 +8,7 @@ import { createRequestId, logger } from './utils/logger';
 import { TelegramConfig } from './types/telegram.types';
 import { LangGraphAgentClient } from './services/ai/langgraph-agent-client.service';
 import { WhisperService } from './services/ai/whisper.service';
+import { AudioConverter } from './utils/ai/audioConverter';
 import { createPendingClarificationStore } from './services/telegram/pending-clarification.store';
 import { createConversationGateStore } from './services/telegram/conversation-gate.store';
 import { FileService } from './services/telegram/file.service';
@@ -98,6 +99,9 @@ export const agentContractReadiness = verifyAgentContract(agentClient, {
   clientOverallMs: agentTimeouts.overallMs,
   clientIdleMs: agentTimeouts.streamIdleMs,
   telegrafHandlerTimeoutMs: turnTimeoutConfig.telegrafHandlerMs,
+  audioPrepareMs: turnTimeoutConfig.audioPrepareMs,
+  audioTranscriptionMs: turnTimeoutConfig.audioTranscriptionMs,
+  runningGateTtlMs: turnTimeoutConfig.runningGateTtlMs,
 }).catch((error) => {
   logger.error('agent.contract.not_ready', {
     error: error instanceof Error ? error.message : String(error),
@@ -108,6 +112,26 @@ const whisperService = new WhisperService({
   enforceEnglishOnly: true,
   language: 'en',
   qualityMonitoringEnabled: true,
+  prepareTimeoutMs: turnTimeoutConfig.audioPrepareMs,
+  longFormTimeoutMs: turnTimeoutConfig.audioTranscriptionMs,
+});
+
+// FFmpeg normalization is mandatory now — every accepted file is re-encoded to 16 kHz
+// mono FLAC before transcription. Without the binary, audio cannot be served at all, so
+// this is a startup barrier rather than a per-request check.
+export const ffmpegReadiness = AudioConverter.isFFmpegAvailable().then((available) => {
+  if (!available) {
+    throw new Error(
+      'FFmpeg is not available. Audio normalization is mandatory; install FFmpeg or restore @ffmpeg-installer/ffmpeg.',
+    );
+  }
+  logger.info('audio.ffmpeg.ready', { available });
+  return available;
+}).catch((error) => {
+  logger.error('audio.ffmpeg.not_ready', {
+    error: error instanceof Error ? error.message : String(error),
+  });
+  throw error;
 });
 
 // Pending clarification store tracks HITL (human-in-the-loop) interrupt state
@@ -120,7 +144,7 @@ const conversationGate = createConversationGateStore();
 const terminalReplyStore = createTerminalReplyStore();
 
 // Forward buffer accumulates messages the user forwards to the bot until dispatched
-// via /send_forward. Memory-only by design: short-lived working material.
+// via /forward. Memory-only by design: short-lived working material.
 const forwardBuffer = new MemoryForwardBufferStore();
 
 // Telegram infrastructure: file downloads, activity metrics, and health reporting.
@@ -265,4 +289,7 @@ logger.info('app.services.initialized', {
   telegramHandlerTimeoutMs: turnTimeoutConfig.telegrafHandlerMs,
   langGraphClientOverallTimeoutMs: agentTimeouts.overallMs,
   langGraphClientIdleTimeoutMs: agentTimeouts.streamIdleMs,
+  audioPrepareTimeoutMs: turnTimeoutConfig.audioPrepareMs,
+  audioTranscriptionTimeoutMs: turnTimeoutConfig.audioTranscriptionMs,
+  runningGateTtlMs: turnTimeoutConfig.runningGateTtlMs,
 });

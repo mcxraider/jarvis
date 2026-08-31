@@ -1,34 +1,73 @@
 // src/services/ai/whisper.service.ts — Audio transcription via Groq-hosted Whisper
-// large-v3. Handles the full lifecycle: download audio from URL → validate size →
-// attempt direct transcription → fall back to FFmpeg conversion if format is rejected →
-// transcribe → evaluate quality metrics → return structured result.
-// English-only mode is enforced by default to prevent hallucinated non-English output.
+// large-v3.
+//
+// Lifecycle: stream the audio into a per-job temp directory → normalize to 16 kHz mono
+// FLAC with FFmpeg (which also yields the authoritative duration) → split anything over
+// one core duration into overlapping chunks → transcribe chunks concurrently under a
+// process-global five-slot limiter → merge deterministically by chunk index → evaluate
+// quality → return one complete transcript.
+//
+// Two invariants the rest of the pipeline depends on:
+//   1. Atomic. A chunk that exhausts its retries fails the whole job; a partial
+//      transcript is never returned, so the agent is never invoked on half a sentence.
+//   2. Bounded. Input bytes, decoded duration, temp-directory lifetime and in-flight
+//      Groq requests are all capped, and the temp directory is removed on every path.
+//
+// English-only mode is enforced by default to flag hallucinated non-English output.
+
+import { createWriteStream } from 'fs';
+import { mkdtemp, readFile, rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { Readable, Transform } from 'stream';
+import { pipeline } from 'stream/promises';
+import type { ReadableStream as WebReadableStream } from 'stream/web';
 
 import OpenAI from 'openai';
+import {
+  resolveAudioPrepareTimeoutMs,
+  resolveAudioTranscriptionTimeoutMs,
+} from '../../config/turn-timeout.config';
 import { LogContext, logger, truncateForLog } from '../../utils/logger';
 import { AudioMimeTypes } from '../../utils/constants';
 import { validateFileSize } from '../../utils/ai/fileValidation';
-import { AudioConverter } from '../../utils/ai/audioConverter';
+import { AudioConverter, PreparedAudio, PreparedAudioChunk } from '../../utils/ai/audioConverter';
+import { AUDIO_LIMITS } from '../../utils/ai/audio-limits';
+import {
+  ChunkMergeInput,
+  TranscriptSegment,
+  TranscriptWord,
+  mergeChunkTranscriptions,
+} from '../../utils/ai/transcript-merge';
+import { AudioAdmissionError, isAudioAdmissionError } from '../../utils/ai/audio-admission-error';
+import { GroqRequestLimiter } from './groq-request-limiter';
 import { GroqTranscriptionError, GroqTranscriptionErrorCategory } from './groq-transcription-error';
 
 export { GroqTranscriptionError } from './groq-transcription-error';
 
 const WHISPER_CONSTANTS = {
-  DEFAULT_MAX_FILE_SIZE_BYTES: 25 * 1024 * 1024, // Groq's hard limit
+  DEFAULT_MAX_FILE_SIZE_BYTES: AUDIO_LIMITS.GROQ_MAX_ATTACHMENT_BYTES, // per-upload limit
   DEFAULT_MODEL: 'whisper-large-v3',
-  DEFAULT_RESPONSE_FORMAT: 'verbose_json' as const, // Needed for segment quality metadata
+  DEFAULT_RESPONSE_FORMAT: 'verbose_json' as const, // Needed for timestamps + quality metadata
   DEFAULT_LANGUAGE: 'en',
   // Context prompt that helps Whisper recognize domain-specific terms.
   DEFAULT_PROMPT:
     'Telegram voice note to Jarvis, a personal assistant for tasks, events, reminders, and scheduling. Preserve task titles, dates, times, names, and app names accurately.',
   MAX_PROMPT_TOKENS: 224, // Groq's prompt token limit
   MAX_LOG_TEXT_LENGTH: 100,
+  DEFAULT_DOWNLOAD_TIMEOUT_MS: 30_000,
   DEFAULT_REQUEST_TIMEOUT_MS: 12_000,
+  // Long-form chunks carry ~32.5s of audio, so they get a more generous per-request budget
+  // than a short voice note.
+  DEFAULT_CHUNK_REQUEST_TIMEOUT_MS: 60_000,
   DEFAULT_MAX_RETRY_ATTEMPTS: 2,
   DEFAULT_RETRY_MAX_DELAY_MS: 2_000,
   DEFAULT_RETRY_TOTAL_TIMEOUT_MS: 20_000,
-  DEFAULT_MAX_RETRY_AFTER_MS: 5_000,
+  // The prepare and long-form transcription budgets are *not* defaulted here: they are two
+  // rungs of the turn timeout ladder, so `turn-timeout.config.ts` owns their defaults and
+  // env reads (see the constructor).
   RETRY_BASE_DELAY_MS: 250,
+  TEMP_DIR_PREFIX: 'jarvis-audio-',
 } as const;
 
 // Quality thresholds for monitoring (warn-only, not rejecting). These flag segments
@@ -40,33 +79,16 @@ const DEFAULT_QUALITY_THRESHOLDS = {
   maxCompressionRatio: 2.4,
 } as const;
 
-// Formats that Groq accepts directly without needing FFmpeg conversion.
-const GROQ_DIRECT_TRANSCRIPTION_FORMATS = [
-  'flac',
-  'mp3',
-  'mp4',
-  'mpeg',
-  'mpga',
-  'm4a',
-  'ogg',
-  'webm',
-  'wav',
-] as const;
-
-// Error message patterns that indicate a format rejection (rather than a server error).
-// When these occur, we fall back to FFmpeg conversion instead of failing outright.
-const FORMAT_REJECTION_PATTERNS = [
-  /invalid file format/i,
-  /unsupported audio format/i,
-  /unsupported file format/i,
-  /unrecognized file format/i,
-  /file format.*not supported/i,
-  /not a supported format/i,
-] as const;
-
 export interface WhisperConfig {
   apiKey: string;
+  /** Ceiling for a single upload to Groq. */
   maxFileSizeBytes?: number;
+  /** Ceiling for the downloaded Telegram file. */
+  maxInputBytes?: number;
+  maxDurationSeconds?: number;
+  coreSeconds?: number;
+  overlapSeconds?: number;
+  maxConcurrentRequests?: number;
   model?: string;
   language?: string;
   responseFormat?: 'json' | 'text' | 'srt' | 'verbose_json' | 'vtt';
@@ -74,10 +96,15 @@ export interface WhisperConfig {
   prompt?: string;
   qualityMonitoringEnabled?: boolean;
   qualityThresholds?: Partial<QualityThresholds>;
+  downloadTimeoutMs?: number;
   requestTimeoutMs?: number;
+  chunkRequestTimeoutMs?: number;
   maxRetryAttempts?: number;
+  maxChunkAttempts?: number;
   retryMaxDelayMs?: number;
   retryTotalTimeoutMs?: number;
+  prepareTimeoutMs?: number;
+  longFormTimeoutMs?: number;
   maxRetryAfterMs?: number;
   retrySleep?: (delayMs: number) => Promise<void>;
   retryRandom?: () => number;
@@ -90,25 +117,12 @@ interface QualityThresholds {
   maxCompressionRatio: number;
 }
 
-interface TranscriptionSegment {
-  id?: number;
-  start?: number;
-  end?: number;
-  text?: string;
-  avg_logprob?: number;
-  no_speech_prob?: number;
-  compression_ratio?: number;
-}
-
 interface QualityFlag {
   segmentId?: number;
   start?: number;
   end?: number;
   reason:
-    | 'low_avg_logprob'
-    | 'high_no_speech_prob'
-    | 'low_compression_ratio'
-    | 'high_compression_ratio';
+    'low_avg_logprob' | 'high_no_speech_prob' | 'low_compression_ratio' | 'high_compression_ratio';
   value: number;
   threshold: number;
 }
@@ -127,13 +141,9 @@ interface TranscriptionQuality {
 
 interface ParsedTranscription {
   text: string;
-  segments: TranscriptionSegment[];
+  segments: TranscriptSegment[];
+  words: TranscriptWord[];
   detectedLanguage?: string;
-}
-
-interface TranscriptionAttemptBudget {
-  attempts: number;
-  deadlineMs: number;
 }
 
 interface GroqErrorShape extends Error {
@@ -144,12 +154,15 @@ interface GroqErrorShape extends Error {
   code?: string | null;
 }
 
-interface TranscriptionResult {
+export interface TranscriptionResult {
   text: string;
   fileUrl: string;
   processingTimeMs: number;
   detectedLanguage?: string;
   fileSizeBytes: number;
+  /** Authoritative decoded duration, measured by FFmpeg. */
+  durationSeconds: number;
+  chunkCount: number;
   quality?: TranscriptionQuality;
 }
 
@@ -169,13 +182,25 @@ export class WhisperService {
   >;
   private readonly language: string;
   private readonly qualityThresholds: QualityThresholds;
+  private readonly maxInputBytes: number;
+  private readonly maxDurationSeconds: number;
+  private readonly coreSeconds: number;
+  private readonly overlapSeconds: number;
+  private readonly downloadTimeoutMs: number;
   private readonly requestTimeoutMs: number;
+  private readonly chunkRequestTimeoutMs: number;
   private readonly maxRetryAttempts: number;
+  private readonly maxChunkAttempts: number;
   private readonly retryMaxDelayMs: number;
   private readonly retryTotalTimeoutMs: number;
+  private readonly prepareTimeoutMs: number;
+  private readonly longFormTimeoutMs: number;
   private readonly maxRetryAfterMs: number;
   private readonly retrySleep: (delayMs: number) => Promise<void>;
   private readonly retryRandom: () => number;
+  // One limiter per service instance. app.ts builds a single WhisperService, so this is
+  // process-global: two simultaneous users share five slots rather than taking five each.
+  private readonly limiter: GroqRequestLimiter;
 
   constructor(config?: Partial<WhisperConfig>) {
     const apiKey = config?.apiKey || process.env.GROQ_API_KEY;
@@ -192,21 +217,34 @@ export class WhisperService {
       maxRetries: 0,
     });
 
+    this.downloadTimeoutMs = this.resolvePositiveNumber(
+      config?.downloadTimeoutMs,
+      'GROQ_AUDIO_DOWNLOAD_TIMEOUT_SECONDS',
+      WHISPER_CONSTANTS.DEFAULT_DOWNLOAD_TIMEOUT_MS,
+      1_000,
+    );
     this.requestTimeoutMs = this.resolvePositiveNumber(
       config?.requestTimeoutMs,
       'GROQ_TRANSCRIPTION_REQUEST_TIMEOUT_SECONDS',
       WHISPER_CONSTANTS.DEFAULT_REQUEST_TIMEOUT_MS,
       1_000,
     );
-    const maxRetryAttempts = this.resolvePositiveNumber(
+    this.chunkRequestTimeoutMs = this.resolvePositiveNumber(
+      config?.chunkRequestTimeoutMs,
+      'GROQ_TRANSCRIPTION_CHUNK_TIMEOUT_SECONDS',
+      WHISPER_CONSTANTS.DEFAULT_CHUNK_REQUEST_TIMEOUT_MS,
+      1_000,
+    );
+    this.maxRetryAttempts = this.resolvePositiveInteger(
       config?.maxRetryAttempts,
       'GROQ_TRANSCRIPTION_MAX_RETRY_ATTEMPTS',
       WHISPER_CONSTANTS.DEFAULT_MAX_RETRY_ATTEMPTS,
     );
-    if (!Number.isInteger(maxRetryAttempts)) {
-      throw new Error('GROQ_TRANSCRIPTION_MAX_RETRY_ATTEMPTS must be a positive integer.');
-    }
-    this.maxRetryAttempts = maxRetryAttempts;
+    this.maxChunkAttempts = this.resolvePositiveInteger(
+      config?.maxChunkAttempts,
+      'GROQ_TRANSCRIPTION_MAX_CHUNK_ATTEMPTS',
+      AUDIO_LIMITS.MAX_ATTEMPTS_PER_CHUNK,
+    );
     this.retryMaxDelayMs = this.resolvePositiveNumber(
       config?.retryMaxDelayMs,
       'GROQ_TRANSCRIPTION_RETRY_MAX_DELAY_SECONDS',
@@ -219,15 +257,50 @@ export class WhisperService {
       WHISPER_CONSTANTS.DEFAULT_RETRY_TOTAL_TIMEOUT_MS,
       1_000,
     );
+    // Both audio stages are rungs of the turn timeout ladder, which app.ts asserts as a
+    // whole. Borrowing the ladder's own resolvers means a service built without options
+    // (agent CLI, tests) still lands on the same defaults and the same two env vars,
+    // instead of a second copy that can drift out from under the assertion.
+    this.prepareTimeoutMs = resolveAudioPrepareTimeoutMs(config?.prepareTimeoutMs);
+    this.longFormTimeoutMs = resolveAudioTranscriptionTimeoutMs(config?.longFormTimeoutMs);
     this.maxRetryAfterMs = this.resolvePositiveNumber(
       config?.maxRetryAfterMs,
       'GROQ_TRANSCRIPTION_MAX_RETRY_AFTER_SECONDS',
-      WHISPER_CONSTANTS.DEFAULT_MAX_RETRY_AFTER_MS,
+      AUDIO_LIMITS.MAX_RETRY_AFTER_MS,
       1_000,
     );
+    this.maxInputBytes = this.resolvePositiveNumber(
+      config?.maxInputBytes,
+      'GROQ_AUDIO_MAX_INPUT_BYTES',
+      AUDIO_LIMITS.MAX_INPUT_BYTES,
+    );
+    this.maxDurationSeconds = this.resolvePositiveNumber(
+      config?.maxDurationSeconds,
+      'GROQ_AUDIO_MAX_DURATION_SECONDS',
+      AUDIO_LIMITS.MAX_DURATION_SECONDS,
+    );
+    this.coreSeconds = this.resolvePositiveNumber(
+      config?.coreSeconds,
+      'GROQ_AUDIO_CORE_SECONDS',
+      AUDIO_LIMITS.CORE_SECONDS,
+    );
+    this.overlapSeconds = config?.overlapSeconds ?? AUDIO_LIMITS.OVERLAP_SECONDS;
+    if (!Number.isFinite(this.overlapSeconds) || this.overlapSeconds < 0) {
+      throw new Error('Whisper overlapSeconds must be a non-negative finite number.');
+    }
+
     this.retrySleep =
       config?.retrySleep || ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
     this.retryRandom = config?.retryRandom || Math.random;
+
+    this.limiter = new GroqRequestLimiter(
+      this.resolvePositiveInteger(
+        config?.maxConcurrentRequests,
+        'GROQ_TRANSCRIPTION_MAX_CONCURRENCY',
+        AUDIO_LIMITS.MAX_CONCURRENT_REQUESTS,
+      ),
+      { sleep: this.retrySleep },
+    );
 
     // Set default configuration with provided overrides
     // Always enforce English-only transcription unless explicitly disabled
@@ -256,33 +329,38 @@ export class WhisperService {
     logger.info('WhisperService initialized', {
       model: this.config.model,
       maxFileSizeMB: Math.round(this.config.maxFileSizeBytes / (1024 * 1024)),
+      maxInputMB: Math.round(this.maxInputBytes / (1024 * 1024)),
+      maxDurationSeconds: this.maxDurationSeconds,
+      coreSeconds: this.coreSeconds,
+      overlapSeconds: this.overlapSeconds,
+      maxConcurrentRequests: this.limiter.limit,
       responseFormat: this.config.responseFormat,
       language: this.language,
       enforceEnglishOnly: this.config.enforceEnglishOnly,
       promptLength: this.config.prompt.length,
       qualityMonitoringEnabled: this.config.qualityMonitoringEnabled,
       qualityThresholds: this.qualityThresholds,
+      downloadTimeoutMs: this.downloadTimeoutMs,
       requestTimeoutMs: this.requestTimeoutMs,
+      chunkRequestTimeoutMs: this.chunkRequestTimeoutMs,
       maxRetryAttempts: this.maxRetryAttempts,
+      maxChunkAttempts: this.maxChunkAttempts,
       retryMaxDelayMs: this.retryMaxDelayMs,
       retryTotalTimeoutMs: this.retryTotalTimeoutMs,
+      prepareTimeoutMs: this.prepareTimeoutMs,
+      longFormTimeoutMs: this.longFormTimeoutMs,
       maxRetryAfterMs: this.maxRetryAfterMs,
       sdkMaxRetries: 0,
     });
   }
 
-  // Main entry point: downloads audio from URL, validates, converts if needed, transcribes,
-  // evaluates quality, and returns the complete result with timing metadata.
+  // Main entry point. Signature is unchanged for callers.
   async transcribeAudio(
     fileUrl: string,
     userId?: number,
     logContext: LogContext = {},
   ): Promise<TranscriptionResult> {
     const startTime = Date.now();
-    const attemptBudget: TranscriptionAttemptBudget = {
-      attempts: 0,
-      deadlineMs: startTime + this.retryTotalTimeoutMs,
-    };
 
     logger.info('whisper.transcription.started', {
       ...logContext,
@@ -290,184 +368,42 @@ export class WhisperService {
       fileUrl: this.sanitizeUrlForLogging(fileUrl),
     });
 
+    // Every intermediate artefact — download, normalized FLAC, chunks — lives here and
+    // dies with the job, on success and on every failure stage alike.
+    const workDir = await mkdtemp(join(tmpdir(), WHISPER_CONSTANTS.TEMP_DIR_PREFIX));
+
     try {
-      // Download the audio file
-      const audioBuffer = await this.downloadAudioFile(fileUrl, userId, logContext);
+      const inputPath = await this.downloadAudioFile(fileUrl, workDir, userId, logContext);
 
-      // Validate file size
-      validateFileSize(audioBuffer.length, this.config.maxFileSizeBytes);
-
-      // Determine file extension from URL or default to supported Telegram voice format.
-      const originalExtension = this.extractFileExtension(fileUrl);
-      const normalizedExtension = this.normalizeAudioExtension(originalExtension);
-
-      // Check if the audio format needs conversion
-      let processedBuffer = audioBuffer;
-      let fileExtension = normalizedExtension;
-      let conversionTimeMs = 0;
-      let attemptedDirectTranscription = false;
-      let directTranscriptionError: Error | undefined;
-
-      if (this.isGroqDirectTranscriptionFormat(normalizedExtension)) {
-        attemptedDirectTranscription = true;
-        logger.info('audio.transcription.direct_selected', {
-          ...logContext,
-          userId,
-          originalFormat: originalExtension || 'unknown',
-          normalizedFormat: normalizedExtension,
-        });
-
-        logger.info('audio.conversion.skipped', {
-          ...logContext,
-          userId,
-          originalFormat: originalExtension || 'unknown',
-          normalizedFormat: normalizedExtension,
-          reason: 'groq_direct_format',
-        });
-
-        try {
-          const audioFile = this.createAudioFile(processedBuffer, fileExtension);
-          const transcription = await this.performTranscription(
-            audioFile,
-            processedBuffer.length,
-            fileExtension,
-            attemptBudget,
-            userId,
-            logContext,
-          );
-          return this.buildTranscriptionResult({
-            transcription,
-            fileUrl,
-            processedBuffer,
-            startTime,
-            conversionTimeMs,
-            originalExtension,
-            fileExtension,
-            userId,
-            logContext,
-          });
-        } catch (error) {
-          directTranscriptionError = error as Error;
-          logger.warn('audio.transcription.direct_failed', {
-            ...logContext,
-            userId,
-            originalFormat: originalExtension || 'unknown',
-            normalizedFormat: normalizedExtension,
-            ...(directTranscriptionError instanceof GroqTranscriptionError
-              ? {
-                  errorCategory: directTranscriptionError.category,
-                  status: directTranscriptionError.status,
-                  providerRequestId: directTranscriptionError.providerRequestId,
-                }
-              : { error: directTranscriptionError.message }),
-          });
-
-          if (!this.isFormatRejectionError(directTranscriptionError)) {
-            throw directTranscriptionError;
-          }
-          if (attemptBudget.attempts >= this.maxRetryAttempts) {
-            throw directTranscriptionError;
-          }
-        }
-      }
-
-      if (AudioConverter.needsConversion(normalizedExtension)) {
-        const fallbackReason = attemptedDirectTranscription
-          ? 'direct_format_rejected'
-          : 'unsupported_convertible_format';
-
-        logger.info(
-          attemptedDirectTranscription
-            ? 'audio.conversion.fallback_started'
-            : 'audio.conversion.required',
-          {
-            ...logContext,
-            userId,
-            originalFormat: originalExtension || 'unknown',
-            normalizedFormat: normalizedExtension,
-            targetFormat: AudioConverter.getTargetFormat(),
-            reason: fallbackReason,
-          },
-        );
-
-        try {
-          const conversionResult = await this.convertAudioToMp3(
-            audioBuffer,
-            normalizedExtension,
-            userId,
-            logContext,
-          );
-
-          processedBuffer = conversionResult.convertedBuffer;
-          fileExtension = conversionResult.targetFormat;
-          conversionTimeMs = conversionResult.conversionTimeMs;
-
-          logger.info(
-            attemptedDirectTranscription
-              ? 'audio.conversion.fallback_completed'
-              : 'audio.conversion.completed',
-            {
-              ...logContext,
-              userId,
-              originalFormat: originalExtension || 'unknown',
-              targetFormat: fileExtension,
-              originalSize: audioBuffer.length,
-              convertedSize: processedBuffer.length,
-              conversionTimeMs,
-              reason: fallbackReason,
-            },
-          );
-        } catch (conversionError) {
-          logger.error(
-            attemptedDirectTranscription
-              ? 'audio.conversion.fallback_failed'
-              : 'audio.conversion.failed',
-            {
-              ...logContext,
-              userId,
-              originalFormat: originalExtension || 'unknown',
-              normalizedFormat: normalizedExtension,
-              error: (conversionError as Error).message,
-              reason: fallbackReason,
-            },
-          );
-
-          // Provide helpful error message for conversion failures
-          const errorMessage = (conversionError as Error).message;
-          if (errorMessage.includes('FFmpeg is not available')) {
-            throw new Error(
-              'Audio format conversion is not available. ' +
-                'This audio format requires conversion but FFmpeg is not installed.',
-            );
-          }
-
-          throw new Error(`Audio format conversion failed: ${errorMessage}`);
-        }
-      } else if (directTranscriptionError) {
-        throw directTranscriptionError;
-      }
-
-      // Create a File object for the OpenAI API
-      const audioFile = this.createAudioFile(processedBuffer, fileExtension);
-
-      // Perform transcription
-      const transcription = await this.performTranscription(
-        audioFile,
-        processedBuffer.length,
-        fileExtension,
-        attemptBudget,
+      const prepared = await AudioConverter.prepare({
+        inputPath,
+        workDir,
+        maxDurationSeconds: this.maxDurationSeconds,
+        coreSeconds: this.coreSeconds,
+        overlapSeconds: this.overlapSeconds,
+        maxChunkBytes: this.config.maxFileSizeBytes,
+        timeoutMs: this.prepareTimeoutMs,
         userId,
         logContext,
-      );
+      });
+
+      logger.info('whisper.prepare.completed', {
+        ...logContext,
+        userId,
+        durationSeconds: prepared.durationSeconds,
+        chunkCount: prepared.chunks.length,
+        normalizedSizeBytes: prepared.normalizedSizeBytes,
+        chunkSizeBytes: prepared.chunks.map((chunk) => chunk.sizeBytes),
+        prepareTimeMs: prepared.prepareTimeMs,
+      });
+
+      const merged = await this.transcribePrepared(prepared, userId, logContext);
 
       return this.buildTranscriptionResult({
-        transcription,
+        merged,
+        prepared,
         fileUrl,
-        processedBuffer,
         startTime,
-        conversionTimeMs,
-        originalExtension,
-        fileExtension,
         userId,
         logContext,
       });
@@ -486,117 +422,55 @@ export class WhisperService {
               attempts: transcriptionError.attempts,
               providerRequestId: transcriptionError.providerRequestId,
             }
-          : { error: (error as Error).message }),
+          : isAudioAdmissionError(error)
+            ? { admissionReason: error.reason, observed: error.observed, limit: error.limit }
+            : { error: (error as Error).message }),
         processingTimeMs,
       });
 
+      // Admission rejections and classified Groq errors already carry the right user copy.
       if (error instanceof GroqTranscriptionError) throw error;
+      if (isAudioAdmissionError(error)) throw error;
       const wrapped = new Error(`Transcription failed: ${(error as Error).message}`);
       Object.defineProperty(wrapped, 'cause', { value: error, configurable: true });
       throw wrapped;
+    } finally {
+      await rm(workDir, { recursive: true, force: true }).catch((cleanupError: Error) => {
+        logger.warn('whisper.workdir.cleanup_failed', {
+          ...logContext,
+          userId,
+          error: cleanupError.message,
+        });
+      });
     }
   }
 
-  private async convertAudioToMp3(
-    audioBuffer: Buffer,
-    normalizedExtension: string,
-    userId?: number,
-    logContext: LogContext = {},
-  ): Promise<{
-    convertedBuffer: Buffer;
-    targetFormat: string;
-    conversionTimeMs: number;
-  }> {
-    const conversionResult = await AudioConverter.convertToMp3(
-      audioBuffer,
-      normalizedExtension,
-      userId,
-      logContext,
-    );
+  // ---------------------------------------------------------------------------
+  // Download
+  // ---------------------------------------------------------------------------
 
-    // Validate converted file size
-    validateFileSize(conversionResult.convertedBuffer.length, this.config.maxFileSizeBytes);
-
-    return {
-      convertedBuffer: conversionResult.convertedBuffer,
-      targetFormat: conversionResult.targetFormat,
-      conversionTimeMs: conversionResult.conversionTimeMs,
-    };
-  }
-
-  private buildTranscriptionResult(options: {
-    transcription: ParsedTranscription;
-    fileUrl: string;
-    processedBuffer: Buffer;
-    startTime: number;
-    conversionTimeMs: number;
-    originalExtension: string | null;
-    fileExtension: string;
-    userId?: number;
-    logContext: LogContext;
-  }): TranscriptionResult {
-    const processingTimeMs = Date.now() - options.startTime;
-
-    const result: TranscriptionResult = {
-      text: options.transcription.text,
-      fileUrl: options.fileUrl,
-      processingTimeMs,
-      fileSizeBytes: options.processedBuffer.length,
-      detectedLanguage: options.transcription.detectedLanguage,
-    };
-
-    if (this.config.qualityMonitoringEnabled) {
-      result.quality = this.evaluateTranscriptionQuality(options.transcription.segments);
-      if (result.quality.flaggedSegments > 0) {
-        this.logQualityFlags(
-          result.quality,
-          options.transcription.segments,
-          options.logContext,
-          options.userId,
-        );
-      }
-    }
-
-    // Add conversion information to logs if conversion was performed
-    const logData: Record<string, unknown> = {
-      ...options.logContext,
-      userId: options.userId,
-      textPreview: truncateForLog(result.text, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH),
-      textLength: options.transcription.text.length,
-      processingTimeMs,
-      fileSizeBytes: options.processedBuffer.length,
-      qualityFlaggedSegments: result.quality?.flaggedSegments,
-      qualityTotalSegments: result.quality?.totalSegments,
-    };
-
-    if (options.conversionTimeMs > 0) {
-      logData.originalFormat = options.originalExtension || 'unknown';
-      logData.convertedFormat = options.fileExtension;
-      logData.conversionTimeMs = options.conversionTimeMs;
-      logData.transcriptionTimeMs = processingTimeMs - options.conversionTimeMs;
-    }
-
-    logger.info('whisper.transcription.completed', logData);
-
-    return result;
-  }
-
-  // Fetches the raw audio bytes from the given URL (typically a Telegram CDN link).
+  // Streams the audio bytes to disk, refusing anything over the input limit both by the
+  // declared Content-Length and by counting what actually arrives.
   private async downloadAudioFile(
     fileUrl: string,
+    workDir: string,
     userId?: number,
     logContext: LogContext = {},
-  ): Promise<Buffer> {
+  ): Promise<string> {
     const downloadStart = Date.now();
+    const extension = this.normalizeAudioExtension(this.extractFileExtension(fileUrl));
+    const inputPath = join(workDir, `input.${extension}`);
 
     logger.debug('whisper.download.started', {
       ...logContext,
       userId,
       fileUrl: this.sanitizeUrlForLogging(fileUrl),
+      maxInputBytes: this.maxInputBytes,
     });
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
+    const timeout = setTimeout(() => controller.abort(), this.downloadTimeoutMs);
+    let bytesWritten = 0;
 
     try {
       const response = await fetch(fileUrl, { signal: controller.signal });
@@ -614,54 +488,211 @@ export class WhisperService {
         });
       }
 
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
+      const declaredLength = Number(response.headers.get('content-length'));
+      if (Number.isFinite(declaredLength) && declaredLength > this.maxInputBytes) {
+        // Refuse before reading a single body byte.
+        await response.body?.cancel().catch(() => undefined);
+        throw new AudioAdmissionError('too_large', {
+          observed: declaredLength,
+          limit: this.maxInputBytes,
+        });
+      }
+
+      if (!response.body) {
+        throw new Error('Response body was empty');
+      }
+
+      const maxInputBytes = this.maxInputBytes;
+      const counter = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          bytesWritten += chunk.length;
+          if (bytesWritten > maxInputBytes) {
+            // pipeline() destroys the source and the file stream for us.
+            callback(new AudioAdmissionError('too_large', { limit: maxInputBytes }));
+            return;
+          }
+          callback(null, chunk);
+        },
+      });
+
+      await pipeline(
+        Readable.fromWeb(response.body as unknown as WebReadableStream<Uint8Array>),
+        counter,
+        createWriteStream(inputPath),
+      );
+
+      if (bytesWritten === 0) {
+        throw new Error('Downloaded audio file is empty');
+      }
 
       logger.debug('whisper.download.completed', {
         ...logContext,
         userId,
-        sizeBytes: buffer.length,
+        sizeBytes: bytesWritten,
         durationMs: Date.now() - downloadStart,
         contentType: contentType ?? 'unknown',
       });
 
-      return buffer;
+      return inputPath;
     } catch (error) {
       logger.error('whisper.download.failed', {
         ...logContext,
         userId,
         fileUrl: this.sanitizeUrlForLogging(fileUrl),
-        error: (error as Error).message,
+        bytesWritten,
+        ...(isAudioAdmissionError(error)
+          ? { admissionReason: error.reason, limit: error.limit }
+          : { error: (error as Error).message }),
         durationMs: Date.now() - downloadStart,
       });
+
+      // Delete the partial file eagerly; the whole work directory goes anyway, but a
+      // half-written file must never reach FFmpeg.
+      await rm(inputPath, { force: true }).catch(() => undefined);
+
+      if (isAudioAdmissionError(error)) throw error;
       throw new Error(`Failed to download audio file: ${(error as Error).message}`);
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  // Calls the Groq Whisper API with the prepared File object and returns parsed segments.
-  private async performTranscription(
-    audioFile: File,
-    fileSizeBytes: number,
-    fileExtension: string,
-    budget: TranscriptionAttemptBudget,
+  // ---------------------------------------------------------------------------
+  // Concurrent transcription
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Runs every chunk through Groq and merges the results in timeline order.
+   *
+   * Atomicity: the first chunk to exhaust its retries records the failure and stops the
+   * pool from picking up further work. In-flight requests are still awaited so nothing
+   * writes to a temp directory that is about to be removed, and then the error is
+   * rethrown — no partial transcript is ever produced.
+   */
+  private async transcribePrepared(
+    prepared: PreparedAudio,
     userId?: number,
     logContext: LogContext = {},
-  ): Promise<ParsedTranscription> {
-    while (budget.attempts < this.maxRetryAttempts) {
+  ): Promise<ReturnType<typeof mergeChunkTranscriptions>> {
+    const chunks = prepared.chunks;
+    const longForm = chunks.length > 1;
+    const stageStart = Date.now();
+    const deadlineMs = stageStart + (longForm ? this.longFormTimeoutMs : this.retryTotalTimeoutMs);
+    const maxAttempts = longForm ? this.maxChunkAttempts : this.maxRetryAttempts;
+    const requestTimeoutMs = longForm ? this.chunkRequestTimeoutMs : this.requestTimeoutMs;
+
+    const results = new Array<ParsedTranscription | undefined>(chunks.length);
+    let nextIndex = 0;
+    let failure: Error | undefined;
+    let attemptsTotal = 0;
+
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        if (failure) return;
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= chunks.length) return;
+
+        try {
+          const { transcription, attempts } = await this.transcribeChunk(
+            chunks[index],
+            { deadlineMs, maxAttempts, requestTimeoutMs, chunkCount: chunks.length },
+            userId,
+            logContext,
+          );
+          attemptsTotal += attempts;
+          results[index] = transcription;
+        } catch (error) {
+          failure ??= error as Error;
+          return;
+        }
+      }
+    };
+
+    const workerCount = Math.min(chunks.length, this.limiter.limit);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+    if (failure) {
+      logger.error('whisper.transcription.aborted', {
+        ...logContext,
+        userId,
+        chunkCount: chunks.length,
+        completedChunks: results.filter(Boolean).length,
+        attemptsTotal,
+        stageMs: Date.now() - stageStart,
+        ...(failure instanceof GroqTranscriptionError
+          ? { errorCategory: failure.category, status: failure.status }
+          : { error: failure.message }),
+      });
+      throw failure;
+    }
+
+    const inputs: ChunkMergeInput[] = chunks.map((chunk, index) => {
+      const transcription = results[index];
+      if (!transcription) {
+        // Unreachable: the pool only exits cleanly once every index is filled.
+        throw new Error(`Transcription chunk ${index} produced no result`);
+      }
+      return {
+        plan: chunk,
+        transcription: {
+          text: transcription.text,
+          words: transcription.words,
+          segments: transcription.segments,
+        },
+      };
+    });
+
+    const merged = mergeChunkTranscriptions(inputs);
+
+    logger.info('whisper.transcription.merged', {
+      ...logContext,
+      userId,
+      chunkCount: chunks.length,
+      strategy: merged.strategy,
+      degraded: merged.degraded,
+      segmentCount: merged.segments.length,
+      textLength: merged.text.length,
+      attemptsTotal,
+      // Limiter counters are process-lifetime, not run-scoped: the limiter is shared by
+      // every concurrent job on purpose (Groq rate-limits per organization).
+      limiterCooldownEventsTotal: this.limiter.cooldownCountTotal,
+      limiterPeakConcurrentRequests: this.limiter.peakActiveCount,
+      stageMs: Date.now() - stageStart,
+    });
+
+    return merged;
+  }
+
+  // One chunk, up to `maxAttempts` tries. The concurrency slot is held only for the
+  // request itself: backoff and shared cooldown waits happen outside it.
+  private async transcribeChunk(
+    chunk: PreparedAudioChunk,
+    budget: {
+      deadlineMs: number;
+      maxAttempts: number;
+      requestTimeoutMs: number;
+      chunkCount: number;
+    },
+    userId?: number,
+    logContext: LogContext = {},
+  ): Promise<{ transcription: ParsedTranscription; attempts: number }> {
+    // Defence in depth: AudioConverter already checks this, but an oversized upload is a
+    // wasted round trip and a confusing 413.
+    validateFileSize(chunk.sizeBytes, this.config.maxFileSizeBytes);
+
+    for (let attempt = 1; ; attempt += 1) {
       const remainingMs = budget.deadlineMs - Date.now();
       if (remainingMs <= 0) {
         throw this.createGroqError(
-          new Error('Groq transcription retry deadline exceeded'),
-          budget.attempts,
+          new Error('Groq transcription deadline exceeded'),
+          attempt - 1,
           'timeout',
         );
       }
-      budget.attempts += 1;
-      const attempt = budget.attempts;
+
+      const timeoutMs = Math.max(1, Math.min(budget.requestTimeoutMs, remainingMs));
       const apiStart = Date.now();
-      const timeoutMs = Math.max(1, Math.min(this.requestTimeoutMs, remainingMs));
 
       logger.info('whisper.api.request', {
         ...logContext,
@@ -670,65 +701,51 @@ export class WhisperService {
         language: this.language,
         responseFormat: this.config.responseFormat,
         promptLength: this.config.prompt.length,
-        fileSizeBytes,
-        fileExtension,
+        chunkIndex: chunk.index,
+        chunkCount: budget.chunkCount,
+        chunkStartSeconds: chunk.startSeconds,
+        chunkEndSeconds: chunk.endSeconds,
+        fileSizeBytes: chunk.sizeBytes,
+        fileExtension: 'flac',
         temperature: 0,
         attempt,
         timeoutMs,
       });
 
       try {
-        const request = this.openai.audio.transcriptions.create(
-          {
-            file: audioFile,
-            model: this.config.model,
-            language: this.language,
-            response_format: this.config.responseFormat,
-            prompt: this.config.prompt,
-            timestamp_granularities: ['segment'],
-            temperature: 0,
-          },
-          { timeout: timeoutMs, maxRetries: 0 },
+        const transcription = await this.limiter.run(
+          () => this.requestTranscription(chunk, timeoutMs, attempt, userId, logContext),
+          budget.deadlineMs,
         );
-        const {
-          data: transcription,
-          response,
-          request_id: requestId,
-        } = await request.withResponse();
-
-        const parsedTranscription = this.parseTranscriptionResponse(transcription);
-
-        logger.info('whisper.api.response', {
-          ...logContext,
-          userId,
-          attempt,
-          providerRequestId: requestId || undefined,
-          status: response.status,
-          detectedLanguage: parsedTranscription.detectedLanguage,
-          segmentCount: parsedTranscription.segments.length,
-          textLength: parsedTranscription.text.length,
-          durationMs: Date.now() - apiStart,
-          ...this.rateLimitLogFields(response.headers),
-        });
-
-        if (this.config.enforceEnglishOnly && parsedTranscription.text) {
-          this.validateEnglishContent(parsedTranscription.text, logContext);
-        }
-
-        return parsedTranscription;
+        return { transcription, attempts: attempt };
       } catch (error) {
         const groqError = this.createGroqError(error, attempt);
         const delayMs = this.retryDelayMs(groqError, attempt);
+
+        if (groqError.category === 'rate_limit') {
+          // Organization-wide limit: park every worker, not just this one. The shared
+          // cooldown is deliberately the same number this worker will sleep — retryDelayMs
+          // already clamps Retry-After to maxRetryAfterMs, so peers are never parked longer
+          // than the retry that provoked the parking.
+          this.limiter.noteCooldown(delayMs);
+          logger.warn('whisper.api.cooldown_applied', {
+            ...logContext,
+            userId,
+            chunkIndex: chunk.index,
+            retryAfterSeconds: groqError.retryAfterSeconds,
+            cooldownMs: delayMs,
+          });
+        }
+
         const remainingAfterAttemptMs = budget.deadlineMs - Date.now();
         const canRetry =
-          groqError.retryable &&
-          attempt < this.maxRetryAttempts &&
-          delayMs <= remainingAfterAttemptMs;
+          groqError.retryable && attempt < budget.maxAttempts && delayMs <= remainingAfterAttemptMs;
 
         logger.warn('whisper.api.attempt_failed', {
           ...logContext,
           userId,
           model: this.config.model,
+          chunkIndex: chunk.index,
           attempt,
           category: groqError.category,
           retryable: groqError.retryable,
@@ -746,11 +763,12 @@ export class WhisperService {
             ...logContext,
             userId,
             model: this.config.model,
+            chunkIndex: chunk.index,
             attempts: attempt,
             category: groqError.category,
             status: groqError.status,
             providerRequestId: groqError.providerRequestId,
-            totalBudgetMs: this.retryTotalTimeoutMs,
+            totalBudgetMs: budget.deadlineMs - apiStart,
           });
           throw groqError;
         }
@@ -758,6 +776,7 @@ export class WhisperService {
         logger.warn('whisper.api.retry_scheduled', {
           ...logContext,
           userId,
+          chunkIndex: chunk.index,
           attempt,
           nextAttempt: attempt + 1,
           category: groqError.category,
@@ -770,9 +789,111 @@ export class WhisperService {
         }
       }
     }
-
-    throw this.createGroqError(new Error('Groq transcription attempts exhausted'), budget.attempts);
   }
+
+  private async requestTranscription(
+    chunk: PreparedAudioChunk,
+    timeoutMs: number,
+    attempt: number,
+    userId?: number,
+    logContext: LogContext = {},
+  ): Promise<ParsedTranscription> {
+    const apiStart = Date.now();
+    // Read lazily, inside the slot, so at most `limit` chunks are resident at once.
+    const audioFile = this.createAudioFile(await readFile(chunk.path), 'flac');
+
+    const request = this.openai.audio.transcriptions.create(
+      {
+        file: audioFile,
+        model: this.config.model,
+        language: this.language,
+        response_format: this.config.responseFormat,
+        prompt: this.config.prompt,
+        timestamp_granularities: ['segment', 'word'],
+        temperature: 0,
+      },
+      { timeout: timeoutMs, maxRetries: 0 },
+    );
+    const { data, response, request_id: requestId } = await request.withResponse();
+
+    const parsed = this.parseTranscriptionResponse(data);
+
+    logger.info('whisper.api.response', {
+      ...logContext,
+      userId,
+      chunkIndex: chunk.index,
+      attempt,
+      providerRequestId: requestId || undefined,
+      status: response.status,
+      detectedLanguage: parsed.detectedLanguage,
+      segmentCount: parsed.segments.length,
+      wordCount: parsed.words.length,
+      textLength: parsed.text.length,
+      durationMs: Date.now() - apiStart,
+      ...this.rateLimitLogFields(response.headers),
+    });
+
+    return parsed;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Result assembly
+  // ---------------------------------------------------------------------------
+
+  private buildTranscriptionResult(options: {
+    merged: ReturnType<typeof mergeChunkTranscriptions>;
+    prepared: PreparedAudio;
+    fileUrl: string;
+    startTime: number;
+    userId?: number;
+    logContext: LogContext;
+  }): TranscriptionResult {
+    const processingTimeMs = Date.now() - options.startTime;
+    const { merged, prepared } = options;
+
+    if (this.config.enforceEnglishOnly && merged.text) {
+      this.validateEnglishContent(merged.text, options.logContext);
+    }
+
+    const result: TranscriptionResult = {
+      text: merged.text,
+      fileUrl: options.fileUrl,
+      processingTimeMs,
+      fileSizeBytes: prepared.normalizedSizeBytes,
+      durationSeconds: prepared.durationSeconds,
+      chunkCount: prepared.chunks.length,
+      detectedLanguage: this.language,
+    };
+
+    if (this.config.qualityMonitoringEnabled) {
+      result.quality = this.evaluateTranscriptionQuality(merged.segments);
+      if (result.quality.flaggedSegments > 0) {
+        this.logQualityFlags(result.quality, merged.segments, options.logContext, options.userId);
+      }
+    }
+
+    logger.info('whisper.transcription.completed', {
+      ...options.logContext,
+      userId: options.userId,
+      textPreview: truncateForLog(result.text, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH),
+      textLength: result.text.length,
+      processingTimeMs,
+      prepareTimeMs: prepared.prepareTimeMs,
+      durationSeconds: prepared.durationSeconds,
+      chunkCount: prepared.chunks.length,
+      mergeStrategy: merged.strategy,
+      mergeDegraded: merged.degraded,
+      fileSizeBytes: prepared.normalizedSizeBytes,
+      qualityFlaggedSegments: result.quality?.flaggedSegments,
+      qualityTotalSegments: result.quality?.totalSegments,
+    });
+
+    return result;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Error classification and retry policy
+  // ---------------------------------------------------------------------------
 
   private createGroqError(
     value: unknown,
@@ -829,9 +950,12 @@ export class WhisperService {
 
   private retryDelayMs(error: GroqTranscriptionError, attempt: number): number {
     if (error.category === 'rate_limit' && error.retryAfterSeconds !== undefined) {
-      const requestedMs = error.retryAfterSeconds * 1_000;
-      if (requestedMs <= 0 || requestedMs > this.maxRetryAfterMs) return Number.POSITIVE_INFINITY;
-      return requestedMs;
+      // Honour Retry-After, but never sleep longer than one capped wait: a provider asking
+      // for 15 minutes gets 60s and another attempt. Whether the wait actually fits is the
+      // caller's `delayMs <= remainingAfterAttemptMs` check, not ours — deciding
+      // "non-retryable" here killed jobs that had minutes of budget left.
+      // parseRetryAfter() already rejected negative and non-finite values.
+      return Math.min(error.retryAfterSeconds * 1_000, this.maxRetryAfterMs);
     }
     const capMs = Math.min(
       this.retryMaxDelayMs,
@@ -880,17 +1004,31 @@ export class WhisperService {
     return raw;
   }
 
+  private resolvePositiveInteger(
+    configured: number | undefined,
+    envName: string,
+    fallback: number,
+  ): number {
+    const value = this.resolvePositiveNumber(configured, envName, fallback);
+    if (!Number.isInteger(value)) {
+      throw new Error(`${envName} must be a positive integer.`);
+    }
+    return value;
+  }
+
   private parseTranscriptionResponse(transcription: unknown): ParsedTranscription {
     if (typeof transcription === 'object' && transcription !== null) {
       const response = transcription as {
         text?: string;
-        segments?: TranscriptionSegment[];
+        segments?: TranscriptSegment[];
+        words?: TranscriptWord[];
         language?: string;
       };
 
       return {
         text: response.text || '',
         segments: Array.isArray(response.segments) ? response.segments : [],
+        words: Array.isArray(response.words) ? response.words : [],
         detectedLanguage: response.language,
       };
     }
@@ -898,10 +1036,15 @@ export class WhisperService {
     return {
       text: String(transcription || ''),
       segments: [],
+      words: [],
     };
   }
 
-  private evaluateTranscriptionQuality(segments: TranscriptionSegment[]): TranscriptionQuality {
+  // ---------------------------------------------------------------------------
+  // Quality monitoring
+  // ---------------------------------------------------------------------------
+
+  private evaluateTranscriptionQuality(segments: TranscriptSegment[]): TranscriptionQuality {
     const flags: QualityFlag[] = [];
     const values = {
       avgLogprobs: segments
@@ -993,7 +1136,7 @@ export class WhisperService {
 
   private logQualityFlags(
     quality: TranscriptionQuality,
-    segments: TranscriptionSegment[],
+    segments: TranscriptSegment[],
     logContext: LogContext,
     userId?: number,
   ): void {
@@ -1020,19 +1163,11 @@ export class WhisperService {
     });
   }
 
-  private isFormatRejectionError(error: Error): boolean {
-    return FORMAT_REJECTION_PATTERNS.some((pattern) => pattern.test(error.message));
-  }
-
   // Heuristic check for non-English content (CJK, Cyrillic, Arabic, Hebrew, etc.).
   // Logs a warning but doesn't reject — the transcription is still returned.
   private validateEnglishContent(text: string, logContext: LogContext = {}): void {
-    // Basic heuristic to detect potential non-English content
     const nonLatinChars = /[^\x00-\x7F\s\p{P}]/u.test(text);
-    const commonNonEnglishPatterns =
-      /[\u00C0-\u017F\u0100-\u024F\u4E00-\u9FFF\u0400-\u04FF\u0590-\u05FF\u0600-\u06FF]/u.test(
-        text,
-      );
+    const commonNonEnglishPatterns = /[À-ſĀ-ɏ一-鿿Ѐ-ӿ֐-׿؀-ۿ]/u.test(text);
 
     if (nonLatinChars || commonNonEnglishPatterns) {
       logger.warn('whisper.transcription.non_english_detected', {
@@ -1045,11 +1180,14 @@ export class WhisperService {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Small helpers
+  // ---------------------------------------------------------------------------
+
   // Extracts the file extension from a URL path (e.g. "/file/audio.ogg" → "ogg").
   private extractFileExtension(url: string): string | null {
     try {
-      const urlObj = new URL(url);
-      const pathname = urlObj.pathname;
+      const pathname = new URL(url).pathname;
       const lastDotIndex = pathname.lastIndexOf('.');
 
       if (lastDotIndex > 0 && lastDotIndex < pathname.length - 1) {
@@ -1064,19 +1202,14 @@ export class WhisperService {
 
   private normalizeAudioExtension(extension: string | null): string {
     const normalizedExtension = extension?.toLowerCase() || 'ogg';
+    // Guard against a path segment being interpreted as anything other than a suffix.
+    if (!/^[a-z0-9]{1,8}$/.test(normalizedExtension)) return 'ogg';
     return normalizedExtension === 'oga' ? 'ogg' : normalizedExtension;
   }
 
-  private isGroqDirectTranscriptionFormat(extension: string): boolean {
-    return GROQ_DIRECT_TRANSCRIPTION_FORMATS.includes(
-      extension.toLowerCase() as (typeof GROQ_DIRECT_TRANSCRIPTION_FORMATS)[number],
-    );
-  }
-
   private createAudioFile(buffer: Buffer, extension: string): File {
-    const normalizedExtension = this.normalizeAudioExtension(extension);
-    return new File([new Uint8Array(buffer)], `audio.${normalizedExtension}`, {
-      type: this.getMimeTypeFromExtension(normalizedExtension),
+    return new File([new Uint8Array(buffer)], `audio.${extension}`, {
+      type: this.getMimeTypeFromExtension(extension),
     });
   }
 
@@ -1131,6 +1264,11 @@ export class WhisperService {
   getConfig(): Omit<WhisperConfig, 'apiKey'> {
     return {
       maxFileSizeBytes: this.config.maxFileSizeBytes,
+      maxInputBytes: this.maxInputBytes,
+      maxDurationSeconds: this.maxDurationSeconds,
+      coreSeconds: this.coreSeconds,
+      overlapSeconds: this.overlapSeconds,
+      maxConcurrentRequests: this.limiter.limit,
       model: this.config.model,
       language: this.language,
       responseFormat: this.config.responseFormat,
@@ -1138,10 +1276,15 @@ export class WhisperService {
       prompt: this.config.prompt,
       qualityMonitoringEnabled: this.config.qualityMonitoringEnabled,
       qualityThresholds: this.qualityThresholds,
+      downloadTimeoutMs: this.downloadTimeoutMs,
       requestTimeoutMs: this.requestTimeoutMs,
+      chunkRequestTimeoutMs: this.chunkRequestTimeoutMs,
       maxRetryAttempts: this.maxRetryAttempts,
+      maxChunkAttempts: this.maxChunkAttempts,
       retryMaxDelayMs: this.retryMaxDelayMs,
       retryTotalTimeoutMs: this.retryTotalTimeoutMs,
+      prepareTimeoutMs: this.prepareTimeoutMs,
+      longFormTimeoutMs: this.longFormTimeoutMs,
       maxRetryAfterMs: this.maxRetryAfterMs,
     };
   }

@@ -8,8 +8,6 @@ const FORWARD_ORIGIN = {
   sender_user: { first_name: 'Alice' },
 };
 
-const REJECTION_TEXT = 'I can only buffer forwarded text and photos. Voice, video, and sticker forwards are not supported.';
-
 function makePendingStore() {
   return {
     get: jest.fn().mockResolvedValue(undefined),
@@ -207,7 +205,10 @@ describe('MessageHandlers forward buffering', () => {
       });
 
       await expect(handlers.maybeBufferForward(ctx)).resolves.toBe(true);
-      expect(ctx.reply).toHaveBeenCalledWith(REJECTION_TEXT);
+      expect(ctx.reply).toHaveBeenCalledWith(
+        expect.stringContaining('I can only buffer forwarded text and photos'),
+        { parse_mode: 'MarkdownV2' },
+      );
     });
 
     it('rejects a captioned audio forward rather than buffering only its caption', async () => {
@@ -221,7 +222,10 @@ describe('MessageHandlers forward buffering', () => {
 
       await expect(handlers.maybeBufferForward(ctx)).resolves.toBe(true);
       expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(0);
-      expect(ctx.reply).toHaveBeenCalledWith(REJECTION_TEXT);
+      expect(ctx.reply).toHaveBeenCalledWith(
+        expect.stringContaining('I can only buffer forwarded text and photos'),
+        { parse_mode: 'MarkdownV2' },
+      );
     });
 
     it('rejects new forwards once the buffer is full, keeping existing ones', async () => {
@@ -234,7 +238,9 @@ describe('MessageHandlers forward buffering', () => {
       await handlers.maybeBufferForward(ctx);
 
       expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(1);
-      expect(ctx.reply).toHaveBeenLastCalledWith(expect.stringContaining('Buffer is full'));
+      expect(ctx.reply).toHaveBeenLastCalledWith(expect.stringContaining('Buffer is full'), {
+        parse_mode: 'MarkdownV2',
+      });
     });
 
     it('returns false when no forward buffer is wired (feature disabled)', async () => {
@@ -254,14 +260,17 @@ describe('MessageHandlers forward buffering', () => {
     });
   });
 
-  describe('/send_forward', () => {
+  describe('/forward', () => {
     it('replies with guidance when the buffer is empty', async () => {
       const { handlers, messageProcessor } = createHandlers();
-      const ctx = createContext({ text: '/send_forward summarize', message_id: 20 });
+      const ctx = createContext({ text: '/forward summarize', message_id: 20 });
 
-      await handlers.handleSendForward(ctx);
+      await handlers.handleForward(ctx);
 
-      expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('No forwarded messages buffered'));
+      expect(ctx.reply).toHaveBeenCalledWith(
+        expect.stringContaining('No forwarded messages buffered'),
+        { parse_mode: 'MarkdownV2' },
+      );
       expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
     });
 
@@ -270,8 +279,8 @@ describe('MessageHandlers forward buffering', () => {
       const ctx = createContext({ text: 'fwd', forward_origin: FORWARD_ORIGIN, message_id: 21 });
       await handlers.maybeBufferForward(ctx);
 
-      ctx.message = { text: '/send_forward', message_id: 22 };
-      await handlers.handleSendForward(ctx);
+      ctx.message = { text: '/forward', message_id: 22 };
+      await handlers.handleForward(ctx);
 
       expect(messageProcessor.processTextMessage).toHaveBeenCalledTimes(1);
       const combined = messageProcessor.processTextMessage.mock.calls[0][0] as string;
@@ -284,8 +293,8 @@ describe('MessageHandlers forward buffering', () => {
       const ctx = createContext({ text: 'meeting moved', forward_origin: FORWARD_ORIGIN, message_id: 23 });
       await handlers.maybeBufferForward(ctx);
 
-      ctx.message = { text: '/send_forward summarize these', message_id: 24 };
-      await handlers.handleSendForward(ctx);
+      ctx.message = { text: '/forward summarize these', message_id: 24 };
+      await handlers.handleForward(ctx);
 
       expect(messageProcessor.processTextMessage).toHaveBeenCalledTimes(1);
       const combined = messageProcessor.processTextMessage.mock.calls[0][0] as string;
@@ -307,8 +316,8 @@ describe('MessageHandlers forward buffering', () => {
       expect(ctx.reply.mock.calls[0]).toEqual([expect.stringContaining('1 message buffered')]);
       const replyCallsBeforeDispatch = ctx.reply.mock.calls.length;
 
-      ctx.message = { text: '/send_forward summarize', message_id: 51 };
-      await handlers.handleSendForward(ctx);
+      ctx.message = { text: '/forward summarize', message_id: 51 };
+      await handlers.handleForward(ctx);
 
       expect(messageProcessor.processTextMessage).toHaveBeenCalledTimes(1);
       expect(ctx.reply.mock.calls[replyCallsBeforeDispatch]).toEqual([
@@ -330,8 +339,8 @@ describe('MessageHandlers forward buffering', () => {
       expect(ctx.reply.mock.calls[0]).toEqual([expect.stringContaining('1 message buffered')]);
       const replyCallsBeforeDispatch = ctx.reply.mock.calls.length;
 
-      ctx.message = { text: '/send_forward describe this', message_id: 53 };
-      await handlers.handleSendForward(ctx);
+      ctx.message = { text: '/forward describe this', message_id: 53 };
+      await handlers.handleForward(ctx);
 
       expect(messageProcessor.processPhotoMessage).toHaveBeenCalledTimes(1);
       expect(ctx.reply.mock.calls[replyCallsBeforeDispatch]).toEqual([
@@ -340,13 +349,13 @@ describe('MessageHandlers forward buffering', () => {
       ]);
     });
 
-    it('supports /send_forward@botname', async () => {
+    it('supports /forward@botname', async () => {
       const { handlers, messageProcessor } = createHandlers();
       const ctx = createContext({ text: 'fwd', forward_origin: FORWARD_ORIGIN, message_id: 25 });
       await handlers.maybeBufferForward(ctx);
 
-      ctx.message = { text: '/send_forward@jarvisbot do it', message_id: 26 };
-      await handlers.handleSendForward(ctx);
+      ctx.message = { text: '/forward@jarvisbot do it', message_id: 26 };
+      await handlers.handleForward(ctx);
 
       const combined = messageProcessor.processTextMessage.mock.calls[0][0] as string;
       expect(combined.trimEnd().endsWith('do it')).toBe(true);
@@ -358,12 +367,14 @@ describe('MessageHandlers forward buffering', () => {
       const ctx = createContext({ text: 'fwd', forward_origin: FORWARD_ORIGIN, message_id: 27 });
       await handlers.maybeBufferForward(ctx);
 
-      ctx.message = { text: '/send_forward summarize', message_id: 28 };
-      await handlers.handleSendForward(ctx);
+      ctx.message = { text: '/forward summarize', message_id: 28 };
+      await handlers.handleForward(ctx);
 
       expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
       expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(1);
-      expect(ctx.reply).toHaveBeenLastCalledWith(expect.stringContaining('still finishing'));
+      expect(ctx.reply).toHaveBeenLastCalledWith(expect.stringContaining('still finishing'), {
+        parse_mode: 'MarkdownV2',
+      });
     });
 
     it('downloads buffered photos and dispatches via processPhotoMessage', async () => {
@@ -376,8 +387,8 @@ describe('MessageHandlers forward buffering', () => {
       await handlers.maybeBufferForward(ctx);
       expect(forwardBuffer.peek((handlers as any).gateKey(ctx))[0].fileId).toBe('pic1');
 
-      ctx.message = { text: '/send_forward describe this', message_id: 41 };
-      await handlers.handleSendForward(ctx);
+      ctx.message = { text: '/forward describe this', message_id: 41 };
+      await handlers.handleForward(ctx);
 
       expect(fileService.downloadFile).toHaveBeenCalledWith('pic1', expect.any(Number));
       expect(messageProcessor.processPhotoMessage).toHaveBeenCalledTimes(1);
@@ -404,8 +415,8 @@ describe('MessageHandlers forward buffering', () => {
       });
       await handlers.maybeBufferForward(ctx);
 
-      ctx.message = { text: '/send_forward summarize', message_id: 43 };
-      await handlers.handleSendForward(ctx);
+      ctx.message = { text: '/forward summarize', message_id: 43 };
+      await handlers.handleForward(ctx);
 
       // Still dispatches (with empty images) via processPhotoMessage
       expect(messageProcessor.processPhotoMessage).toHaveBeenCalledTimes(1);
@@ -452,6 +463,33 @@ describe('MessageHandlers forward buffering', () => {
       await handlers.handleNew(ctx);
 
       expect(forwardBuffer.count(key)).toBe(0);
+    });
+  });
+
+  describe('handleText during an active forward session', () => {
+    it('passes plain text to the processor without swallowing it into the buffer', async () => {
+      const gateStore = { getSnapshot: jest.fn().mockResolvedValue({ status: 'idle' }) };
+      const { handlers, messageProcessor, forwardBuffer } = createHandlers({ gateStore });
+      const ctx = createContext({ text: 'fwd', forward_origin: FORWARD_ORIGIN, message_id: 60 });
+      await handlers.maybeBufferForward(ctx);
+      const key = (handlers as any).gateKey(ctx);
+
+      // An unrelated question mid-session must still reach the agent — the forward stays
+      // buffered for a later /forward, but the question is answered, not swallowed.
+      ctx.message = { text: 'an unrelated question', message_id: 61 };
+      await handlers.handleText(ctx);
+
+      expect(messageProcessor.processTextMessage).toHaveBeenCalledTimes(1);
+      expect(forwardBuffer.count(key)).toBe(1);
+    });
+
+    it('processes normally when no session is active (empty buffer)', async () => {
+      const { handlers, messageProcessor } = createHandlers();
+      const ctx = createContext({ text: 'do a thing', message_id: 64 });
+
+      await handlers.handleText(ctx);
+
+      expect(messageProcessor.processTextMessage).toHaveBeenCalledTimes(1);
     });
   });
 });

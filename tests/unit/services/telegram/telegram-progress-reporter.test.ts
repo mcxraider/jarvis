@@ -270,13 +270,21 @@ describe('TelegramProgressReporter', () => {
     ['audio', 'Listening…'],
     ['forwarded', 'Reviewing forwarded messages…'],
   ] as const)(
-    'seeds the %s input kind with its matching label on first paint',
+    'renders the same %s label on first paint via both the rich and plain transports',
     async (inputKind, label) => {
-      const ctx = context('group');
-      const reporter = new TelegramProgressReporter(ctx, {}, inputKind);
-      await reporter.start();
-      expect(ctx.reply).toHaveBeenCalledWith(label, { parse_mode: 'MarkdownV2' });
-      await reporter.complete();
+      const plainCtx = context('group');
+      const plainReporter = new TelegramProgressReporter(plainCtx, {}, inputKind);
+      await plainReporter.start();
+      expect(plainCtx.reply).toHaveBeenCalledWith(label, { parse_mode: 'MarkdownV2' });
+      await plainReporter.complete();
+
+      setRichMessagesEnabled(true);
+      const richCtx = context('private');
+      const richReporter = new TelegramProgressReporter(richCtx, {}, inputKind);
+      await richReporter.start();
+      expect(richCtx.reply).not.toHaveBeenCalled();
+      expect(richCtx.telegram.callApi.mock.calls[0][1].rich_message.markdown).toContain(label);
+      await richReporter.complete();
     },
   );
 

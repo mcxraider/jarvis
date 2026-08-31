@@ -17,6 +17,7 @@ describeIntegration('Telegram Integration Tests', () => {
 
   beforeAll(async () => {
     const { TelegramBotService } = await import('../../src/services/telegram/telegram-bot.service');
+    const { createTerminalReplyStore } = await import('../../src/services/telegram/terminal-reply.store');
 
     const telegramConfig = {
       token: process.env.BOT_TOKEN!,
@@ -28,6 +29,7 @@ describeIntegration('Telegram Integration Tests', () => {
     botService = new TelegramBotService(
       telegramConfig,
       { setupHandlers: jest.fn() } as any,
+      createTerminalReplyStore(),
     );
   });
 

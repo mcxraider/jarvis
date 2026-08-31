@@ -38,8 +38,6 @@ from agents.agent_api.app.llm.provider import (
     validate_reasoning_for_profile,
 )
 
-OPENAI_VISION_MODEL = "gpt-5.6-luna"
-
 
 @dataclass(frozen=True)
 class ResponsesCall:
@@ -197,7 +195,7 @@ def _build_user_content(
                 {
                     "type": "input_image",
                     "image_url": image["image_url"],
-                    "detail": "auto",
+                    "detail": image.get("detail", "high"),
                 },
             )
         )
@@ -239,6 +237,11 @@ def _attach_image_batches(
                 batches = [all_images]
                 targets = [user_items[-1]]
             else:
+                logger.warning(
+                    "image_batch.silent_noop: user_items=%d images=%d — dropping image input",
+                    len(user_items),
+                    len(all_images),
+                )
                 return serialized
             next_label = 1
             for item, batch in zip(targets, batches):
@@ -283,12 +286,14 @@ def build_responses_call(
     tool_choice: str | Mapping[str, Any] | None = None,
     timeout_seconds: float | None = None,
     image_context: ImageContext | None = None,
+    vision_model: str | None = None,
 ) -> ResponsesCall:
     images = image_context["images"] if image_context else ()
     prior_image_batches = image_context["prior_batches"] if image_context else None
     has_images = bool(images) or any(prior_image_batches or ())
     requested_model = validate_model_for_profile(
-        profile, OPENAI_VISION_MODEL if has_images else model or profile.model
+        profile,
+        (vision_model or profile.model) if has_images else model or profile.model,
     )
     effort = validate_reasoning_for_profile(profile, reasoning_effort)
     output_tokens = (
@@ -516,7 +521,6 @@ def normalize_response(
 
 
 __all__ = [
-    "OPENAI_VISION_MODEL",
     "ResponsesCall",
     "build_responses_call",
     "normalize_response",

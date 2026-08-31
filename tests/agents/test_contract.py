@@ -36,7 +36,10 @@ class TestInvokeRequest:
             {
                 "message": "What is this?",
                 "user_id": "user_123",
-                "images": [{"image_url": JPEG_URL, "detail": "auto"}],
+                "images": [
+                    {"image_url": JPEG_URL, "detail": "auto"},
+                    {"image_url": JPEG_URL, "detail": "high"},
+                ],
             }
         )
         assert request.images and request.images[0].image_url == JPEG_URL
@@ -46,7 +49,7 @@ class TestInvokeRequest:
         [
             [{"image_url": "data:image/png;base64,/9j/2Q==", "detail": "auto"}],
             [{"image_url": "data:image/jpeg;base64,not-base64", "detail": "auto"}],
-            [{"image_url": JPEG_URL, "detail": "high"}],
+            [{"image_url": JPEG_URL, "detail": "invalid"}],
             [],
             [{"image_url": JPEG_URL, "detail": "auto"}] * 11,
         ],

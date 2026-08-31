@@ -165,13 +165,13 @@ def test_get_async_checkpointer_fails_before_lifespan_startup() -> None:
         checkpointing.get_async_checkpointer()
 
 
-def test_async_redis_backend_fails_explicitly() -> None:
+def test_async_unsupported_backend_fails_explicitly() -> None:
     with patch.object(
         checkpointing,
         "settings",
         SimpleNamespace(checkpoint_backend="redis", run_checkpoint_setup=False),
     ):
-        with pytest.raises(NotImplementedError, match="Async Redis"):
+        with pytest.raises(RuntimeError, match="Unsupported JARVIS_CHECKPOINT_BACKEND"):
             asyncio.run(checkpointing.initialize_async_checkpointer())
 
 

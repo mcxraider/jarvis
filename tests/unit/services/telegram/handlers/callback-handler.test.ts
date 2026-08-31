@@ -548,7 +548,9 @@ describe('CallbackHandler', () => {
       status: 'waiting_for_clarification',
       requestId: pending!.requestId,
     });
-    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('Something went wrong'));
+    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('Something went wrong'), {
+      parse_mode: 'MarkdownV2',
+    });
   });
 
   it('retains callback ownership and pending state when HTTP delivery is ambiguous', async () => {

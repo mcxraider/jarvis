@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-from agents.api import app, create_app
+from agents.agent_api.app.main import app, create_app
 from agents.agent_api.app import run_logging
 from agents.agent_api.app.checkpointing.postgres import create_postgres_checkpointer
 from agents.agent_api.app.config import load_settings
-from agents.agent_api.app.service import InMemorySaver, create_default_checkpointer
+from agents.agent_api.app.checkpointing import InMemorySaver, create_default_checkpointer
 
 
 class JarvisApiTests(unittest.TestCase):

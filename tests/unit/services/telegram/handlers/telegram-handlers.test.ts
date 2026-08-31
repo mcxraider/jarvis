@@ -1,7 +1,7 @@
 import { TelegramHandlers } from '../../../../../src/services/telegram/handlers/telegram-handlers';
 
 describe('TelegramHandlers', () => {
-  it('registers /start, /help, /status, /cancel, /new, and /send_forward commands', () => {
+  it('registers /start, /help, /status, /cancel, /new, and /forward commands', () => {
     const bot = {
       command: jest.fn(),
       on: jest.fn(),
@@ -16,7 +16,7 @@ describe('TelegramHandlers', () => {
     const messageHandlers = {
       handleText: jest.fn(),
       handleNew: jest.fn(),
-      handleSendForward: jest.fn(),
+      handleForward: jest.fn(),
       maybeBufferForward: jest.fn().mockResolvedValue(false),
       handleVoice: jest.fn(),
       handleAudio: jest.fn(),
@@ -45,6 +45,6 @@ describe('TelegramHandlers', () => {
     expect(bot.command).toHaveBeenNthCalledWith(3, 'status', expect.any(Function));
     expect(bot.command).toHaveBeenNthCalledWith(4, 'cancel', expect.any(Function));
     expect(bot.command).toHaveBeenNthCalledWith(5, 'new', expect.any(Function));
-    expect(bot.command).toHaveBeenNthCalledWith(6, 'send_forward', expect.any(Function));
+    expect(bot.command).toHaveBeenNthCalledWith(6, 'forward', expect.any(Function));
   });
 });

@@ -18,9 +18,11 @@ import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { classifyError } from '../errors/classified-error';
 import type { ReplyContextData } from '../reply-context';
 import { AgentImageBatchesSchema, type AgentImage } from '../../../types/agent.types';
+import {
+  resolveRunningGateTtlMs,
+  resolveWaitingGateTtlMs,
+} from '../../../config/turn-timeout.config';
 
-const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
-const DEFAULT_WAITING_TTL_MS = 30 * 60 * 1000;
 const IMAGE_HISTORY_LIMIT_MESSAGE =
   'You can send up to 10 images totaling 10 MiB for this request. Send a text clarification or start a new request.';
 
@@ -84,9 +86,9 @@ export class TextProcessorService {
     private readonly pendingClarificationStore: PendingClarificationStore,
     private readonly conversationGate: ConversationGateStore,
   ) {
+    this.runningTtlMs = resolveRunningGateTtlMs();
+    this.waitingTtlMs = resolveWaitingGateTtlMs();
     this.pendingClarificationTtlMs = this.resolvePendingClarificationTtlMs();
-    this.runningTtlMs = this.resolveEnvTtl('TELEGRAM_GATE_RUNNING_TTL_MS', DEFAULT_RUNNING_TTL_MS);
-    this.waitingTtlMs = this.resolveEnvTtl('TELEGRAM_GATE_WAITING_TTL_MS', DEFAULT_WAITING_TTL_MS);
   }
 
   async processTextMessage(
@@ -882,8 +884,10 @@ export class TextProcessorService {
     };
   }
 
+  // Defaults to the waiting-gate TTL: the pending row and the gate that guards it should
+  // expire together.
   private resolvePendingClarificationTtlMs(): number {
-    return this.resolveEnvTtl('TELEGRAM_PENDING_TTL_MS', DEFAULT_WAITING_TTL_MS);
+    return this.resolveEnvTtl('TELEGRAM_PENDING_TTL_MS', this.waitingTtlMs);
   }
 
   private resolveEnvTtl(envKey: string, defaultValue: number): number {

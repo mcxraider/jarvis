@@ -106,7 +106,7 @@ echo "==> Stopping any existing instances"
 pkill -f "ts-node ./src/server.ts" 2>/dev/null || true
 pkill -f nodemon 2>/dev/null || true
 pkill -f "ngrok http 3000" 2>/dev/null || true
-pkill -f "uvicorn agents.api:app" 2>/dev/null || true
+pkill -f "uvicorn agents.agent_api.app.main:app" 2>/dev/null || true
 sleep 1
 
 echo "==> Preparing Python venv"
@@ -194,7 +194,7 @@ else
 fi
 
 echo "==> Starting Python LangGraph agent"
-nohup uvicorn agents.api:app --host 127.0.0.1 --port 8000 > /tmp/jarvis-agent.log 2>&1 &
+nohup uvicorn agents.agent_api.app.main:app --host 127.0.0.1 --port 8000 > /tmp/jarvis-agent.log 2>&1 &
 disown
 
 echo "==> Waiting for agent health check"

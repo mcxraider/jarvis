@@ -59,14 +59,13 @@ _COMPLEX_OR_MULTI_STEP = re.compile(
 )
 
 
-def _decision(outcome: RouterOutcome, domains: list[str], reasoning: str) -> RouterDecision:
+def _decision(outcome: RouterOutcome, domains: list[str]) -> RouterDecision:
     return RouterDecision(
         outcome=outcome,
         domains=domains,
         uncertain=False,
         candidate_domains=[],
         complexity=QueryComplexity.LOW,
-        reasoning=reasoning,
     )
 
 
@@ -80,7 +79,7 @@ def fast_path_classify(
     if not stripped:
         return None
     if _CONVERSATION_ONLY.fullmatch(stripped):
-        return _decision(RouterOutcome.CONVERSATION, [], "fast path greeting")
+        return _decision(RouterOutcome.CONVERSATION, [])
     if snapshot.preferences.routing.exceptions:
         return None
     if len(stripped.split()) > 16:
@@ -114,13 +113,11 @@ def fast_path_classify(
         return _decision(
             RouterOutcome.ROUTED,
             ["google_calendar"],
-            "fast path explicit calendar",
         )
     if explicit_todoist and "todoist" in active:
         return _decision(
             RouterOutcome.ROUTED,
             ["todoist"],
-            "fast path explicit todoist",
         )
     if explicit_generic_calendar:
         provider = snapshot.preferences.routing.explicit_calendar_provider
@@ -128,7 +125,6 @@ def fast_path_classify(
             return _decision(
                 RouterOutcome.ROUTED,
                 [provider],
-                "fast path explicit calendar",
             )
     if reminder_request:
         provider = snapshot.preferences.routing.reminder_provider
@@ -136,7 +132,6 @@ def fast_path_classify(
             return _decision(
                 RouterOutcome.ROUTED,
                 [provider],
-                "fast path reminder",
             )
     if time_related_request:
         provider = snapshot.preferences.routing.time_related_provider
@@ -144,7 +139,6 @@ def fast_path_classify(
             return _decision(
                 RouterOutcome.ROUTED,
                 [provider],
-                "fast path time related",
             )
     if task_request and not generic_scheduling:
         task_provider = snapshot.preferences.routing.task_provider
@@ -152,7 +146,6 @@ def fast_path_classify(
             return _decision(
                 RouterOutcome.ROUTED,
                 [task_provider],
-                "fast path simple task",
             )
     if generic_scheduling and _EVENT_ANCHOR.search(stripped):
         provider = snapshot.preferences.routing.event_provider
@@ -160,7 +153,6 @@ def fast_path_classify(
             return _decision(
                 RouterOutcome.ROUTED,
                 [provider],
-                "fast path simple event",
             )
     return None
 

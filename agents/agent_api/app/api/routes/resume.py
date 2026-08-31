@@ -14,13 +14,10 @@ from agents.agent_api.app.api.routes.invoke import (
     stream_final_response,
 )
 from agents.agent_api.app.api.schemas import AgentResponse, ResumeRequest
+from agents.agent_api.app.graph.builder import run_jarvis_async as run_jarvis
 from agents.agent_api.app.graph.run_control import RunControl
 from agents.agent_api.app.middleware.request_gate import apply_request_gate_async
-from agents.agent_api.app.service import (
-    NULL_TRACE,
-    run_jarvis_async as run_jarvis,
-)
-from agents.agent_api.app.tracing import UserProgressTracePrinter
+from agents.agent_api.app.tracing import NULL_TRACE, UserProgressTracePrinter
 
 router = APIRouter()
 

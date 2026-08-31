@@ -1,8 +1,8 @@
 """Router-backed tool selector (per-turn, LLM-classified).
 
-Unlike the keyword selector — which matches the query against a static routing
-table — this selector asks the :class:`RouterClient` which service *domains* the
-query needs, then exposes only those domains' tools (plus ``ask_user``). The
+Unlike the static selector — which exposes every registered tool — this selector
+asks the :class:`RouterClient` which service *domains* the query needs, then
+exposes only those domains' tools (plus ``ask_user``). The
 classification is stable turn-to-turn within a run (the routing query is
 constant), so the decision is memoized on the selector instance keyed by query
 string. A different query (e.g. a HITL clarification reply that redirects to a
@@ -508,7 +508,6 @@ class RouterToolSelector:
                 uncertain=False,
                 candidate_domains=[],
                 complexity=decision.complexity,
-                reasoning=decision.reasoning,
             )
         if use_candidates:
             primary_domains = [
@@ -523,7 +522,6 @@ class RouterToolSelector:
                 uncertain=decision.uncertain,
                 candidate_domains=domains,
                 complexity=decision.complexity,
-                reasoning=decision.reasoning,
             )
         return RouterDecision(
             outcome=RouterOutcome.ROUTED,
@@ -531,7 +529,6 @@ class RouterToolSelector:
             uncertain=False,
             candidate_domains=[],
             complexity=decision.complexity,
-            reasoning=decision.reasoning,
         )
 
     def _allowed_tool_names(self, relevant: Set[str]) -> Set[str]:

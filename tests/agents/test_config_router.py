@@ -13,8 +13,10 @@ def test_router_timeout_default_is_five_seconds(monkeypatch):
 
 def test_model_router_default_reasoning_is_medium(monkeypatch):
     monkeypatch.delenv("MODEL_ROUTER_DEFAULT_REASONING", raising=False)
+    monkeypatch.delenv("MODEL_ROUTER_SIMPLE_REASONING", raising=False)
     settings = load_settings()
     assert settings.model_router_default_reasoning == "medium"
+    assert settings.model_router_simple_reasoning == "low"
 
 
 def test_model_router_timeout_defaults(monkeypatch):

@@ -293,13 +293,13 @@ class TestRuntimeContextPrompt:
         assert 'A bare weekday or "this <weekday>" means the nearest future occurrence' in prompt
         assert '"next <weekday>" means that weekday in the following Monday–Sunday calendar week' in prompt
         assert '"next Friday" means 2026-07-17, not tomorrow' in prompt
-        assert 'Never emit a relative "next <weekday>" phrase to a tool' in prompt
+        assert 'Never send a relative "next <weekday>" expression to a tool' in prompt
 
     def test_clarification_default_policy_has_explicit_branches(self):
         prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
 
-        assert "When all three are true, use the obvious default" in prompt
-        assert "If ANY condition is false, call `ask_user`" in prompt
+        assert "Use `ask_user` when a missing detail:" in prompt
+        assert "Otherwise, proceed using a conventional, low-risk, and reversible assumption" in prompt
         assert "Otherwise pick the sensible default" not in prompt
 
     def test_hard_invariants_are_front_loaded(self):

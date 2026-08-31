@@ -73,7 +73,7 @@ describe('TelegramBotService', () => {
 
   const EXPECTED_MENU_COMMANDS = [
     { command: 'new', description: 'Abandon the current step and start a new request' },
-    { command: 'send_forward', description: 'Send buffered forwards to Jarvis' },
+    { command: 'forward', description: 'Send buffered forwards to Jarvis' },
     { command: 'cancel', description: 'Cancel the current operation' },
     { command: 'help', description: 'Show available commands and supported inputs' },
   ];
@@ -90,13 +90,15 @@ describe('TelegramBotService', () => {
     );
   });
 
-  it('uses the centralized 195 second handler watchdog by default', async () => {
+  // The watchdog must outlast the worst audio turn (30s download + 120s prepare +
+  // 360s transcription + 165s agent), so it is 600s, not the old 195s text-only budget.
+  it('uses the centralized 600 second handler watchdog by default', async () => {
     const originalHandlerTimeout = process.env.TELEGRAM_HANDLER_TIMEOUT_MS;
     delete process.env.TELEGRAM_HANDLER_TIMEOUT_MS;
     try {
       const service = await createService();
 
-      expect((service.bot as any).options.handlerTimeout).toBe(195_000);
+      expect((service.bot as any).options.handlerTimeout).toBe(600_000);
       await service.stop();
     } finally {
       if (originalHandlerTimeout === undefined) {

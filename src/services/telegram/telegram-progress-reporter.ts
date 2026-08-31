@@ -14,7 +14,6 @@ import {
   PROGRESS_DELIVERY_RETRY_MS,
   PROGRESS_RICH_REFRESH_MS,
   ProgressNarrator,
-  seedLabelForInputKind,
   TelegramInputKind,
 } from './progress-narrator';
 
@@ -51,7 +50,7 @@ export class TelegramProgressReporter {
   async start(): Promise<void> {
     if (this.started || this.completed) return;
     this.started = true;
-    this.narrator.start(seedLabelForInputKind(this.inputKind));
+    this.narrator.start(Date.now(), this.inputKind);
     await this.ensurePump();
   }
 

@@ -33,7 +33,7 @@ class TestModelSelection:
 class TestModelRouter:
     def test_returns_default_when_disabled(self):
         router = create_default_model_router(enabled=False)
-        decision = RouterDecision(outcome="routed", domains=["todoist", "google_calendar"], uncertain=True, candidate_domains=["todoist", "google_calendar"], complexity="low", reasoning="test")
+        decision = RouterDecision(outcome="routed", domains=["todoist", "google_calendar"], uncertain=True, candidate_domains=["todoist", "google_calendar"], complexity="low")
         result = router.select(decision)
         assert result == router.default
 
@@ -54,7 +54,6 @@ class TestModelRouter:
             uncertain=True,
             candidate_domains=["todoist", "google_calendar"],
             complexity="low",
-            reasoning="test",
         )
         result = router.select(decision)
         assert result.model == "pro"
@@ -66,22 +65,23 @@ class TestModelRouter:
             complex_model="pro",
             multi_domain_reasoning="high",
         )
-        decision = RouterDecision(outcome="routed", domains=["todoist", "google_calendar"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")
+        decision = RouterDecision(outcome="routed", domains=["todoist", "google_calendar"], uncertain=False, candidate_domains=[], complexity="low")
         result = router.select(decision)
         assert result.model == "pro"
         assert result.reasoning_effort == "high"
         assert result.request_timeout_seconds == 60.0
 
-    def test_low_complexity_single_domain_uses_default_high(self):
+    def test_low_complexity_certain_single_domain_uses_simple_low(self):
         router = create_default_model_router(
             default_model="flash",
-            default_reasoning="high",
+            default_reasoning="medium",
+            simple_reasoning="low",
             complex_model="pro",
         )
-        decision = RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")
+        decision = RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low")
         result = router.select(decision)
         assert result.model == "flash"
-        assert result.reasoning_effort == "high"
+        assert result.reasoning_effort == "low"
         assert result.request_timeout_seconds == 30.0
 
     def test_medium_complexity_single_domain_uses_complex_high(self):
@@ -96,7 +96,6 @@ class TestModelRouter:
             uncertain=False,
             candidate_domains=[],
             complexity="medium",
-            reasoning="test",
         )
         result = router.select(decision)
         assert result.model == "pro"
@@ -124,18 +123,24 @@ class TestModelRouter:
             uncertain=uncertain,
             candidate_domains=candidate_domains,
             complexity="high",
-            reasoning="test",
         )
         result = router.select(decision)
         assert result.model == "pro"
         assert result.reasoning_effort == "max"
         assert result.request_timeout_seconds == 90.0
 
-    def test_empty_domains_uses_default(self):
-        router = create_default_model_router(default_model="flash")
-        decision = RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")
+    def test_empty_domains_use_default_before_medium_rule(self):
+        router = create_default_model_router(
+            default_model="flash",
+            default_reasoning="medium",
+            complex_model="pro",
+            multi_domain_reasoning="high",
+        )
+        decision = RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="medium")
         result = router.select(decision)
         assert result.model == "flash"
+        assert result.reasoning_effort == "medium"
+        assert result.request_timeout_seconds == 30.0
 
     def test_custom_rules(self):
         custom_selection = ModelSelection(model="custom", reasoning_effort="low")
@@ -147,7 +152,7 @@ class TestModelRouter:
         )
         default = ModelSelection(model="default", reasoning_effort="max")
         router = ModelRouter([custom_rule], default)
-        decision = RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")
+        decision = RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low")
         assert router.select(decision) == custom_selection
 
     def test_first_matching_rule_wins(self):
@@ -159,7 +164,7 @@ class TestModelRouter:
         ]
         default = ModelSelection(model="default", reasoning_effort="max")
         router = ModelRouter(rules, default)
-        assert router.select(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low", reasoning="test")) == sel_a
+        assert router.select(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low")) == sel_a
 
 
 def _profile(provider: LLMProvider):
@@ -199,10 +204,45 @@ def test_openai_responses_model_routes_preserve_configured_effort() -> None:
         uncertain=True,
         candidate_domains=["todoist"],
         complexity="high",
-        reasoning="test",
     )
     assert router.select(decision).reasoning_effort == "max"
     assert router.select(decision).provider is LLMProvider.OPENAI
+
+
+@pytest.mark.parametrize(
+    ("decision", "expected_effort", "expected_timeout"),
+    [
+        (RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low"), "low", 60.0),
+        (RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low"), "medium", 60.0),
+        (RouterDecision(outcome="routed", domains=["todoist", "google_calendar"], uncertain=False, candidate_domains=[], complexity="low"), "medium", 60.0),
+        (RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="medium"), "medium", 60.0),
+        (RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="high"), "medium", 90.0),
+        (RouterDecision(outcome="ambiguous", domains=[], uncertain=True, candidate_domains=["todoist", "google_calendar"], complexity="low"), "medium", 90.0),
+    ],
+)
+def test_luna_default_effort_matrix(
+    decision: RouterDecision,
+    expected_effort: str,
+    expected_timeout: float,
+) -> None:
+    router = create_default_model_router(
+        profile=_profile(LLMProvider.OPENAI),
+        default_model="gpt-5.6-luna",
+        default_reasoning="medium",
+        default_timeout_seconds=60.0,
+        simple_reasoning="low",
+        complex_model="gpt-5.6-luna",
+        complex_reasoning="medium",
+        complex_timeout_seconds=90.0,
+        multi_domain_reasoning="medium",
+        multi_domain_timeout_seconds=60.0,
+    )
+
+    selection = router.select(decision)
+
+    assert selection.model == "gpt-5.6-luna"
+    assert selection.reasoning_effort == expected_effort
+    assert selection.request_timeout_seconds == expected_timeout
 
 
 @pytest.mark.parametrize(

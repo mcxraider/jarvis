@@ -16,7 +16,7 @@ echo "==> Stopping ngrok"
 pkill -f "ngrok http 3000" 2>/dev/null && echo "    stopped" || echo "    not running"
 
 echo "==> Stopping Python LangGraph agent"
-pkill -f "uvicorn agents.api:app" 2>/dev/null && echo "    stopped" || echo "    not running"
+pkill -f "uvicorn agents.agent_api.app.main:app" 2>/dev/null && echo "    stopped" || echo "    not running"
 
 echo
 echo "All stopped."

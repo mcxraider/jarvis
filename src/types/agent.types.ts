@@ -35,7 +35,7 @@ export const AgentImageSchema = z
         });
       }
     }),
-    detail: z.literal('auto'),
+    detail: z.enum(['auto', 'high']),
   })
   .strict();
 
@@ -75,7 +75,7 @@ export const AgentImageBatchesSchema = z
 
 export type AgentImage = {
   image_url: `data:image/jpeg;base64,${string}`;
-  detail: 'auto';
+  detail: 'auto' | 'high';
 };
 
 export const TelegramIdentitySchema = z.object({

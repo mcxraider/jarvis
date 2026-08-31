@@ -36,14 +36,11 @@ from agents.agent_api.app.middleware.request_gate import (
     abandon_claim_async,
     apply_request_gate_async,
 )
+from agents.agent_api.app.graph.builder import run_jarvis_async as run_jarvis
 from agents.agent_api.app.graph.run_control import RunControl, RunPhase
+from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.llm.provider import LLMProviderError, require_vision_provider
-from agents.agent_api.app.service import (
-    NULL_TRACE,
-    JarvisState,
-    run_jarvis_async as run_jarvis,
-)
-from agents.agent_api.app.tracing import UserProgressTracePrinter
+from agents.agent_api.app.tracing import NULL_TRACE, UserProgressTracePrinter
 
 router = APIRouter()
 

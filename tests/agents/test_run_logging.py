@@ -202,6 +202,73 @@ class RunFileLogWritingTests(TestCase):
         self.assertNotIn("private-pixels", content)
         self.assertIn("[redacted image data]", content)
 
+    def test_messages_dump_redacts_image_urls_in_stringified_objects(self) -> None:
+        import tempfile
+
+        class _Sneaky:
+            def __str__(self) -> str:
+                return "data:image/png;base64,private-pixels"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = run_logging.Path(tmp) / "run.log"
+            log = run_logging.RunFileLog(path, background=False)
+            # Not a str/dict/list, so only json.dumps(default=str) renders it.
+            log.write_messages_dump("objects", [{"blob": _Sneaky()}])
+            log.write_footer()
+            content = path.read_text(encoding="utf-8")
+
+        self.assertNotIn("data:image", content)
+        self.assertNotIn("private-pixels", content)
+
+    def test_background_messages_dump_defers_work_and_still_redacts(self) -> None:
+        import tempfile
+
+        class _Sneaky:
+            def __str__(self) -> str:
+                return "data:image/png;base64,private-pixels"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = run_logging.Path(tmp) / "run.log"
+            log = run_logging.RunFileLog(path, background=True)
+            gate = run_logging.threading.Event()
+            # Occupy the single-worker pool so the dump cannot have run yet.
+            run_logging._submit_log_write(gate.wait)
+            log.write_messages_dump(
+                "images",
+                [
+                    {
+                        "image_url": "data:image/jpeg;base64,private-pixels",
+                        "encrypted_content": "secret-ciphertext",
+                        "blob": _Sneaky(),
+                    }
+                ],
+            )
+            self.assertFalse(path.exists(), "dump must not be formatted on the calling thread")
+            gate.set()
+            run_logging.flush_run_logs()
+            content = path.read_text(encoding="utf-8")
+
+        self.assertIn("MESSAGES DUMP: images", content)
+        self.assertIn("message_count: 1", content)
+        self.assertIn("[redacted encrypted reasoning]", content)
+        self.assertIn("[redacted image data]", content)
+        self.assertNotIn("data:image", content)
+        self.assertNotIn("private-pixels", content)
+        self.assertNotIn("secret-ciphertext", content)
+
+    def test_background_messages_dump_truncates_oversized_payload(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = run_logging.Path(tmp) / "run.log"
+            log = run_logging.RunFileLog(path, background=True)
+            log.write_messages_dump("big", [{"content": "x" * (run_logging.MAX_PAYLOAD_BYTES + 1)}])
+            run_logging.flush_run_logs()
+            content = path.read_text(encoding="utf-8")
+
+        self.assertIn("[truncated, original_bytes=", content)
+        self.assertLess(len(content.encode("utf-8")), run_logging.MAX_PAYLOAD_BYTES + 200)
+
 
 class FileLoggingTracerTests(TestCase):
     def _tracer(self, tmp: str):
@@ -326,7 +393,7 @@ class RunJarvisFileLoggingTests(TestCase):
 
 
 class _ImageCapturingClient:
-    """Fake LLM that records whether images kwarg was received."""
+    """Fake LLM that records images received via the image_context kwarg."""
 
     def __init__(self, response: Dict[str, Any]):
         self.response = response
@@ -339,7 +406,8 @@ class _ImageCapturingClient:
         tools: List[Dict[str, Any]],
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        self.received_images = kwargs.get("images")
+        ctx = kwargs.get("image_context")
+        self.received_images = ctx["images"] if ctx else None
         return dict(self.response)
 
 

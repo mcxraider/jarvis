@@ -356,6 +356,43 @@ describe('LangGraphAgentClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('returns a specific vision-unavailable reply for a 422 with images', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 422,
+      text: jest.fn().mockResolvedValue('vision model unavailable'),
+    });
+    global.fetch = fetchMock as any;
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    const result = await client.invoke({
+      message: 'what is this',
+      userId: 'local-user',
+      images: [{ image_url: 'data:image/jpeg;base64,/9j/2Q==' as const, detail: 'high' as const }],
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: 'failed',
+        delivery: 'terminal',
+        response: expect.stringContaining("vision isn't available"),
+      }),
+    );
+  });
+
+  it('falls back generically for a 422 without images', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 422,
+      text: jest.fn().mockResolvedValue('unprocessable'),
+    }) as any;
+    const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+    const result = await client.invoke({ message: 'hello', userId: 'local-user' });
+    expect(result.response).not.toContain("vision isn't available");
+    expect(result.error).toBe('LangGraph API returned 422');
+  });
+
   it('keeps a standard 409 response delivery-ambiguous', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: false,

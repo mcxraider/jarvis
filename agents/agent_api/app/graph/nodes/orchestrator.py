@@ -1330,7 +1330,7 @@ def create_agent_node(
         user_prompt = state.get("user_prompt", "")
         # After a HITL clarification, route on the latest reply — the user may
         # redirect intent (e.g. from tasks to calendar). For the router selector
-        # this is a natural cache miss; for keyword/static selectors it's a no-op.
+        # this is a natural cache miss; for the static selector it's a no-op.
         clarification_history = state.get("clarification_history") or []
         if clarification_history:
             last_entry = clarification_history[-1]

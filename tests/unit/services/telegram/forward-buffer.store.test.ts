@@ -212,4 +212,15 @@ describe('formatForwardContext', () => {
     expect(out.indexOf('[1]')).toBeLessThan(out.indexOf('[2]'));
     expect(out.trimEnd().endsWith('summarize these')).toBe(true);
   });
+
+  // A `---` fence makes the preceding line a setext H2, which the model mirrors and
+  // Telegram then renders as bold. Fences must stay heading-free.
+  it('fences the block without setext-heading delimiters', () => {
+    const out = formatForwardContext([msg({ senderName: 'Alice', text: 'hi' })], 'do it');
+
+    expect(out).not.toMatch(/\n-{3,}\s*$/m);
+    expect(out).not.toMatch(/\n={3,}\s*$/m);
+    expect(out).toContain('<<<FORWARDED>>>');
+    expect(out).toContain('<<<END FORWARDED>>>');
+  });
 });

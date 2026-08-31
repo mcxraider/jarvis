@@ -33,7 +33,6 @@ class TestRouterDecisionSchema:
             "uncertain": True,
             "candidate_domains": ["todoist", "google_calendar"],
             "complexity": "low",
-            "reasoning": "task + explicit time",
         }
         decision = RouterDecision.model_validate(data)
         assert decision.domains == ["todoist", "google_calendar"]
@@ -41,6 +40,21 @@ class TestRouterDecisionSchema:
         assert decision.candidate_domains == ["todoist", "google_calendar"]
         assert decision.complexity is QueryComplexity.LOW
         assert decision.model_dump() == data
+
+    def test_legacy_reasoning_is_accepted_but_discarded(self):
+        decision = RouterDecision.model_validate(
+            {
+                "outcome": "conversation",
+                "domains": [],
+                "uncertain": False,
+                "candidate_domains": [],
+                "complexity": "low",
+                "reasoning": "legacy explanation",
+            }
+        )
+
+        assert "reasoning" not in decision.model_dump()
+        assert "reasoning" not in RouterDecision.model_json_schema()["properties"]
 
     @pytest.mark.parametrize("complexity", ["low", "medium", "high"])
     def test_accepts_every_query_complexity_label(self, complexity):
@@ -51,7 +65,6 @@ class TestRouterDecisionSchema:
                 "uncertain": False,
                 "candidate_domains": [],
                 "complexity": complexity,
-                "reasoning": "test",
             }
         )
         assert decision.complexity.value == complexity
@@ -66,7 +79,6 @@ class TestRouterDecisionSchema:
                     "uncertain": False,
                     "candidate_domains": [],
                     "complexity": complexity,
-                    "reasoning": "test",
                 }
             )
 
@@ -78,7 +90,6 @@ class TestRouterDecisionSchema:
                     "domains": [],
                     "uncertain": False,
                     "candidate_domains": [],
-                    "reasoning": "test",
                 }
             )
 
@@ -87,14 +98,14 @@ class TestRouterDecisionSchema:
         with pytest.raises(ValidationError):
             RouterDecision.model_validate({
                 "outcome": "conversation", "domains": [], "uncertain": False,
-                "candidate_domains": [], "complexity": "low", "reasoning": "greeting", "confidence": 0.9,
+                "candidate_domains": [], "complexity": "low", "confidence": 0.9,
             })
 
     def test_rejects_wrong_domain_type(self):
         with pytest.raises(ValidationError):
             RouterDecision.model_validate({
                 "outcome": "routed", "domains": "todoist", "uncertain": False,
-                "candidate_domains": [], "complexity": "low", "reasoning": "task",
+                "candidate_domains": [], "complexity": "low",
             })
 
     def test_effective_domains_use_candidates_only_when_uncertain(self):
@@ -104,7 +115,6 @@ class TestRouterDecisionSchema:
             uncertain=False,
             candidate_domains=[],
             complexity="low",
-            reasoning="task",
         )
         uncertain = RouterDecision(
             outcome="routed",
@@ -112,14 +122,13 @@ class TestRouterDecisionSchema:
             uncertain=True,
             candidate_domains=["todoist", "google_calendar"],
             complexity="low",
-            reasoning="ambiguous",
         )
         assert effective_router_domains(certain) == ["todoist"]
         assert effective_router_domains(uncertain) == ["todoist", "google_calendar"]
         with pytest.raises(ValidationError):
             RouterDecision(
                 outcome="routed", domains=["todoist"], uncertain=True,
-                candidate_domains=["todoist", "todoist"], complexity="low", reasoning="duplicate",
+                candidate_domains=["todoist", "todoist"], complexity="low",
             )
 
 
@@ -218,10 +227,9 @@ class TestRouterSystemPrompt:
         assert '"outcome": "routed", "domains": ["todoist"]' in prompt
         assert '"outcome": "routed", "domains": ["google_calendar"]' in prompt
 
-    def test_output_schema_constrains_reasoning_length(self):
-        """The reasoning field should be capped to save tokens on filler."""
+    def test_output_schema_omits_reasoning(self):
         prompt = build_router_system_prompt(make_snapshot())
-        assert "10 words or fewer" in prompt
+        assert '"reasoning"' not in prompt
 
     def test_output_schema_documents_uncertainty_fields(self):
         prompt = build_router_system_prompt(make_snapshot())

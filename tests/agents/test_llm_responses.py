@@ -239,9 +239,11 @@ def test_builds_pinned_multimodal_request_on_latest_user_turn():
             {"role": "user", "content": "caption"},
         ],
         image_context=ImageContext(images=IMAGES, prior_batches=None),
+        vision_model="gpt-5.6-luna",
     )
     request = call.as_kwargs()
 
+    # vision_model wins over both profile.model and the model arg when images are present.
     assert request["model"] == "gpt-5.6-luna"
     assert request["store"] is False
     assert request["include"] == ["reasoning.encrypted_content"]
@@ -301,6 +303,7 @@ def test_historical_images_pin_vision_model_for_confirmation_resume():
         model="gpt-5.6-mini",
         messages=[{"role": "user", "content": "original"}],
         image_context=ImageContext(images=(), prior_batches=[IMAGES]),
+        vision_model="gpt-5.6-luna",
     ).as_kwargs()
 
     assert call["model"] == "gpt-5.6-luna"

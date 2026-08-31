@@ -1,7 +1,70 @@
 import { classifyError } from '../../../../../src/services/telegram/errors/classified-error';
 import { GroqTranscriptionError } from '../../../../../src/services/ai/groq-transcription-error';
+import { AudioAdmissionError } from '../../../../../src/utils/ai/audio-admission-error';
+import { AUDIO_LIMIT_MESSAGES } from '../../../../../src/utils/ai/audio-limits';
 
 describe('classifyError', () => {
+  describe('audio admission errors', () => {
+    it('classifies an oversized file with the shared 20 MB copy', () => {
+      const result = classifyError(new AudioAdmissionError('too_large', { observed: 1, limit: 0 }));
+
+      expect(result).toEqual({
+        category: 'user_actionable',
+        userMessage: AUDIO_LIMIT_MESSAGES.tooLarge,
+        shouldLog: 'warn',
+      });
+      // Pin the exact user-facing wording, not just the constant reference.
+      expect(result.userMessage).toBe(
+        'That audio file is too large. Jarvis can only accept files up to 20 MB.',
+      );
+    });
+
+    it('classifies over-long audio with the shared 20-minute copy', () => {
+      const result = classifyError(new AudioAdmissionError('too_long', { observed: 3000 }));
+
+      expect(result).toEqual({
+        category: 'user_actionable',
+        userMessage: AUDIO_LIMIT_MESSAGES.tooLong,
+        shouldLog: 'warn',
+      });
+      expect(result.userMessage).toBe(
+        'That audio is too long. Please send audio that is 20 minutes or shorter.',
+      );
+    });
+
+    it('wins over any message-pattern rule', () => {
+      // This message would otherwise match the max-length rule.
+      const error = new AudioAdmissionError('too_long');
+      Object.defineProperty(error, 'message', {
+        value: 'File size 30MB exceeds maximum allowed length',
+      });
+
+      expect(classifyError(error).userMessage).toBe(AUDIO_LIMIT_MESSAGES.tooLong);
+    });
+
+    it('no longer mentions 25 MB for size rules', () => {
+      const cases = [
+        classifyError(new AudioAdmissionError('too_large')),
+        classifyError(new Error('File size 30MB exceeds the upload limit')),
+        classifyError(
+          new GroqTranscriptionError({
+            category: 'payload_too_large',
+            message: 'payload too large',
+            retryable: false,
+            status: 413,
+            attempts: 1,
+          }),
+        ),
+      ];
+
+      for (const result of cases) {
+        expect(result.userMessage).toBe(AUDIO_LIMIT_MESSAGES.tooLarge);
+        expect(result.userMessage).not.toContain('25 MB');
+        expect(result.category).toBe('user_actionable');
+      }
+    });
+  });
+
   describe('typed Groq transcription errors', () => {
     it('returns rate-limit retry guidance', () => {
       const result = classifyError(
@@ -70,7 +133,7 @@ describe('classifyError', () => {
 
       expect(result).toEqual({
         category: 'user_actionable',
-        userMessage: 'Audio file is too large. Maximum size is 25 MB.',
+        userMessage: AUDIO_LIMIT_MESSAGES.tooLarge,
         shouldLog: 'warn',
       });
     });
@@ -224,7 +287,7 @@ describe('classifyError', () => {
 
         expect(result).toEqual({
           category: 'user_actionable',
-          userMessage: 'Audio file is too large. Maximum size is 25 MB.',
+          userMessage: AUDIO_LIMIT_MESSAGES.tooLarge,
           shouldLog: 'warn',
         });
       });

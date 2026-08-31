@@ -15,10 +15,12 @@ import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
 import { TelegramReasoningSummaryReporter } from '../telegram-reasoning-summary-reporter';
 import { TerminalReplyStore } from '../terminal-reply.store';
+import {
+  resolveRunningGateTtlMs,
+  resolveWaitingGateTtlMs,
+} from '../../../config/turn-timeout.config';
 
 const CONFIRM_PREFIX = 'confirm:';
-const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
-const DEFAULT_WAITING_TTL_MS = 30 * 60 * 1000;
 
 export class CallbackHandler {
   private readonly runningTtlMs: number;
@@ -30,12 +32,8 @@ export class CallbackHandler {
     private readonly conversationGate: ConversationGateStore,
     private readonly terminalReplyStore: TerminalReplyStore,
   ) {
-    const runningTtl = Number(process.env.TELEGRAM_GATE_RUNNING_TTL_MS);
-    this.runningTtlMs =
-      Number.isFinite(runningTtl) && runningTtl > 0 ? runningTtl : DEFAULT_RUNNING_TTL_MS;
-    const waitingTtl = Number(process.env.TELEGRAM_GATE_WAITING_TTL_MS);
-    this.waitingTtlMs =
-      Number.isFinite(waitingTtl) && waitingTtl > 0 ? waitingTtl : DEFAULT_WAITING_TTL_MS;
+    this.runningTtlMs = resolveRunningGateTtlMs();
+    this.waitingTtlMs = resolveWaitingGateTtlMs();
   }
 
   async handleCallbackQuery(ctx: Context): Promise<void> {
@@ -399,7 +397,11 @@ export class CallbackHandler {
         error: (error as Error).message,
       });
       if (this.terminalReplyStore.claim(requestId, 'callback_error')) {
-        await ctx.reply('Something went wrong processing your decision. Please try again.');
+        await sendFinalReply(
+          ctx,
+          'Something went wrong processing your decision. Please try again.',
+          logContext,
+        );
       }
     }
   }

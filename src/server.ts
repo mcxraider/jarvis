@@ -6,7 +6,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { flushLogger, getLoggerStats, logger, shutdownLogger } from './utils/logger';
 import { createWebhookRouter } from './controllers/webhook.controller';
-import { agentContractReadiness, botService, databaseReadiness } from './app';
+import { agentContractReadiness, botService, databaseReadiness, ffmpegReadiness } from './app';
 
 const NGROK_URL = process.env.NGROK_URL!;
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
@@ -34,6 +34,13 @@ app.get('/health', async (_req: Request, res: Response, _next: NextFunction) => 
     dependencies.database = 'ok';
   } catch {
     dependencies.database = 'not ready';
+  }
+
+  try {
+    await ffmpegReadiness;
+    dependencies.ffmpeg = 'ok';
+  } catch {
+    dependencies.ffmpeg = 'not ready';
   }
 
   try {
@@ -81,10 +88,11 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 const PORT = process.env.PORT || 3000;
 let server: ReturnType<typeof app.listen> | undefined;
 
-// Database migrations and the live agent timeout contract are startup barriers.
-// Do not accept webhooks with an unsafe schema or an inverted timeout ladder.
+// Database migrations, the live agent timeout contract, and FFmpeg availability are
+// startup barriers. Do not accept webhooks with an unsafe schema, an inverted timeout
+// ladder, or no way to normalize audio.
 export async function startServer(): Promise<void> {
-  await Promise.all([databaseReadiness, agentContractReadiness]);
+  await Promise.all([databaseReadiness, agentContractReadiness, ffmpegReadiness]);
   if (SKIP_WEBHOOK_SETUP) {
     logger.info('telegram.webhook.setup_skipped');
   } else {

@@ -23,7 +23,7 @@ describe('AgentImagesSchema', () => {
       Array.from({ length: 11 }, () => image()),
       [{ image_url: 'data:image/png;base64,/9j/2Q==', detail: 'auto' }],
       [image('not-base64')],
-      [{ ...image(), detail: 'high' }],
+      [{ ...image(), detail: 'original' }],
       [{ ...image(), extra: true }],
     ];
     expect(invalid.every((value) => !AgentImagesSchema.safeParse(value).success)).toBe(true);

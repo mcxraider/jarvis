@@ -17,7 +17,7 @@ JPEG_DATA_URL_PREFIX = "data:image/jpeg;base64,"
 
 class ImageInput(BaseModel):
     image_url: str
-    detail: Literal["auto"]
+    detail: Literal["auto", "high"]
     _decoded_len: int = PrivateAttr(default=0)
 
     @model_validator(mode="after")

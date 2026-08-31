@@ -1,3 +1,7 @@
+import { GroqTranscriptionError } from '../../ai/groq-transcription-error';
+import { AudioAdmissionError } from '../../../utils/ai/audio-admission-error';
+import { AUDIO_LIMIT_MESSAGES } from '../../../utils/ai/audio-limits';
+
 export type ErrorCategory = 'user_actionable' | 'transient' | 'permanent';
 
 export interface ClassifiedError {
@@ -30,7 +34,7 @@ const ERROR_RULES: ErrorRule[] = [
   {
     match: (msg) => msg.includes('File size') && msg.includes('exceeds'),
     category: 'user_actionable',
-    userMessage: 'Audio file is too large. Maximum size is 25 MB.',
+    userMessage: AUDIO_LIMIT_MESSAGES.tooLarge,
     shouldLog: 'warn',
   },
   {
@@ -93,6 +97,12 @@ const DEFAULT_CLASSIFIED: ClassifiedError = {
 };
 
 export function classifyError(error: Error): ClassifiedError {
+  // Audio admission carries its own user-facing copy, so it wins over every
+  // message-pattern rule below.
+  if (error instanceof AudioAdmissionError) {
+    return { category: 'user_actionable', userMessage: error.userMessage, shouldLog: 'warn' };
+  }
+
   if (error instanceof GroqTranscriptionError) {
     switch (error.category) {
       case 'rate_limit': {
@@ -117,7 +127,7 @@ export function classifyError(error: Error): ClassifiedError {
       case 'payload_too_large':
         return {
           category: 'user_actionable',
-          userMessage: 'Audio file is too large. Maximum size is 25 MB.',
+          userMessage: AUDIO_LIMIT_MESSAGES.tooLarge,
           shouldLog: 'warn',
         };
       case 'invalid_audio':
@@ -149,4 +159,3 @@ export function classifyError(error: Error): ClassifiedError {
 
   return DEFAULT_CLASSIFIED;
 }
-import { GroqTranscriptionError } from '../../ai/groq-transcription-error';

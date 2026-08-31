@@ -131,6 +131,7 @@ class Settings:
     openai_api_key: Optional[str] = field(repr=False)
     openai_model: str
     openai_complex_model: str
+    openai_vision_model: str
     openai_base_url: str
     openai_max_completion_tokens: int
     openai_reasoning_effort: str
@@ -139,7 +140,7 @@ class Settings:
     openai_retry_max_delay_seconds: float
     openai_sdk_max_retries: int
     # Query router (pre-orchestrator domain classifier). Opt-in via router_enabled;
-    # tool_selector selects the strategy ("static" | "keyword" | "router"). The
+    # tool_selector selects the strategy ("static" | "router"). The
     # router reuses the DeepSeek OpenAI-compatible endpoint but with tighter,
     # non-critical retry/timeout budgets since it is never a hard-failure path.
     router_enabled: bool
@@ -181,7 +182,6 @@ class Settings:
     debug_payloads: bool
     langsmith_hide_payloads: bool
     postgres_dsn: Optional[str]
-    redis_url: Optional[str]
     checkpoint_backend: str
     run_checkpoint_setup: bool
     idempotency_request_ttl_seconds: int
@@ -196,6 +196,7 @@ class Settings:
     model_router_default_model: str
     model_router_default_reasoning: str
     model_router_default_timeout_seconds: float
+    model_router_simple_reasoning: str
     model_router_complex_model: str
     model_router_complex_reasoning: str
     model_router_complex_timeout_seconds: float
@@ -418,6 +419,10 @@ def load_settings() -> Settings:
         LLMProvider.OPENAI,
         _non_empty_env("OPENAI_COMPLEX_MODEL", "gpt-5.6-luna"),
     )
+    openai_vision_model = validate_model_for_provider(
+        LLMProvider.OPENAI,
+        _non_empty_env("OPENAI_VISION_MODEL", "gpt-5.6-luna"),
+    )
     openai_base_url = _non_empty_env(
         "OPENAI_BASE_URL", "https://api.openai.com/v1"
     )
@@ -583,6 +588,7 @@ def load_settings() -> Settings:
         openai_api_key=openai_api_key,
         openai_model=openai_model,
         openai_complex_model=openai_complex_model,
+        openai_vision_model=openai_vision_model,
         openai_base_url=openai_base_url,
         openai_max_completion_tokens=openai_max_completion_tokens,
         openai_request_timeout_seconds=openai_request_timeout_seconds,
@@ -648,7 +654,6 @@ def load_settings() -> Settings:
         # JARVIS_TRACE_PAYLOADS=0 for deployments that must hide full payloads.
         langsmith_hide_payloads=not _bool_env("JARVIS_TRACE_PAYLOADS", True),
         postgres_dsn=postgres_dsn,
-        redis_url=os.getenv("JARVIS_REDIS_URL") or os.getenv("REDIS_URL"),
         checkpoint_backend=checkpoint_backend,
         run_checkpoint_setup=_bool_env("JARVIS_RUN_CHECKPOINT_SETUP", False),
         idempotency_request_ttl_seconds=idempotency_request_ttl_seconds,
@@ -684,6 +689,10 @@ def load_settings() -> Settings:
         model_router_default_timeout_seconds=_positive_float_env(
             "MODEL_ROUTER_DEFAULT_TIMEOUT_SECONDS",
             orchestrator_llm.request_timeout_seconds,
+        ),
+        model_router_simple_reasoning=validate_reasoning_for_profile(
+            orchestrator_llm,
+            os.getenv("MODEL_ROUTER_SIMPLE_REASONING") or "low",
         ),
         model_router_complex_model=_role_model(
             "MODEL_ROUTER_COMPLEX_MODEL",

@@ -1,6 +1,7 @@
 """Structured terminal tracing and safe user-facing progress events."""
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Optional
 
 from langsmith.run_helpers import get_current_run_tree
@@ -8,6 +9,34 @@ from langsmith.run_helpers import get_current_run_tree
 from agents.agent_api.app.constants import DEBUG_PAYLOADS, DEBUG_TRACE
 
 ProgressCallback = Callable[[Dict[str, Any]], None]
+
+_MAX_SPAN_EVENTS = 200  # ponytail: per-span cap; raise only if a real run exceeds it
+
+
+def _emit_span_event(stage: str, message: str, fields: Dict[str, Any]) -> None:
+    """Mirror a diagnostic event onto the active LangSmith span. Never raises."""
+    try:
+        run_tree = get_current_run_tree()
+        if run_tree is None:
+            return
+        if run_tree.events and len(run_tree.events) >= _MAX_SPAN_EVENTS:
+            return
+        event: Dict[str, Any] = {
+            "name": stage,
+            "time": datetime.now(timezone.utc).isoformat(),
+            "message": message,
+        }
+        for key, value in fields.items():
+            if value is None:
+                continue
+            event[key] = (
+                value
+                if isinstance(value, (int, float, bool))
+                else TracePrinter._preview(value, 180)
+            )
+        run_tree.add_event(event)
+    except Exception:
+        pass
 
 
 class TracePrinter:
@@ -24,6 +53,9 @@ class TracePrinter:
         print("-" * (len(title) + 2))
 
     def event(self, stage: str, message: str, **fields: Any) -> None:
+        # Mirrors to LangSmith regardless of self.enabled: `enabled` gates terminal
+        # printing (JARVIS_DEBUG), not tracing.
+        _emit_span_event(stage, message, fields)
         if not self.enabled:
             return
         suffix = self._format_fields(fields)

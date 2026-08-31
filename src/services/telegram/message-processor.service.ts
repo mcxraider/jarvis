@@ -8,17 +8,12 @@ import {
 import { AudioProcessingHooks, AudioProcessorService } from './processors/audio-processor.service';
 import { LogContext } from '../../utils/logger';
 import { LangGraphProgressCallback } from '../ai/langgraph-agent-client.service';
-import {
-  ConversationGateSnapshot,
-  ConversationGateStore,
-} from './conversation-gate.store';
+import { ConversationGateSnapshot, ConversationGateStore } from './conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from './conversation-key';
 import type { ReplyContextData } from './reply-context';
 import { PendingClarificationStore } from './pending-clarification.store';
 import type { AgentImage } from '../../types/agent.types';
-
-const DEFAULT_RUNNING_TTL_MS = 5 * 60 * 1000;
-const DEFAULT_WAITING_TTL_MS = 30 * 60 * 1000;
+import { resolveRunningGateTtlMs, resolveWaitingGateTtlMs } from '../../config/turn-timeout.config';
 
 export class MessageProcessorService {
   private readonly runningTtlMs: number;
@@ -30,12 +25,8 @@ export class MessageProcessorService {
     private readonly conversationGate: ConversationGateStore,
     private readonly pendingStore?: PendingClarificationStore,
   ) {
-    const configured = Number(process.env.TELEGRAM_GATE_RUNNING_TTL_MS);
-    this.runningTtlMs = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_RUNNING_TTL_MS;
-    const configuredWaiting = Number(process.env.TELEGRAM_GATE_WAITING_TTL_MS);
-    this.waitingTtlMs = Number.isFinite(configuredWaiting) && configuredWaiting > 0
-      ? configuredWaiting
-      : DEFAULT_WAITING_TTL_MS;
+    this.runningTtlMs = resolveRunningGateTtlMs();
+    this.waitingTtlMs = resolveWaitingGateTtlMs();
   }
 
   async processTextMessage(
@@ -72,7 +63,7 @@ export class MessageProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
-    extraOptions?: { replyContext?: ReplyContextData },
+    extraOptions?: { replyContext?: ReplyContextData; instruction?: string },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
@@ -105,7 +96,11 @@ export class MessageProcessorService {
       hooks?.onPendingPauseAccepted,
     );
     if (!reservation.reserved) {
-      logger.info('conversation_gate.audio_blocked', { ...logContext, gateKey, gateStatus: reservation.gateStatus });
+      logger.info('conversation_gate.audio_blocked', {
+        ...logContext,
+        gateKey,
+        gateStatus: reservation.gateStatus,
+      });
       return {
         response: "I'm still working on your previous request. Please wait.",
         blocked: true,
@@ -113,14 +108,20 @@ export class MessageProcessorService {
     }
 
     try {
-      const audioOptions = reservation.kind === 'clarification'
-        ? {
-            pendingClarificationPreReserved: true,
-            onPendingPauseAccepted: hooks?.onPendingPauseAccepted,
-            pendingPauseAcceptedNotified: reservation.pauseAcceptedNotified,
-            replyContext: extraOptions?.replyContext,
-          }
-        : { gatePreAcquired: true, replyContext: extraOptions?.replyContext };
+      const audioOptions =
+        reservation.kind === 'clarification'
+          ? {
+              pendingClarificationPreReserved: true,
+              onPendingPauseAccepted: hooks?.onPendingPauseAccepted,
+              pendingPauseAcceptedNotified: reservation.pauseAcceptedNotified,
+              replyContext: extraOptions?.replyContext,
+              instruction: extraOptions?.instruction,
+            }
+          : {
+              gatePreAcquired: true,
+              replyContext: extraOptions?.replyContext,
+              instruction: extraOptions?.instruction,
+            };
       const result = await this.audioProcessor.processAudioMessage(
         fileUrl,
         userId,
@@ -155,7 +156,7 @@ export class MessageProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
-    extraOptions?: { replyContext?: ReplyContextData },
+    extraOptions?: { replyContext?: ReplyContextData; instruction?: string },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
       ...logContext,
@@ -189,7 +190,11 @@ export class MessageProcessorService {
       hooks?.onPendingPauseAccepted,
     );
     if (!reservation.reserved) {
-      logger.info('conversation_gate.audio_blocked', { ...logContext, gateKey, gateStatus: reservation.gateStatus });
+      logger.info('conversation_gate.audio_blocked', {
+        ...logContext,
+        gateKey,
+        gateStatus: reservation.gateStatus,
+      });
       return {
         response: "I'm still working on your previous request. Please wait.",
         blocked: true,
@@ -197,14 +202,20 @@ export class MessageProcessorService {
     }
 
     try {
-      const docOptions = reservation.kind === 'clarification'
-        ? {
-            pendingClarificationPreReserved: true,
-            onPendingPauseAccepted: hooks?.onPendingPauseAccepted,
-            pendingPauseAcceptedNotified: reservation.pauseAcceptedNotified,
-            replyContext: extraOptions?.replyContext,
-          }
-        : { gatePreAcquired: true, replyContext: extraOptions?.replyContext };
+      const docOptions =
+        reservation.kind === 'clarification'
+          ? {
+              pendingClarificationPreReserved: true,
+              onPendingPauseAccepted: hooks?.onPendingPauseAccepted,
+              pendingPauseAcceptedNotified: reservation.pauseAcceptedNotified,
+              replyContext: extraOptions?.replyContext,
+              instruction: extraOptions?.instruction,
+            }
+          : {
+              gatePreAcquired: true,
+              replyContext: extraOptions?.replyContext,
+              instruction: extraOptions?.instruction,
+            };
       const result = await this.audioProcessor.processAudioDocument(
         fileUrl,
         fileName,
@@ -412,11 +423,11 @@ export class MessageProcessorService {
     waitingRequestId?: string,
   ): Promise<boolean> {
     if (
-      result.delivery === 'ambiguous'
-      || result.threadId
-      || result.interruptType
-      || result.blocked
-      || result.suppressed
+      result.delivery === 'ambiguous' ||
+      result.threadId ||
+      result.interruptType ||
+      result.blocked ||
+      result.suppressed
     ) {
       return true;
     }
@@ -476,8 +487,9 @@ export class MessageProcessorService {
         .catch(() => false);
       if (restored) return true;
       const snapshot = await this.safeGetGateSnapshot(gateKey);
-      return snapshot.status === 'waiting_for_clarification'
-        && snapshot.requestId === waitingRequestId;
+      return (
+        snapshot.status === 'waiting_for_clarification' && snapshot.requestId === waitingRequestId
+      );
     }
 
     const release = await this.conversationGate
@@ -486,5 +498,4 @@ export class MessageProcessorService {
     if (release.released) return true;
     return (await this.safeGetGateSnapshot(gateKey)).status === 'idle';
   }
-
 }

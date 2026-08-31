@@ -370,25 +370,44 @@ def _submit_log_write(fn: Callable[[], None]) -> concurrent.futures.Future[None]
     return future
 
 
-def _redact_checkpoint_secrets(value: Any) -> Any:
-    """Copy a checkpoint payload while removing replay-only encrypted blobs."""
+def _strip_encrypted(value: Any) -> Any:
+    """Copy a checkpoint payload while removing replay-only encrypted blobs.
+
+    Image data URLs are deliberately not handled here. Callers run one
+    ``_DATA_IMAGE_URL_RE`` pass over the serialized result instead, which also
+    covers dict keys and objects stringified by ``json.dumps(default=str)`` —
+    neither of which a per-value walk can reach.
+    """
 
     if isinstance(value, dict):
         return {
             key: (
                 "[redacted encrypted reasoning]"
                 if key == "encrypted_content"
-                else _redact_checkpoint_secrets(item)
+                else _strip_encrypted(item)
             )
             for key, item in value.items()
         }
     if isinstance(value, list):
-        return [_redact_checkpoint_secrets(item) for item in value]
+        return [_strip_encrypted(item) for item in value]
     if isinstance(value, tuple):
-        return tuple(_redact_checkpoint_secrets(item) for item in value)
-    if isinstance(value, str):
-        return _DATA_IMAGE_URL_RE.sub("[redacted image data]", value)
+        return tuple(_strip_encrypted(item) for item in value)
     return value
+
+
+def _bounded_entry(text: str) -> tuple[str, int]:
+    """Return a newline-terminated log entry and its byte size, bounded to MAX_PAYLOAD_BYTES."""
+
+    entry = text + "\n"
+    entry_bytes = len(entry.encode("utf-8"))
+    if entry_bytes <= MAX_PAYLOAD_BYTES:
+        return entry, entry_bytes
+    # ponytail: slices characters against a byte budget; exact byte truncation
+    # only if the overshoot on multi-byte payloads ever actually matters.
+    entry = text[:MAX_PAYLOAD_BYTES] + f" [truncated, original_bytes={entry_bytes}]\n"
+    with _writer_stats_lock:
+        _writer_stats.events_truncated += 1
+    return entry, len(entry.encode("utf-8"))
 
 
 class RunFileLog:
@@ -445,26 +464,59 @@ class RunFileLog:
         """Write a full messages array as indented JSON, clearly demarcated.
 
         Used for the final LLM call context — the complete conversation the model
-        saw when it decided to answer. Not truncated; these logs are local-only.
-        """
-        import json as _json
+        saw when it decided to answer. Bounded to MAX_PAYLOAD_BYTES on disk;
+        these logs are local-only.
 
-        payload = _json.dumps(
-            _redact_checkpoint_secrets(messages),
-            indent=2,
-            ensure_ascii=False,
-            default=str,
-        )
-        separator = "~" * 78
-        lines = [
-            separator,
-            f"MESSAGES DUMP: {label}",
-            f"message_count: {len(messages)}",
-            separator,
-            payload,
-            separator,
-        ]
-        self._append("\n".join(lines))
+        On the background path the redaction and serialization run on the
+        run-log writer thread so no CPU lands on the event loop. Two
+        consequences worth knowing:
+
+        - ``messages`` is read after the caller returns. A concurrent mutation
+          of the shared message dicts loses the dump (logged by
+          ``_submit_log_write``); nothing else is affected.
+        - The entry goes straight to disk rather than through the shared
+          buffer, because ``_append`` is only safe on the calling thread. So a
+          dump can land ahead of buffered lines that precede it, and it can no
+          longer be silently dropped by the 2 MB buffer cap.
+        """
+        count = len(messages)
+
+        def _render() -> str:
+            import json as _json
+
+            payload = _DATA_IMAGE_URL_RE.sub(
+                "[redacted image data]",
+                _json.dumps(
+                    _strip_encrypted(messages),
+                    indent=2,
+                    ensure_ascii=False,
+                    default=str,
+                ),
+            )
+            separator = "~" * 78
+            return "\n".join(
+                [
+                    separator,
+                    f"MESSAGES DUMP: {label}",
+                    f"message_count: {count}",
+                    separator,
+                    payload,
+                    separator,
+                ]
+            )
+
+        if not self._background:
+            self._append(_render())
+            return
+
+        def _render_and_write() -> None:
+            entry, entry_bytes = _bounded_entry(_render())
+            with _writer_stats_lock:
+                _writer_stats.events_accepted += 1
+                _writer_stats.bytes_accepted += entry_bytes
+            self._flush_partial([entry])
+
+        _submit_log_write(_render_and_write)
 
     def write_crash(self, exc: BaseException) -> None:
         """Synchronously persist a partial run log when graph execution crashes."""
@@ -492,14 +544,7 @@ class RunFileLog:
 
     def _append(self, text: str, *, preserve: bool = False) -> None:
         text = _DATA_IMAGE_URL_RE.sub("[redacted image data]", text)
-        entry = text + "\n"
-        entry_bytes = len(entry.encode("utf-8"))
-        if entry_bytes > MAX_PAYLOAD_BYTES:
-            original_bytes = entry_bytes
-            entry = text[:MAX_PAYLOAD_BYTES] + f" [truncated, original_bytes={original_bytes}]\n"
-            entry_bytes = len(entry.encode("utf-8"))
-            with _writer_stats_lock:
-                _writer_stats.events_truncated += 1
+        entry, entry_bytes = _bounded_entry(text)
         would_exceed_events = self._buffer_events >= MAX_BUFFER_EVENTS
         would_exceed_bytes = self._buffer_bytes + entry_bytes > MAX_BUFFER_BYTES
         if not preserve and (would_exceed_events or would_exceed_bytes):

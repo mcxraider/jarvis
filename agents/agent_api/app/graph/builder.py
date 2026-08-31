@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from langgraph.types import Command
+from langsmith import traceable
 
 from agents.agent_api.app.checkpointing import (
     get_default_checkpointer,
@@ -33,6 +34,7 @@ from agents.agent_api.app.graph.edges import (
     route_by_next,
 )
 from agents.agent_api.app.graph.nodes.confirm import create_confirm_node
+from agents.agent_api.app.graph.nodes.end import create_end_node
 from agents.agent_api.app.graph.nodes.executor import create_executor_node
 from agents.agent_api.app.graph.nodes.hitl import create_hitl_node
 from agents.agent_api.app.graph.nodes.orchestrator import (
@@ -78,7 +80,7 @@ from agents.agent_api.app.tools.registry_factory import (
 )
 from agents.agent_api.app.tools.selection import ToolSelector, get_selector
 from agents.agent_api.app.tools.todoist.client import TodoistApiClient
-from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
+from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter, name_current_run
 from agents.agent_api.app.user_context.resolver import (
     load_thread_runtime_context_async,
     resolve_runtime_context_async,
@@ -398,7 +400,7 @@ def create_jarvis_graph(
             route_map={
                 "hitl": "graph.clarify",
                 "validate": "graph.validate_entities",
-                "end": "end",
+                "end": "graph.end",
             },
         ),
         NodeSpec(
@@ -409,6 +411,8 @@ def create_jarvis_graph(
                 "tools": "graph.tools",
                 "prepare_confirm": "graph.prepare_confirm",
                 "agent": "graph.orchestrator",
+                # route_by_next defaults to "end" when a node sets no next.
+                "end": "graph.end",
             },
         ),
         NodeSpec(
@@ -428,13 +432,16 @@ def create_jarvis_graph(
             name="graph.confirm",
             node=create_confirm_node(tracer),
             router=route_after_confirm,
-            route_map={"approve": "graph.executor", "decline": "end"},
+            route_map={"approve": "graph.executor", "decline": "graph.end"},
         ),
         NodeSpec(
             name="graph.executor",
             node=create_executor_node(tool_dispatcher, tracer),
             static_route="graph.orchestrator",
         ),
+        # Real terminal node so every exit closes with a traceable span; LangGraph's
+        # END sentinel produces none. Writes no state.
+        NodeSpec(name="graph.end", node=create_end_node(tracer), static_route="end"),
     ]
 
     return build_graph(JarvisState, node_specs, entry="graph.orchestrator", checkpointer=checkpointer)
@@ -564,8 +571,8 @@ def _resolve_tool_selector(
     constructing the ``RouterClient`` (e.g. a missing API key) degrades to the
     static, all-tools selector, which is also the router's per-turn fallback.
 
-    Outside the gate the configured selector is honored — ``"static"``/``"keyword"``
-    as named; a ``"router"`` request whose gate is unmet degrades to ``"static"``.
+    Outside the gate the configured selector is honored — ``"static"`` as named;
+    a ``"router"`` request whose gate is unmet degrades to ``"static"``.
     """
 
     use_router = (
@@ -593,10 +600,57 @@ def _resolve_tool_selector(
             fallback_selector=get_selector("static", allow_mutations=allow_mutations),
         )
 
-    name = tool_selector_name if tool_selector_name in {"static", "keyword"} else "static"
-    return get_selector(name, allow_mutations=allow_mutations)
+    return get_selector("static", allow_mutations=allow_mutations)
 
 
+def _run_trace_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Reduce the root span's inputs to safe scalars.
+
+    ``run_jarvis_async`` receives prompts, base64 images and injected clients. None
+    of that belongs in LangSmith (see the payload() exclusion in ``tracing.py``), so
+    only correlation ids and sizes are kept.
+    """
+
+    images = inputs.get("images") or ()
+    prior = inputs.get("prior_image_batches") or ()
+    safe = {
+        key: inputs.get(key)
+        for key in (
+            "request_id",
+            "thread_id",
+            "user_id",
+            "request_source",
+            "allow_mutations",
+            "max_agent_turns",
+        )
+    }
+    safe["prompt_chars"] = len(inputs.get("user_prompt") or "")
+    safe["resuming"] = inputs.get("clarification_reply") is not None
+    safe["image_count"] = len(images) + sum(len(batch) for batch in prior)
+    return safe
+
+
+def _run_trace_outputs(result: Any) -> dict[str, Any]:
+    """Reduce the root span's output to a summary; the full state carries messages."""
+
+    if not isinstance(result, dict):
+        return {"result": type(result).__name__}
+    return {
+        "turn_count": result.get("turn_count"),
+        "tool_results": len(result.get("tool_results", [])),
+        "has_error": bool(result.get("error")),
+        "interrupted": bool(result.get("interrupted")),
+        "pending_interrupt": result.get("pending_interrupt"),
+        "final_response_chars": len(result.get("final_response") or ""),
+    }
+
+
+@traceable(
+    run_type="chain",
+    name="jarvis",
+    process_inputs=_run_trace_inputs,
+    process_outputs=_run_trace_outputs,
+)
 async def run_jarvis_async(
     user_prompt: str = USER_PROMPT,
     user_id: str = USER_ID,
@@ -652,6 +706,9 @@ async def run_jarvis_async(
     resuming = clarification_reply is not None
     invocation_type = "resume" if resuming else "invoke"
     run_name = f"jarvis.{invocation_type}"
+    # The @traceable above opens the root run as "jarvis"; rename it now that we know
+    # whether this is an invoke or a resume. No-op when tracing is disabled.
+    name_current_run(run_name)
     started_at = datetime.now()
 
     runtime_context = None
@@ -828,7 +885,9 @@ async def run_jarvis_async(
     app = get_or_compile_graph(checkpointer)
     config = {
         "configurable": {"thread_id": thread_id, "deps": run_deps},
-        "run_name": run_name,
+        # The root run is the @traceable wrapper (renamed to run_name); this is its
+        # graph child.
+        "run_name": "graph",
         "tags": [*LANGSMITH_TAGS, invocation_type],
         "metadata": {
             "request_id": request_id,
@@ -848,7 +907,10 @@ async def run_jarvis_async(
         },
     }
     tracer.event(
-        "runtime.graph", "Compiled graph.", nodes="graph.orchestrator, graph.validate_entities, graph.clarify, graph.tools, graph.summarize, graph.prepare_confirm, graph.confirm, graph.executor"
+        "runtime.graph",
+        "Compiled graph.",
+        # getattr: tests inject stub graph objects that have no node registry.
+        nodes=", ".join(n for n in getattr(app, "nodes", ()) if not n.startswith("__")),
     )
     # Native LangSmith tracing (LangGraph node spans + @traceable / wrap_openai
     # child spans) is governed by the LANGSMITH_TRACING env var. Tracing is

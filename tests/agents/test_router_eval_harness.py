@@ -49,7 +49,7 @@ def test_router_eval_loads_fixtures_and_formats_markdown_without_api_call(tmp_pa
     queries_file = tmp_path / "router_queries.py"
     queries_file.write_text('ROUTER_QUERIES = ["put in my cal"]\n', encoding="utf-8")
     queries = load_queries(queries_file, query_filters=["put in my cal"])
-    client = FakeRouterClient(RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], complexity="low", reasoning="raw cal"))
+    client = FakeRouterClient(RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], complexity="low"))
 
     results = run_grid(personas, queries, client)
     markdown = format_markdown(
@@ -72,6 +72,7 @@ def test_router_eval_loads_fixtures_and_formats_markdown_without_api_call(tmp_pa
     assert personas[0].snapshot.preferences.routing.calendar_usage == "explicit_only"
     assert personas[0].snapshot.active_providers() == {"todoist", "google_calendar"}
     assert results[0].raw_response["domains"] == ["google_calendar"]
+    assert "reasoning" not in results[0].raw_response
     assert results[0].adjusted_response["domains"] == ["todoist"]
     assert "# Router evaluation - 2026-07-07T14:33:12Z" in markdown
     assert "Reminder provider: todoist" in markdown

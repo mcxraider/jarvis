@@ -40,23 +40,20 @@ class ToolSelector(Protocol):
         ...
 
 
-def get_selector(name: str = "keyword", **kwargs: Any) -> ToolSelector:
+def get_selector(name: str = "static", **kwargs: Any) -> ToolSelector:
     """Instantiate a tool selector by name.
 
     Supported names:
       - "static"  — pass-through, exposes all tools (StaticToolSelector)
-      - "keyword" — keyword matching with fallback (KeywordToolSelector)
       - "router"  — LLM domain classifier (RouterToolSelector); requires
         ``router_client`` and ``snapshot`` kwargs (see run_jarvis wiring).
 
     Additional kwargs are forwarded to the selector constructor.
     """
-    from agents.agent_api.app.tools.selectors.keyword import KeywordToolSelector
     from agents.agent_api.app.tools.selectors.static import StaticToolSelector
 
     registry: Dict[str, type] = {
         "static": StaticToolSelector,
-        "keyword": KeywordToolSelector,
     }
     # Imported lazily and only on demand: the router selector pulls in the router
     # client, which reuses the orchestrator's usage helpers — and the orchestrator
@@ -77,7 +74,6 @@ def get_selector(name: str = "keyword", **kwargs: Any) -> ToolSelector:
 DEFAULT_TOOL_SELECTOR: ToolSelector = get_selector("static")
 
 # Re-export concrete selectors for backward-compatible imports.
-from agents.agent_api.app.tools.selectors.keyword import KeywordToolSelector  # noqa: E402
 from agents.agent_api.app.tools.selectors.static import StaticToolSelector  # noqa: E402
 
 __all__ = [
@@ -85,5 +81,4 @@ __all__ = [
     "get_selector",
     "DEFAULT_TOOL_SELECTOR",
     "StaticToolSelector",
-    "KeywordToolSelector",
 ]

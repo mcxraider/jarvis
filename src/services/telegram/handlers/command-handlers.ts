@@ -8,8 +8,8 @@ import { TELEGRAM_ONBOARDING_MESSAGE } from '../onboarding-message';
 import { ConversationGateStore } from '../conversation-gate.store';
 import { PendingClarificationStore } from '../pending-clarification.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
+import { resolveRunningGateTtlMs } from '../../../config/turn-timeout.config';
 
-const DEFAULT_CANCEL_CLAIM_TTL_MS = 5 * 60 * 1000;
 
 interface CancelState {
   gateKey: string;
@@ -66,12 +66,12 @@ export class CommandHandlers {
       `* /status — system health\n` +
       `* /cancel — cancel the current operation\n` +
       `* /new <message> — abandon the current step and start a new request\n` +
-      `* /send_forward [instruction] — act on messages you've forwarded to me\n` +
+      `* /forward [instruction] — act on messages you've forwarded to me\n` +
       `\n` +
       `### ⚙️ Capabilities\n` +
       `\n` +
       `* Text — send a message and I'll handle it (task management via Todoist)\n` +
-      `* Forwards — forward messages from other chats, then /send_forward\n` +
+      `* Forwards — forward messages from other chats, then /forward\n` +
       `* Voice — send a voice note and I'll transcribe + act on it\n` +
       `* Audio files — OGG, MP3, WAV, M4A supported\n` +
       `* Photos — send one JPEG photo or an album of up to 10 photos\n` +
@@ -99,10 +99,7 @@ export class CommandHandlers {
     this.activityService.recordActivity('command_cancel');
 
     const gateSnapshot = await this.conversationGate.getSnapshot(gateKey);
-    const configuredClaimTtlMs = Number(process.env.TELEGRAM_GATE_RUNNING_TTL_MS);
-    const cancelClaimTtlMs = Number.isFinite(configuredClaimTtlMs) && configuredClaimTtlMs > 0
-      ? configuredClaimTtlMs
-      : DEFAULT_CANCEL_CLAIM_TTL_MS;
+    const cancelClaimTtlMs = resolveRunningGateTtlMs();
     const status = gateSnapshot.status;
     const cancelClaimRequestId = status === 'idle' || status === 'waiting_for_clarification'
       ? createRequestId('cancel')

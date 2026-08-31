@@ -3,6 +3,7 @@ import request from 'supertest';
 import { createWebhookRouter } from '../../src/controllers/webhook.controller';
 import { MessageHandlers } from '../../src/services/telegram/handlers/message-handlers';
 import { MemoryPendingClarificationStore } from '../../src/services/telegram/pending-clarification.store';
+import { createTerminalReplyStore } from '../../src/services/telegram/terminal-reply.store';
 import { createTestRunLogger } from '../helpers/test-run-logger';
 
 const logger = createTestRunLogger('integration-webhook-pipeline');
@@ -26,6 +27,8 @@ describe('Webhook pipeline integration', () => {
     process.env.TELEGRAM_SECRET_TOKEN = 'test-secret';
     const reply = jest.fn().mockResolvedValue({ message_id: 10 });
     const editMessageText = jest.fn().mockResolvedValue(true);
+    const deleteMessage = jest.fn().mockResolvedValue(true);
+    const callApi = jest.fn().mockResolvedValue(true);
     const messageProcessor = {
       processTextMessage: jest.fn().mockResolvedValue({
         response: 'Mocked Jarvis reply',
@@ -36,6 +39,7 @@ describe('Webhook pipeline integration', () => {
       messageProcessor,
       { recordActivity: jest.fn() } as any,
       new MemoryPendingClarificationStore(),
+      createTerminalReplyStore(),
     );
     const botService = {
       handleUpdate: jest.fn(async (update: any) => {
@@ -44,7 +48,7 @@ describe('Webhook pipeline integration', () => {
           chat: update.message.chat,
           message: update.message,
           reply,
-          telegram: { editMessageText },
+          telegram: { editMessageText, deleteMessage, callApi },
         } as any);
       }),
     };

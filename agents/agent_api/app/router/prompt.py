@@ -62,7 +62,16 @@ class RouterDecision(BaseModel):
     uncertain: bool
     candidate_domains: List[RouterDomain] = Field(strict=True)
     complexity: QueryComplexity
-    reasoning: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def discard_legacy_reasoning(cls, value: Any) -> Any:
+        """Accept old router payloads without retaining their explanation."""
+
+        if isinstance(value, dict) and "reasoning" in value:
+            value = dict(value)
+            value.pop("reasoning")
+        return value
 
     @model_validator(mode="after")
     def validate_consistency(self) -> "RouterDecision":
@@ -221,35 +230,34 @@ def _few_shot_examples(snapshot: RuntimeContextSnapshot) -> List[str]:
     examples = [
         f'User: "what tasks do I have today?" -> '
         f'{{"outcome": "routed", "domains": ["{task_provider}"], "uncertain": false, '
-        f'"candidate_domains": [], "complexity": "low", "reasoning": "task lookup"}}',
+        f'"candidate_domains": [], "complexity": "low"}}',
         f'User: "what\'s on my schedule this week?" -> '
         f'{{"outcome": "routed", "domains": ["{event_provider}"], "uncertain": false, '
-        f'"candidate_domains": [], "complexity": "low", "reasoning": "schedule query"}}',
+        f'"candidate_domains": [], "complexity": "low"}}',
         f'User: "remind me to call Mum tomorrow" -> '
         f'{{"outcome": "routed", "domains": ["{reminder_provider}"], "uncertain": false, '
-        f'"candidate_domains": [], "complexity": "low", "reasoning": "reminder request"}}',
+        f'"candidate_domains": [], "complexity": "low"}}',
         f'User: "block Friday afternoon for studying" -> '
         f'{{"outcome": "routed", "domains": ["{time_related_provider}"], "uncertain": false, '
-        f'"candidate_domains": [], "complexity": "low", "reasoning": "time block request"}}',
+        f'"candidate_domains": [], "complexity": "low"}}',
         f'User: "put lunch in my calendar" -> '
         f'{{"outcome": "routed", "domains": ["{explicit_calendar_provider}"], "uncertain": false, '
-        f'"candidate_domains": [], "complexity": "low", "reasoning": "explicit calendar request"}}',
+        f'"candidate_domains": [], "complexity": "low"}}',
         'User: "hello!" -> '
         '{"outcome": "conversation", "domains": [], "uncertain": false, '
-        '"candidate_domains": [], "complexity": "low", "reasoning": "greeting"}',
+        '"candidate_domains": [], "complexity": "low"}',
         'User: "check my Slack messages" -> '
         '{"outcome": "unsupported_provider", "domains": [], "uncertain": false, '
-        '"candidate_domains": [], "complexity": "low", "reasoning": "unsupported Slack request"}',
+        '"candidate_domains": [], "complexity": "low"}',
         'User: "check my plans somewhere" -> '
         '{"outcome": "ambiguous", "domains": [], "uncertain": true, '
-        '"candidate_domains": ["todoist", "google_calendar"], "complexity": "low", '
-        '"reasoning": "service domain unclear"}',
+        '"candidate_domains": ["todoist", "google_calendar"], "complexity": "low"}',
         'User: "which overdue tasks should I do first today?" -> '
         f'{{"outcome": "routed", "domains": ["{task_provider}"], "uncertain": false, '
-        '"candidate_domains": [], "complexity": "medium", "reasoning": "prioritize overdue tasks"}',
+        '"candidate_domains": [], "complexity": "medium"}',
         'User: "analyze all my projects and build an optimized monthly execution plan" -> '
         f'{{"outcome": "routed", "domains": ["{task_provider}"], "uncertain": false, '
-        '"candidate_domains": [], "complexity": "high", "reasoning": "complex project optimization"}',
+        '"candidate_domains": [], "complexity": "high"}',
     ]
     # Only include the explicit-Google-Calendar example when the domain exists
     # in the adapter catalogue — otherwise it references a domain the model
@@ -258,8 +266,7 @@ def _few_shot_examples(snapshot: RuntimeContextSnapshot) -> List[str]:
         examples.append(
             'User: "add a meeting to my google calendar" -> '
             '{"outcome": "routed", "domains": ["google_calendar"], "uncertain": false, '
-            '"candidate_domains": [], "complexity": "low", '
-            '"reasoning": "explicit google calendar mention"}'
+            '"candidate_domains": [], "complexity": "low"}'
         )
     return examples
 
@@ -312,8 +319,7 @@ def build_router_system_prompt(snapshot: RuntimeContextSnapshot) -> str:
             f'  "domains": [<subset of {valid_keys}> — most-likely minimal route],',
             '  "uncertain": <boolean — true only for real domain ambiguity>,',
             f'  "candidate_domains": [<subset of {valid_keys}> — expanded safe set when uncertain, else []],',
-            '  "complexity": <one of "low", "medium", "high" — intrinsic difficulty of the current user query>,',
-            '  "reasoning": <short string, 10 words or fewer>',
+            '  "complexity": <one of "low", "medium", "high" — intrinsic difficulty of the current user query>',
             "}",
         ]
     )

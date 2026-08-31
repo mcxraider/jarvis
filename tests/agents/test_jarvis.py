@@ -16,10 +16,38 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents import jarvis
+from agents.agent_api.app.checkpointing import InMemorySaver
+from agents.agent_api.app.constants import MAX_AGENT_TURNS
 from agents.agent_api.app.graph import builder as builder_module
-from agents.agent_api.app.tools.todoist import client as todoist_client_module
+from agents.agent_api.app.graph.builder import run_jarvis
 from agents.agent_api.app.graph.nodes import orchestrator as orchestrator_module
+from agents.agent_api.app.graph.nodes.orchestrator import (
+    LLM_FAILURE_MESSAGE,
+    DeepSeekAgentClient,
+    DeepSeekAgentClientError,
+)
+from agents.agent_api.app.graph.prompts import (
+    build_initial_messages,
+    get_system_prompt,
+    get_worker_prompt,
+)
+from agents.agent_api.app.graph.state import JarvisState
+from agents.agent_api.app.runner import (
+    build_arg_parser,
+    collect_cli_prompts,
+    load_user_prompts_from_file,
+    main,
+    result_to_json_summary,
+    run_jarvis_sequence,
+    run_jarvis_with_local_clarifications,
+)
+from agents.agent_api.app.tools.todoist import client as todoist_client_module
+from agents.agent_api.app.tools.todoist.client import TodoistApiClient, TodoistApiError
+from agents.agent_api.app.tools.todoist.schemas import (
+    ASK_USER_TOOL_NAME,
+    get_todoist_tools,
+)
+from agents.agent_api.app.tracing import NULL_TRACE
 
 
 class FakeDeepSeekAgentClient:
@@ -150,7 +178,7 @@ class FailingTodoistClient(FakeTodoistClient):
 
     def get_tasks_by_filter(self, arguments: Dict[str, Any]) -> Any:
         del arguments
-        raise jarvis.TodoistApiError(
+        raise TodoistApiError(
             kind="deprecated",
             message="This Todoist endpoint is no longer available.",
             status_code=410,
@@ -190,10 +218,10 @@ class TodoistApiClientRetryTests(unittest.TestCase):
             todoist_retry_max_delay_seconds=1.0,
         )
 
-    def request_client(self) -> jarvis.TodoistApiClient:
-        return jarvis.TodoistApiClient(
+    def request_client(self) -> TodoistApiClient:
+        return TodoistApiClient(
             api_key="todoist-test-key",
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
             http_client=Mock(spec=httpx.Client),
         )
 
@@ -246,7 +274,7 @@ class TodoistApiClientRetryTests(unittest.TestCase):
         )
 
         with patch.object(todoist_client_module, "settings", bounded_settings):
-            with self.assertRaises(jarvis.TodoistApiError) as raised:
+            with self.assertRaises(TodoistApiError) as raised:
                 client._request("https://api.todoist.com/api/v1/tasks")
 
         self.assertEqual(raised.exception.kind, "rate-limit")
@@ -270,7 +298,7 @@ class TodoistApiClientRetryTests(unittest.TestCase):
                     status, "private details"
                 )
                 with patch.object(todoist_client_module, "settings", self.settings):
-                    with self.assertRaises(jarvis.TodoistApiError) as raised:
+                    with self.assertRaises(TodoistApiError) as raised:
                         client._request("https://api.todoist.com/api/v1/tasks")
 
                 self.assertEqual(raised.exception.kind, kind)
@@ -291,7 +319,7 @@ class TodoistApiClientRetryTests(unittest.TestCase):
         client = self.request_client()
         client._http_client.request.return_value = http_response(400, body)
         with patch.object(todoist_client_module, "settings", self.settings):
-            with self.assertRaises(jarvis.TodoistApiError) as raised:
+            with self.assertRaises(TodoistApiError) as raised:
                 client._request("https://api.todoist.com/api/v1/tasks/task-1", "POST", {})
 
         error = raised.exception
@@ -303,14 +331,14 @@ class TodoistApiClientRetryTests(unittest.TestCase):
 
     def test_missing_api_key_is_auth_without_network_call(self) -> None:
         http_client = Mock(spec=httpx.Client)
-        client = jarvis.TodoistApiClient(
+        client = TodoistApiClient(
             api_key="",
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
             http_client=http_client,
         )
         client.api_key = ""
 
-        with self.assertRaises(jarvis.TodoistApiError) as raised:
+        with self.assertRaises(TodoistApiError) as raised:
             client._request("https://api.todoist.com/api/v1/tasks")
 
         self.assertEqual(raised.exception.kind, "auth")
@@ -331,7 +359,7 @@ class TodoistApiClientRetryTests(unittest.TestCase):
             patch.object(todoist_client_module.random, "uniform", return_value=0),
             patch.object(todoist_client_module.time, "sleep"),
         ):
-            with self.assertRaises(jarvis.TodoistApiError) as raised:
+            with self.assertRaises(TodoistApiError) as raised:
                 client._request("https://api.todoist.com/api/v1/tasks")
 
         self.assertEqual(raised.exception.kind, "transient")
@@ -514,11 +542,11 @@ class ToolSelectionTests(unittest.TestCase):
         agent_client = FakeDeepSeekAgentClient([{"role": "assistant", "content": "Hi."}])
         registry = self._registry()
 
-        jarvis.run_jarvis(
+        run_jarvis(
             user_prompt="fake prompt",
             agent_client=agent_client,
             todoist_client=FakeTodoistClient(),
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
         )
 
         # The default (pass-through) selector exposes the entire catalogue.
@@ -538,11 +566,11 @@ class ToolSelectionTests(unittest.TestCase):
 
         agent_client = FakeDeepSeekAgentClient([{"role": "assistant", "content": "Hi."}])
 
-        jarvis.run_jarvis(
+        run_jarvis(
             user_prompt="narrow me",
             agent_client=agent_client,
             todoist_client=FakeTodoistClient(),
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
             tool_selector=FirstToolOnlySelector(),
         )
 
@@ -642,23 +670,23 @@ class UsageAndRedactionTests(unittest.TestCase):
 
 class JarvisGraphTests(unittest.TestCase):
     def test_system_prompt_uses_orchestrator_contract(self) -> None:
-        prompt = jarvis.get_system_prompt()
+        prompt = get_system_prompt()
 
         self.assertIn("You are Jarvis, Jerry's personal assistant agent", prompt)
         self.assertIn("connected services listed in Runtime context", prompt)
         self.assertIn("ask_user", prompt)
-        self.assertIn("end after the completed action/result", prompt)
+        self.assertIn("End after the result", prompt)
         self.assertNotIn("Maximum 20 loop iterations per user turn", prompt)
 
     def test_worker_prompt_available_for_worker_nodes(self) -> None:
-        prompt = jarvis.get_worker_prompt()
+        prompt = get_worker_prompt()
 
         self.assertIn("spawned for exactly one subtask", prompt)
         self.assertIn("status: DONE | BLOCKED | FAILED", prompt)
         self.assertIn("Max 5 tool calls", prompt)
 
     def test_initial_user_message_includes_request_datetime(self) -> None:
-        messages = jarvis.build_initial_messages("Show me today's tasks")
+        messages = build_initial_messages("Show me today's tasks")
 
         self.assertEqual(messages[1]["role"], "user")
         self.assertIn("Current datetime:", messages[1]["content"])
@@ -668,15 +696,15 @@ class JarvisGraphTests(unittest.TestCase):
         self,
         responses: List[Dict[str, Any]],
         allow_mutations: bool = False,
-        max_agent_turns: int = jarvis.MAX_AGENT_TURNS,
-    ) -> jarvis.JarvisState:
-        return jarvis.run_jarvis(
+        max_agent_turns: int = MAX_AGENT_TURNS,
+    ) -> JarvisState:
+        return run_jarvis(
             user_prompt="fake prompt",
             allow_mutations=allow_mutations,
             agent_client=FakeDeepSeekAgentClient(responses),
             todoist_client=FakeTodoistClient(),
             max_agent_turns=max_agent_turns,
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
         )
 
     def test_direct_final_response(self) -> None:
@@ -723,17 +751,19 @@ class JarvisGraphTests(unittest.TestCase):
             return app
 
         with patch.object(builder_module, "create_jarvis_graph", side_effect=capturing_create):
-            result = jarvis.run_jarvis(
+            result = run_jarvis(
                 user_prompt="fake prompt",
                 agent_client=FakeDeepSeekAgentClient([{"role": "assistant", "content": "Hi."}]),
                 todoist_client=FakeTodoistClient(),
-                tracer=jarvis.NULL_TRACE,
+                tracer=NULL_TRACE,
             )
 
         self.assertEqual(result["final_response"], "Hi.")
         self.assertEqual(len(captured), 1)
         config = captured[0]
-        self.assertEqual(config["run_name"], "jarvis.invoke")
+        # The graph run is a child of the "jarvis.<type>" root span opened by the
+        # @traceable on run_jarvis_async; invocation_type below carries the identity.
+        self.assertEqual(config["run_name"], "graph")
         self.assertEqual(config["metadata"]["invocation_type"], "invoke")
         self.assertTrue(config["metadata"]["request_id"])
         self.assertEqual(config["metadata"]["thread_id"], result["thread_id"])
@@ -755,13 +785,13 @@ class JarvisGraphTests(unittest.TestCase):
             return app
 
         with patch.object(builder_module, "create_jarvis_graph", side_effect=capturing_create):
-            jarvis.run_jarvis(
+            run_jarvis(
                 user_prompt="fake prompt",
                 thread_id="thread-xyz",
                 request_id="tg_corr",
                 agent_client=FakeDeepSeekAgentClient([{"role": "assistant", "content": "Hi."}]),
                 todoist_client=FakeTodoistClient(),
-                tracer=jarvis.NULL_TRACE,
+                tracer=NULL_TRACE,
             )
 
         metadata = captured[0]["metadata"]
@@ -769,7 +799,7 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(metadata["thread_id"], "thread-xyz")
 
     def test_request_source_is_kept_in_state_and_interrupt_payload(self) -> None:
-        result = jarvis.run_jarvis(
+        result = run_jarvis(
             user_prompt="fake prompt",
             request_source="test",
             agent_client=FakeDeepSeekAgentClient(
@@ -780,7 +810,7 @@ class JarvisGraphTests(unittest.TestCase):
                         "tool_calls": [
                             fake_tool_call(
                                 "call_ask",
-                                jarvis.ASK_USER_TOOL_NAME,
+                                ASK_USER_TOOL_NAME,
                                 {"question": "Which task should I update?"},
                             )
                         ],
@@ -788,7 +818,7 @@ class JarvisGraphTests(unittest.TestCase):
                 ]
             ),
             todoist_client=FakeTodoistClient(),
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
         )
 
         self.assertEqual(result["request_source"], "test")
@@ -815,11 +845,11 @@ class JarvisGraphTests(unittest.TestCase):
             return app
 
         with patch.object(builder_module, "create_jarvis_graph", side_effect=capturing_create):
-            jarvis.run_jarvis(
+            run_jarvis(
                 user_prompt="fake prompt",
                 agent_client=FakeDeepSeekAgentClient([{"role": "assistant", "content": "Hi."}]),
                 todoist_client=FakeTodoistClient(),
-                tracer=jarvis.NULL_TRACE,
+                tracer=NULL_TRACE,
                 **run_kwargs,
             )
         self.assertEqual(len(captured), 1)
@@ -856,12 +886,12 @@ class JarvisGraphTests(unittest.TestCase):
             ]
         )
 
-        results = jarvis.run_jarvis_sequence(
+        results = run_jarvis_sequence(
             ["first prompt", "second prompt"],
             allow_mutations=False,
             agent_client=agent_client,
             todoist_client=FakeTodoistClient(),
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
         )
 
         self.assertEqual(
@@ -879,7 +909,7 @@ class JarvisGraphTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            prompts = jarvis.load_user_prompts_from_file(str(path))
+            prompts = load_user_prompts_from_file(str(path))
 
         self.assertEqual(prompts, ["first prompt", "second prompt"])
 
@@ -891,7 +921,7 @@ class JarvisGraphTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            prompts = jarvis.load_user_prompts_from_file(str(path))
+            prompts = load_user_prompts_from_file(str(path))
 
         self.assertEqual(prompts, ["first prompt", "second prompt"])
 
@@ -899,7 +929,7 @@ class JarvisGraphTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "prompts.txt"
             path.write_text("file prompt\n", encoding="utf-8")
-            args = jarvis.build_arg_parser().parse_args(
+            args = build_arg_parser().parse_args(
                 [
                     "--prompts-file",
                     str(path),
@@ -911,14 +941,14 @@ class JarvisGraphTests(unittest.TestCase):
                 ]
             )
 
-            prompts = jarvis.collect_cli_prompts(args)
+            prompts = collect_cli_prompts(args)
 
         self.assertEqual(prompts, ["file prompt", "flag prompt", "positional prompt"])
         self.assertTrue(args.allow_mutations)
         self.assertEqual(args.source, "test")
 
     def test_json_summary_includes_run_log_path_when_available(self) -> None:
-        summary = jarvis.result_to_json_summary(
+        summary = result_to_json_summary(
             {
                 "thread_id": "thread-1",
                 "final_response": "Done.",
@@ -937,7 +967,7 @@ class JarvisGraphTests(unittest.TestCase):
         ]
         with patch("agents.agent_api.app.runner.run_jarvis_sequence", return_value=results), \
             patch("sys.stdout", new_callable=io.StringIO) as stdout:
-            exit_code = jarvis.main(["first", "second"])
+            exit_code = main(["first", "second"])
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Run log: /tmp/first.log", stdout.getvalue())
@@ -947,7 +977,7 @@ class JarvisGraphTests(unittest.TestCase):
         results = [{"final_response": "Done.", "run_log_path": "/tmp/run.log"}]
         with patch("agents.agent_api.app.runner.run_jarvis_sequence", return_value=results), \
             patch("sys.stdout", new_callable=io.StringIO) as stdout:
-            exit_code = jarvis.main(["--json", "hello"])
+            exit_code = main(["--json", "hello"])
 
         self.assertEqual(exit_code, 0)
         payload = json.loads(stdout.getvalue())
@@ -962,7 +992,7 @@ class JarvisGraphTests(unittest.TestCase):
                     "tool_calls": [
                         fake_tool_call(
                             "call_ask",
-                            jarvis.ASK_USER_TOOL_NAME,
+                            ASK_USER_TOOL_NAME,
                             {"question": "Which task should I update?"},
                         )
                     ],
@@ -975,12 +1005,12 @@ class JarvisGraphTests(unittest.TestCase):
             "agents.agent_api.app.runner.ask_user_for_clarification",
             return_value="the dentist task",
         ) as ask:
-            result = jarvis.run_jarvis_with_local_clarifications(
+            result = run_jarvis_with_local_clarifications(
                 user_prompt="update my task",
                 allow_mutations=False,
                 agent_client=agent_client,
                 todoist_client=FakeTodoistClient(),
-                tracer=jarvis.NULL_TRACE,
+                tracer=NULL_TRACE,
             )
 
         self.assertFalse(result["interrupted"])
@@ -989,11 +1019,11 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(ask.call_args[0][0]["question"], "Which task should I update?")
 
     def test_ask_user_tool_schema_available(self) -> None:
-        tools = jarvis.get_todoist_tools()
+        tools = get_todoist_tools()
         ask_user_tools = [
             tool
             for tool in tools
-            if tool.get("function", {}).get("name") == jarvis.ASK_USER_TOOL_NAME
+            if tool.get("function", {}).get("name") == ASK_USER_TOOL_NAME
         ]
 
         self.assertEqual(len(ask_user_tools), 1)
@@ -1005,7 +1035,7 @@ class JarvisGraphTests(unittest.TestCase):
 
     def test_todoist_v1_list_tool_schemas_are_separate(self) -> None:
         tools_by_name = {
-            tool["function"]["name"]: tool["function"] for tool in jarvis.get_todoist_tools()
+            tool["function"]["name"]: tool["function"] for tool in get_todoist_tools()
         }
         list_parameters = tools_by_name["get_tasks"]["parameters"]
         filter_parameters = tools_by_name["get_tasks_by_filter"]["parameters"]
@@ -1041,7 +1071,7 @@ class JarvisGraphTests(unittest.TestCase):
                     "tool_calls": [
                         fake_tool_call(
                             "call_ask",
-                            jarvis.ASK_USER_TOOL_NAME,
+                            ASK_USER_TOOL_NAME,
                             {
                                 "question": "Which task should I update?",
                                 "reason": "Multiple tasks match.",
@@ -1063,7 +1093,7 @@ class JarvisGraphTests(unittest.TestCase):
 
     def test_resume_appends_hitl_tool_message_and_user_reply(self) -> None:
         thread_id = "test-hitl-resume"
-        checkpointer = jarvis.InMemorySaver()
+        checkpointer = InMemorySaver()
         agent_client = FakeDeepSeekAgentClient(
             [
                 {
@@ -1072,7 +1102,7 @@ class JarvisGraphTests(unittest.TestCase):
                     "tool_calls": [
                         fake_tool_call(
                             "call_ask",
-                            jarvis.ASK_USER_TOOL_NAME,
+                            ASK_USER_TOOL_NAME,
                             {"question": "Which task should I update?"},
                         )
                     ],
@@ -1081,21 +1111,21 @@ class JarvisGraphTests(unittest.TestCase):
             ]
         )
 
-        interrupted = jarvis.run_jarvis(
+        interrupted = run_jarvis(
             user_prompt="fake prompt",
             agent_client=agent_client,
             todoist_client=FakeTodoistClient(),
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
             thread_id=thread_id,
             checkpointer=checkpointer,
         )
         self.assertTrue(interrupted["interrupted"])
 
-        result = jarvis.run_jarvis(
+        result = run_jarvis(
             user_prompt="fake prompt",
             agent_client=agent_client,
             todoist_client=FakeTodoistClient(),
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
             thread_id=thread_id,
             clarification_reply="the dentist task",
             checkpointer=checkpointer,
@@ -1106,7 +1136,7 @@ class JarvisGraphTests(unittest.TestCase):
         roles = [message.get("role") for message in result["messages"]]
         self.assertEqual(roles, ["system", "user", "assistant", "tool", "user", "assistant"])
         self.assertEqual(result["messages"][3]["tool_call_id"], "call_ask")
-        self.assertEqual(result["messages"][3]["name"], jarvis.ASK_USER_TOOL_NAME)
+        self.assertEqual(result["messages"][3]["name"], ASK_USER_TOOL_NAME)
         self.assertEqual(json.loads(result["messages"][3]["content"])["user_reply"], "the dentist task")
         self.assertIn("Clarification result", result["messages"][4]["content"])
         self.assertEqual(len(agent_client.calls), 2)
@@ -1156,7 +1186,7 @@ class JarvisGraphTests(unittest.TestCase):
 
     def test_update_tool_preserves_explicit_nulls_and_omits_missing_fields(self) -> None:
         # A read first surfaces task-1 so prior-read ID validation lets the update run.
-        result = jarvis.run_jarvis(
+        result = run_jarvis(
             user_prompt="fake prompt",
             allow_mutations=True,
             agent_client=FakeDeepSeekAgentClient(
@@ -1189,7 +1219,7 @@ class JarvisGraphTests(unittest.TestCase):
                 ]
             ),
             todoist_client=SeededTodoistClient(),
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
         )
 
         arguments = result["tool_results"][-1]["content"]["arguments"]
@@ -1205,7 +1235,7 @@ class JarvisGraphTests(unittest.TestCase):
         )
 
     def test_update_tool_priority_only_omits_missing_fields(self) -> None:
-        result = jarvis.run_jarvis(
+        result = run_jarvis(
             user_prompt="fake prompt",
             allow_mutations=True,
             agent_client=FakeDeepSeekAgentClient(
@@ -1232,7 +1262,7 @@ class JarvisGraphTests(unittest.TestCase):
                 ]
             ),
             todoist_client=SeededTodoistClient(),
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
         )
 
         arguments = result["tool_results"][-1]["content"]["arguments"]
@@ -1241,7 +1271,7 @@ class JarvisGraphTests(unittest.TestCase):
     def test_prior_read_lets_mutation_on_seen_id_execute(self) -> None:
         # Happy path: read surfaces t1, then completing t1 executes normally.
         todoist_client = SeededTodoistClient()
-        result = jarvis.run_jarvis(
+        result = run_jarvis(
             user_prompt="fake prompt",
             allow_mutations=True,
             agent_client=FakeDeepSeekAgentClient(
@@ -1262,7 +1292,7 @@ class JarvisGraphTests(unittest.TestCase):
                 ]
             ),
             todoist_client=todoist_client,
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
         )
 
         self.assertEqual(result["final_response"], "Done.")
@@ -1284,12 +1314,12 @@ class JarvisGraphTests(unittest.TestCase):
             ]
         )
 
-        result = jarvis.run_jarvis(
+        result = run_jarvis(
             user_prompt="fake prompt",
             allow_mutations=True,
             agent_client=agent_client,
             todoist_client=todoist_client,
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
         )
 
         # No Todoist mutation happened.
@@ -1311,7 +1341,7 @@ class JarvisGraphTests(unittest.TestCase):
         # Read + complete emitted together: the read hasn't executed yet, so t1 is
         # unseen and the whole batch is deferred — nothing reaches the client.
         todoist_client = SeededTodoistClient()
-        result = jarvis.run_jarvis(
+        result = run_jarvis(
             user_prompt="fake prompt",
             allow_mutations=True,
             agent_client=FakeDeepSeekAgentClient(
@@ -1328,7 +1358,7 @@ class JarvisGraphTests(unittest.TestCase):
                 ]
             ),
             todoist_client=todoist_client,
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
         )
 
         self.assertNotIn("complete_task", [c["tool_name"] for c in todoist_client.calls])
@@ -1344,7 +1374,7 @@ class JarvisGraphTests(unittest.TestCase):
         # Same-turn batch is blocked; the agent then reads alone and completes on the
         # next turn, which now passes validation and executes exactly once.
         todoist_client = SeededTodoistClient()
-        result = jarvis.run_jarvis(
+        result = run_jarvis(
             user_prompt="fake prompt",
             allow_mutations=True,
             agent_client=FakeDeepSeekAgentClient(
@@ -1373,7 +1403,7 @@ class JarvisGraphTests(unittest.TestCase):
                 ]
             ),
             todoist_client=todoist_client,
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
         )
 
         self.assertEqual(result["final_response"], "Completed.")
@@ -1382,7 +1412,7 @@ class JarvisGraphTests(unittest.TestCase):
 
     def test_mixed_ask_user_and_mutating_tool_defers_mutation(self) -> None:
         thread_id = "test-hitl-mixed"
-        checkpointer = jarvis.InMemorySaver()
+        checkpointer = InMemorySaver()
         todoist_client = FakeTodoistClient()
         agent_client = FakeDeepSeekAgentClient(
             [
@@ -1392,7 +1422,7 @@ class JarvisGraphTests(unittest.TestCase):
                     "tool_calls": [
                         fake_tool_call(
                             "call_ask",
-                            jarvis.ASK_USER_TOOL_NAME,
+                            ASK_USER_TOOL_NAME,
                             {"question": "Should I create this task?"},
                         ),
                         fake_tool_call("call_add", "add_todoist_task", {"content": "Buy milk"}),
@@ -1402,12 +1432,12 @@ class JarvisGraphTests(unittest.TestCase):
             ]
         )
 
-        interrupted = jarvis.run_jarvis(
+        interrupted = run_jarvis(
             user_prompt="fake prompt",
             allow_mutations=True,
             agent_client=agent_client,
             todoist_client=todoist_client,
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
             thread_id=thread_id,
             checkpointer=checkpointer,
         )
@@ -1416,12 +1446,12 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(interrupted["interrupt_payload"]["deferred_tool_calls"][0]["id"], "call_add")
         self.assertEqual(todoist_client.calls, [])
 
-        result = jarvis.run_jarvis(
+        result = run_jarvis(
             user_prompt="fake prompt",
             allow_mutations=True,
             agent_client=agent_client,
             todoist_client=todoist_client,
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
             thread_id=thread_id,
             clarification_reply="yes",
             checkpointer=checkpointer,
@@ -1464,7 +1494,7 @@ class JarvisGraphTests(unittest.TestCase):
 
     def test_multiple_tool_calls_in_one_turn_preserve_order(self) -> None:
         todoist_client = FakeTodoistClient()
-        result = jarvis.run_jarvis(
+        result = run_jarvis(
             user_prompt="fake prompt",
             agent_client=FakeDeepSeekAgentClient(
                 [
@@ -1480,7 +1510,7 @@ class JarvisGraphTests(unittest.TestCase):
                 ]
             ),
             todoist_client=todoist_client,
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
         )
 
         self.assertEqual(result["final_response"], "Here are both lists.")
@@ -1518,7 +1548,7 @@ class JarvisGraphTests(unittest.TestCase):
         self.assertEqual(result["final_response"], "That tool is unsupported.")
 
     def test_classified_todoist_error_survives_tool_result_and_message(self) -> None:
-        result = jarvis.run_jarvis(
+        result = run_jarvis(
             user_prompt="fake prompt",
             agent_client=FakeDeepSeekAgentClient(
                 [
@@ -1531,7 +1561,7 @@ class JarvisGraphTests(unittest.TestCase):
                 ]
             ),
             todoist_client=FailingTodoistClient(),
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
         )
 
         tool_result = result["tool_results"][0]
@@ -1563,11 +1593,11 @@ class JarvisGraphTests(unittest.TestCase):
                 },
             ]
         )
-        result = jarvis.run_jarvis(
+        result = run_jarvis(
             user_prompt="fake prompt",
             agent_client=agent_client,
             todoist_client=FakeTodoistClient(),
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
             max_agent_turns=1,
         )
 
@@ -1602,7 +1632,7 @@ class JarvisGraphTests(unittest.TestCase):
 
     def test_reasoning_content_preserved_across_hitl_resume(self) -> None:
         thread_id = "test-hitl-reasoning"
-        checkpointer = jarvis.InMemorySaver()
+        checkpointer = InMemorySaver()
         agent_client = FakeDeepSeekAgentClient(
             [
                 {
@@ -1612,7 +1642,7 @@ class JarvisGraphTests(unittest.TestCase):
                     "tool_calls": [
                         fake_tool_call(
                             "call_ask",
-                            jarvis.ASK_USER_TOOL_NAME,
+                            ASK_USER_TOOL_NAME,
                             {"question": "Which one?"},
                         )
                     ],
@@ -1620,20 +1650,20 @@ class JarvisGraphTests(unittest.TestCase):
                 {"role": "assistant", "content": "Done."},
             ]
         )
-        jarvis.run_jarvis(
+        run_jarvis(
             user_prompt="fake prompt",
             agent_client=agent_client,
             todoist_client=FakeTodoistClient(),
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
             thread_id=thread_id,
             checkpointer=checkpointer,
         )
 
-        result = jarvis.run_jarvis(
+        result = run_jarvis(
             user_prompt="fake prompt",
             agent_client=agent_client,
             todoist_client=FakeTodoistClient(),
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
             thread_id=thread_id,
             clarification_reply="this one",
             checkpointer=checkpointer,
@@ -1658,9 +1688,9 @@ class JarvisGraphTests(unittest.TestCase):
 
         for error, expected_type in cases:
             with self.subTest(expected_type=expected_type):
-                client = jarvis.DeepSeekAgentClient(
+                client = DeepSeekAgentClient(
                     api_key="test",
-                    tracer=jarvis.NULL_TRACE,
+                    tracer=NULL_TRACE,
                     retry_sleep=lambda _seconds: None,
                 )
                 fake_client = FakeOpenAIClient(
@@ -1689,9 +1719,9 @@ class JarvisGraphTests(unittest.TestCase):
 
         for status_code in cases:
             with self.subTest(status_code=status_code):
-                client = jarvis.DeepSeekAgentClient(
+                client = DeepSeekAgentClient(
                     api_key="test",
-                    tracer=jarvis.NULL_TRACE,
+                    tracer=NULL_TRACE,
                     retry_sleep=lambda _seconds: None,
                 )
                 fake_client = FakeOpenAIClient([FakeOpenAIStatusError(status_code)])
@@ -1704,7 +1734,7 @@ class JarvisGraphTests(unittest.TestCase):
                     APITimeoutError=FakeOpenAITimeoutError,
                     APIConnectionError=FakeOpenAIConnectionError,
                 ):
-                    with self.assertRaises(jarvis.DeepSeekAgentClientError) as raised:
+                    with self.assertRaises(DeepSeekAgentClientError) as raised:
                         client.create_message([{"role": "user", "content": "hello"}], [])
 
                 self.assertEqual(fake_client.completions.calls, 1)
@@ -1729,17 +1759,17 @@ class JarvisGraphTests(unittest.TestCase):
                 _tools: List[Dict[str, Any]],
                 **kwargs,
             ) -> Dict[str, Any]:
-                raise jarvis.DeepSeekAgentClientError(payload)
+                raise DeepSeekAgentClientError(payload)
 
-        result = jarvis.run_jarvis(
+        result = run_jarvis(
             user_prompt="fake prompt",
             agent_client=FailingDeepSeekAgentClient(),
             todoist_client=FakeTodoistClient(),
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
         )
 
         self.assertEqual(result["next"], "end")
-        self.assertEqual(result["final_response"], jarvis.LLM_FAILURE_MESSAGE)
+        self.assertEqual(result["final_response"], LLM_FAILURE_MESSAGE)
         self.assertEqual(json.loads(result["error"]), payload)
 
 
@@ -1764,11 +1794,11 @@ class ContextGateTests(unittest.TestCase):
             side_effect=PermissionError("No active Jarvis user for this identity."),
         ):
             with self.assertRaises(PermissionError):
-                jarvis.run_jarvis(
+                run_jarvis(
                     user_prompt="do something",
                     agent_client=agent_client,
                     todoist_client=FakeTodoistClient(),
-                    tracer=jarvis.NULL_TRACE,
+                    tracer=NULL_TRACE,
                     telegram_user_id=999,
                 )
 
@@ -1780,11 +1810,11 @@ class ContextGateTests(unittest.TestCase):
         # Non-vacuity companion: on the normal (ungated) path the client IS invoked.
         agent_client = FakeDeepSeekAgentClient([{"role": "assistant", "content": "hi"}])
 
-        jarvis.run_jarvis(
+        run_jarvis(
             user_prompt="do something",
             agent_client=agent_client,
             todoist_client=FakeTodoistClient(),
-            tracer=jarvis.NULL_TRACE,
+            tracer=NULL_TRACE,
         )
 
         self.assertTrue(agent_client.calls)

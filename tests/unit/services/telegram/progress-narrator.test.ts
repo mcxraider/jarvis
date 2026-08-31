@@ -2,7 +2,6 @@ import {
   PROGRESS_RICH_REFRESH_MS,
   ProgressNarrator,
   ProgressRender,
-  seedLabelForInputKind,
 } from '../../../../src/services/telegram/progress-narrator';
 
 function deliver(narrator: ProgressNarrator, now: number, keepaliveMs?: number): ProgressRender {
@@ -15,7 +14,7 @@ function deliver(narrator: ProgressNarrator, now: number, keepaliveMs?: number):
 describe('ProgressNarrator', () => {
   it('maps domains and respects the four-second phase dwell', () => {
     const narrator = new ProgressNarrator();
-    narrator.start(undefined, 0);
+    narrator.start(0);
     expect(deliver(narrator, 0).label).toBe('Thinking…');
 
     narrator.record({
@@ -32,7 +31,7 @@ describe('ProgressNarrator', () => {
 
   it('renders non-cumulative elapsed reassurance at 45, 75, and 120 seconds', () => {
     const narrator = new ProgressNarrator();
-    narrator.start(undefined, 0);
+    narrator.start(0);
     deliver(narrator, 0);
 
     expect(narrator.nextDesired(44_999)).toBeUndefined();
@@ -43,7 +42,7 @@ describe('ProgressNarrator', () => {
 
   it('keeps the latest graph phase when elapsed bands change', () => {
     const narrator = new ProgressNarrator();
-    narrator.start(undefined, 0);
+    narrator.start(0);
     deliver(narrator, 0);
     deliver(narrator, 45_000);
 
@@ -64,7 +63,7 @@ describe('ProgressNarrator', () => {
 
   it('coalesces bursts to the latest sequence and ignores stale events', () => {
     const narrator = new ProgressNarrator();
-    narrator.start(undefined, 0);
+    narrator.start(0);
     deliver(narrator, 0);
 
     narrator.record({ phase: 'routing', action: 'completed', intent: 'read' }, 1);
@@ -79,7 +78,7 @@ describe('ProgressNarrator', () => {
 
   it('keeps an attempted render pending until delivery is acknowledged', () => {
     const narrator = new ProgressNarrator();
-    narrator.start(undefined, 0);
+    narrator.start(0);
     deliver(narrator, 0, PROGRESS_RICH_REFRESH_MS);
     narrator.record({ phase: 'review', action: 'completed', intent: 'read' }, 1);
 
@@ -89,60 +88,70 @@ describe('ProgressNarrator', () => {
       .toEqual(expect.objectContaining({ label: 'Reviewing…' }));
   });
 
-  it('seeds the initial label from the input kind before any graph phase arrives', () => {
-    const audioNarrator = new ProgressNarrator();
-    audioNarrator.start(seedLabelForInputKind('audio'), 0);
-    expect(deliver(audioNarrator, 0).label).toBe('Listening…');
-
-    const forwardedNarrator = new ProgressNarrator();
-    forwardedNarrator.start(seedLabelForInputKind('forwarded'), 0);
-    expect(deliver(forwardedNarrator, 0).label).toBe('Reviewing forwarded messages…');
+  it.each([
+    ['text', 'Thinking…'],
+    ['image', 'Analysing image…'],
+    ['images', 'Analysing images…'],
+    ['audio', 'Listening…'],
+    ['forwarded', 'Reviewing forwarded messages…'],
+  ] as const)('seeds the %s input kind before any graph phase arrives', (kind, label) => {
+    const narrator = new ProgressNarrator();
+    narrator.start(0, kind);
+    expect(deliver(narrator, 0).label).toBe(label);
   });
 
   it('does not let a generic request-phase event override an input-specific seed label', () => {
     const narrator = new ProgressNarrator();
-    narrator.start('Listening…', 0);
+    narrator.start(0, 'audio');
     narrator.record({ phase: 'request', action: 'started', intent: 'read' }, 1);
     expect(deliver(narrator, 0).label).toBe('Listening…');
   });
 
   it('still applies a later semantic graph phase over an input-specific seed label', () => {
     const narrator = new ProgressNarrator();
-    narrator.start(seedLabelForInputKind('audio'), 0);
+    narrator.start(0, 'audio');
     deliver(narrator, 0);
 
     narrator.record({ phase: 'review', action: 'completed', intent: 'read' }, 1);
     expect(deliver(narrator, 4_000).label).toBe('Reviewing…');
   });
 
-  it('advanceToThinking transitions from an input-specific seed to the generic Thinking label', () => {
+  it('composes the elapsed suffix from the active input label, not Thinking', () => {
     const narrator = new ProgressNarrator();
-    narrator.start(seedLabelForInputKind('audio'), 0);
+    narrator.start(0, 'audio');
     deliver(narrator, 0);
 
-    narrator.advanceToThinking(4_000);
+    expect(deliver(narrator, 45_000).label).toBe('Listening — taking a little longer…');
+  });
+
+  it('advanceToThinking transitions from an input-specific seed to the generic Thinking label', () => {
+    const narrator = new ProgressNarrator();
+    narrator.start(0, 'audio');
+    deliver(narrator, 0);
+
+    narrator.advanceToThinking();
     expect(deliver(narrator, 4_000).label).toBe('Thinking…');
   });
 
   it('advanceToThinking preserves startedAt so the elapsed-band suffix still applies', () => {
     const narrator = new ProgressNarrator();
-    narrator.start(seedLabelForInputKind('audio'), 0);
+    narrator.start(0, 'audio');
     deliver(narrator, 0);
     deliver(narrator, 45_000);
 
-    narrator.advanceToThinking(45_000);
+    narrator.advanceToThinking();
     expect(deliver(narrator, 49_000).label).toBe('Thinking — taking a little longer…');
   });
 
   it('advanceToThinking is not swallowed by the sequence-based dedupe used in record()', () => {
     const narrator = new ProgressNarrator();
-    narrator.start(seedLabelForInputKind('audio'), 0);
+    narrator.start(0, 'audio');
     deliver(narrator, 0);
 
     narrator.record({ phase: 'routing', action: 'completed', intent: 'read' }, 5);
     deliver(narrator, 4_000);
 
-    narrator.advanceToThinking(8_000);
+    narrator.advanceToThinking();
     expect(deliver(narrator, 8_000).label).toBe('Thinking…');
   });
 });

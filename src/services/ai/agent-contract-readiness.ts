@@ -1,13 +1,13 @@
 import { logger } from '../../utils/logger';
-import {
-  LangGraphAgentClient,
-  LangGraphDependencyHealth,
-} from './langgraph-agent-client.service';
+import { LangGraphAgentClient, LangGraphDependencyHealth } from './langgraph-agent-client.service';
 
 export interface AgentContractTimeouts {
   clientOverallMs: number;
   clientIdleMs: number;
   telegrafHandlerTimeoutMs: number;
+  audioPrepareMs: number;
+  audioTranscriptionMs: number;
+  runningGateTtlMs: number;
 }
 
 export interface AgentContractReadiness {
@@ -70,6 +70,18 @@ export async function verifyAgentContract(
     );
   }
 
+  const audioStageMs = timeouts.audioPrepareMs + timeouts.audioTranscriptionMs;
+  if (!(audioStageMs < timeouts.telegrafHandlerTimeoutMs)) {
+    violations.push(
+      `audio stage ${audioStageMs}ms (prepare ${timeouts.audioPrepareMs}ms + transcription ${timeouts.audioTranscriptionMs}ms) must be below Telegraf handler timeout ${timeouts.telegrafHandlerTimeoutMs}ms`,
+    );
+  }
+  if (!(timeouts.telegrafHandlerTimeoutMs < timeouts.runningGateTtlMs)) {
+    violations.push(
+      `Telegraf handler timeout ${timeouts.telegrafHandlerTimeoutMs}ms must be below running conversation-gate TTL ${timeouts.runningGateTtlMs}ms`,
+    );
+  }
+
   if (violations.length > 0) {
     throw new Error(`Agent timeout contract inverted: ${violations.join('; ')}`);
   }
@@ -77,6 +89,7 @@ export async function verifyAgentContract(
   logger.info('agent.contract.verified', {
     runDeadlineMs,
     complexModelTimeoutMs,
+    audioStageMs,
     maxAgentTurns: limits.max_agent_turns,
     llmRequestTimeoutMs: limits.llm_request_timeout_seconds * 1000,
     ...timeouts,

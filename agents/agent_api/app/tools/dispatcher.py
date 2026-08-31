@@ -267,8 +267,8 @@ class ToolDispatcher:
                     tool_name,
                     success=False,
                     error=(
-                        f"Mutation blocked for {tool_name}. Set ALLOW_MUTATIONS = True "
-                        "in agents/jarvis.py to allow real Todoist changes."
+                        f"Mutation blocked for {tool_name}. Set "
+                        "JARVIS_ALLOW_MUTATIONS=true to allow real changes."
                     ),
                     mutation_blocked=True,
                 )
@@ -684,8 +684,8 @@ class ToolDispatcher:
                     tool_name,
                     success=False,
                     error=(
-                        f"Mutation blocked for {tool_name}. Set ALLOW_MUTATIONS = True "
-                        "in agents/jarvis.py to allow real Todoist changes."
+                        f"Mutation blocked for {tool_name}. Set "
+                        "JARVIS_ALLOW_MUTATIONS=true to allow real changes."
                     ),
                     mutation_blocked=True,
                 )

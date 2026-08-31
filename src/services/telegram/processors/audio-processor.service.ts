@@ -18,6 +18,29 @@ import { classifyError } from '../errors/classified-error';
 // Lifecycle hooks for audio processing — used by MessageHandlers to send the
 // transcription as its own message and update the Telegram progress indicator
 // between the transcription and agent-processing phases.
+export interface AudioProcessorOptions extends TextProcessorOptions {
+  /** Caption sent with the audio, used as the instruction above the transcript. */
+  instruction?: string;
+}
+
+// Splits the caption/instruction out of the options: it shapes the agent input rather
+// than being a TextProcessorOptions field, so it must not be forwarded downstream.
+function splitInstruction(options?: AudioProcessorOptions): {
+  instruction?: string;
+  textOptions?: TextProcessorOptions;
+} {
+  if (!options) return {};
+  if (!('instruction' in options)) return { textOptions: options };
+  const { instruction, ...textOptions } = options;
+  return { instruction: instruction?.trim() || undefined, textOptions };
+}
+
+// Places the instruction above the transcript. The transcript shown to the user stays
+// untouched — only what the agent reads gets the instruction prefix.
+function buildAgentText(transcript: string, instruction?: string): string {
+  return instruction ? `${instruction}\n\n${transcript}` : transcript;
+}
+
 export interface AudioProcessingHooks {
   onTranscription?: (text: string) => void | Promise<void>;
   onTranscribed?: () => void | Promise<void>;
@@ -38,9 +61,10 @@ export class AudioProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
-    options?: TextProcessorOptions,
+    options?: AudioProcessorOptions,
   ): Promise<TextProcessorResult> {
     const startTime = Date.now();
+    const { instruction, textOptions } = splitInstruction(options);
 
     logger.info('audio_processor.started', {
       ...logContext,
@@ -49,7 +73,11 @@ export class AudioProcessorService {
     });
 
     try {
-      const transcriptionResult = await this.whisperService.transcribeAudio(fileUrl, userId, logContext);
+      const transcriptionResult = await this.whisperService.transcribeAudio(
+        fileUrl,
+        userId,
+        logContext,
+      );
 
       const { text } = transcriptionResult;
 
@@ -68,20 +96,25 @@ export class AudioProcessorService {
           });
         }
         await hooks?.onTranscribed?.();
+        const agentText = buildAgentText(text, instruction);
         const result = await this.textProcessor.processTextMessage(
-          text,
+          agentText,
           userId,
           logContext,
           hooks?.onProgress,
-          options,
+          textOptions,
         );
 
         logger.info('audio_processor.completed', {
           ...logContext,
           userId,
           durationMs: Date.now() - startTime,
+          audioDurationSeconds: transcriptionResult.durationSeconds,
+          chunkCount: transcriptionResult.chunkCount,
           transcriptionTextLength: text.length,
           hasTranscription: true,
+          hasInstruction: Boolean(instruction),
+          agentTextLength: agentText.length,
         });
 
         return {
@@ -134,9 +167,10 @@ export class AudioProcessorService {
     userId?: number,
     logContext: LogContext = {},
     hooks?: AudioProcessingHooks,
-    options?: TextProcessorOptions,
+    options?: AudioProcessorOptions,
   ): Promise<TextProcessorResult> {
     const startTime = Date.now();
+    const { instruction, textOptions } = splitInstruction(options);
 
     logger.info('audio_processor.document_started', {
       ...logContext,
@@ -146,7 +180,11 @@ export class AudioProcessorService {
     });
 
     try {
-      const transcriptionResult = await this.whisperService.transcribeAudio(fileUrl, userId, logContext);
+      const transcriptionResult = await this.whisperService.transcribeAudio(
+        fileUrl,
+        userId,
+        logContext,
+      );
 
       const { text } = transcriptionResult;
 
@@ -166,12 +204,13 @@ export class AudioProcessorService {
           });
         }
         await hooks?.onTranscribed?.();
+        const agentText = buildAgentText(text, instruction);
         const result = await this.textProcessor.processTextMessage(
-          text,
+          agentText,
           userId,
           logContext,
           hooks?.onProgress,
-          options,
+          textOptions,
         );
 
         logger.info('audio_processor.document_completed', {
@@ -179,8 +218,12 @@ export class AudioProcessorService {
           userId,
           fileName,
           durationMs: Date.now() - startTime,
+          audioDurationSeconds: transcriptionResult.durationSeconds,
+          chunkCount: transcriptionResult.chunkCount,
           transcriptionTextLength: text.length,
           hasTranscription: true,
+          hasInstruction: Boolean(instruction),
+          agentTextLength: agentText.length,
         });
 
         return {

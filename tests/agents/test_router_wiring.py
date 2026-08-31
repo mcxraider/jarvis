@@ -13,7 +13,6 @@ os.environ["LANGSMITH_TRACING"] = "false"
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 from agents.agent_api.app.graph.builder import _resolve_tool_selector
-from agents.agent_api.app.tools.selectors.keyword import KeywordToolSelector
 from agents.agent_api.app.tools.selectors.router import RouterToolSelector
 from agents.agent_api.app.tools.selectors.static import StaticToolSelector
 from agents.agent_api.app.tracing import NULL_TRACE
@@ -78,10 +77,6 @@ class TestRouterGateNotMet:
     def test_selector_name_not_router_uses_static(self):
         selector = _resolve(runtime_context=_context(), tool_selector_name="static")
         assert isinstance(selector, StaticToolSelector)
-
-    def test_keyword_name_honored(self):
-        selector = _resolve(runtime_context=_context(), tool_selector_name="keyword")
-        assert isinstance(selector, KeywordToolSelector)
 
     def test_no_runtime_context_uses_static(self):
         selector = _resolve(runtime_context=None)

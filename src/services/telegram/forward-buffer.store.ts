@@ -1,5 +1,5 @@
 // src/services/telegram/forward-buffer.store.ts — In-memory buffer of messages the user
-// forwarded to the bot, accumulated per conversation until dispatched via /send_forward.
+// forwarded to the bot, accumulated per conversation until dispatched via /forward.
 //
 // Deliberately memory-only (unlike PendingClarificationStore): the buffer is short-lived
 // working material, and losing it on restart costs the user a few re-forwards. Bounds and
@@ -13,7 +13,7 @@ export interface ForwardedMessage {
   forwardedAt: Date; // when the message was originally sent (forward_origin.date)
   receivedAt: Date; // when the user forwarded it to Jarvis (drives TTL)
   text: string;
-  fileId?: string; // Telegram photo file_id for captionless forwarded photos
+  fileId?: string; // Telegram photo file_id for forwarded photos (with or without a caption)
 }
 
 export type PushResult =
@@ -199,5 +199,9 @@ export function formatForwardContext(
       return `[${i + 1}] From: ${m.senderName}${chat} | Sent: ${formatTimestamp(m.forwardedAt)}\n${m.text}`;
     })
     .join('\n\n');
-  return `${header}\n---\n${body}\n---\n\n${instruction}`;
+  // Fences must not be `---`: in GFM a line immediately followed by `---` is a setext
+  // H2, so `---` would turn the header (and each block's last line) into a heading.
+  // The model mirrors that structure and the reply comes back bolded.
+  const fenced = `${header}\n<<<FORWARDED>>>\n${body}\n<<<END FORWARDED>>>`;
+  return `${fenced}\n\n${instruction}`;
 }

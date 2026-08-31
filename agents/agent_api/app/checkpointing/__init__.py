@@ -16,7 +16,6 @@ from agents.agent_api.app.checkpointing.postgres import (
     create_async_postgres_checkpointer,
     create_postgres_checkpointer,
 )
-from agents.agent_api.app.checkpointing.redis import create_redis_checkpointer
 from agents.agent_api.app.config import settings
 
 
@@ -30,8 +29,6 @@ def create_default_checkpointer(*, run_setup: Optional[bool] = None) -> Any:
                 settings.run_checkpoint_setup if run_setup is None else run_setup
             ),
         )
-    if settings.checkpoint_backend == "redis":
-        return create_redis_checkpointer(settings.redis_url)
     if settings.checkpoint_backend == "memory":
         return InMemorySaver()
     raise RuntimeError(f"Unsupported JARVIS_CHECKPOINT_BACKEND: {settings.checkpoint_backend}")
@@ -206,10 +203,6 @@ async def initialize_async_checkpointer(async_pool: Any = None) -> Any:
                         _mark_checkpoint_setup_complete()
                 finally:
                     _CHECKPOINT_SETUP_LOCK.release()
-        elif settings.checkpoint_backend == "redis":
-            raise NotImplementedError(
-                "Async Redis checkpointing is not implemented. Use Postgres or memory."
-            )
         else:
             raise RuntimeError(
                 f"Unsupported JARVIS_CHECKPOINT_BACKEND: {settings.checkpoint_backend}"
@@ -275,7 +268,6 @@ __all__ = [
     "create_async_postgres_checkpointer",
     "create_default_checkpointer",
     "create_postgres_checkpointer",
-    "create_redis_checkpointer",
     "get_default_checkpointer",
     "as_async_checkpointer",
     "ensure_default_checkpointer_setup",

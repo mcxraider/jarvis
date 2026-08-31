@@ -81,6 +81,7 @@ def create_default_model_router(
     default_model: str = "deepseek-v4-flash",
     default_reasoning: str = "high",
     default_timeout_seconds: float = 30.0,
+    simple_reasoning: str = "low",
     complex_model: str = "deepseek-v4-pro",
     complex_reasoning: str = "max",
     complex_timeout_seconds: float = 90.0,
@@ -92,14 +93,16 @@ def create_default_model_router(
 
     Strongest-signal-wins priority (first match wins):
     1. uncertain or high complexity → complex model/reasoning/timeout
-    2. multi-domain (>1) or medium complexity → complex model + multi-domain budget
-    3. low complexity, certain, single/empty domain → default selection
+    2. empty domains → default selection
+    3. multi-domain (>1) or medium complexity → complex model + multi-domain budget
+    4. low complexity, certain, single domain → default model + simple reasoning
     """
     provider: Optional[LLMProvider] = None
     if profile is not None:
         validate_model_for_profile(profile, default_model)
         validate_model_for_profile(profile, complex_model)
         validate_reasoning_for_profile(profile, default_reasoning)
+        validate_reasoning_for_profile(profile, simple_reasoning)
         validate_reasoning_for_profile(profile, complex_reasoning)
         validate_reasoning_for_profile(profile, multi_domain_reasoning)
         provider = profile.provider
@@ -125,6 +128,11 @@ def create_default_model_router(
             ),
         ),
         ModelRoutingRule(
+            name="empty_domains",
+            condition=lambda d: not d.domains,
+            selection=default,
+        ),
+        ModelRoutingRule(
             name="medium_complexity_or_multi_domain",
             condition=lambda d: (
                 len(d.domains) > 1 or d.complexity == QueryComplexity.MEDIUM
@@ -133,6 +141,20 @@ def create_default_model_router(
                 model=complex_model,
                 reasoning_effort=multi_domain_reasoning,
                 request_timeout_seconds=multi_domain_timeout_seconds,
+                provider=provider,
+            ),
+        ),
+        ModelRoutingRule(
+            name="simple_certain_single_domain",
+            condition=lambda d: (
+                not d.uncertain
+                and d.complexity == QueryComplexity.LOW
+                and len(d.domains) == 1
+            ),
+            selection=ModelSelection(
+                model=default_model,
+                reasoning_effort=simple_reasoning,
+                request_timeout_seconds=default_timeout_seconds,
                 provider=provider,
             ),
         ),

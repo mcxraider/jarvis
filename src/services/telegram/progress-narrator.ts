@@ -35,10 +35,6 @@ const SEED_LABELS: Record<TelegramInputKind, string> = {
   forwarded: 'Reviewing forwarded messages…',
 };
 
-export function seedLabelForInputKind(kind: TelegramInputKind): string {
-  return SEED_LABELS[kind];
-}
-
 function domainLabel(domains: ProgressFact['domains']): string | undefined {
   if (!domains?.length) return undefined;
   return domains
@@ -49,7 +45,7 @@ function domainLabel(domains: ProgressFact['domains']): string | undefined {
 
 /** Reduces safe graph facts plus elapsed time into user-facing Telegram copy. */
 export class ProgressNarrator {
-  private baseLabel = 'Thinking…';
+  private baseLabel = SEED_LABELS.text;
   private phase: ProgressFact['phase'] = 'request';
   private sequence?: number;
   private latestSequence?: number;
@@ -62,9 +58,9 @@ export class ProgressNarrator {
     renderedAt: number;
   };
 
-  start(seedLabel: string = 'Thinking…', now = Date.now()): void {
+  start(now = Date.now(), kind: TelegramInputKind = 'text'): void {
     this.startedAt = now;
-    this.baseLabel = seedLabel;
+    this.baseLabel = SEED_LABELS[kind];
     this.phase = 'request';
     this.sequence = undefined;
     this.latestSequence = undefined;
@@ -73,8 +69,8 @@ export class ProgressNarrator {
   }
 
   /** Transitions from an input-specific seed (e.g. Listening…) to the generic Thinking… label. */
-  advanceToThinking(_now = Date.now()): void {
-    this.baseLabel = 'Thinking…';
+  advanceToThinking(): void {
+    this.baseLabel = SEED_LABELS.text;
     this.baseRevision += 1;
   }
 

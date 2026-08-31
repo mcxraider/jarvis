@@ -11,6 +11,10 @@
 .langgraph_api/
 langgraph.json
 
+# Working notes (local only)
+plans/
+reports/
+
 # Runtime logs
 logs/
 

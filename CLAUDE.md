@@ -57,10 +57,10 @@ Normal startup path:
 ```text
 src/server.ts
   -> imports src/app.ts (DI root, env validation, service graph construction)
-  -> awaits databaseReadiness + agentContractReadiness
+  -> awaits databaseReadiness + agentContractReadiness + ffmpegReadiness
   -> registers Telegram webhook via POST /webhook/:secret
   -> starts Express on port 3000
-  -> /ping (liveness), /health (readiness: DB + LangGraph + log worker)
+  -> /ping (liveness), /health (readiness: DB + FFmpeg + LangGraph + log worker)
 ```
 
 `npm start` builds to `dist/` first, then runs `dist/server.js`.
@@ -106,15 +106,16 @@ Telegram update
 
 ```text
 ENTRY -> orchestrator
-         |-- (error) ------------------> END
+         |-- (error) ------------------> end
          |-- (ask_user tool call?) --> clarify --> orchestrator
          |-- (has tool calls) ------> validate_entities
-         |-- (no tool calls) -------> END
+         |-- (no tool calls) -------> end
 
 validate_entities
          |-- (all IDs verified, safe only) --> tools
          |-- (risky calls present) ----------> prepare_confirm
          |-- (hallucinated IDs) -------------> orchestrator (error feedback)
+         |-- (no next set) ------------------> end
 
 tools
          |-- (large result) --> summarize --> orchestrator
@@ -122,29 +123,35 @@ tools
 
 prepare_confirm --> confirm
          |-- (user approves) --> executor --> orchestrator
-         |-- (user declines) --> END
+         |-- (user declines) --> end
+
+end -> END   (no-op terminal node; see below)
 ```
 
-Node keys are literally `graph.*` in `builder.py` (`graph.orchestrator`, `graph.clarify`, `graph.validate_entities`, `graph.tools`, `graph.summarize`, `graph.prepare_confirm`, `graph.confirm`, `graph.executor`). The ASCII diagrams above omit the prefix for readability. Note `graph.clarify` is the node key; the implementation file is still `graph/nodes/hitl.py`.
+Node keys are literally `graph.*` in `builder.py` (`graph.orchestrator`, `graph.clarify`, `graph.validate_entities`, `graph.tools`, `graph.summarize`, `graph.prepare_confirm`, `graph.confirm`, `graph.executor`, `graph.end`). The ASCII diagrams above omit the prefix for readability. Note `graph.clarify` is the node key; the implementation file is still `graph/nodes/hitl.py`.
+
+`graph.end` exists purely for observability: LangGraph's `END` is the sentinel string `__end__`, not a node, so a route straight to it produces no span and traces appear to stop mid-flow. Every exit therefore routes through `graph.end` (`graph/nodes/end.py`), which writes no state and emits one terminal-summary trace event. New exit paths must target `"graph.end"`, not `"end"` — `"end"` as a route target is now used only by the node itself.
 
 ### Input channels
 
 All four channels converge on the same Python graph path:
 
 - **Text** → `TextProcessorService` → `/invoke`.
-- **Voice / audio** → Whisper transcription → same `TextProcessorService`.
+- **Voice / audio** → FFmpeg normalization (16 kHz mono FLAC) → Whisper transcription → same `TextProcessorService`. Files up to 20 MB / 20 minutes are accepted; anything over 30 s is chunked with 5 s overlap, transcribed concurrently (5 in-flight Groq requests process-wide), and merged. A caption on the audio becomes the instruction above the transcript. Limits live in `src/utils/ai/audio-limits.ts`.
 - **Photos** → `MessageHandlers.handlePhoto` buffers Telegram `media_group_id` albums for `ALBUM_QUIET_MS` (1.5s), then downloads and JPEG-validates each file into `AgentImage[]` (data-URL base64) → `MessageProcessorService.processPhotoMessage`. Bounds live in `src/types/agent.types.ts`: `MAX_AGENT_IMAGE_COUNT` (10), `MAX_AGENT_IMAGE_BYTES` (10 MB total per turn), `MAX_AGENT_IMAGE_BATCHES` (20). Images sent during a HITL pause are persisted as `image_batches` on `telegram_pending_clarifications` so a resume replays them.
 - **Forwards** → buffered in `forward-buffer.store.ts` until `/forward <instruction>` dispatches them as one combined turn (text + any buffered photos), always force-fresh.
 
 ### Tracing
 
-LangSmith tracing is wired at three layers — keep new code consistent with it:
+LangSmith tracing is wired at four layers — keep new code consistent with it:
 
 - `tracing.py` — `name_current_run()` renames the active run; `TracePrinter` / `UserProgressTracePrinter` emit progress facts.
 - `graph/assembly.py` — `_named_router()` wraps each conditional edge so it traces as `<node>.route`.
 - `wrap_openai` / `@traceable` on the LLM and API boundaries: `graph/nodes/orchestrator.py`, `graph/nodes/summarize.py`, `router/client.py`, `tools/dispatcher.py`, `tools/todoist/client.py`, `tools/google_calendar/client.py`. Tool spans are named dynamically from the tool call.
+- `graph/builder.py` — `@traceable` on `run_jarvis_async` owns the **root** run (renamed to `jarvis.invoke` / `jarvis.resume` via `name_current_run`); the LangGraph `ainvoke` run is its `graph` child. Root inputs/outputs are reduced by `_run_trace_inputs` / `_run_trace_outputs` so prompts, base64 images and full state never reach LangSmith. Without this root span, the `runtime.*` events emitted around `ainvoke` have no active run and are dropped.
+- `tracing.py` — `TracePrinter.event()` also mirrors each diagnostic fact onto the active span as a LangSmith run event (bounded at `_MAX_SPAN_EVENTS`, best-effort, independent of `JARVIS_DEBUG`). Events attach to whichever span is active, so router/model-router decisions land on `graph.orchestrator`, token accounting on `orchestrator.llm`, and `runtime.done` on the root run. `payload()` is deliberately excluded — it stays terminal-only so raw request/response bodies never reach LangSmith.
 
-> **Note:** `agents/jarvis.py` and `agents/api.py` are legacy compatibility shims. All real logic lives in `agents/agent_api/app/`.
+> **Note:** All agent logic lives in `agents/agent_api/app/`. The FastAPI entrypoint is `agents.agent_api.app.main:app`; the CLI entrypoint is `agents/agent_api/app/runner.py`.
 
 ## Important Source Areas
 
@@ -152,7 +159,7 @@ LangSmith tracing is wired at three layers — keep new code consistent with it:
 
 - `src/app.ts` — DI root: validates env vars, constructs service graph, exports `botService`, `databaseReadiness`, `agentContractReadiness`
 - `src/server.ts` — Express server: `/ping`, `/health`, webhook mount, graceful shutdown
-- `src/config/turn-timeout.config.ts` — timeout ladder (overall, stream-idle, Telegraf handler) with env overrides
+- `src/config/turn-timeout.config.ts` — timeout ladder (stream-idle < overall < Telegraf handler < running gate TTL <= waiting gate TTL, plus audio prepare/transcription budgets) with env overrides and `assertTurnTimeoutLadder()`
 - `src/controllers/webhook.controller.ts` — `POST /webhook/:secret` route factory
 - `src/types/agent.types.ts` — Zod schemas + image limits: `AgentImageSchema`/`AgentImagesSchema`/`AgentImageBatchesSchema`, `MAX_AGENT_IMAGE_*`, `AgentResponseSchema`, `StreamEventSchema` (discriminated union of progress / reasoning-summary / final), `ProgressFactSchema`, `AgentHealthDetailSchema`, `LangGraphInterruptSchema`, `TelegramIdentitySchema`
 - `src/types/telegram.types.ts` — `TelegramConfig` interface
@@ -161,9 +168,10 @@ LangSmith tracing is wired at three layers — keep new code consistent with it:
 
 - `langgraph-agent-client.service.ts` — HTTP client for Python agent: streaming NDJSON, dual-timer deadline, retry, cancellation, fallback to non-streaming
 - `agent-contract-readiness.ts` — startup barrier: verifies timeout ladder invariants against agent `/health/detail`
-- `whisper.service.ts` — audio transcription via Groq Whisper large-v3 (download, validate, convert, retry, quality metrics)
+- `whisper.service.ts` — audio transcription via Groq Whisper large-v3: streamed size-capped download, FFmpeg normalization + chunking, concurrent chunk transcription, deterministic merge, retry, quality metrics
+- `groq-request-limiter.ts` — process-global admission control for Groq calls (shared concurrency cap + shared `429` cooldown, since Groq rate-limits per organization)
 - `groq-transcription-error.ts` — structured error with category, retryable flag, provider metadata
-- `index.ts` — barrel re-exporting the client, Whisper service, and transcription error
+- `index.ts` — barrel re-exporting the client, Whisper service, transcription error, and `ai/audio-admission-error.ts` from `src/utils/`
 
 #### `src/services/database/`
 
@@ -216,13 +224,16 @@ LangSmith tracing is wired at three layers — keep new code consistent with it:
 - `log-worker.ts` — Worker thread: receives events, writes via Winston
 - `log-redact.ts` — scrubs tokens, API keys, private IDs from log payloads
 - `constants.ts` — `AudioMimeTypes` (11 accepted MIME types)
-- `ai/audioConverter.ts` — FFmpeg format conversion (OGG/Opus → MP3, 30s timeout)
+- `ai/audioConverter.ts` — `AudioConverter.prepare()`: FFmpeg normalization to 16 kHz mono FLAC (first audio track), authoritative duration measurement, duration-limit kill, sequential chunk extraction; `isFFmpegAvailable()` backs the startup barrier
+- `ai/audio-limits.ts` — `AUDIO_LIMITS` (size, duration, chunk geometry, concurrency, retry ceilings) and `AUDIO_LIMIT_MESSAGES` user copy
+- `ai/audio-admission-error.ts` — `AudioAdmissionError` (`too_large` / `too_long`) carrying user-facing copy; classified as `user_actionable`; re-exported by `src/services/ai/index.ts`
+- `ai/audio-chunk-plan.ts` — `planAudioChunks()`: equal core regions widened into overlapping upload windows
+- `ai/transcript-merge.ts` — `mergeChunkTranscriptions()`: deterministic overlap removal by core-midpoint ownership (words → segments → text fallback)
 - `ai/fileValidation.ts` — `validateFileSize()`, `validateFileExtension()`
 
 ### Python (`agents/agent_api/app/`)
 
 - `main.py` — FastAPI `create_app()`, lifespan hooks
-- `logging.py` — `get_logger` factory for the agent API
 - `config.py` — Pydantic `Settings`, `load_settings()`, `apply_langsmith_env_defaults()`
 - `constants.py` — runtime constants derived from settings (model params, thresholds, tags)
 - `db.py` — PostgreSQL connection pool (`get_pool`, `close_pool`, `verify_database_runtime`)
@@ -235,7 +246,6 @@ LangSmith tracing is wired at three layers — keep new code consistent with it:
 - `tracing.py` — `TracePrinter`, `UserProgressTracePrinter`, `name_current_run()`, `ProgressCallback` protocol
 - `runner.py` — local CLI runner (terminal prompts, HITL via input())
 - `studio.py` — LangGraph Studio graph entrypoint
-- `service.py` — legacy compatibility aggregator (re-exports public surface)
 
 #### `llm/`
 
@@ -269,6 +279,7 @@ LangSmith tracing is wired at three layers — keep new code consistent with it:
 - `executor.py` — post-approval execution: hash-binding guard, sequential dispatch, circuit breaker
 - `validate_entities.py` — blocks mutations targeting hallucinated entity IDs
 - `summarize.py` — condenses large tool outputs via secondary LLM call
+- `end.py` — no-op terminal node (`graph.end`): gives every exit a traceable span
 
 #### `graph/prompts/`
 
@@ -289,7 +300,6 @@ LangSmith tracing is wired at three layers — keep new code consistent with it:
 - `registry_factory.py` — `build_runtime_registry` (prod) and `build_registry_from_clients` (tests)
 - `selection.py` — `ToolSelector` protocol + `get_selector()` factory
 - `selectors/static.py` — `StaticToolSelector` (pass-through)
-- `selectors/keyword.py` — `KeywordToolSelector` (regex matching)
 - `selectors/router.py` — `RouterToolSelector` (LLM-backed classifier with cache + fallback)
 - `access_policy.py` — request-scoped resource restrictions / access denial for provider tool calls
 - `todoist/` — client, schemas, tools (tasks, projects, comments, labels, sections)
@@ -342,16 +352,10 @@ LangSmith tracing is wired at three layers — keep new code consistent with it:
 
 - `__init__.py` — backend selection, `DEFAULT_CHECKPOINTER`, `InMemorySaver`
 - `postgres.py` — Postgres checkpoint saver
-- `redis.py` — Redis checkpoint saver
 
 #### `formatting/`
 
 - `tool_tree.py` — renders tool results as dependency/parallelism tree
-
-### Legacy shims (do not edit)
-
-- `agents/jarvis.py` — re-exports from `agent_api`
-- `agents/api.py` — re-exports from `agent_api`
 
 ## Database
 
@@ -487,6 +491,10 @@ Do not commit generated or local files:
 
 Keep `.env.sample` committed; add any new env var there in the same change that reads it.
 
-Working notes live in `plans/` (forward-looking implementation plans) and `reports/` (audits, feature write-ups, architecture snapshots). Put new design or audit documents there, not at the repo root.
+Working notes live in `plans/` (forward-looking implementation plans) and `reports/` (audits, feature write-ups, architecture snapshots). Put new design or audit documents there, not at the repo root — both directories are gitignored, so those notes stay local to your worktree and never reach the remote.
 
 Use the current flat ESLint config: `eslint.config.js`. Do not reintroduce `.eslintrc.json`.
+
+## GitHub Issues
+
+Every issue created with `gh issue create` must include at least one existing label via `--label` — never leave an issue unlabeled. Pick from the repo's existing label set (`gh label list`); do not invent new labels ad hoc. Current labels: `bug`, `documentation`, `duplicate`, `enhancement`, `good first issue`, `help wanted`, `invalid`, `question`, `wontfix`, `testing`, `architecture`, `infrastructure`, `safety`, `ux`.

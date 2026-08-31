@@ -157,6 +157,7 @@ class TestLogUsageInsert:
             "deepseek-v4-flash",
             "deepseek-v4-flash",
         )
+        # pricing_tier at [12], cost_usd at [13], latency_ms at [14].
         assert first_params[13] == Decimal("0.1400")
         assert second_params[2:5] == (
             "openai",

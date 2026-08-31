@@ -1,8 +1,11 @@
 import { MessageHandlers } from '../../../../../src/services/telegram/handlers/message-handlers';
 import { TELEGRAM_ONBOARDING_MESSAGE } from '../../../../../src/services/telegram/onboarding-message';
 import { setRichMessagesEnabled } from '../../../../../src/services/telegram/formatters/telegram-rich';
+import { toTelegramMarkdownV2 } from '../../../../../src/services/telegram/formatters/telegram-markdown';
 import { createTerminalReplyStore } from '../../../../../src/services/telegram/terminal-reply.store';
 import { logger } from '../../../../../src/utils/logger';
+import { AUDIO_LIMIT_MESSAGES, AUDIO_LIMITS } from '../../../../../src/utils/ai/audio-limits';
+import { AudioAdmissionError } from '../../../../../src/utils/ai/audio-admission-error';
 
 // Minimal PendingClarificationStore mock. `get` defaults to "no pending record".
 function makePendingStore(overrides: Record<string, any> = {}) {
@@ -40,13 +43,15 @@ describe('MessageHandlers', () => {
     } as any;
   }
 
-  function createHandlers(options: {
-    fileService?: any;
-    messageProcessor?: any;
-    activityService?: any;
-    pendingStore?: any;
-    gateStore?: any;
-  } = {}) {
+  function createHandlers(
+    options: {
+      fileService?: any;
+      messageProcessor?: any;
+      activityService?: any;
+      pendingStore?: any;
+      gateStore?: any;
+    } = {},
+  ) {
     const fileService = options.fileService || {
       isAudioFile: jest.fn(),
       getFileUrl: jest.fn(),
@@ -70,12 +75,14 @@ describe('MessageHandlers', () => {
 
   it('deletes a just-sent confirmation prompt when ownership changes after delivery', async () => {
     const pendingStore = makePendingStore({
-      get: jest.fn()
+      get: jest
+        .fn()
         .mockResolvedValueOnce({ threadId: 'thread-old', requestId: 'request-old' })
         .mockResolvedValueOnce({ threadId: 'thread-new', requestId: 'request-new' }),
     });
     const gateStore = {
-      getSnapshot: jest.fn()
+      getSnapshot: jest
+        .fn()
         .mockResolvedValueOnce({ status: 'waiting_for_clarification', requestId: 'request-old' })
         .mockResolvedValueOnce({ status: 'waiting_for_clarification', requestId: 'request-new' }),
     };
@@ -104,12 +111,14 @@ describe('MessageHandlers', () => {
   it('deletes a just-sent clarification prompt when ownership changes after delivery', async () => {
     setRichMessagesEnabled(true);
     const pendingStore = makePendingStore({
-      get: jest.fn()
+      get: jest
+        .fn()
         .mockResolvedValueOnce({ threadId: 'thread-old', requestId: 'request-old' })
         .mockResolvedValueOnce({ threadId: 'thread-new', requestId: 'request-new' }),
     });
     const gateStore = {
-      getSnapshot: jest.fn()
+      getSnapshot: jest
+        .fn()
         .mockResolvedValueOnce({ status: 'waiting_for_clarification', requestId: 'request-old' })
         .mockResolvedValueOnce({ status: 'waiting_for_clarification', requestId: 'request-new' }),
     };
@@ -142,7 +151,13 @@ describe('MessageHandlers', () => {
       processTextMessage: jest.fn().mockResolvedValue({ response: 'processed text' }),
     } as any;
     const activityService = { recordActivity: jest.fn() } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore(), createTerminalReplyStore());
+    const handlers = new MessageHandlers(
+      fileService,
+      messageProcessor,
+      activityService,
+      makePendingStore(),
+      createTerminalReplyStore(),
+    );
     const ctx = createContext({ text: 'hello', message_id: 99 });
 
     await handlers.handleText(ctx);
@@ -197,47 +212,72 @@ describe('MessageHandlers', () => {
         get: jest.fn().mockResolvedValue({ threadId, requestId: settlementRequestId }),
       });
       const messageProcessor = {
-        processTextMessage: jest.fn((
-          _text: string,
-          _userId: number,
-          _logContext: unknown,
-          onProgress: (event: any) => Promise<void>,
-        ) => new Promise((resolve) => {
-          void onProgress({
-            sequence: 1,
-            stage: 'progress',
-            message: 'ignored',
-            fact: { phase: 'request', action: 'started' },
-          });
-          setTimeout(() => void onProgress({
-            sequence: 2,
-            stage: 'progress',
-            message: 'ignored',
-            fact: {
-              phase: 'routing', action: 'completed', domains: ['calendar'], intent: 'read',
-            },
-          }), 30_000);
-          setTimeout(() => void onProgress({
-            sequence: 3,
-            stage: 'progress',
-            message: 'ignored',
-            fact: {
-              phase: 'lookup', action: 'started', domains: ['calendar'], intent: 'read',
-            },
-          }), 60_000);
-          setTimeout(() => void onProgress({
-            sequence: 4,
-            stage: 'progress',
-            message: 'ignored',
-            fact: { phase: 'review', action: 'completed', intent: 'read' },
-          }), 90_000);
-          setTimeout(() => resolve({
-            response: 'Which dates should I prioritize?',
-            interruptType: 'clarify',
-            threadId,
-            settlementRequestId,
-          }), 129_700);
-        })),
+        processTextMessage: jest.fn(
+          (
+            _text: string,
+            _userId: number,
+            _logContext: unknown,
+            onProgress: (event: any) => Promise<void>,
+          ) =>
+            new Promise((resolve) => {
+              void onProgress({
+                sequence: 1,
+                stage: 'progress',
+                message: 'ignored',
+                fact: { phase: 'request', action: 'started' },
+              });
+              setTimeout(
+                () =>
+                  void onProgress({
+                    sequence: 2,
+                    stage: 'progress',
+                    message: 'ignored',
+                    fact: {
+                      phase: 'routing',
+                      action: 'completed',
+                      domains: ['calendar'],
+                      intent: 'read',
+                    },
+                  }),
+                30_000,
+              );
+              setTimeout(
+                () =>
+                  void onProgress({
+                    sequence: 3,
+                    stage: 'progress',
+                    message: 'ignored',
+                    fact: {
+                      phase: 'lookup',
+                      action: 'started',
+                      domains: ['calendar'],
+                      intent: 'read',
+                    },
+                  }),
+                60_000,
+              );
+              setTimeout(
+                () =>
+                  void onProgress({
+                    sequence: 4,
+                    stage: 'progress',
+                    message: 'ignored',
+                    fact: { phase: 'review', action: 'completed', intent: 'read' },
+                  }),
+                90_000,
+              );
+              setTimeout(
+                () =>
+                  resolve({
+                    response: 'Which dates should I prioritize?',
+                    interruptType: 'clarify',
+                    threadId,
+                    settlementRequestId,
+                  }),
+                129_700,
+              );
+            }),
+        ),
       } as any;
       const { handlers } = createHandlers({ messageProcessor, pendingStore });
       const ctx = createContext({ text: 'Plan my leave around my calendar', message_id: 1297 });
@@ -255,8 +295,9 @@ describe('MessageHandlers', () => {
       expect(methods.filter((method: string) => method === 'sendRichMessage').length).toBe(1);
       expect(methods.at(-1)).toBe('sendRichMessage');
       expect(draftTimes.length).toBeGreaterThanOrEqual(7);
-      expect(draftTimes.slice(1).every((time, index) => time - draftTimes[index] <= 20_000))
-        .toBe(true);
+      expect(draftTimes.slice(1).every((time, index) => time - draftTimes[index] <= 20_000)).toBe(
+        true,
+      );
       expect(ctx.reply).not.toHaveBeenCalledWith(
         expect.stringContaining('Something went wrong'),
         expect.anything(),
@@ -391,7 +432,13 @@ describe('MessageHandlers', () => {
     const activityService = {
       recordActivity: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore(), createTerminalReplyStore());
+    const handlers = new MessageHandlers(
+      fileService,
+      messageProcessor,
+      activityService,
+      makePendingStore(),
+      createTerminalReplyStore(),
+    );
     const ctx = createContext({
       document: {
         file_id: 'file-1',
@@ -404,7 +451,7 @@ describe('MessageHandlers', () => {
     await handlers.handleDocument(ctx);
 
     expect(fileService.isAudioFile).toHaveBeenCalledWith('audio/mpeg');
-    expect(fileService.getFileUrl).toHaveBeenCalledWith('file-1');
+    expect(fileService.getFileUrl).toHaveBeenCalledWith('file-1', AUDIO_LIMITS.MAX_INPUT_BYTES);
     expect(messageProcessor.processAudioDocument).toHaveBeenCalledWith(
       'https://example.com/file.mp3',
       'meeting.mp3',
@@ -449,7 +496,13 @@ describe('MessageHandlers', () => {
       }),
     } as any;
     const activityService = { recordActivity: jest.fn() } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore(), createTerminalReplyStore());
+    const handlers = new MessageHandlers(
+      fileService,
+      messageProcessor,
+      activityService,
+      makePendingStore(),
+      createTerminalReplyStore(),
+    );
     const ctx = createContext(message);
 
     if (kind === 'voice') {
@@ -482,7 +535,9 @@ describe('MessageHandlers', () => {
       getFileUrl: jest.fn().mockResolvedValue('https://example.com/audio.ogg'),
     } as any;
     const messageProcessor = {
-      processAudioMessage: jest.fn().mockResolvedValue({ response: 'stale audio', suppressed: true }),
+      processAudioMessage: jest
+        .fn()
+        .mockResolvedValue({ response: 'stale audio', suppressed: true }),
     } as any;
     const handlers = new MessageHandlers(
       fileService,
@@ -514,7 +569,13 @@ describe('MessageHandlers', () => {
     const activityService = {
       recordActivity: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore(), createTerminalReplyStore());
+    const handlers = new MessageHandlers(
+      fileService,
+      messageProcessor,
+      activityService,
+      makePendingStore(),
+      createTerminalReplyStore(),
+    );
     const ctx = createContext({
       photo: [
         { file_id: 'small', width: 320, height: 240, file_size: 1000 },
@@ -528,7 +589,7 @@ describe('MessageHandlers', () => {
     expect(fileService.downloadFile).toHaveBeenCalledWith('large', 10 * 1024 * 1024);
     expect(messageProcessor.processPhotoMessage).toHaveBeenCalledWith(
       'Whiteboard photo',
-      [{ image_url: `data:image/jpeg;base64,${jpeg.toString('base64')}`, detail: 'auto' }],
+      [{ image_url: `data:image/jpeg;base64,${jpeg.toString('base64')}`, detail: 'high' }],
       123,
       expect.objectContaining({ messageType: 'photo' }),
       expect.any(Function),
@@ -632,8 +693,11 @@ describe('MessageHandlers', () => {
       await jest.advanceTimersByTimeAsync(1);
       await Promise.resolve();
 
-      expect(fileService.downloadFile.mock.calls.map(([fileId]: [string]) => fileId))
-        .toEqual(['file-10', 'file-20', 'file-30']);
+      expect(fileService.downloadFile.mock.calls.map(([fileId]: [string]) => fileId)).toEqual([
+        'file-10',
+        'file-20',
+        'file-30',
+      ]);
       expect(messageProcessor.processPhotoMessage).toHaveBeenCalledTimes(1);
       expect(messageProcessor.processPhotoMessage.mock.calls[0][0]).toBe('first\nsecond');
     } finally {
@@ -667,7 +731,10 @@ describe('MessageHandlers', () => {
       await jest.advanceTimersByTimeAsync(1500);
       await Promise.resolve();
 
-      expect(first.reply.mock.calls[0]).toEqual(['Analysing images…', { parse_mode: 'MarkdownV2' }]);
+      expect(first.reply.mock.calls[0]).toEqual([
+        'Analysing images…',
+        { parse_mode: 'MarkdownV2' },
+      ]);
     } finally {
       jest.clearAllTimers();
       jest.useRealTimers();
@@ -680,7 +747,9 @@ describe('MessageHandlers', () => {
   ])('rejects %s photo state before downloading', async (status, interruptType) => {
     const fileService = { downloadFile: jest.fn() };
     const messageProcessor = { processPhotoMessage: jest.fn() };
-    const gateStore = { getSnapshot: jest.fn().mockResolvedValue({ status, requestId: 'pending-1' }) };
+    const gateStore = {
+      getSnapshot: jest.fn().mockResolvedValue({ status, requestId: 'pending-1' }),
+    };
     const pendingStore = makePendingStore({
       get: jest.fn().mockResolvedValue({ requestId: 'pending-1', interruptType }),
     });
@@ -695,6 +764,7 @@ describe('MessageHandlers', () => {
 
     expect(fileService.downloadFile).not.toHaveBeenCalled();
     expect(messageProcessor.processPhotoMessage).not.toHaveBeenCalled();
+    expect(ctx.reply).not.toHaveBeenCalledWith('Analysing image…', expect.anything());
   });
 
   it('rejects a partially failed album once without submitting pixels', async () => {
@@ -702,7 +772,8 @@ describe('MessageHandlers', () => {
     try {
       const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
       const fileService = {
-        downloadFile: jest.fn()
+        downloadFile: jest
+          .fn()
           .mockResolvedValueOnce(jpeg)
           .mockRejectedValueOnce(new Error('unavailable secret-file-id')),
       };
@@ -726,7 +797,9 @@ describe('MessageHandlers', () => {
 
       expect(messageProcessor.processPhotoMessage).not.toHaveBeenCalled();
       expect(first.reply).toHaveBeenCalledTimes(2); // progress plus one terminal error
-      expect(first.reply).toHaveBeenLastCalledWith(expect.stringContaining("couldn't process"));
+      expect(first.reply).toHaveBeenLastCalledWith(expect.stringContaining("couldn't process"), {
+        parse_mode: 'MarkdownV2',
+      });
       expect(second.reply).not.toHaveBeenCalled();
     } finally {
       jest.clearAllTimers();
@@ -746,7 +819,13 @@ describe('MessageHandlers', () => {
     const activityService = {
       recordActivity: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore(), createTerminalReplyStore());
+    const handlers = new MessageHandlers(
+      fileService,
+      messageProcessor,
+      activityService,
+      makePendingStore(),
+      createTerminalReplyStore(),
+    );
     const ctx = createContext({
       sticker: { file_id: 'sticker-1' },
     });
@@ -755,8 +834,10 @@ describe('MessageHandlers', () => {
 
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_unknown');
     expect(ctx.reply).toHaveBeenCalledWith(
-      'Stickers are currently not supported. Please send text, audio, or voice.',
+      expect.stringContaining('Stickers are currently not supported'),
+      { parse_mode: 'MarkdownV2' },
     );
+    expect(ctx.reply).not.toHaveBeenCalledWith('Thinking…', expect.anything());
   });
 
   it('rejects non-audio documents with a helpful reply', async () => {
@@ -770,7 +851,13 @@ describe('MessageHandlers', () => {
     const activityService = {
       recordActivity: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore(), createTerminalReplyStore());
+    const handlers = new MessageHandlers(
+      fileService,
+      messageProcessor,
+      activityService,
+      makePendingStore(),
+      createTerminalReplyStore(),
+    );
     const ctx = createContext({
       document: {
         file_id: 'file-1',
@@ -784,8 +871,10 @@ describe('MessageHandlers', () => {
     expect(fileService.getFileUrl).not.toHaveBeenCalled();
     expect(messageProcessor.processAudioDocument).not.toHaveBeenCalled();
     expect(activityService.recordActivity).not.toHaveBeenCalled();
+    expect(ctx.reply).not.toHaveBeenCalledWith('Listening…', expect.anything());
     expect(ctx.reply).toHaveBeenCalledWith(
-      'I process text, direct photos, voice notes, and audio files. Image documents are not supported — please re-send the image as a photo (not as a file).',
+      expect.stringContaining('Image documents are not supported'),
+      { parse_mode: 'MarkdownV2' },
     );
   });
 
@@ -800,7 +889,13 @@ describe('MessageHandlers', () => {
     const activityService = {
       recordActivity: jest.fn(),
     } as any;
-    const handlers = new MessageHandlers(fileService, messageProcessor, activityService, makePendingStore(), createTerminalReplyStore());
+    const handlers = new MessageHandlers(
+      fileService,
+      messageProcessor,
+      activityService,
+      makePendingStore(),
+      createTerminalReplyStore(),
+    );
     const ctx = createContext({
       document: {
         file_id: 'file-1',
@@ -812,9 +907,265 @@ describe('MessageHandlers', () => {
     await handlers.handleDocument(ctx);
 
     expect(ctx.reply).toHaveBeenCalledWith(
-      'Something went wrong processing your audio document. Please try again.',
+      expect.stringContaining('Something went wrong processing your audio document'),
+      { parse_mode: 'MarkdownV2' },
     );
     expect(activityService.recordActivity).toHaveBeenCalledWith('message_document');
+  });
+
+  describe('audio size admission', () => {
+    const OVER = AUDIO_LIMITS.MAX_INPUT_BYTES + 1;
+
+    // file_size is injected per case so the same harness covers voice, audio, and document.
+    function audioHarness(kind: 'voice' | 'audio' | 'document', extra: Record<string, unknown>) {
+      const fileService = {
+        isAudioFile: jest.fn().mockReturnValue(true),
+        getFileUrl: jest.fn().mockResolvedValue('https://example.com/audio.ogg'),
+      };
+      const messageProcessor = {
+        processAudioMessage: jest.fn().mockResolvedValue({ response: 'processed audio' }),
+        processAudioDocument: jest.fn().mockResolvedValue({ response: 'processed document' }),
+      };
+      const { handlers, activityService } = createHandlers({ fileService, messageProcessor });
+      const file =
+        kind === 'document'
+          ? {
+              document: {
+                file_id: 'doc-1',
+                file_name: 'memo.mp3',
+                mime_type: 'audio/mpeg',
+                ...extra,
+              },
+            }
+          : kind === 'voice'
+            ? { voice: { file_id: 'voice-1', duration: 3, ...extra } }
+            : { audio: { file_id: 'audio-1', duration: 3, ...extra } };
+      const ctx = createContext({ message_id: 40, ...file });
+      const run = () =>
+        kind === 'document'
+          ? handlers.handleDocument(ctx)
+          : kind === 'voice'
+            ? handlers.handleVoice(ctx)
+            : handlers.handleAudio(ctx);
+      return { run, ctx, fileService, messageProcessor, activityService };
+    }
+
+    it.each(['voice', 'audio', 'document'] as const)(
+      'rejects an oversized %s before any progress, getFile, or processor call',
+      async (kind) => {
+        const { run, ctx, fileService, messageProcessor } = audioHarness(kind, {
+          file_size: OVER,
+        });
+
+        await run();
+
+        expect(ctx.reply).toHaveBeenCalledTimes(1);
+        expect(ctx.reply).toHaveBeenCalledWith(
+          toTelegramMarkdownV2(AUDIO_LIMIT_MESSAGES.tooLarge),
+          { parse_mode: 'MarkdownV2' },
+        );
+        expect(fileService.getFileUrl).not.toHaveBeenCalled();
+        expect(messageProcessor.processAudioMessage).not.toHaveBeenCalled();
+        expect(messageProcessor.processAudioDocument).not.toHaveBeenCalled();
+        expect(ctx.reply).not.toHaveBeenCalledWith('Listening…', expect.anything());
+        expect(ctx.reply).not.toHaveBeenCalledWith(
+          expect.stringContaining('Transcrib'),
+          expect.anything(),
+        );
+      },
+    );
+
+    it.each(['voice', 'audio', 'document'] as const)(
+      'accepts %s of exactly the limit and forwards the limit to getFileUrl',
+      async (kind) => {
+        const { run, fileService, messageProcessor } = audioHarness(kind, {
+          file_size: AUDIO_LIMITS.MAX_INPUT_BYTES,
+        });
+
+        await run();
+
+        expect(fileService.getFileUrl).toHaveBeenCalledWith(
+          kind === 'document' ? 'doc-1' : kind === 'voice' ? 'voice-1' : 'audio-1',
+          AUDIO_LIMITS.MAX_INPUT_BYTES,
+        );
+        const processor =
+          kind === 'document'
+            ? messageProcessor.processAudioDocument
+            : messageProcessor.processAudioMessage;
+        expect(processor).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each(['voice', 'audio', 'document'] as const)(
+      'does not reject %s with an undeclared file_size',
+      async (kind) => {
+        const { run, fileService, messageProcessor } = audioHarness(kind, {});
+
+        await run();
+
+        expect(fileService.getFileUrl).toHaveBeenCalledWith(
+          expect.any(String),
+          AUDIO_LIMITS.MAX_INPUT_BYTES,
+        );
+        const processor =
+          kind === 'document'
+            ? messageProcessor.processAudioDocument
+            : messageProcessor.processAudioMessage;
+        expect(processor).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it('logs the rejection without the file id and records no extra activity', async () => {
+      const info = jest.spyOn(logger, 'info').mockImplementation();
+      const { run, activityService } = audioHarness('voice', { file_size: OVER });
+
+      await run();
+
+      expect(info).toHaveBeenCalledWith(
+        'telegram.message.audio_rejected',
+        expect.objectContaining({
+          reason: 'too_large',
+          fileSize: OVER,
+          limit: AUDIO_LIMITS.MAX_INPUT_BYTES,
+        }),
+      );
+      expect(activityService.recordActivity).toHaveBeenCalledTimes(1);
+      expect(activityService.recordActivity).toHaveBeenCalledWith('message_voice');
+    });
+
+    it('surfaces an admission error raised inside the audio pipeline and tears down progress', async () => {
+      const fileService = {
+        getFileUrl: jest.fn().mockRejectedValue(new AudioAdmissionError('too_long')),
+      };
+      const messageProcessor = { processAudioMessage: jest.fn() };
+      const { handlers } = createHandlers({ fileService, messageProcessor });
+      const ctx = createContext({ voice: { file_id: 'voice-1', duration: 2000 }, message_id: 41 });
+
+      await handlers.handleVoice(ctx);
+
+      expect(ctx.reply).toHaveBeenCalledWith(toTelegramMarkdownV2(AUDIO_LIMIT_MESSAGES.tooLong), {
+        parse_mode: 'MarkdownV2',
+      });
+      expect(ctx.reply).not.toHaveBeenCalledWith(
+        expect.stringContaining('Something went wrong'),
+        expect.anything(),
+      );
+      // The "Listening…" status message is still removed.
+      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
+    });
+
+    it('keeps the generic per-type message for a non-admission audio failure', async () => {
+      const fileService = { getFileUrl: jest.fn().mockRejectedValue(new Error('boom')) };
+      const messageProcessor = { processAudioMessage: jest.fn() };
+      const { handlers } = createHandlers({ fileService, messageProcessor });
+      const ctx = createContext({ voice: { file_id: 'voice-1', duration: 3 }, message_id: 42 });
+
+      await handlers.handleVoice(ctx);
+
+      expect(ctx.reply).toHaveBeenCalledWith(
+        expect.stringContaining('Something went wrong processing your voice message'),
+        { parse_mode: 'MarkdownV2' },
+      );
+    });
+  });
+
+  describe('audio captions become agent instructions', () => {
+    function captionHarness(message: Record<string, unknown>) {
+      const fileService = {
+        isAudioFile: jest.fn().mockReturnValue(true),
+        getFileUrl: jest.fn().mockResolvedValue('https://example.com/audio.ogg'),
+      };
+      const messageProcessor = {
+        processAudioMessage: jest.fn().mockResolvedValue({ response: 'done' }),
+        processAudioDocument: jest.fn().mockResolvedValue({ response: 'done' }),
+      };
+      const { handlers } = createHandlers({ fileService, messageProcessor });
+      return { handlers, messageProcessor, ctx: createContext(message) };
+    }
+
+    it.each([
+      ['voice', { voice: { file_id: 'voice-1', duration: 3 } }],
+      ['audio', { audio: { file_id: 'audio-1', duration: 3 } }],
+    ])('forwards a %s caption as the instruction', async (kind, file) => {
+      const { handlers, messageProcessor, ctx } = captionHarness({
+        message_id: 50,
+        caption: '  Turn this into tasks  ',
+        ...file,
+      });
+
+      await (kind === 'voice' ? handlers.handleVoice(ctx) : handlers.handleAudio(ctx));
+
+      expect(messageProcessor.processAudioMessage.mock.calls[0][4]).toEqual({
+        replyContext: undefined,
+        instruction: 'Turn this into tasks',
+      });
+    });
+
+    it('forwards a document caption as the instruction', async () => {
+      const { handlers, messageProcessor, ctx } = captionHarness({
+        message_id: 51,
+        caption: 'Extract the action items',
+        document: { file_id: 'doc-1', file_name: 'memo.mp3', mime_type: 'audio/mpeg' },
+      });
+
+      await handlers.handleDocument(ctx);
+
+      expect(messageProcessor.processAudioDocument.mock.calls[0][6]).toEqual({
+        replyContext: undefined,
+        instruction: 'Extract the action items',
+      });
+    });
+
+    it.each([[undefined], ['   ']])(
+      'omits the instruction when the caption is %p',
+      async (caption) => {
+        const { handlers, messageProcessor, ctx } = captionHarness({
+          message_id: 52,
+          caption,
+          voice: { file_id: 'voice-1', duration: 3 },
+        });
+
+        await handlers.handleVoice(ctx);
+
+        expect(messageProcessor.processAudioMessage.mock.calls[0][4]).not.toHaveProperty(
+          'instruction',
+        );
+      },
+    );
+
+    it('keeps reply context alongside the caption', async () => {
+      const { handlers, messageProcessor, ctx } = captionHarness({
+        message_id: 53,
+        caption: 'Add these',
+        voice: { file_id: 'voice-1', duration: 3 },
+        reply_to_message: {
+          text: 'Created task: Buy milk',
+          from: { id: 999, is_bot: true, first_name: 'Jarvis' },
+        },
+      });
+
+      await handlers.handleVoice(ctx);
+
+      expect(messageProcessor.processAudioMessage.mock.calls[0][4]).toEqual({
+        replyContext: { role: 'assistant', message: 'Created task: Buy milk' },
+        instruction: 'Add these',
+      });
+    });
+
+    it('never logs the caption content at info level', async () => {
+      const info = jest.spyOn(logger, 'info').mockImplementation();
+      const { handlers, ctx } = captionHarness({
+        message_id: 54,
+        caption: 'private caption content',
+        voice: { file_id: 'voice-1', duration: 3 },
+      });
+
+      await handlers.handleVoice(ctx);
+
+      const logged = JSON.stringify(info.mock.calls);
+      expect(logged).not.toContain('private caption content');
+      expect(logged).toContain('hasInstruction');
+    });
   });
 
   describe('handleNew (/new)', () => {
@@ -863,9 +1214,8 @@ describe('MessageHandlers', () => {
       const promptDeleteIndex = ctx.telegram.deleteMessage.mock.calls.findIndex(
         (call: unknown[]) => call[1] === 559,
       );
-      const finalReplyOrder = ctx.reply.mock.invocationCallOrder[
-        ctx.reply.mock.invocationCallOrder.length - 1
-      ];
+      const finalReplyOrder =
+        ctx.reply.mock.invocationCallOrder[ctx.reply.mock.invocationCallOrder.length - 1];
       expect(ctx.telegram.deleteMessage.mock.invocationCallOrder[promptDeleteIndex]).toBeLessThan(
         finalReplyOrder,
       );
@@ -930,7 +1280,10 @@ describe('MessageHandlers', () => {
 
     it.each([
       ['abandoned', "We're in a new conversation — send your next message."],
-      ['running', "I'm still finishing your previous request — try /new again in a moment, or /cancel."],
+      [
+        'running',
+        "I'm still finishing your previous request — try /new again in a moment, or /cancel.",
+      ],
     ])('sends the bare /new %s response through the rich-message path', async (outcome, text) => {
       setRichMessagesEnabled(true);
       const messageProcessor = {
@@ -977,29 +1330,32 @@ describe('MessageHandlers', () => {
     it.each([
       ['confirm', 557],
       ['clarify', 558],
-    ])('bare /new removes a superseded %s prompt without a rich clarification block', async (interruptType, promptMessageId) => {
-      const messageProcessor = {
-        processTextMessage: jest.fn(),
-        abandonConversation: jest.fn().mockResolvedValue('abandoned'),
-      } as any;
-      const pendingStore = makePendingStore({
-        get: jest.fn().mockResolvedValue({
-          interruptType,
-          promptMessageId,
-          question: 'Continue?',
-        }),
-      });
-      const { handlers } = createHandlers({ messageProcessor, pendingStore });
-      const ctx = createContext({ text: '/new', message_id: 12 });
+    ])(
+      'bare /new removes a superseded %s prompt without a rich clarification block',
+      async (interruptType, promptMessageId) => {
+        const messageProcessor = {
+          processTextMessage: jest.fn(),
+          abandonConversation: jest.fn().mockResolvedValue('abandoned'),
+        } as any;
+        const pendingStore = makePendingStore({
+          get: jest.fn().mockResolvedValue({
+            interruptType,
+            promptMessageId,
+            question: 'Continue?',
+          }),
+        });
+        const { handlers } = createHandlers({ messageProcessor, pendingStore });
+        const ctx = createContext({ text: '/new', message_id: 12 });
 
-      await handlers.handleNew(ctx);
+        await handlers.handleNew(ctx);
 
-      expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, promptMessageId);
-      expect(ctx.telegram.callApi).not.toHaveBeenCalledWith(
-        'editMessageText',
-        expect.objectContaining({ message_id: promptMessageId }),
-      );
-    });
+        expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, promptMessageId);
+        expect(ctx.telegram.callApi).not.toHaveBeenCalledWith(
+          'editMessageText',
+          expect.objectContaining({ message_id: promptMessageId }),
+        );
+      },
+    );
 
     it('bare /new does not delete anything when the agent is still running', async () => {
       const messageProcessor = {
@@ -1044,7 +1400,9 @@ describe('MessageHandlers', () => {
 
       expect(ctx.reply).toHaveBeenCalledWith(
         expect.any(String),
-        expect.objectContaining({ reply_markup: expect.objectContaining({ inline_keyboard: expect.anything() }) }),
+        expect.objectContaining({
+          reply_markup: expect.objectContaining({ inline_keyboard: expect.anything() }),
+        }),
       );
     });
 
@@ -1121,22 +1479,26 @@ describe('MessageHandlers', () => {
 
     it('collapses the clarification immediately when an accepted reply invokes the lifecycle hook', async () => {
       const messageProcessor = {
-        processTextMessage: jest.fn().mockImplementation(async (
-          _text: string,
-          _userId: number,
-          _logContext: unknown,
-          _onProgress: unknown,
-          options: { onPendingPauseAccepted: (presentation: {
-            clarificationMessageId?: number;
-            question: string;
-          }) => Promise<void> },
-        ) => {
-          await options.onPendingPauseAccepted({
-            clarificationMessageId: 556,
-            question: 'Which task?',
-          });
-          return { response: 'Done.', resolvedPendingPause: true };
-        }),
+        processTextMessage: jest.fn().mockImplementation(
+          async (
+            _text: string,
+            _userId: number,
+            _logContext: unknown,
+            _onProgress: unknown,
+            options: {
+              onPendingPauseAccepted: (presentation: {
+                clarificationMessageId?: number;
+                question: string;
+              }) => Promise<void>;
+            },
+          ) => {
+            await options.onPendingPauseAccepted({
+              clarificationMessageId: 556,
+              question: 'Which task?',
+            });
+            return { response: 'Done.', resolvedPendingPause: true };
+          },
+        ),
       } as any;
       const { handlers } = createHandlers({ messageProcessor });
       const ctx = createContext({ text: 'the dentist task', message_id: 14 });
@@ -1157,22 +1519,26 @@ describe('MessageHandlers', () => {
 
     it('continues processing when collapsing an accepted clarification fails', async () => {
       const messageProcessor = {
-        processTextMessage: jest.fn().mockImplementation(async (
-          _text: string,
-          _userId: number,
-          _logContext: unknown,
-          _onProgress: unknown,
-          options: { onPendingPauseAccepted: (presentation: {
-            clarificationMessageId?: number;
-            question: string;
-          }) => Promise<void> },
-        ) => {
-          await options.onPendingPauseAccepted({
-            clarificationMessageId: 556,
-            question: 'Which task?',
-          });
-          return { response: 'Done.', resolvedPendingPause: true };
-        }),
+        processTextMessage: jest.fn().mockImplementation(
+          async (
+            _text: string,
+            _userId: number,
+            _logContext: unknown,
+            _onProgress: unknown,
+            options: {
+              onPendingPauseAccepted: (presentation: {
+                clarificationMessageId?: number;
+                question: string;
+              }) => Promise<void>;
+            },
+          ) => {
+            await options.onPendingPauseAccepted({
+              clarificationMessageId: 556,
+              question: 'Which task?',
+            });
+            return { response: 'Done.', resolvedPendingPause: true };
+          },
+        ),
       } as any;
       const { handlers } = createHandlers({ messageProcessor });
       const ctx = createContext({ text: 'the dentist task', message_id: 14 });

@@ -270,6 +270,10 @@ export class LangGraphAgentClient {
       if (!response.ok) {
         const error = `LangGraph API returned ${response.status}`;
         if (isTerminalHttpRejection(response.status)) {
+          if (response.status === 422) {
+            const rejection = this.visionRejection(request, logContext);
+            if (rejection) return rejection;
+          }
           return this.fallbackResponse(request.threadId, error, 'terminal');
         }
         throw new Error(error);
@@ -369,6 +373,10 @@ export class LangGraphAgentClient {
           // readable. A socket failure after headers still leaves delivery
           // uncertain, even when the received status was 4xx.
           await this.awaitWithAbort(response.text(), controller.signal);
+          if (response.status === 422) {
+            const rejection = this.visionRejection(request, logContext);
+            if (rejection) return rejection;
+          }
           return this.fallbackResponse(request.threadId, error, 'terminal');
         }
         throw new Error(error);
@@ -913,6 +921,30 @@ export class LangGraphAgentClient {
       backendErrorRequestTimeoutSeconds: details.request_timeout_seconds,
       backendErrorTotalElapsedMs: details.total_elapsed_ms,
       backendErrorProviderRequestId: details.provider_request_id,
+    };
+  }
+
+  // A 422 on an image-bearing request means the backend refused the vision input
+  // (vision model unavailable, or the images themselves rejected). Return a specific,
+  // actionable reply instead of the generic "temporarily unavailable" terminal fallback.
+  // Returns undefined when the request carried no images, so callers fall through.
+  private visionRejection(
+    request: LangGraphAgentRequest,
+    logContext: LogContext,
+  ): LangGraphAgentResponse | undefined {
+    const hasImages = !!(
+      request.images?.length || request.priorImageBatches?.some((batch) => batch.length)
+    );
+    if (!hasImages) return undefined;
+    logger.warn('langgraph.vision.rejected', { ...logContext, userId: request.userId });
+    return {
+      status: 'failed',
+      delivery: 'terminal',
+      threadId: request.threadId || '',
+      response:
+        "I can't process images right now — vision isn't available. " +
+        'Try again later or send your message without photos.',
+      toolResults: [],
     };
   }
 

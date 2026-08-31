@@ -30,6 +30,43 @@ object and legacy `telegram_user_id`, `telegram_username`, and
 `telegram_first_name` fields remain accepted for one compatibility release.
 Canonical display names are stored only on `users`.
 
+### Audio transcription
+
+Audio never reaches Groq as the user sent it. Every accepted file is downloaded, re-encoded by the bundled FFmpeg to **16 kHz mono FLAC** (first audio track only), and — if it is longer than 30 seconds — split into overlapping windows that are transcribed concurrently and merged back into a single transcript.
+
+```text
+Telegram file -> size admission (declared, getFile, streamed bytes)
+  -> FFmpeg normalize to 16 kHz mono FLAC + authoritative duration
+  -> duration admission
+  -> sequential chunk extraction (30s cores, 5s overlap)
+  -> concurrent Groq whisper-large-v3 (verbose_json, word + segment timestamps)
+  -> deterministic merge by core-midpoint ownership
+  -> transcript -> same text path as a typed message
+```
+
+| Limit | Value | Override |
+|-------|-------|----------|
+| Max file size | 20 MB (hosted Telegram `getFile` ceiling) | `GROQ_AUDIO_MAX_INPUT_BYTES` |
+| Max duration | 20 minutes | `GROQ_AUDIO_MAX_DURATION_SECONDS` |
+| Chunk core length | 30 s | `GROQ_AUDIO_CORE_SECONDS` |
+| Chunk overlap | 5 s (2.5 s widening at each internal boundary) | code-only |
+| Concurrent Groq requests | 5, process-wide | `GROQ_TRANSCRIPTION_MAX_CONCURRENCY` |
+| Attempts per chunk | 3 | `GROQ_TRANSCRIPTION_MAX_CHUNK_ATTEMPTS` |
+
+Size is enforced three times — on Telegram's declared `file_size`, on the `file_size` returned by `getFile`, and on a byte counter over the download stream — because the first two are metadata a client controls. Duration is measured by FFmpeg, never trusted from Telegram metadata.
+
+The concurrency cap and the `429` cooldown live on the singleton transcription service, not per request: Groq rate-limits at the organization level, so two simultaneous users share one pool of slots and one shared cooldown deadline. `Retry-After` is honoured but clamped to a single 60 s wait, so a provider asking for fifteen minutes gets 60 s and another attempt; the wait is only refused — failing the turn — when it no longer fits in the job's remaining budget. Auth, permission, invalid-audio, and payload errors fail immediately without retrying.
+
+Merging is deterministic (no LLM, no fuzzy alignment beyond a bounded suffix/prefix match): each chunk owns the words whose timestamps fall inside its core region, so the 5 s overlap is dropped rather than duplicated. If a chunk fails all attempts, the whole turn fails — a partial transcript is never delivered and never sent to the agent.
+
+Timeouts form a strict ladder, verified at startup by `agent-contract-readiness.ts`:
+
+```text
+30s download + 120s FFmpeg prepare + 360s transcription < 600s Telegraf handler < 720s running gate TTL
+```
+
+The handler watchdog must outlast the worst audio turn, and the gate TTL must outlast the handler — otherwise a still-working turn loses ownership of its own conversation. FFmpeg availability is a startup barrier (`ffmpegReadiness` in `src/app.ts`) and a `/health` dependency, since normalization is mandatory rather than opportunistic.
+
 ### Graph nodes
 
 **run_jarvis** builds the graph and injects clients, then hands control to the **Orchestrator**.
@@ -42,7 +79,7 @@ The **Orchestrator** is the only graph node that calls the main LLM. It routes e
 |--------|------|
 | **hitl** | Pauses the graph and asks the user for clarification (`ask_user`) |
 | **validate_entities** | Verifies task IDs and splits actions into safe vs. risky |
-| **END** | Returns a final answer or error to the caller |
+| **end** | Terminal node: returns the final answer or error to the caller |
 
 From **validate_entities**, the graph branches:
 
@@ -51,9 +88,14 @@ From **validate_entities**, the graph branches:
   - If output is small or IDs were unverified → returns to the orchestrator.
 - **Any risky** → **prepare_confirm** freezes the risky operations into a held payload → **confirm** presents them for approval.
   - Approve → **executor** applies 4 guards then executes.
-  - Decline → END.
+  - Decline → **end**.
 
 All paths return to the orchestrator for the next routing decision.
+
+**end** is a no-op node that writes no state. It exists because LangGraph's `END` is a
+sentinel string rather than a node, so routing straight to it leaves a trace with no
+terminal span. Routing every exit through `graph.end` gives each run a visible closing
+span carrying its terminal summary.
 
 ### Shared runtime
 
@@ -76,26 +118,28 @@ The router is enabled by default:
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `TOOL_SELECTOR` | `router` | Chooses `router`, `keyword`, or `static` tool selection |
+| `TOOL_SELECTOR` | `router` | Chooses `router` or `static` tool selection |
 | `ROUTER_ENABLED` | `true` | Enables the pre-orchestrator domain classifier |
-| `ROUTER_MODEL` | `DEEPSEEK_MODEL` | Model used for routing |
-| `ROUTER_BASE_URL` | `DEEPSEEK_BASE_URL` | OpenAI-compatible router endpoint |
-| `ROUTER_API_KEY` | `DEEPSEEK_API_KEY` | Router API key |
-| `ROUTER_REASONING_EFFORT` | `off` | Keeps classification fast |
+| `ROUTER_PROVIDER` | `LLM_PROVIDER` | Provider used for routing |
+| `ROUTER_MODEL` | Selected provider model (`gpt-5.6-luna` by default) | Model used for routing |
+| `ROUTER_BASE_URL` | Selected provider base URL | OpenAI-compatible router endpoint |
+| `ROUTER_API_KEY` | Selected provider API key | Router API key |
+| `ROUTER_REASONING_EFFORT` | `none` for default OpenAI routing | Keeps classification fast |
 | `ROUTER_REQUEST_TIMEOUT_SECONDS` | `5.0` | Per-attempt router timeout |
 | `ROUTER_MAX_RETRY_ATTEMPTS` | `2` | Router retry budget |
 
-Set `ROUTER_ENABLED=false` or `TOOL_SELECTOR=static` to expose every registered tool each turn. Set `TOOL_SELECTOR=keyword` to use the static keyword table instead of the LLM router.
+Set `ROUTER_ENABLED=false` or `TOOL_SELECTOR=static` to expose every registered tool each turn.
 
 The router also labels the intrinsic complexity of the current query as `low`, `medium`, or `high`. Model routing fuses that label with domain breadth and uncertainty. Each selected route has a fixed per-attempt timeout; the existing orchestrator retry count and backoff apply independently.
 
 | Route | Model / effort | Timeout setting | Default |
 |-------|----------------|-----------------|---------|
-| Low, certain, single-domain | V4 Flash / high | `MODEL_ROUTER_DEFAULT_TIMEOUT_SECONDS` | `DEEPSEEK_REQUEST_TIMEOUT_SECONDS` (`30.0`) |
-| Medium or multi-domain | V4 Pro / high | `MODEL_ROUTER_MULTI_DOMAIN_TIMEOUT_SECONDS` | `60.0` |
-| High-complexity or uncertain | V4 Pro / max | `MODEL_ROUTER_COMPLEX_TIMEOUT_SECONDS` | `90.0` |
+| High-complexity or uncertain | GPT-5.6 Luna / medium | `MODEL_ROUTER_COMPLEX_TIMEOUT_SECONDS` | `90.0` |
+| Empty domains | GPT-5.6 Luna / medium | `MODEL_ROUTER_DEFAULT_TIMEOUT_SECONDS` | `60.0` |
+| Medium or multi-domain | GPT-5.6 Luna / medium | `MODEL_ROUTER_MULTI_DOMAIN_TIMEOUT_SECONDS` | `60.0` |
+| Low, certain, single-domain | GPT-5.6 Luna / low | `MODEL_ROUTER_DEFAULT_TIMEOUT_SECONDS` | `60.0` |
 
-Complexity is assessed independently of query length, mutation risk, and the number of selected domains. Custom model selections without a timeout continue to use `DEEPSEEK_REQUEST_TIMEOUT_SECONDS`.
+Complexity is assessed independently of query length, mutation risk, and the number of selected domains. Model, effort, and timeout settings remain configurable for the selected orchestrator provider.
 
 ## Features
 
@@ -104,6 +148,8 @@ Complexity is assessed independently of query length, mutation risk, and the num
 - **Text mode** — send plain English requests to create, find, update, complete, reschedule, or delete tasks and calendar items.
 - **Voice mode** — send a Telegram voice note; Jarvis transcribes it, echoes the transcription, then runs the same agent flow as text.
 - **Audio files** — send OGG, MP3, WAV, M4A, or other Telegram audio/document uploads with audio MIME types for transcription and action.
+- **Long audio** — recordings up to **20 minutes** and **20 MB** are accepted. Anything longer than 30 seconds is split into overlapping windows, transcribed concurrently, and stitched back into one transcript before the agent sees it. You get the whole transcript or a clear error — never a partial one.
+- **Audio captions** — a caption sent with the audio becomes the instruction applied to the transcript ("summarize this into 3 bullets"), while the transcript itself is echoed unchanged.
 - **Reply context** — swipe/reply to an earlier Telegram message from the bot or the user, and Jarvis includes a quoted version of that message as context for the new request.
 - **Progress messages** — Telegram shows transcription, agent progress states, and streamed reasoning summaries while work is running.
 - **Rich replies** — final answers are formatted for Telegram Markdown, with table normalization and long-message handling.

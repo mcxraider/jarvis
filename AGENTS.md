@@ -79,6 +79,10 @@ Then report the branch, commit hash, validation performed, and whether the signa
 
 If a push aborts with `bad object refs/codex/...`, that is a corrupt local ref from another tool, not an auth failure — local git is fine; prune the bad ref before retrying.
 
+## GitHub issues
+
+Every `gh issue create` call must pass `--label` with at least one existing label (`gh label list` to see current set — see CLAUDE.md for the list). Never create an unlabeled issue, and don't invent new labels ad hoc.
+
 ## Repository notes
 
 - Remote: `origin` → `git@github.com:mcxraider/jarvis-mcp.git`. Default branch: `main`.

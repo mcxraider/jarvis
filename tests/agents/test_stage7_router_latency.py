@@ -24,7 +24,6 @@ def _decision(
     uncertain: bool = False,
     candidates: list[str] | None = None,
     complexity: str = "low",
-    reasoning: str = "test",
 ) -> RouterDecision:
     return RouterDecision(
         outcome=outcome,
@@ -32,7 +31,6 @@ def _decision(
         uncertain=uncertain,
         candidate_domains=candidates or [],
         complexity=complexity,
-        reasoning=reasoning,
     )
 
 
@@ -308,12 +306,12 @@ class TestRouterCache:
         cache.put("query", _decision(), **self._CONTEXT)
         first = cache.get("query", **self._CONTEXT)
         assert first is not None
-        first.reasoning = "mutated"
+        first.domains.append("google_calendar")
 
         second = cache.get("query", **self._CONTEXT)
 
         assert second is not None
-        assert second.reasoning == "test"
+        assert second.domains == ["todoist"]
 
     def test_concurrent_gets_and_puts_remain_bounded(self):
         cache = RouterCache(max_entries=16)
@@ -322,7 +320,7 @@ class TestRouterCache:
         def write_and_read(index: int) -> RouterDecision | None:
             barrier.wait()
             query = f"query {index}"
-            cache.put(query, _decision(reasoning=str(index)), **self._CONTEXT)
+            cache.put(query, _decision(), **self._CONTEXT)
             return cache.get(query, **self._CONTEXT)
 
         with ThreadPoolExecutor(max_workers=8) as pool:
@@ -398,7 +396,6 @@ class TestSelectorProcessCache:
         raw_miss = _decision(
             outcome="conversation",
             domains=[],
-            reasoning="classifier miss",
         )
         first_client = _Client(raw_miss)
         first = RouterToolSelector(
