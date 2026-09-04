@@ -140,7 +140,7 @@ class Settings:
     openai_retry_max_delay_seconds: float
     openai_sdk_max_retries: int
     # Query router (pre-orchestrator domain classifier). Opt-in via router_enabled;
-    # tool_selector selects the strategy ("static" | "router"). The
+    # tool_selector selects the strategy ("static" | "keyword" | "router"). The
     # router reuses the DeepSeek OpenAI-compatible endpoint but with tighter,
     # non-critical retry/timeout budgets since it is never a hard-failure path.
     router_enabled: bool

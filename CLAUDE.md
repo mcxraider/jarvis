@@ -300,6 +300,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 - `registry_factory.py` — `build_runtime_registry` (prod) and `build_registry_from_clients` (tests)
 - `selection.py` — `ToolSelector` protocol + `get_selector()` factory
 - `selectors/static.py` — `StaticToolSelector` (pass-through)
+- `selectors/keyword.py` — `KeywordToolSelector` (regex matching)
 - `selectors/router.py` — `RouterToolSelector` (LLM-backed classifier with cache + fallback)
 - `access_policy.py` — request-scoped resource restrictions / access denial for provider tool calls
 - `todoist/` — client, schemas, tools (tasks, projects, comments, labels, sections)

@@ -183,7 +183,7 @@ def test_role_override_requires_its_provider_key_and_secret(monkeypatch):
 
 @pytest.mark.parametrize(
     ("router_enabled", "tool_selector"),
-    [("false", "router"), ("true", "static")],
+    [("false", "router"), ("true", "static"), ("true", "keyword")],
 )
 def test_inactive_router_override_does_not_require_unused_provider(
     monkeypatch, router_enabled, tool_selector

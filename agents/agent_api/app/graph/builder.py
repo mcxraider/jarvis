@@ -571,8 +571,8 @@ def _resolve_tool_selector(
     constructing the ``RouterClient`` (e.g. a missing API key) degrades to the
     static, all-tools selector, which is also the router's per-turn fallback.
 
-    Outside the gate the configured selector is honored — ``"static"`` as named;
-    a ``"router"`` request whose gate is unmet degrades to ``"static"``.
+    Outside the gate the configured selector is honored — ``"static"``/``"keyword"``
+    as named; a ``"router"`` request whose gate is unmet degrades to ``"static"``.
     """
 
     use_router = (
@@ -600,7 +600,8 @@ def _resolve_tool_selector(
             fallback_selector=get_selector("static", allow_mutations=allow_mutations),
         )
 
-    return get_selector("static", allow_mutations=allow_mutations)
+    name = tool_selector_name if tool_selector_name in {"static", "keyword"} else "static"
+    return get_selector(name, allow_mutations=allow_mutations)
 
 
 def _run_trace_inputs(inputs: dict[str, Any]) -> dict[str, Any]:

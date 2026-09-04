@@ -118,7 +118,7 @@ The router is enabled by default:
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `TOOL_SELECTOR` | `router` | Chooses `router` or `static` tool selection |
+| `TOOL_SELECTOR` | `router` | Chooses `router`, `keyword`, or `static` tool selection |
 | `ROUTER_ENABLED` | `true` | Enables the pre-orchestrator domain classifier |
 | `ROUTER_PROVIDER` | `LLM_PROVIDER` | Provider used for routing |
 | `ROUTER_MODEL` | Selected provider model (`gpt-5.6-luna` by default) | Model used for routing |
@@ -128,7 +128,7 @@ The router is enabled by default:
 | `ROUTER_REQUEST_TIMEOUT_SECONDS` | `5.0` | Per-attempt router timeout |
 | `ROUTER_MAX_RETRY_ATTEMPTS` | `2` | Router retry budget |
 
-Set `ROUTER_ENABLED=false` or `TOOL_SELECTOR=static` to expose every registered tool each turn.
+Set `ROUTER_ENABLED=false` or `TOOL_SELECTOR=static` to expose every registered tool each turn. Set `TOOL_SELECTOR=keyword` to use the static keyword table instead of the LLM router.
 
 The router also labels the intrinsic complexity of the current query as `low`, `medium`, or `high`. Model routing fuses that label with domain breadth and uncertainty. Each selected route has a fixed per-attempt timeout; the existing orchestrator retry count and backoff apply independently.
 

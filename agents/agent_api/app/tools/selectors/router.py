@@ -1,8 +1,8 @@
 """Router-backed tool selector (per-turn, LLM-classified).
 
-Unlike the static selector — which exposes every registered tool — this selector
-asks the :class:`RouterClient` which service *domains* the query needs, then
-exposes only those domains' tools (plus ``ask_user``). The
+Unlike the keyword selector — which matches the query against a static routing
+table — this selector asks the :class:`RouterClient` which service *domains* the
+query needs, then exposes only those domains' tools (plus ``ask_user``). The
 classification is stable turn-to-turn within a run (the routing query is
 constant), so the decision is memoized on the selector instance keyed by query
 string. A different query (e.g. a HITL clarification reply that redirects to a
