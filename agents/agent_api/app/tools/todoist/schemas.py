@@ -42,14 +42,17 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
             },
             "project_id": {
                 "type": "string",
+                "minLength": 1,
                 "description": "Project ID to add the task to. Omit to use the Inbox.",
             },
             "section_id": {
                 "type": "string",
+                "minLength": 1,
                 "description": "Section ID within the project to place the task under.",
             },
             "parent_id": {
                 "type": "string",
+                "minLength": 1,
                 "description": "Parent task ID. Set this to create the task as a subtask.",
             },
             "order": {
@@ -129,7 +132,7 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
 
     task_id_parameters = {
         "type": "object",
-        "properties": {"task_id": {"type": "string", "description": "Todoist task ID"}},
+        "properties": {"task_id": {"type": "string", "minLength": 1, "description": "Todoist task ID"}},
         "required": ["task_id"],
         "additionalProperties": False,
     }
@@ -137,7 +140,7 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
     update_task_parameters = {
         "type": "object",
         "properties": {
-            "task_id": {"type": "string", "description": "Todoist task ID to update"},
+            "task_id": {"type": "string", "minLength": 1, "description": "Todoist task ID to update"},
             "content": {
                 "type": "string",
                 "description": "New task name/title. Concise and actionable; supports Markdown.",
@@ -213,18 +216,22 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
         "properties": {
             "project_id": {
                 "type": "string",
+                "minLength": 1,
                 "description": "Only return active tasks in this project.",
             },
             "section_id": {
                 "type": "string",
+                "minLength": 1,
                 "description": "Only return active tasks in this section.",
             },
             "parent_id": {
                 "type": "string",
+                "minLength": 1,
                 "description": "Only return subtasks of this parent task.",
             },
             "label": {
                 "type": "string",
+                "minLength": 1,
                 "description": "Only return tasks carrying this label name.",
             },
             "ids": {
@@ -318,10 +325,11 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
             "workspace_id": {"type": "integer", "minimum": 1},
             "project_id": {
                 "type": "string",
+                "minLength": 1,
                 "description": "Only return completed tasks from this project.",
             },
-            "section_id": {"type": "string"},
-            "parent_id": {"type": "string"},
+            "section_id": {"type": "string", "minLength": 1},
+            "parent_id": {"type": "string", "minLength": 1},
             "filter_query": {
                 "type": "string",
                 "description": "Todoist filter query to limit completed tasks",
@@ -354,14 +362,17 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
         "properties": {
             "task_id": {
                 "type": "string",
+                "minLength": 1,
                 "description": "Return comments on this task. Provide a task or a project.",
             },
             "project_id": {
                 "type": "string",
+                "minLength": 1,
                 "description": "Return comments on this project. Provide a task or a project.",
             },
             "comment_id": {
                 "type": "string",
+                "minLength": 1,
                 "description": "Fetch a single comment by its ID instead of listing comments.",
             },
             "cursor": {
@@ -393,10 +404,12 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
             },
             "task_id": {
                 "type": "string",
+                "minLength": 1,
                 "description": "ID of the task to comment on. Provide exactly one of task or project.",
             },
             "project_id": {
                 "type": "string",
+                "minLength": 1,
                 "description": (
                     "ID of the project to comment on. Provide exactly one of task or project."
                 ),
@@ -478,7 +491,11 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
             },
             "parent_id": {
                 "type": "string",
-                "description": "Parent project ID. Set this to nest the project as a sub-project.",
+                "description": (
+                    "Parent project ID to nest this as a sub-project. "
+                    "OMIT this field entirely unless the user explicitly asks to nest "
+                    "under an existing project whose ID was returned by get_projects."
+                ),
             },
             "color": {
                 "type": "string",

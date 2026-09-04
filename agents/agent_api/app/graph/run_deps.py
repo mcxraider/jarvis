@@ -39,30 +39,6 @@ class RunDeps:
         default=None, repr=False, compare=False
     )
 
-    _tool_node: Any = field(default=None, init=False, repr=False, compare=False)
-
-    def get_tool_node(self) -> Any:
-        """Build and cache a ToolNode against this run's dispatcher only.
-
-        ``RunDeps`` itself is per invocation, so the cache cannot share a tool
-        registry or dispatcher across concurrent users.  Construction remains
-        lazy because runs that never execute a tool do not need LangChain tool
-        wrappers at all.
-        """
-
-        if self._tool_node is None:
-            if self.dispatcher is None:
-                raise RuntimeError(
-                    "RunDeps.dispatcher is required to build the tool node."
-                )
-            from langgraph.prebuilt import ToolNode
-
-            self._tool_node = ToolNode(
-                self.dispatcher.build_langchain_tools(),
-                handle_tool_errors=True,
-            )
-        return self._tool_node
-
 
 def deps_from_config(config: Any) -> Optional[RunDeps]:
     """Return configured per-run dependencies, or ``None`` when absent.

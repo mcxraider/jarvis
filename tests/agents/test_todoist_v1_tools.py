@@ -1,8 +1,8 @@
 """Tests for the v1 Todoist tools added/enriched from todoist_tools_complete.md.
 
 Covers the four new REST-backed tools (uncomplete_task, get_comments, add_comment,
-get_labels), the schema/handler/langchain consistency invariant, and the corrected
-priority description.
+get_labels), the schema/spec consistency invariant, and the corrected priority
+description.
 """
 
 from unittest.mock import patch
@@ -17,7 +17,6 @@ from agents.agent_api.app.tools.todoist.schemas import (
 )
 from agents.agent_api.app.tools.todoist.tools import (
     TODOIST_PROMPT_FRAGMENT,
-    build_todoist_langchain_tools,
     get_todoist_tool_specs,
 )
 
@@ -98,14 +97,13 @@ class TestSchemaRegistration:
 
 
 class TestLayerConsistency:
-    """schema names == handler-map names == langchain tool names (no silent drift)."""
+    """schema names == spec names (no silent drift)."""
 
-    def test_three_layers_agree(self):
+    def test_two_layers_agree(self):
         client = TodoistApiClient(api_key="test-key")
         schema_names = {s["function"]["name"] for s in get_todoist_tool_schemas()}
         spec_names = {spec.name for spec in get_todoist_tool_specs(client)}
-        lc_names = {t.name for t in build_todoist_langchain_tools(lambda *a, **k: {})}
-        assert schema_names == spec_names == lc_names
+        assert schema_names == spec_names
 
 
 class TestCollectionLimits:
@@ -169,65 +167,6 @@ class TestCollectionLimits:
             )
 
         mock_request.assert_not_called()
-
-
-class TestUpdateTaskWrapper:
-    @staticmethod
-    def _invoke(arguments):
-        calls = []
-
-        def dispatch(*args):
-            calls.append(args)
-            return {"success": True}
-
-        tool = next(
-            tool
-            for tool in build_todoist_langchain_tools(dispatch)
-            if tool.name == "update_todoist_task"
-        )
-        tool.invoke(
-            {
-                "args": arguments,
-                "name": "update_todoist_task",
-                "type": "tool_call",
-                "id": "call-update",
-            }
-        )
-        return calls[-1][2]
-
-    def test_priority_only_omits_optional_defaults(self):
-        assert self._invoke({"task_id": "task-1", "priority": 4}) == {
-            "task_id": "task-1",
-            "priority": 4,
-        }
-
-    def test_priority_and_duration_update_passes_only_supplied(self):
-        # Mirrors the real failing request ("... 1130 to 2pm p1"): must not raise and
-        # must forward exactly the supplied fields, leaving clearable fields
-        # (assignee_id/deadline_date) out so they are not wiped.
-        assert self._invoke(
-            {
-                "task_id": "task-1",
-                "priority": 4,
-                "duration": 150,
-                "duration_unit": "minute",
-            }
-        ) == {
-            "task_id": "task-1",
-            "priority": 4,
-            "duration": 150,
-            "duration_unit": "minute",
-        }
-
-    def test_explicit_null_is_preserved(self):
-        assert self._invoke({"task_id": "task-1", "assignee_id": None}) == {
-            "task_id": "task-1",
-            "assignee_id": None,
-        }
-
-    def test_explicit_null_labels_is_rejected(self):
-        with pytest.raises(ValueError, match="labels"):
-            self._invoke({"task_id": "task-1", "labels": None})
 
 
 class TestUncompleteTask:

@@ -1,4 +1,4 @@
-"""Domain-neutral tool dispatcher and the ToolNode bridge.
+"""Domain-neutral tool dispatcher.
 
 The dispatcher bridges model tool calls to registered tool handlers, applying the
 shared mutation guard, result envelope, tracing, and classified-error handling.
@@ -18,8 +18,6 @@ from typing import Any, Callable, Dict, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
 
-from langchain_core.messages import ToolMessage
-from langgraph.prebuilt import ToolNode
 from langsmith import traceable
 
 from agents.agent_api.app.config import settings
@@ -63,7 +61,7 @@ def tool_idempotency_context(
     turn_count: int,
     call_index_map: Optional[Dict[str, int]] = None,
 ) -> Iterator[None]:
-    """Scope direct ToolNode calls to one graph thread and turn."""
+    """Scope tool dispatch to one graph thread and turn."""
 
     token = _IDEMPOTENCY_CONTEXT.set(
         IdempotencyBatchContext(thread_id, turn_count, call_index_map or {})
@@ -165,11 +163,6 @@ class ToolDispatcher:
         self.supported_tools: Dict[str, Callable[[Dict[str, Any]], Any]] = registry.handler_map()
         self.async_supported_tools = registry.async_handler_map()
         self._mutating_names = registry.mutating_names()
-
-    def build_langchain_tools(self) -> List[Any]:
-        """Build the ToolNode tools for every registered domain."""
-
-        return self.registry.build_langchain_tools(self.execute_tool)
 
     def execute_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         self.tracer.event("tools.batch", "Executing tool call batch.", count=len(tool_calls))
@@ -1069,110 +1062,6 @@ def tool_result_to_message(result: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def openai_tool_call_to_toolnode_call(tool_call: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert a raw OpenAI-compatible tool call into ToolNode's direct-call shape."""
-
-    return {
-        "name": tool_call_name(tool_call),
-        "args": parse_tool_call_arguments(tool_call),
-        "id": tool_call.get("id", "missing_tool_call_id"),
-        "type": "tool_call",
-    }
-
-
-def toolnode_output_messages(output: Any) -> List[ToolMessage]:
-    """Extract ToolMessages from ToolNode output across supported input modes."""
-
-    if isinstance(output, dict):
-        return output.get("messages", [])
-    return output or []
-
-
-def tool_message_to_result(tool_message: ToolMessage) -> Dict[str, Any]:
-    """Convert a ToolNode ToolMessage into the existing Jarvis tool result envelope."""
-
-    content = tool_message.content
-    parsed_content: Any = content
-    if isinstance(content, str):
-        try:
-            parsed_content = json.loads(content)
-        except json.JSONDecodeError:
-            parsed_content = content
-
-    if isinstance(parsed_content, dict) and {
-        "tool_call_id",
-        "tool_name",
-        "success",
-        "content",
-        "error",
-        "mutation_blocked",
-    }.issubset(parsed_content.keys()):
-        return parsed_content
-
-    failed = getattr(tool_message, "status", "success") == "error"
-    return build_tool_result(
-        tool_message.tool_call_id,
-        tool_message.name or "unknown",
-        success=not failed,
-        content=None if failed else parsed_content,
-        error=str(content) if failed else None,
-    )
-
-
-def execute_tool_calls_with_toolnode(
-    tool_calls: List[Dict[str, Any]],
-    tool_node: ToolNode,
-    tool_dispatcher: ToolDispatcher,
-) -> List[Dict[str, Any]]:
-    """Execute supported calls through ToolNode and return ordered Jarvis results."""
-
-    toolnode_calls: List[Dict[str, Any]] = []
-    results_by_id: Dict[str, Dict[str, Any]] = {}
-
-    for tool_call in tool_calls:
-        tool_call_id = tool_call.get("id", "missing_tool_call_id")
-        tool_name = tool_call_name(tool_call)
-
-        try:
-            toolnode_call = openai_tool_call_to_toolnode_call(tool_call)
-        except Exception:
-            results_by_id[tool_call_id] = tool_dispatcher.execute_tool_call(tool_call)
-            continue
-
-        if tool_name not in tool_dispatcher.supported_tools:
-            results_by_id[tool_call_id] = tool_dispatcher.execute_tool(
-                tool_call_id,
-                tool_name,
-                toolnode_call["args"],
-            )
-            continue
-
-        toolnode_calls.append(toolnode_call)
-
-    if toolnode_calls:
-        try:
-            output = tool_node.invoke(toolnode_calls)
-        except Exception:
-            # Some ToolNode versions require graph runtime config even for
-            # direct calls. Keep the graph path moving through the same
-            # dispatcher policy rather than failing before any tool runs.
-            for tool_call in tool_calls:
-                tool_call_id = tool_call.get("id", "missing_tool_call_id")
-                if tool_call_id not in results_by_id:
-                    results_by_id[tool_call_id] = tool_dispatcher.execute_tool_call(tool_call)
-        else:
-            for tool_message in toolnode_output_messages(output):
-                result = tool_message_to_result(tool_message)
-                results_by_id[result["tool_call_id"]] = result
-
-    ordered_results = []
-    for tool_call in tool_calls:
-        tool_call_id = tool_call.get("id", "missing_tool_call_id")
-        if tool_call_id in results_by_id:
-            ordered_results.append(results_by_id[tool_call_id])
-    return ordered_results
-
-
 async def async_execute_tool_calls(
     tool_calls: List[Dict[str, Any]],
     tool_dispatcher: ToolDispatcher,
@@ -1219,10 +1108,6 @@ __all__ = [
     "ToolDispatcher",
     "async_execute_tool_calls",
     "build_tool_result",
-    "execute_tool_calls_with_toolnode",
-    "openai_tool_call_to_toolnode_call",
-    "tool_message_to_result",
     "tool_result_to_message",
     "tool_idempotency_context",
-    "toolnode_output_messages",
 ]

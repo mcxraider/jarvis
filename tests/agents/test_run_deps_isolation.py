@@ -30,11 +30,6 @@ class _Dispatcher:
     def __init__(self, name: str) -> None:
         self.name = name
         self.registry = {}
-        self.tool_node_builds = 0
-
-    def build_langchain_tools(self):
-        self.tool_node_builds += 1
-        return []
 
 
 def _config(deps: RunDeps) -> dict:
@@ -194,9 +189,6 @@ def test_shared_tools_node_isolates_concurrent_run_dispatchers_and_tracers() -> 
     assert direct["tool_results"][0]["content"] == {"dispatcher": "captured"}
     assert partial_config["tool_results"][0]["content"] == {"dispatcher": "captured"}
 
-    assert dispatchers["alpha"].tool_node_builds == 0
-    assert dispatchers["beta"].tool_node_builds == 0
-    assert captured_dispatcher.tool_node_builds == 0
     assert tracers["alpha"].events and tracers["beta"].events
     assert captured_tracer.events
     assert partial_config_tracer.events

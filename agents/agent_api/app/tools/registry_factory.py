@@ -16,16 +16,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agents.agent_api.app.tools.access_policy import ResourceAccessPolicy
 from agents.agent_api.app.tools.base import ToolRegistry
-from agents.agent_api.app.tools.google_calendar.tools import (
-    build_calendar_langchain_tools,
-    get_calendar_tool_specs,
-)
+from agents.agent_api.app.tools.google_calendar.tools import get_calendar_tool_specs
 from agents.agent_api.app.tools.control import get_control_tool_specs
 from agents.agent_api.app.tools.domain_adapters import DOMAIN_ADAPTERS
-from agents.agent_api.app.tools.todoist.tools import (
-    build_todoist_langchain_tools,
-    get_todoist_tool_specs,
-)
+from agents.agent_api.app.tools.todoist.tools import get_todoist_tool_specs
 from agents.agent_api.app.tracing import TracePrinter
 from agents.agent_api.app.user_context.runtime import ResolvedRuntimeContext
 
@@ -45,15 +39,9 @@ def build_registry_from_clients(
     registry = ToolRegistry()
     registry.register(get_control_tool_specs())
     if todoist_client is not None:
-        registry.register(
-            get_todoist_tool_specs(todoist_client),
-            langchain_builder=build_todoist_langchain_tools,
-        )
+        registry.register(get_todoist_tool_specs(todoist_client))
     if calendar_client is not None:
-        registry.register(
-            get_calendar_tool_specs(calendar_client),
-            langchain_builder=build_calendar_langchain_tools,
-        )
+        registry.register(get_calendar_tool_specs(calendar_client))
     return registry
 
 
@@ -99,7 +87,7 @@ def build_runtime_registry(
                 access_policy.filter_todoist_provider_response
             )
         specs = adapter.get_tool_specs(client)
-        registry.register(specs, langchain_builder=adapter.langchain_builder)
+        registry.register(specs)
         tool_names_by_provider[provider] = [spec.name for spec in specs]
         clients.append(client)
 
