@@ -3,9 +3,9 @@
 ``DOMAIN_ADAPTERS`` is the single registration point for a tool domain. An adapter
 bundles everything the runtime needs to turn an enabled integration connection into
 live capability: how to build the client from a resolved secret, which tool specs
-and LangChain wrappers it exposes, the prompt text it contributes, and an optional
-credential validator. Adding Gmail/Notion/Drive later is one entry here — no edits
-to ``builder.py`` or the orchestrator prompt.
+it exposes, the prompt text it contributes, and an optional credential validator.
+Adding Gmail/Notion/Drive later is one entry here — no edits to ``builder.py`` or
+the orchestrator prompt.
 """
 
 import json
@@ -16,19 +16,17 @@ from agents.agent_api.app.credentials import (
     IntegrationCredential,
     update_integration_credential,
 )
-from agents.agent_api.app.tools.base import LangChainToolBuilder, ToolSpec
+from agents.agent_api.app.tools.base import ToolSpec
 from agents.agent_api.app.tools.google_calendar.client import GoogleCalendarClient
 from agents.agent_api.app.tools.google_calendar.tools import (
     CALENDAR_GROUNDING_NOTE,
     CALENDAR_PROMPT_FRAGMENT,
-    build_calendar_langchain_tools,
     get_calendar_tool_specs,
 )
 from agents.agent_api.app.tools.todoist.client import TodoistApiClient
 from agents.agent_api.app.tools.todoist.tools import (
     TODOIST_GROUNDING_NOTE,
     TODOIST_PROMPT_FRAGMENT,
-    build_todoist_langchain_tools,
     get_todoist_tool_specs,
 )
 from agents.agent_api.app.tracing import TracePrinter
@@ -47,7 +45,6 @@ class DomainAdapter:
     capabilities: List[str]
     build_client: Callable[[IntegrationCredential, TracePrinter], Any]
     get_tool_specs: Callable[[Any], List[ToolSpec]]
-    langchain_builder: LangChainToolBuilder
     prompt_fragment: str
     grounding_note: str
     # Optional shape check for a resolved secret. NOT called on the request hot
@@ -109,7 +106,6 @@ DOMAIN_ADAPTERS: Dict[str, DomainAdapter] = {
         capabilities=["tasks", "calendar_events", "projects", "comments"],
         build_client=_build_todoist_client,
         get_tool_specs=get_todoist_tool_specs,
-        langchain_builder=build_todoist_langchain_tools,
         prompt_fragment=TODOIST_PROMPT_FRAGMENT,
         grounding_note=TODOIST_GROUNDING_NOTE,
         credential_validator=_validate_todoist_secret,
@@ -125,7 +121,6 @@ DOMAIN_ADAPTERS: Dict[str, DomainAdapter] = {
         ],
         build_client=_build_calendar_client,
         get_tool_specs=get_calendar_tool_specs,
-        langchain_builder=build_calendar_langchain_tools,
         prompt_fragment=CALENDAR_PROMPT_FRAGMENT,
         grounding_note=CALENDAR_GROUNDING_NOTE,
         credential_validator=_validate_calendar_secret,

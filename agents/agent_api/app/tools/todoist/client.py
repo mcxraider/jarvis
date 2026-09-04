@@ -948,9 +948,9 @@ class TodoistApiClient:
 
 
 def _without_none(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Drop None values before sending arguments to Todoist."""
+    """Drop None and empty-string values before sending arguments to Todoist."""
 
-    return {key: value for key, value in data.items() if value is not None}
+    return {key: value for key, value in data.items() if value is not None and value != ""}
 
 
 def _with_collection_limit(
@@ -989,7 +989,7 @@ def _sanitize_update_payload(arguments: Dict[str, Any]) -> Dict[str, Any]:
     return {
         key: value
         for key, value in arguments.items()
-        if value is not None or key in _NULL_CLEARABLE_UPDATE_FIELDS
+        if (value is not None and value != "") or key in _NULL_CLEARABLE_UPDATE_FIELDS
     }
 
 
@@ -1246,6 +1246,11 @@ def _parse_provider_error(body: str) -> tuple[Optional[str], Optional[int], Opti
     provider_message = payload.get("error")
     provider_code = payload.get("error_code")
     provider_tag = payload.get("error_tag")
+    error_extra = payload.get("error_extra")
+    if isinstance(provider_message, str) and isinstance(error_extra, dict):
+        argument = error_extra.get("argument")
+        if isinstance(argument, str):
+            provider_message = f"{provider_message} (argument: {argument})"
     return (
         provider_message if isinstance(provider_message, str) else None,
         provider_code if isinstance(provider_code, int) else None,

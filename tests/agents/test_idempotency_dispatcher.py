@@ -19,8 +19,9 @@ from agents.agent_api.app.tools.dispatcher import (
     ToolDispatcher,
     tool_idempotency_context,
 )
+from agents.agent_api.app.tools.control import get_control_tool_specs
 from agents.agent_api.app.tools.todoist.client import TodoistApiError
-from agents.agent_api.app.tools.todoist.tools import TodoistToolDispatcher
+from agents.agent_api.app.tools.todoist.tools import get_todoist_tool_specs
 
 
 def build_registry(mutating_handler=None, readonly_handler=None):
@@ -404,12 +405,15 @@ class TestOperationContext:
 
         assert store.claim.call_args.args[0] == "explicit"
 
-    def test_toolnode_path_uses_thread_and_turn_context(self):
+    def test_todoist_dispatcher_uses_thread_and_turn_context(self):
         todoist = MagicMock()
         todoist.add_todoist_task.return_value = {"id": "task-1"}
         todoist.async_add_todoist_task = AsyncMock(return_value={"id": "task-1"})
-        dispatcher = TodoistToolDispatcher(
-            todoist,
+        registry = ToolRegistry()
+        registry.register(get_control_tool_specs())
+        registry.register(get_todoist_tool_specs(todoist))
+        dispatcher = ToolDispatcher(
+            registry,
             allow_mutations=True,
             idempotency_store=MemoryIdempotencyStore(),
             idempotency_operation_ttl_seconds=60,
@@ -467,8 +471,11 @@ class TestOperationContext:
             ClaimResult(ClaimState.ACQUIRED, owner_token="owner-2"),
         ]
         store.complete.return_value = True
-        dispatcher = TodoistToolDispatcher(
-            todoist,
+        registry = ToolRegistry()
+        registry.register(get_control_tool_specs())
+        registry.register(get_todoist_tool_specs(todoist))
+        dispatcher = ToolDispatcher(
+            registry,
             allow_mutations=True,
             idempotency_store=store,
         )

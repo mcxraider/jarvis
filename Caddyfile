@@ -1,8 +1,0 @@
-{$PUBLIC_DOMAIN} {
-	encode zstd gzip
-
-	@app path /ping /health /webhook/*
-	reverse_proxy @app web:3000
-
-	respond 404
-}

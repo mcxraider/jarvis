@@ -36,7 +36,6 @@ def _dispatcher(calls):
                 handler=lambda _args: calls.append("blocked_lookup") or {"blocked": False},
             ),
         ],
-        langchain_builder=lambda dispatch: [allowed_lookup],
     )
     return ToolDispatcher(registry)
 
