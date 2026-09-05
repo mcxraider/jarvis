@@ -644,6 +644,7 @@ def _run_trace_outputs(result: Any) -> dict[str, Any]:
         "interrupted": bool(result.get("interrupted")),
         "pending_interrupt": result.get("pending_interrupt"),
         "final_response_chars": len(result.get("final_response") or ""),
+        **result.get("_usage_summary", {}),
     }
 
 
@@ -1043,6 +1044,18 @@ async def run_jarvis_async(
 
     if run_log is not None:
         result["run_log_path"] = str(run_log.path.resolve())
+
+    result["_usage_summary"] = {
+        "input_tokens": usage.prompt_tokens,
+        "input_cache_tokens": usage.cached_tokens,
+        "output_tokens": usage.completion_tokens,
+        "reasoning_tokens": usage.reasoning_tokens,
+        "cache_hit_rate": (
+            round(usage.cached_tokens / usage.prompt_tokens * 100, 1)
+            if usage.prompt_tokens > 0 and usage.cached_tokens > 0
+            else 0.0
+        ),
+    }
 
     return result
 
