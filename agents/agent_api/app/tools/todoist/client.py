@@ -47,9 +47,21 @@ _STRIP_RESPONSE_FIELDS = frozenset({
     "completed_count",
     "postponed_count",
     "updated_at",
-    "added_at",
-    "completed_at",
     "completed_by_uid",
+    "can_assign_tasks",
+    "can_comment",
+    "creator_uid",
+    "created_at",
+    "is_frozen",
+    "is_shared",
+    "view_style",
+    "default_order",
+    "default_order_key",
+    "public_access",
+    "public_key",
+    "access",
+    "role",
+    "configuration",
 })
 
 
