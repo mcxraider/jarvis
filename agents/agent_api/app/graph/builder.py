@@ -620,6 +620,7 @@ def _run_trace_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
             "request_id",
             "thread_id",
             "user_id",
+            "user_prompt",
             "request_source",
             "allow_mutations",
             "max_agent_turns",

@@ -15,6 +15,7 @@ import {
   sendFinalReply,
 } from '../formatters/telegram-rich';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
+import { isMessageNotModified } from '../formatters/telegram-errors';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
 import { TelegramInputKind } from '../progress-narrator';
 import { TelegramReasoningSummaryReporter } from '../telegram-reasoning-summary-reporter';
@@ -213,6 +214,7 @@ export class MessageHandlers {
         await ctx.telegram.editMessageText(ctx.chat.id, existingId, undefined, text);
         return;
       } catch (error) {
+        if (isMessageNotModified(error)) return;
         logger.warn('telegram.forward.confirmation_edit_failed', {
           ...logContext,
           confirmationMessageId: existingId,
