@@ -19,6 +19,7 @@ MUTATING_TOOL_NAMES = {
     "delete_todoist_task",
     "add_comment",
     "create_project",
+    "create_section",
 }
 
 
@@ -518,6 +519,31 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
         "additionalProperties": False,
     }
 
+    create_section_parameters = {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Name of the section.",
+            },
+            "project_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": (
+                    "ID of the project to add the section to. "
+                    "Resolve from `get_projects` first — never guess."
+                ),
+            },
+            "description": {
+                "type": "string",
+                "description": "Optional description for the section. Supports Markdown.",
+            },
+        },
+        "required": ["name", "project_id"],
+        "additionalProperties": False,
+    }
+
     return [
         {
             "type": "function",
@@ -644,6 +670,14 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
                 "name": "create_project",
                 "description": "Create a new Todoist project.",
                 "parameters": create_project_parameters,
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "create_section",
+                "description": "Create a new section within a Todoist project.",
+                "parameters": create_section_parameters,
             },
         },
     ]

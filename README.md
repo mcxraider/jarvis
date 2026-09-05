@@ -15,11 +15,12 @@ Telegram (voice or text) hits the **FastAPI** service through the invoke and res
 | `health_router` | `GET /health`, `GET /health/detail` |
 | `invoke_router` | `POST /invoke`, `POST /invoke/stream`, `POST /invoke-bulk` |
 | `resume_router` | `POST /resume`, `POST /resume/stream` |
+| `cancel_router` | `POST /runs/cancel` |
 
 Voice input is transcribed before entering the same path as text. Standard invoke and resume routes pass through the request gate before the graph runs:
 
 ```text
-API key -> Telegram identity/source -> thread ownership -> request idempotency -> fresh-thread quota -> run_jarvis
+API key -> Telegram identity/source -> thread ownership -> request idempotency -> run admission -> fresh-thread quota -> run_jarvis
 ```
 
 Request idempotency caches completed or interrupted responses by request ID and returns `409 Retry-After: 1` while an identical request is still running. Fresh-thread quota is charged only for new threads after idempotency has claimed the request, so client retries do not double-charge quota.
@@ -62,7 +63,7 @@ Merging is deterministic (no LLM, no fuzzy alignment beyond a bounded suffix/pre
 Timeouts form a strict ladder, verified at startup by `agent-contract-readiness.ts`:
 
 ```text
-30s download + 120s FFmpeg prepare + 360s transcription < 600s Telegraf handler < 720s running gate TTL
+120s FFmpeg prepare + 360s transcription < 600s Telegraf handler < 720s running gate TTL
 ```
 
 The handler watchdog must outlast the worst audio turn, and the gate TTL must outlast the handler — otherwise a still-working turn loses ownership of its own conversation. FFmpeg availability is a startup barrier (`ffmpegReadiness` in `src/app.ts`) and a `/health` dependency, since normalization is mandatory rather than opportunistic.
@@ -85,7 +86,7 @@ From **validate_entities**, the graph branches:
 
 - **All safe** → **tools** executes the calls directly.
   - If output is large → **summarize** condenses it before returning to the orchestrator.
-  - If output is small or IDs were unverified → returns to the orchestrator.
+  - If output is small → returns to the orchestrator.
 - **Any risky** → **prepare_confirm** freezes the risky operations into a held payload → **confirm** presents them for approval.
   - Approve → **executor** applies 4 guards then executes.
   - Decline → **end**.
@@ -103,7 +104,7 @@ Every graph node is stateless. Persistence and external IO live in shared single
 
 | Singleton | Responsibility |
 |-----------|---------------|
-| **Checkpointer** | Graph state persistence (PG, Redis, or Memory) |
+| **Checkpointer** | Graph state persistence (PG or Memory) |
 | **Idempotency** | Claim/complete to prevent duplicate Todoist mutations |
 | **Request gate** | API auth, source resolution, ownership checks, request idempotency, and thread quota |
 | **Tool system** | Registry and dispatch for Todoist and Google Calendar tools |
@@ -124,7 +125,7 @@ The router is enabled by default:
 | `ROUTER_MODEL` | Selected provider model (`gpt-5.6-luna` by default) | Model used for routing |
 | `ROUTER_BASE_URL` | Selected provider base URL | OpenAI-compatible router endpoint |
 | `ROUTER_API_KEY` | Selected provider API key | Router API key |
-| `ROUTER_REASONING_EFFORT` | `none` for default OpenAI routing | Keeps classification fast |
+| `ROUTER_REASONING_EFFORT` | `off` | Keeps classification fast |
 | `ROUTER_REQUEST_TIMEOUT_SECONDS` | `5.0` | Per-attempt router timeout |
 | `ROUTER_MAX_RETRY_ATTEMPTS` | `2` | Router retry budget |
 
@@ -160,9 +161,10 @@ Complexity is assessed independently of query length, mutation risk, and the num
 
 - **Clarification pauses** — when details are missing, Jarvis pauses the graph, asks a focused question, and resumes the same thread when you reply.
 - **Approval buttons** — risky actions such as deletes, bulk mutations, and calendar-changing updates are held for confirmation with inline Approve/Decline buttons.
-- **Typed approval** — pending confirmations can also be answered with `yes`, `approve`, `confirm`, `ok`, `no`, `decline`, or `cancel`.
+- **Typed approval** — pending confirmations can also be answered with `yes`/`y`, `approve`, `confirm`, `ok`, `no`/`n`, `decline`, or `cancel`.
 - **Conversation gate** — only one request per Telegram conversation runs at a time; extra messages are buffered and surfaced after the active run finishes.
 - **`/new <message>`** — abandon a pending clarification/confirmation and start fresh in one step.
+- **`/forward <instruction>`** — forward messages into a buffer, then dispatch them as structured context with an instruction.
 - **`/cancel`** — clear the current pending operation and release the conversation gate.
 - **`/status`** — check service health from Telegram.
 

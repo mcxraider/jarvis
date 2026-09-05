@@ -302,3 +302,24 @@ class TestCreateProject:
         assert method == "POST"
         # None-valued fields are dropped before sending.
         assert payload == {"name": "Reading"}
+
+
+class TestCreateSection:
+    @patch.object(TodoistApiClient, "_request")
+    def test_posts_payload(self, mock_request):
+        mock_request.return_value = {"id": "s1", "name": "Lectures", "project_id": "p1"}
+        client = TodoistApiClient(api_key="test-key")
+
+        client.create_section({"name": "Lectures", "project_id": "p1", "description": None})
+
+        url, method, payload = mock_request.call_args[0][:3]
+        assert url == f"{TODOIST_REST_BASE_URL}/sections"
+        assert method == "POST"
+        assert payload == {"name": "Lectures", "project_id": "p1"}
+
+    def test_schema_registered(self):
+        names = [s["function"]["name"] for s in get_todoist_tool_schemas()]
+        assert "create_section" in names
+
+    def test_is_mutating(self):
+        assert "create_section" in MUTATING_TOOL_NAMES

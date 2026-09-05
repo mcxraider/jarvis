@@ -779,6 +779,10 @@ class TodoistApiClient:
         payload = _without_none(arguments)
         return self._request(f"{TODOIST_REST_BASE_URL}/projects", "POST", payload)
 
+    def create_section(self, arguments: Dict[str, Any]) -> Any:
+        payload = _without_none(arguments)
+        return self._request(f"{TODOIST_REST_BASE_URL}/sections", "POST", payload)
+
     # Native async tool handlers -------------------------------------------------
     # These intentionally mirror the synchronous methods above, including their
     # validation and response shaping. They call ``async_request`` directly so a
@@ -942,6 +946,14 @@ class TodoistApiClient:
         payload = _without_none(arguments)
         return await self.async_request(
             f"{TODOIST_REST_BASE_URL}/projects",
+            "POST",
+            payload,
+        )
+
+    async def async_create_section(self, arguments: Dict[str, Any]) -> Any:
+        payload = _without_none(arguments)
+        return await self.async_request(
+            f"{TODOIST_REST_BASE_URL}/sections",
             "POST",
             payload,
         )
