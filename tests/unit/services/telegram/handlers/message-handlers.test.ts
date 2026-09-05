@@ -202,6 +202,35 @@ describe('MessageHandlers', () => {
     expect(ctx.reply.mock.calls[0]).toEqual(['Thinking…', { parse_mode: 'MarkdownV2' }]);
   });
 
+  it('replaces the one plain text status with a reasoning summary', async () => {
+    const messageProcessor = {
+      processTextMessage: jest.fn().mockImplementation(async (...args: any[]) => {
+        await args[3]({
+          sequence: 1,
+          stage: 'reasoning_summary',
+          message: 'Checking your tasks.',
+          reasoningSummary: 'Checking your tasks.',
+        });
+        return { response: 'processed text' };
+      }),
+    } as any;
+    const { handlers } = createHandlers({ messageProcessor });
+    const ctx = createContext({ text: 'hello', message_id: 99 });
+
+    await handlers.handleText(ctx);
+
+    expect(ctx.reply).toHaveBeenCalledTimes(2);
+    expect(ctx.telegram.editMessageText).toHaveBeenCalledWith(
+      456,
+      77,
+      undefined,
+      'Checking your tasks\\.',
+      { parse_mode: 'MarkdownV2' },
+    );
+    expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
+    expect(ctx.reply).toHaveBeenLastCalledWith('processed text', { parse_mode: 'MarkdownV2' });
+  });
+
   it('keeps a 129.7-second turn narrated and sends exactly one terminal clarification', async () => {
     jest.useFakeTimers();
     setRichMessagesEnabled(true);
@@ -528,6 +557,45 @@ describe('MessageHandlers', () => {
     });
     expect(ctx.reply).toHaveBeenCalledWith('Listening…', { parse_mode: 'MarkdownV2' });
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
+  });
+
+  it('restores Listening after a rich transcription, then replaces it with reasoning', async () => {
+    setRichMessagesEnabled(true);
+    const fileService = {
+      getFileUrl: jest.fn().mockResolvedValue('https://example.com/audio.ogg'),
+    } as any;
+    const messageProcessor = {
+      processAudioMessage: jest.fn().mockImplementation(async (...args: any[]) => {
+        const hooks = args[3];
+        await hooks.onTranscription('transcribed text');
+        await hooks.onTranscribed();
+        await hooks.onProgress({
+          sequence: 1,
+          stage: 'reasoning_summary',
+          message: 'Understanding your request.',
+          reasoningSummary: 'Understanding your request.',
+        });
+        return { response: 'processed audio' };
+      }),
+    } as any;
+    const { handlers } = createHandlers({ fileService, messageProcessor });
+    const ctx = createContext({ voice: { file_id: 'voice-1', duration: 3 } });
+    ctx.telegram.callApi.mockImplementation(async (method: string) =>
+      method === 'sendRichMessage' ? { message_id: 90 } : true,
+    );
+
+    await handlers.handleVoice(ctx);
+
+    const draftCalls = ctx.telegram.callApi.mock.calls.filter(
+      (call: unknown[]) => call[0] === 'sendRichMessageDraft',
+    );
+    expect(draftCalls).toHaveLength(3);
+    expect(new Set(draftCalls.map((call: any[]) => call[1].draft_id)).size).toBe(1);
+    expect(draftCalls[0][1].rich_message.markdown).toContain('Listening…');
+    expect(draftCalls[1][1].rich_message.markdown).toContain('Listening…');
+    expect(draftCalls[2][1].rich_message.markdown).toContain('Understanding your request.');
+    expect(draftCalls.some((call: any[]) => call[1].rich_message.markdown.includes('Thinking…')))
+      .toBe(false);
   });
 
   it('cleans up progress and sends no final response for suppressed audio settlement', async () => {

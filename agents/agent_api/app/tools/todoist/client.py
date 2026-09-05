@@ -47,9 +47,21 @@ _STRIP_RESPONSE_FIELDS = frozenset({
     "completed_count",
     "postponed_count",
     "updated_at",
-    "added_at",
-    "completed_at",
     "completed_by_uid",
+    "can_assign_tasks",
+    "can_comment",
+    "creator_uid",
+    "created_at",
+    "is_frozen",
+    "is_shared",
+    "view_style",
+    "default_order",
+    "default_order_key",
+    "public_access",
+    "public_key",
+    "access",
+    "role",
+    "configuration",
 })
 
 
@@ -779,6 +791,10 @@ class TodoistApiClient:
         payload = _without_none(arguments)
         return self._request(f"{TODOIST_REST_BASE_URL}/projects", "POST", payload)
 
+    def create_section(self, arguments: Dict[str, Any]) -> Any:
+        payload = _without_none(arguments)
+        return self._request(f"{TODOIST_REST_BASE_URL}/sections", "POST", payload)
+
     # Native async tool handlers -------------------------------------------------
     # These intentionally mirror the synchronous methods above, including their
     # validation and response shaping. They call ``async_request`` directly so a
@@ -942,6 +958,14 @@ class TodoistApiClient:
         payload = _without_none(arguments)
         return await self.async_request(
             f"{TODOIST_REST_BASE_URL}/projects",
+            "POST",
+            payload,
+        )
+
+    async def async_create_section(self, arguments: Dict[str, Any]) -> Any:
+        payload = _without_none(arguments)
+        return await self.async_request(
+            f"{TODOIST_REST_BASE_URL}/sections",
             "POST",
             payload,
         )

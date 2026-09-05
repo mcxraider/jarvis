@@ -15,9 +15,8 @@ import {
   sendFinalReply,
 } from '../formatters/telegram-rich';
 import { toTelegramMarkdownV2 } from '../formatters/telegram-markdown';
-import { TelegramProgressReporter } from '../telegram-progress-reporter';
-import { TelegramInputKind } from '../progress-narrator';
-import { TelegramReasoningSummaryReporter } from '../telegram-reasoning-summary-reporter';
+import { isMessageNotModified } from '../formatters/telegram-errors';
+import { TelegramInputKind, TelegramProgressReporter } from '../telegram-progress-reporter';
 import { LangGraphProgressEvent } from '../../ai/langgraph-agent-client.service';
 import {
   PendingPausePresentation,
@@ -213,6 +212,7 @@ export class MessageHandlers {
         await ctx.telegram.editMessageText(ctx.chat.id, existingId, undefined, text);
         return;
       } catch (error) {
+        if (isMessageNotModified(error)) return;
         logger.warn('telegram.forward.confirmation_edit_failed', {
           ...logContext,
           confirmationMessageId: existingId,
@@ -487,21 +487,15 @@ export class MessageHandlers {
   ): Promise<void> {
     const userId = ctx.from?.id;
     const progressReporter = new TelegramProgressReporter(ctx, logContext, inputKind);
-    const summaryReporter = new TelegramReasoningSummaryReporter(ctx, logContext);
 
     try {
       await progressReporter.start();
       const result = await processFn(
         async (event: LangGraphProgressEvent, signal?: AbortSignal) => {
-          if (event.reasoningSummary) {
-            summaryReporter.record(event.reasoningSummary);
-            return;
-          }
           await progressReporter.record(event, signal);
         },
         (presentation) => this.resolvePausePresentation(ctx, presentation, logContext),
       );
-      await summaryReporter.complete();
       await progressReporter.complete();
       if (result.suppressed) {
         logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
@@ -523,7 +517,6 @@ export class MessageHandlers {
         userId,
         durationMs: Date.now() - startedAt,
       });
-      await summaryReporter.complete();
       await progressReporter.complete();
       if (this.claimTerminalReply(logContext, `${resultKind}_error`)) {
         await sendFinalReply(ctx, errorMessage, logContext);
@@ -850,7 +843,7 @@ export class MessageHandlers {
       logContext,
       userId,
       startedAt,
-      async (reporter, onTranscribed, onProgress) => {
+      async (onTranscribed, onProgress) => {
         const fileUrl = await this.fileService.getFileUrl(
           document.file_id,
           AUDIO_LIMITS.MAX_INPUT_BYTES,
@@ -862,7 +855,7 @@ export class MessageHandlers {
           userId,
           logContext,
           {
-            onTranscription: (text) => this.sendTranscription(ctx, reporter, text, logContext),
+            onTranscription: (text) => this.sendTranscription(ctx, text, logContext),
             onTranscribed,
             onProgress,
             onPendingPauseAccepted: (presentation) =>
@@ -934,7 +927,7 @@ export class MessageHandlers {
       logContext,
       userId,
       startedAt,
-      async (reporter, onTranscribed, onProgress) => {
+      async (onTranscribed, onProgress) => {
         const fileUrl = await this.fileService.getFileUrl(
           audioFile.file_id,
           AUDIO_LIMITS.MAX_INPUT_BYTES,
@@ -944,7 +937,7 @@ export class MessageHandlers {
           userId,
           logContext,
           {
-            onTranscription: (text) => this.sendTranscription(ctx, reporter, text, logContext),
+            onTranscription: (text) => this.sendTranscription(ctx, text, logContext),
             onTranscribed,
             onProgress,
             onPendingPauseAccepted: (presentation) =>
@@ -987,38 +980,29 @@ export class MessageHandlers {
     return true;
   }
 
-  // Shared progress-reporting wrapper for all audio-based message types. Shows a
-  // "Transcribing..." status during Whisper, transitions to the agent progress
-  // rotation once transcription completes, then delivers the final response.
+  // Shared progress-reporting wrapper for all audio-based message types. Keeps
+  // "Listening…" visible until the model's first reasoning summary replaces it.
   private async runWithAudioProgress(
     ctx: Context,
     logContext: LogContext,
     userId: number | undefined,
     startedAt: number,
     processFn: (
-      reporter: TelegramProgressReporter,
-      onTranscribed: () => void,
+      onTranscribed: () => void | Promise<void>,
       onProgress: (event: LangGraphProgressEvent, signal?: AbortSignal) => Promise<void>,
     ) => Promise<TextProcessorResult>,
     errorMessage: string,
   ): Promise<void> {
     const progressReporter = new TelegramProgressReporter(ctx, logContext, 'audio');
-    const summaryReporter = new TelegramReasoningSummaryReporter(ctx, logContext);
 
     try {
-      await progressReporter.startTranscribing();
+      await progressReporter.start();
       const result = await processFn(
-        progressReporter,
-        () => progressReporter.beginAgentPhase(),
+        () => progressReporter.refresh(),
         async (event: LangGraphProgressEvent, signal?: AbortSignal) => {
-          if (event.reasoningSummary) {
-            summaryReporter.record(event.reasoningSummary);
-            return;
-          }
           await progressReporter.record(event, signal);
         },
       );
-      await summaryReporter.complete();
       await progressReporter.complete();
       if (result.suppressed) {
         logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
@@ -1038,7 +1022,6 @@ export class MessageHandlers {
         userId,
         durationMs: Date.now() - startedAt,
       });
-      await summaryReporter.complete();
       await progressReporter.complete();
       if (this.claimTerminalReply(logContext, 'audio_error')) {
         // Size/duration admission (and any other user-actionable failure) carries copy that
@@ -1057,17 +1040,13 @@ export class MessageHandlers {
     return this.terminalReplyStore.claim(logContext.requestId as string, kind);
   }
 
-  // Sends the transcription as its own message once Whisper finishes, decoupled
-  // from the agent's eventual reply. First tears down the "Transcribing..." block
-  // so this message lands above the subsequent thinking block (transcription on
-  // top), matching the desired top-to-bottom chat flow.
+  // Sends the transcription as its own message once Whisper finishes. The
+  // onTranscribed hook then restores the rich Listening… draft that this send clears.
   private async sendTranscription(
     ctx: Context,
-    reporter: TelegramProgressReporter,
     text: string,
     logContext: LogContext,
   ): Promise<void> {
-    await reporter.endTranscribing();
     await sendFinalReply(ctx, `🗣️: ${text}`, logContext);
   }
 

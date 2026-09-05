@@ -115,6 +115,47 @@ describe('CallbackHandler', () => {
     expect(ctx.editMessageText).not.toHaveBeenCalled();
   });
 
+  it('replaces the callback rich draft with reasoning on the same draft id', async () => {
+    setRichMessagesEnabled(true);
+    const agentClient = {
+      resume: jest.fn().mockImplementation(async (...args: any[]) => {
+        await args[2]({
+          sequence: 1,
+          stage: 'reasoning_summary',
+          message: 'Applying the approved change.',
+          reasoningSummary: 'Applying the approved change.',
+        });
+        return {
+          status: 'completed',
+          threadId: 'tg_abc_msg123',
+          response: 'Done.',
+          toolResults: [],
+        };
+      }),
+    };
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateStore = new MemoryConversationGateStore();
+    await setupWaitingGate(gateStore, pendingStore);
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
+    const ctx = makeCtx('confirm:approve:tg_abc_msg123');
+    ctx.telegram.callApi = jest.fn().mockResolvedValue({ message_id: 900 });
+
+    await handler.handleCallbackQuery(ctx);
+
+    const draftCalls = ctx.telegram.callApi.mock.calls.filter(
+      (call: unknown[]) => call[0] === 'sendRichMessageDraft',
+    );
+    expect(draftCalls).toHaveLength(2);
+    expect(draftCalls[0][1].draft_id).toBe(draftCalls[1][1].draft_id);
+    expect(draftCalls[0][1].rich_message.markdown).toContain('Thinking…');
+    expect(draftCalls[1][1].rich_message.markdown).toContain('Applying the approved change.');
+  });
+
   it('stores the callback request id while resume is active and compare-clears it afterward', async () => {
     const pendingStore = new MemoryPendingClarificationStore();
     const gateStore = new MemoryConversationGateStore();

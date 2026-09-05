@@ -10,21 +10,42 @@ import {
   sendRichDraft,
 } from './formatters/telegram-rich';
 import { isMessageMissing, isMessageNotModified } from './formatters/telegram-errors';
-import {
-  PROGRESS_DELIVERY_RETRY_MS,
-  PROGRESS_RICH_REFRESH_MS,
-  ProgressNarrator,
-  TelegramInputKind,
-} from './progress-narrator';
+
+export const PROGRESS_RICH_REFRESH_MS = 20_000;
+export const PROGRESS_DELIVERY_RETRY_MS = 5_000;
+const SUMMARY_MAX_CHARS = 3_800;
+
+export type TelegramInputKind = 'text' | 'image' | 'images' | 'audio' | 'forwarded';
+
+const SEED_LABELS: Record<TelegramInputKind, string> = {
+  text: 'Thinking…',
+  image: 'Analysing image…',
+  images: 'Analysing images…',
+  audio: 'Listening…',
+  forwarded: 'Reviewing forwarded messages…',
+};
 
 type ProgressTransport = 'rich' | 'plain';
+type ProgressContentKind = 'seed' | 'reasoning_summary';
+type ProgressRenderReason = 'initial' | 'summary' | 'refresh';
+
+interface DesiredStatus {
+  text: string;
+  kind: ProgressContentKind;
+  revision: number;
+  sequence?: number;
+}
+
+interface DeliveredStatus extends DesiredStatus {
+  deliveredAt: number;
+}
 
 interface PaintResult {
   delivered: boolean;
   transport: ProgressTransport;
 }
 
-/** Transport adapter for one narrator-controlled, ephemeral Telegram status line. */
+/** Owns the single ephemeral Telegram status for one agent turn. */
 export class TelegramProgressReporter {
   private statusMessage?: Message.TextMessage;
   private richActive: boolean;
@@ -34,7 +55,10 @@ export class TelegramProgressReporter {
   private timer?: ReturnType<typeof setTimeout>;
   private pump?: Promise<void>;
   private retryNotBefore?: number;
-  private readonly narrator = new ProgressNarrator();
+  private desired?: DesiredStatus;
+  private delivered?: DeliveredStatus;
+  private refreshRevision = 0;
+  private deliveredRefreshRevision = 0;
 
   constructor(
     private readonly ctx: Context,
@@ -50,25 +74,42 @@ export class TelegramProgressReporter {
   async start(): Promise<void> {
     if (this.started || this.completed) return;
     this.started = true;
-    this.narrator.start(Date.now(), this.inputKind);
+    this.desired = {
+      text: SEED_LABELS[this.inputKind],
+      kind: 'seed',
+      revision: 1,
+    };
     await this.ensurePump();
   }
 
-  async startTranscribing(): Promise<void> { await this.start(); }
-  async endTranscribing(): Promise<void> { return; }
-
-  async beginAgentPhase(): Promise<void> {
+  /** Repaints the current rich draft after another bot message clears it. */
+  async refresh(): Promise<void> {
+    if (this.completed) return;
     if (!this.started) {
       await this.start();
       return;
     }
-    this.narrator.advanceToThinking();
-    this.requestPump();
+    if (!this.richActive) return;
+    this.refreshRevision += 1;
+    await this.ensurePump();
   }
 
   async record(event: LangGraphProgressEvent, signal?: AbortSignal): Promise<void> {
-    if (this.completed || signal?.aborted || !event.fact) return;
-    this.narrator.record(event.fact, event.sequence);
+    if (this.completed || signal?.aborted) return;
+    const trimmed = event.reasoningSummary?.trim();
+    if (!trimmed) return;
+
+    const text = trimmed.length > SUMMARY_MAX_CHARS
+      ? '…\n' + trimmed.slice(trimmed.length - SUMMARY_MAX_CHARS + 2)
+      : trimmed;
+    if (this.desired?.kind === 'reasoning_summary' && this.desired.text === text) return;
+
+    this.desired = {
+      text,
+      kind: 'reasoning_summary',
+      revision: (this.desired?.revision ?? 0) + 1,
+      sequence: event.sequence,
+    };
     this.requestPump();
   }
 
@@ -79,12 +120,17 @@ export class TelegramProgressReporter {
     const activePump = this.pump;
     if (activePump) await activePump;
     await this.removePlainStatus();
+    this.desired = undefined;
+    this.delivered = undefined;
   }
 
   private requestPump(): void {
-    if (this.completed) return;
-    if (this.pump) return;
-    this.scheduleNext();
+    if (this.completed || this.pump) return;
+    if (this.retryNotBefore !== undefined && this.retryNotBefore > Date.now()) {
+      this.scheduleNext();
+      return;
+    }
+    void this.ensurePump();
   }
 
   private ensurePump(): Promise<void> {
@@ -110,13 +156,16 @@ export class TelegramProgressReporter {
   }
 
   private async runPump(): Promise<void> {
-    const render = this.narrator.nextDesired(
-      Date.now(),
-      this.richActive ? PROGRESS_RICH_REFRESH_MS : undefined,
-    );
-    if (!render || this.completed) return;
+    const desired = this.desired;
+    if (!desired || this.completed) return;
 
-    const result = await this.paint(render.label);
+    const refreshRevision = this.refreshRevision;
+    const reason: ProgressRenderReason = !this.delivered
+      ? 'initial'
+      : desired.revision !== this.delivered.revision
+        ? 'summary'
+        : 'refresh';
+    const result = await this.paint(desired.text);
     if (!result.delivered || this.completed) {
       if (!this.completed) this.retryNotBefore = Date.now() + PROGRESS_DELIVERY_RETRY_MS;
       return;
@@ -124,26 +173,30 @@ export class TelegramProgressReporter {
 
     const deliveredAt = Date.now();
     this.retryNotBefore = undefined;
-    this.narrator.markDelivered(render, deliveredAt);
+    this.delivered = { ...desired, deliveredAt };
+    this.deliveredRefreshRevision = refreshRevision;
     logger.info('telegram.progress.rendered', {
       ...this.logContext,
-      label: render.label,
       transport: result.transport,
-      reason: render.reason,
-      phase: render.phase,
-      sequence: render.sequence,
-      elapsedMs: render.elapsedMs,
+      contentKind: desired.kind,
+      reason,
+      sequence: desired.sequence,
+      textLength: desired.text.length,
       deliveredAtMs: deliveredAt,
     });
   }
 
   private scheduleNext(): void {
-    if (this.completed || this.pump) return;
+    if (this.completed || this.pump || !this.desired) return;
     const now = Date.now();
-    let dueAt = this.narrator.nextDueAt(
-      now,
-      this.richActive ? PROGRESS_RICH_REFRESH_MS : undefined,
-    );
+    const contentChanged = !this.delivered || this.desired.revision !== this.delivered.revision;
+    const refreshRequested = this.refreshRevision > this.deliveredRefreshRevision;
+    let dueAt: number | undefined;
+    if (contentChanged || refreshRequested) {
+      dueAt = now;
+    } else if (this.richActive && this.delivered) {
+      dueAt = this.delivered.deliveredAt + PROGRESS_RICH_REFRESH_MS;
+    }
     if (dueAt === undefined) return;
     if (this.retryNotBefore !== undefined && dueAt <= now) {
       dueAt = Math.max(dueAt, this.retryNotBefore);
@@ -163,12 +216,12 @@ export class TelegramProgressReporter {
     this.timer = undefined;
   }
 
-  private async paint(label: string): Promise<PaintResult> {
+  private async paint(text: string): Promise<PaintResult> {
     if (this.completed) return { delivered: false, transport: this.richActive ? 'rich' : 'plain' };
     if (this.richActive && this.ctx.chat) {
       try {
         this.draftId = this.draftId || newDraftId();
-        await sendRichDraft(this.ctx, this.draftId, renderThinkingLabel(label));
+        await sendRichDraft(this.ctx, this.draftId, renderThinkingLabel(text));
         return { delivered: true, transport: 'rich' };
       } catch (error) {
         this.richActive = false;
@@ -180,17 +233,17 @@ export class TelegramProgressReporter {
         });
       }
     }
-    return this.paintPlain(label);
+    return this.paintPlain(text);
   }
 
-  private async paintPlain(label: string): Promise<PaintResult> {
+  private async paintPlain(text: string): Promise<PaintResult> {
     if (this.statusMessage && this.ctx.chat && 'editMessageText' in this.ctx.telegram) {
       try {
         await editMessageTextWithMarkdown(
           this.ctx.telegram.editMessageText.bind(this.ctx.telegram),
           this.ctx.chat.id,
           this.statusMessage.message_id,
-          label,
+          text,
           {},
           this.logContext,
         );
@@ -209,7 +262,7 @@ export class TelegramProgressReporter {
       }
     }
 
-    const message = await replyWithMarkdown(this.ctx.reply.bind(this.ctx), label, this.logContext)
+    const message = await replyWithMarkdown(this.ctx.reply.bind(this.ctx), text, this.logContext)
       .catch((error) => {
         logger.warn('telegram.progress.start_failed', {
           ...this.logContext,
@@ -242,4 +295,3 @@ export class TelegramProgressReporter {
       }));
   }
 }
-

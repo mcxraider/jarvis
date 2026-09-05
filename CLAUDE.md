@@ -81,8 +81,7 @@ Telegram update
   -> TextProcessorService (invoke/resume/force-fresh, gate lifecycle)
   -> LangGraphAgentClient (streaming NDJSON: /invoke/stream, /resume/stream)
   -> deliverProgress()  ← 5s per-callback budget, single shared kill switch
-  -> TelegramProgressReporter (ephemeral status line via ProgressNarrator)
-  -> TelegramReasoningSummaryReporter (coalesced reasoning-summary message)
+  -> TelegramProgressReporter (one ephemeral input-status/reasoning-summary line)
   -> Python FastAPI /invoke, /invoke/stream, /invoke-bulk, /resume, /resume/stream
      (agents/agent_api/app/api/routes/)
   -> request_gate middleware (auth, rate_limit, idempotency, admission, thread_ownership)
@@ -181,9 +180,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 
 - `telegram-bot.service.ts` — Telegraf lifecycle, auth middleware, webhook registration, global error boundary
 - `telegram-menu.registry.ts` — Telegram commands menu (autocomplete): `/new`, `/cancel`, `/help`, `/forward`
-- `telegram-progress-reporter.ts` — ephemeral Telegram status line transport (rich draft or MarkdownV2 edit)
-- `telegram-reasoning-summary-reporter.ts` — ephemeral reasoning-summary message (coalesced pump, 1s edit cadence, auto-deleted on completion)
-- `progress-narrator.ts` — reduces streaming ProgressFact events + elapsed time into user-facing copy
+- `telegram-progress-reporter.ts` — single ephemeral input-status/reasoning-summary transport (rich draft or MarkdownV2 edit)
 - `forward-buffer.store.ts` — in-memory buffer for user-forwarded messages, accumulated per conversation until dispatched
 - `message-processor.service.ts` — gate-aware pipeline orchestrator
 - `conversation-gate.store.ts` — per-conversation serialization (idle/running/waiting); Postgres-backed

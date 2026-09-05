@@ -69,7 +69,8 @@ export function renderThinkingLabelWithEmoji(
   fallback: string,
 ): string {
   const emoji = renderCustomEmoji(customEmojiId, fallback);
-  return `<tg-thinking>${emoji} ${label}</tg-thinking>`;
+  const text = label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<tg-thinking>${emoji} ${text}</tg-thinking>`;
 }
 
 /**

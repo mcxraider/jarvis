@@ -2,6 +2,7 @@ import {
   collapseClarification,
   isRichMessagesEnabled,
   renderClarificationBlock,
+  renderThinkingLabel,
   sendClarificationReply,
   sendFinalReply,
   sendRichMessage,
@@ -79,6 +80,15 @@ describe('telegram-rich clarification blocks', () => {
         markdown: '<details><summary>Clarification</summary>\n\nWhich project?\n\n</details>',
       },
     });
+  });
+});
+
+describe('telegram-rich thinking labels', () => {
+  it('escapes model text before embedding it in rich markup', () => {
+    const rendered = renderThinkingLabel('Checking <calendar> & tasks > today');
+
+    expect(rendered).toContain('Checking &lt;calendar&gt; &amp; tasks &gt; today');
+    expect(rendered).not.toContain('Checking <calendar>');
   });
 });
 

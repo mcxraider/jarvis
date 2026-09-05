@@ -24,12 +24,12 @@ from agents.agent_api.app.tools.todoist.schemas import (
 
 TODOIST_GROUNDING_NOTE = (
     "Todoist: mutations (`update_todoist_task`, `complete_task`, `uncomplete_task`, "
-    "`delete_todoist_task`, `add_comment`) require a real `task_id` returned by a prior "
-    "read (`get_tasks`, `get_tasks_by_filter`, `get_todoist_task`) in this same "
-    "conversation. The same applies to `project_id`: to route a task into a named "
-    "project, call `get_projects` first to resolve the name to its id, THEN "
-    "`add_todoist_task` with that id in a SEPARATE turn — never guess a `project_id`; "
-    "omit it to use the Inbox."
+    "`delete_todoist_task`, `add_comment`, `create_section`) require a real `task_id` "
+    "returned by a prior read (`get_tasks`, `get_tasks_by_filter`, `get_todoist_task`) "
+    "in this same conversation. The same applies to `project_id`: to route a task into "
+    "a named project or create a section, call `get_projects` first to resolve the name "
+    "to its id, THEN `add_todoist_task` or `create_section` with that id in a SEPARATE "
+    "turn — never guess a `project_id`; omit it to use the Inbox."
 )
 
 TODOIST_PROMPT_FRAGMENT = """\
@@ -43,7 +43,8 @@ TODOIST_PROMPT_FRAGMENT = """\
 - Do not retry `add_todoist_task` on timeout — it may have succeeded. Verify with `get_tasks_by_filter` to avoid duplicates.
 - Pagination: collection reads return one page (50 items by default; comments default to their maximum of 10). A `next_cursor` field appears in results. If it is null, you have everything — stop. Only pass a cursor value received verbatim from a prior response.
 - `get_projects` lists projects (pass `search` to filter by name substring). Use it to turn a project name into an `id` before adding a task there — this is a distinct step: find the project in one turn, then add the task by its id in the next (see Grounding).
-- `create_project` makes a NEW project (only `name` is required). A single create runs without a confirmation prompt — do NOT add your own "are you sure?"; just issue the call. Only create a project when the user clearly asks for a new one; otherwise search existing projects first."""
+- `create_project` makes a NEW project (only `name` is required). A single create runs without a confirmation prompt — do NOT add your own "are you sure?"; just issue the call. Only create a project when the user clearly asks for a new one; otherwise search existing projects first.
+- `create_section` adds a section to a project. Requires `name` and a real `project_id` from `get_projects`. Creating many sections → issue one `create_section` call per section."""
 
 
 def get_todoist_tool_specs(todoist_client: Any) -> List[ToolSpec]:
@@ -71,6 +72,7 @@ def get_todoist_tool_specs(todoist_client: Any) -> List[ToolSpec]:
         "get_labels": todoist_client.get_labels,
         "get_projects": todoist_client.get_projects,
         "create_project": todoist_client.create_project,
+        "create_section": todoist_client.create_section,
     }
     async_handlers = {
         name: candidate

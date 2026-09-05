@@ -13,7 +13,6 @@ import {
 import { ConversationGateStore } from '../conversation-gate.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { TelegramProgressReporter } from '../telegram-progress-reporter';
-import { TelegramReasoningSummaryReporter } from '../telegram-reasoning-summary-reporter';
 import { TerminalReplyStore } from '../terminal-reply.store';
 import {
   resolveRunningGateTtlMs,
@@ -72,7 +71,6 @@ export class CallbackHandler {
       telegramFirstName: ctx.from?.first_name,
     };
     const progress = new TelegramProgressReporter(ctx, logContext);
-    const summaryReporter = new TelegramReasoningSummaryReporter(ctx, logContext);
     let priorPendingSnapshot: PendingClarificationRecord | undefined;
     let newPendingSnapshot: PendingClarificationRecord | undefined;
 
@@ -165,10 +163,6 @@ export class CallbackHandler {
             });
             return;
           }
-          if (event.reasoningSummary) {
-            summaryReporter.record(event.reasoningSummary);
-            return;
-          }
           await progress.record(event, signal);
         },
       );
@@ -177,7 +171,6 @@ export class CallbackHandler {
         // The decision may still be executing remotely. Preserve this running
         // generation, its active request id, and the prior pending record so an
         // automatic replay cannot duplicate a confirmed mutation.
-        await summaryReporter.complete();
         await progress.complete().catch((error) => {
           logger.warn('telegram.callback.confirm.ambiguous_progress_failed', {
             ...logContext,
@@ -212,7 +205,6 @@ export class CallbackHandler {
             this.waitingTtlMs,
           );
         if (!transitionedToWaiting) {
-          await summaryReporter.complete();
           await progress.complete();
           logger.info('telegram.callback.confirm.settlement_skipped_stale_owner', {
             ...logContext,
@@ -227,7 +219,6 @@ export class CallbackHandler {
           await this.conversationGate.releaseIfActiveRequestId(gateKey, requestId).catch(() => ({
             released: false,
           }));
-          await summaryReporter.complete();
           await progress.complete();
           return;
         }
@@ -242,7 +233,6 @@ export class CallbackHandler {
           pending.imageBatches?.length ? pending.imageBatches : undefined,
         );
         await this.pendingStore.save(newPendingSnapshot);
-        await summaryReporter.complete();
         await progress.complete();
         if (!(await this.isCurrentPromptOwner(gateKey, agentResponse.threadId, requestId))) {
           await this.pendingStore
@@ -326,7 +316,6 @@ export class CallbackHandler {
           .releaseIfActiveRequestId(gateKey, requestId)
           .catch(() => ({ released: false, bufferedMessage: undefined }));
         if (!release.released) {
-          await summaryReporter.complete();
           await progress.complete();
           logger.info('telegram.callback.confirm.settlement_skipped_stale_owner', {
             ...logContext,
@@ -335,7 +324,6 @@ export class CallbackHandler {
           return;
         }
         await this.pendingStore.clearIfMatches(gateKey, pending, 'completed').catch(() => false);
-        await summaryReporter.complete();
         await progress.complete();
         const buffered = release.bufferedMessage;
 
@@ -379,7 +367,6 @@ export class CallbackHandler {
         }
       }
       if (!restoredWaiting && !releasedOwnedGate) {
-        await summaryReporter.complete();
         await progress.complete();
         logger.info('telegram.callback.confirm.error_suppressed_stale_owner', {
           ...logContext,
@@ -387,7 +374,6 @@ export class CallbackHandler {
         });
         return;
       }
-      await summaryReporter.complete();
       await progress.complete();
       logger.error('telegram.callback.confirm.failed', {
         requestId,

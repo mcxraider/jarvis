@@ -105,6 +105,12 @@ _REGISTRY: Dict[str, ToolDisplayMeta] = {
         service="todoist",
         highlight_arg="name",
     ),
+    "create_section": ToolDisplayMeta(
+        verb="adding",
+        label="Add section",
+        service="todoist",
+        highlight_arg="name",
+    ),
     "update_todoist_task": ToolDisplayMeta(
         verb="updating",
         label="Update task",
