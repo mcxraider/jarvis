@@ -29,6 +29,7 @@ from agents.agent_api.app.llm.messages import (
     CanonicalToolMessage,
     CanonicalUserMessage,
     OpenAIResponsesContinuation,
+    _validate_web_search_action,
     canonicalize_messages,
 )
 from agents.agent_api.app.llm.provider import (
@@ -408,18 +409,10 @@ def normalize_response(
             continue
         if item_type == "web_search_call":
             item = _dump(raw_item)
-            action = item.get("action")
-            if not isinstance(action, Mapping):
-                raise LLMProviderError("invalid_response", "web_search_call action must be an object.")
-            action_type = action.get("type")
-            if action_type not in ("search", "open_page", "find_in_page"):
-                raise LLMProviderError("invalid_response", f"Unsupported web_search_call action type: {action_type!r}.")
-            if action_type == "search" and not isinstance(action.get("query"), str):
-                raise LLMProviderError("invalid_response", "web_search_call search action must include a query.")
-            if action_type == "open_page" and not isinstance(action.get("url"), str):
-                raise LLMProviderError("invalid_response", "web_search_call open_page action must include a url.")
-            if action_type == "find_in_page" and not isinstance(action.get("query"), str):
-                raise LLMProviderError("invalid_response", "web_search_call find_in_page action must include a query.")
+            try:
+                _validate_web_search_action(item.get("action"))
+            except ValueError as exc:
+                raise LLMProviderError("invalid_response", str(exc)) from exc
             replay_items.append(item)
             continue
         if item_type == "function_call":
