@@ -81,5 +81,10 @@ function getTelegramMessageType(update: TelegramWebhookUpdate): string {
   if ('voice' in message) return 'voice';
   if ('audio' in message) return 'audio';
   if ('document' in message) return 'document';
+  if ('photo' in message) return 'photo';
+  if ('poll' in message) return 'poll';
+  if ('sticker' in message) return 'sticker';
+  if ('video_note' in message) return 'video_note';
+  if ('animation' in message) return 'animation';
   return 'unknown';
 }
