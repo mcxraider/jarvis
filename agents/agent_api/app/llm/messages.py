@@ -26,6 +26,23 @@ class DeepSeekContinuation:
             raise ValueError("reasoning_content must not be empty")
 
 
+_WEB_SEARCH_ACTION_TYPES = frozenset({"search", "open_page", "find_in_page"})
+
+
+def _validate_web_search_action(action: Any) -> None:
+    if not isinstance(action, Mapping):
+        raise ValueError("OpenAI web_search_call action must be an object")
+    action_type = action.get("type")
+    if not isinstance(action_type, str) or action_type not in _WEB_SEARCH_ACTION_TYPES:
+        raise ValueError(f"Unsupported web_search_call action type: {action_type!r}")
+    if action_type == "search" and not isinstance(action.get("query"), str):
+        raise ValueError("web_search_call search action must include a query")
+    if action_type == "open_page" and not isinstance(action.get("url"), str):
+        raise ValueError("web_search_call open_page action must include a url")
+    if action_type == "find_in_page" and not isinstance(action.get("query"), str):
+        raise ValueError("web_search_call find_in_page action must include a query")
+
+
 def _validated_responses_item(value: Any) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError("OpenAI Responses output item must be an object")
@@ -59,6 +76,14 @@ def _validated_responses_item(value: Any) -> dict[str, Any]:
             raise ValueError("OpenAI function-call arguments must be valid JSON") from error
         if not isinstance(arguments, dict):
             raise ValueError("OpenAI function-call arguments must encode an object")
+        return item
+    if item_type == "web_search_call":
+        if not isinstance(item.get("id"), str) or not item["id"].strip():
+            raise ValueError("OpenAI web_search_call must include an ID")
+        status = item.get("status")
+        if not isinstance(status, str) or not status.strip():
+            raise ValueError("OpenAI web_search_call must include a status")
+        _validate_web_search_action(item.get("action"))
         return item
     if item_type == "message":
         if item.get("role") != "assistant":

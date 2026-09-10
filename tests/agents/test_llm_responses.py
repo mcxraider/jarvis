@@ -608,7 +608,7 @@ def test_rejects_missing_malformed_or_duplicate_function_calls(mutate, message):
             "did not complete",
         ),
         (
-            {"status": "completed", "output": [{"type": "web_search_call"}]},
+            {"status": "completed", "output": [{"type": "file_search_call"}]},
             "Unsupported Responses output item",
         ),
         (_tool_response(encrypted_content=None), "encrypted_content"),
@@ -616,6 +616,96 @@ def test_rejects_missing_malformed_or_duplicate_function_calls(mutate, message):
 )
 def test_rejects_incomplete_unknown_or_non_replayable_outputs(response, message):
     with pytest.raises(LLMProviderError, match=message):
+        normalize_response(response, _profile())
+
+
+# --- web_search_call normalization and replay ---
+
+
+def test_web_search_answer_normalizes_to_stop_with_citations():
+    result = normalize_response(_search_answer_response(), _profile())
+
+    assert result.finish_reason == "stop"
+    assert not result.message.tool_calls
+    assert result.message.continuation is None
+    assert "museum closes" in result.message.content
+    assert "[Official opening hours](https://example.org/hours)" in result.message.content
+
+
+def test_web_search_plus_function_normalizes_with_continuation():
+    result = normalize_response(_search_plus_function_response(), _profile())
+
+    assert result.finish_reason == "tool_calls"
+    assert [call.name for call in result.message.tool_calls] == ["ask_user"]
+    assert result.message.continuation is not None
+
+    items = result.message.continuation.output_items()
+    types = [item["type"] for item in items]
+    assert types == ["reasoning", "web_search_call", "function_call"]
+    assert items[1]["id"] == "ws_1"
+
+
+def test_web_search_continuation_round_trips_through_checkpoint():
+    first = normalize_response(_search_plus_function_response(), _profile())
+
+    checkpoint = canonicalize_messages(
+        [
+            {"role": "user", "content": "search"},
+            first.message,
+            {"role": "tool", "content": "User chose the big one.", "tool_call_id": "call_1"},
+        ]
+    ).to_checkpoint()
+    restored = canonicalize_messages(checkpoint)
+    replay = serialize_responses_input(restored)
+
+    replay_types = [item.get("type") for item in replay[1:]]
+    assert replay_types == [
+        "reasoning",
+        "web_search_call",
+        "function_call",
+        "function_call_output",
+    ]
+    assert replay[2]["id"] == "ws_1"
+    assert replay[3]["call_id"] == "call_1"
+
+
+def test_hosted_web_search_tool_serialized_as_type_only():
+    call = build_responses_call(
+        _profile(),
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[*TOOLS, {"type": "web_search"}],
+    )
+    tools = call.params["tools"]
+    assert tools[-1] == {"type": "web_search"}
+    assert tools[0]["type"] == "function"
+
+
+def test_unsupported_hosted_tool_type_rejected():
+    with pytest.raises(LLMProviderError, match="Unsupported tool type"):
+        build_responses_call(
+            _profile(),
+            messages=[{"role": "user", "content": "hi"}],
+            tools=[{"type": "code_interpreter"}],
+        )
+
+
+def test_malformed_web_search_call_rejected_in_normalize():
+    response = {
+        "id": "resp_bad_ws",
+        "status": "completed",
+        "model": "gpt-5.6-luna",
+        "output": [
+            {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "unknown_action"}},
+            {
+                "type": "message",
+                "id": "msg_1",
+                "status": "completed",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "hi", "annotations": []}],
+            },
+        ],
+    }
+    with pytest.raises(LLMProviderError, match="Unsupported web_search_call action"):
         normalize_response(response, _profile())
 
 
@@ -641,6 +731,85 @@ def test_refusal_is_explicit_and_not_a_successful_answer():
 
     assert result.refusal == "Cannot help."
     assert result.message.content == ""
+
+
+def _web_search_item(item_id: str = "ws_1", action_type: str = "search", query: str = "museum hours"):
+    action: dict = {"type": action_type}
+    if action_type == "search":
+        action["query"] = query
+    elif action_type == "open_page":
+        action["url"] = f"https://example.org/{query}"
+    elif action_type == "find_in_page":
+        action["query"] = query
+    return {
+        "type": "web_search_call",
+        "id": item_id,
+        "status": "completed",
+        "action": action,
+    }
+
+
+def _search_answer_response(
+    text: str = "The museum closes at 6 pm.",
+    annotations=None,
+    search_items=None,
+):
+    if annotations is None:
+        annotations = [
+            {
+                "type": "url_citation",
+                "start_index": 0,
+                "end_index": 25,
+                "url": "https://example.org/hours",
+                "title": "Official opening hours",
+            }
+        ]
+    if search_items is None:
+        search_items = [_web_search_item()]
+    return {
+        "id": "resp_search",
+        "status": "completed",
+        "model": "gpt-5.6-luna",
+        "output": [
+            *search_items,
+            {
+                "type": "message",
+                "id": "msg_search",
+                "status": "completed",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": text, "annotations": annotations}],
+            },
+        ],
+        "usage": {"input_tokens": 50, "output_tokens": 30, "total_tokens": 80},
+    }
+
+
+def _search_plus_function_response():
+    """Provider output with web_search_call AND a local function call."""
+    return {
+        "id": "resp_mixed_search",
+        "status": "completed",
+        "model": "gpt-5.6-luna",
+        "output": [
+            {
+                "type": "reasoning",
+                "id": "rs_1",
+                "encrypted_content": "encrypted-reasoning",
+                "summary": [],
+                "status": "completed",
+            },
+            _web_search_item("ws_1"),
+            {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "ask_user",
+                "arguments": '{"question":"Which museum?"}',
+                "status": "completed",
+            },
+        ],
+        "usage": {"input_tokens": 60, "output_tokens": 35, "total_tokens": 95},
+    }
 
 
 def _text_response(text: str = "OpenAI works."):

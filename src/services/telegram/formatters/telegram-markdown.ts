@@ -38,6 +38,13 @@ export function toTelegramMarkdownV2(text: string): string {
   normalized = normalized.replace(/`([^`\n]+)`/g, (_match, content: string) =>
     hold(inlineCode(content)),
   );
+  // Markdown links: extract before bold/italic so []() chars don't get escaped.
+  // Label gets MarkdownV2-escaped; URL stays raw (Telegram parses it as-is).
+  // Handles one level of balanced parens in URLs (Wikipedia-style).
+  normalized = normalized.replace(
+    /\[([^\]]+)\]\(((?:[^()\s]|\([^()]*\))*)\)/g,
+    (_match, label: string, url: string) => hold(`[${escapeMarkdownV2(label)}](${url})`),
+  );
   normalized = normalized.replace(/\*\*([^*\n]+)\*\*/g, (_match, content: string) =>
     hold(`*${escapeMarkdownV2(content)}*`),
   );

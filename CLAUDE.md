@@ -250,6 +250,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 - `chat.py` — typed Chat Completions request/response/usage boundary
 - `messages.py` — versioned canonical messages and provider-specific serialization
 - `responses.py` — typed OpenAI Responses request, continuation, and response boundary
+- `citations.py` — `render_url_citations`: url_citation annotations → inline Markdown links
 - `streaming.py` — OpenAI Responses streaming with bounded reasoning-summary accumulation (`SummaryAccumulator`)
 
 #### `graph/`

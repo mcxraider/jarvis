@@ -10,6 +10,8 @@ import os
 from typing import Any, Dict, List
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from agents.agent_api.app.llm.provider import OpenAIResponsesProfile
+
 # Disable tracing before importing anything that touches LangSmith/LangChain.
 os.environ["LANGSMITH_TRACING"] = "false"
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
@@ -18,6 +20,7 @@ with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c, **_: c):
     from agents.agent_api.app.graph.nodes.orchestrator import (
         DeepSeekAgentClient,
         UsageSummary,
+        _looks_like_question,
         create_agent_node,
     )
 
@@ -72,13 +75,18 @@ class RecordingClient:
 class FakeDecisionSelector:
     """Selector that exposes a router decision and passes through all tools."""
 
-    def __init__(self, decision) -> None:
+    def __init__(self, decision, selected_domains=None) -> None:
         self._decision = decision
+        self._selected_domains = frozenset(selected_domains or [])
         self.seen_queries: List[str] = []
 
     @property
     def decision(self):
         return self._decision
+
+    @property
+    def selected_domains(self):
+        return self._selected_domains
 
     def select_schemas(self, query, registry, **kwargs):
         self.seen_queries.append(query)
@@ -479,3 +487,123 @@ class TestAsyncCompatibility:
         assert result["final_response"] == "done"
         selector.select_schemas.assert_called_once()
         client.create_message.assert_called_once()
+
+
+def _responses_profile():
+    return OpenAIResponsesProfile(
+        api_key="test-key",
+        base_url="https://api.openai.com/v1",
+        model="gpt-5.6-luna",
+        max_output_tokens=16000,
+        request_timeout_seconds=60,
+        max_retry_attempts=3,
+        retry_max_delay_seconds=8,
+        sdk_max_retries=0,
+        reasoning_effort="medium",
+    )
+
+
+class ResponsesRecordingClient(RecordingClient):
+    """RecordingClient with a Responses profile so the gate can detect the dialect."""
+
+    def __init__(self):
+        super().__init__()
+        self.profile = _responses_profile()
+
+
+class NoDomainSelector(FakeDecisionSelector):
+    """Selector with a decision that has no domains — only ask_user."""
+
+    def select_schemas(self, query, registry, **kwargs):
+        self.seen_queries.append(query)
+        return [spec.openai_schema for spec in registry.specs if spec.name == "ask_user"]
+
+
+def _run_node_with_client(state, selector, client):
+    node = create_agent_node(client, _registry(), max_agent_turns=20, tool_selector=selector)
+    result = asyncio.run(node(state))
+    return result
+
+
+class TestWebSearchGate:
+    def test_no_domain_responses_client_gets_web_search(self):
+        snapshot = make_snapshot(active=("todoist",))
+        state = _state_turn0(snapshot, user_prompt="what is the weather today")
+        decision = RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low")
+        selector = NoDomainSelector(decision)
+        client = ResponsesRecordingClient()
+
+        _run_node_with_client(state, selector, client)
+
+        assert any(t.get("type") == "web_search" for t in client.seen_tools)
+
+    def test_routed_domain_excludes_web_search(self):
+        snapshot = make_snapshot(active=("todoist",))
+        state = _state_turn0(snapshot, user_prompt="add buy milk")
+        decision = RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low")
+        selector = FakeDecisionSelector(decision, selected_domains=["todoist"])
+        client = ResponsesRecordingClient()
+
+        _run_node_with_client(state, selector, client)
+
+        assert not any(t.get("type") == "web_search" for t in client.seen_tools)
+
+    def test_candidate_domains_exclude_web_search(self):
+        snapshot = make_snapshot(active=("todoist", "google_calendar"))
+        state = _state_turn0(snapshot, user_prompt="ambiguous request")
+        decision = RouterDecision(outcome="ambiguous", domains=[], uncertain=True, candidate_domains=["todoist", "google_calendar"], complexity="medium")
+        selector = FakeDecisionSelector(decision, selected_domains=["todoist", "google_calendar"])
+        client = ResponsesRecordingClient()
+
+        _run_node_with_client(state, selector, client)
+
+        assert not any(t.get("type") == "web_search" for t in client.seen_tools)
+
+    def test_missing_decision_excludes_web_search(self):
+        snapshot = make_snapshot(active=("todoist",))
+        state = _state_turn0(snapshot, user_prompt="hello")
+        selector = FakeDecisionSelector(None)
+        client = ResponsesRecordingClient()
+
+        _run_node_with_client(state, selector, client)
+
+        assert not any(t.get("type") == "web_search" for t in client.seen_tools)
+
+    def test_non_responses_client_excludes_web_search(self):
+        snapshot = make_snapshot(active=("todoist",))
+        state = _state_turn0(snapshot, user_prompt="what is the weather")
+        decision = RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low")
+        selector = NoDomainSelector(decision)
+        client = RecordingClient()
+
+        _run_node_with_client(state, selector, client)
+
+        assert not any(t.get("type") == "web_search" for t in client.seen_tools)
+
+    def test_web_search_adds_capability_to_system_prompt(self):
+        snapshot = make_snapshot(active=("todoist",))
+        state = _state_turn0(snapshot, user_prompt="what is the weather today")
+        decision = RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low")
+        selector = NoDomainSelector(decision)
+        client = ResponsesRecordingClient()
+
+        _run_node_with_client(state, selector, client)
+
+        system = client.seen_messages[0]["content"]
+        assert "web_search" in system
+
+
+class TestLooksLikeQuestionCitationRegression:
+    def test_declarative_answer_with_question_title_citation_is_not_a_question(self):
+        content = (
+            "The museum closes at 6 pm. "
+            "[When does the museum open?](https://example.org/hours)"
+        )
+        assert not _looks_like_question(content)
+
+    def test_genuine_question_still_detected(self):
+        assert _looks_like_question("What would you like me to do?")
+
+    def test_citation_url_does_not_confuse_phrase_matching(self):
+        content = "Done. [Source](https://example.com/could-you-provide)"
+        assert not _looks_like_question(content)

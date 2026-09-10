@@ -101,6 +101,7 @@ class RouterToolSelector:
         )
         self._prompt_schema_fingerprint = router_prompt_schema_fingerprint(snapshot)
         self._decision: Optional[RouterDecision] = None
+        self._selected_domains: frozenset[str] = frozenset()
         # Per-run cache: keyed by routing query string. Selector instances are
         # created per run, so the cache scope matches the run scope naturally.
         self._cached_query: Optional[str] = None
@@ -117,6 +118,12 @@ class RouterToolSelector:
 
         return self._decision
 
+    @property
+    def selected_domains(self) -> frozenset[str]:
+        """Domains actually retained after the last selection (including pins)."""
+
+        return self._selected_domains
+
     def select_schemas(
         self,
         query: str,
@@ -124,6 +131,7 @@ class RouterToolSelector:
         active_domains: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         self._decision = None
+        self._selected_domains = frozenset()
         decision = self._cached_or_deterministic_decision(query)
         if decision is None and query in self._failed_queries:
             self._trace_fallback_cache_hit()
@@ -163,6 +171,7 @@ class RouterToolSelector:
         """
 
         self._decision = None
+        self._selected_domains = frozenset()
         decision = self._cached_or_deterministic_decision(query)
         if decision is None and query in self._failed_queries:
             self._trace_fallback_cache_hit()
@@ -360,6 +369,7 @@ class RouterToolSelector:
                     )
                 relevant |= pinned
 
+        self._selected_domains = frozenset(relevant)
         allowed = self._allowed_tool_names(relevant)
         schemas = [spec.openai_schema for spec in registry.specs if spec.name in allowed]
 

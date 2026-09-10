@@ -159,6 +159,87 @@ def test_invalid_tool_correlation_or_content_is_rejected(messages):
     assert error.value.category == "incompatible_checkpoint"
 
 
+def test_web_search_call_item_survives_continuation_validation():
+    continuation = OpenAIResponsesContinuation.from_items(
+        [
+            {
+                "type": "reasoning",
+                "id": "rs_1",
+                "encrypted_content": "enc",
+                "summary": [],
+                "status": "completed",
+            },
+            {
+                "type": "web_search_call",
+                "id": "ws_1",
+                "status": "completed",
+                "action": {"type": "search", "query": "museum hours"},
+            },
+            {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "ask_user",
+                "arguments": '{"question":"Which?"}',
+                "status": "completed",
+            },
+        ]
+    )
+    items = continuation.output_items()
+    assert [i["type"] for i in items] == ["reasoning", "web_search_call", "function_call"]
+    assert items[1]["action"]["query"] == "museum hours"
+
+
+@pytest.mark.parametrize(
+    "bad_item, match",
+    [
+        (
+            {"type": "web_search_call", "status": "completed", "action": {"type": "search"}},
+            "must include an ID",
+        ),
+        (
+            {"type": "web_search_call", "id": "ws_1", "action": {"type": "search"}},
+            "must include a status",
+        ),
+        (
+            {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": "bad"},
+            "action must be an object",
+        ),
+        (
+            {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "crawl"}},
+            "Unsupported web_search_call action",
+        ),
+        (
+            {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "search"}},
+            "search action must include a query",
+        ),
+        (
+            {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "open_page"}},
+            "open_page action must include a url",
+        ),
+        (
+            {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "find_in_page"}},
+            "find_in_page action must include a query",
+        ),
+    ],
+)
+def test_malformed_web_search_call_items_rejected(bad_item, match):
+    with pytest.raises(ValueError, match=match):
+        OpenAIResponsesContinuation.from_items(
+            [
+                bad_item,
+                {
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_1",
+                    "name": "lookup",
+                    "arguments": '{"id":"one"}',
+                    "status": "completed",
+                },
+            ]
+        )
+
+
 def test_serialization_does_not_mutate_legacy_checkpoint():
     legacy = [
         {"role": "assistant", "content": "Calling", "tool_calls": [TOOL_CALL]},
