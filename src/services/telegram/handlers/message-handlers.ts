@@ -44,6 +44,7 @@ import {
 } from '../../../types/agent.types';
 import { AUDIO_LIMIT_MESSAGES, AUDIO_LIMITS } from '../../../utils/ai/audio-limits';
 import { classifyError } from '../errors/classified-error';
+import { formatPollAsText } from '../poll-content';
 
 const ALBUM_QUIET_MS = 1500;
 // Bounds the late-arrival ledger so a stream of albums can't grow it without limit
@@ -111,6 +112,11 @@ export class MessageHandlers {
       );
       fileId = largest.file_id;
       text = typeof message.caption === 'string' ? `[photo] ${message.caption}` : '[photo]';
+    } else if ('poll' in message && message.poll) {
+      const pollText = formatPollAsText(message.poll);
+      if (pollText) {
+        text = pollText;
+      }
     } else if (typeof message.caption === 'string' && 'document' in message) {
       const name = (message.document as { file_name?: string })?.file_name ?? 'unnamed';
       text = `[file: ${name}] ${message.caption}`;
@@ -128,7 +134,7 @@ export class MessageHandlers {
       logger.info('telegram.forward.rejected', { ...logContext, reason: 'no_text' });
       await sendFinalReply(
         ctx,
-        'I can only buffer forwarded text and photos. Voice, video, and sticker forwards are not supported.',
+        'I can only buffer forwarded text, photos, and polls. Voice, video, and sticker forwards are not supported.',
         logContext,
       );
       return true;
@@ -875,8 +881,53 @@ export class MessageHandlers {
     );
   }
 
-  // Catch-all for unrecognized message types (e.g. contacts, locations, polls).
+  async handlePoll(ctx: Context): Promise<void> {
+    if (!ctx.message || !('poll' in ctx.message)) return;
+
+    const poll = (ctx.message as any).poll;
+    const logContext = this.createLogContext(ctx, 'poll');
+    const optionCount = Array.isArray(poll?.options) ? poll.options.length : 0;
+    const questionLength = typeof poll?.question === 'string' ? poll.question.length : 0;
+
+    logger.info('telegram.poll.received', { ...logContext, optionCount, questionLength });
+
+    const pollText = formatPollAsText(poll);
+    if (!pollText) {
+      await sendFinalReply(
+        ctx,
+        "I couldn't read that poll. Please make sure it has a question and options.",
+        logContext,
+      );
+      return;
+    }
+
+    if (!this.forwardBuffer) {
+      await sendFinalReply(
+        ctx,
+        'I received a poll but forwarding is not available. Try forwarding the poll instead.',
+        logContext,
+      );
+      return;
+    }
+
+    const gateKey = this.gateKey(ctx);
+    await this.pushToForwardBuffer(
+      ctx,
+      gateKey,
+      {
+        senderName: 'You (direct poll)',
+        forwardedAt: new Date(),
+        receivedAt: new Date(),
+        text: pollText,
+      },
+      logContext,
+    );
+  }
+
+  // Catch-all for unrecognized message types (e.g. contacts, locations).
   // Skips messages already handled by a more specific handler above.
+  // Polls route through here because Telegraf's bot.on('poll') matches Update.poll
+  // (top-level poll state changes), not Message.poll — so there's no safe sub-type filter.
   async handleUnknown(ctx: Context): Promise<void> {
     if (!ctx.message) return;
 
@@ -892,6 +943,11 @@ export class MessageHandlers {
       'video_note' in ctx.message ||
       'animation' in ctx.message
     ) {
+      return;
+    }
+
+    if ('poll' in ctx.message) {
+      await this.handlePoll(ctx);
       return;
     }
 

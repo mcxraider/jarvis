@@ -206,7 +206,7 @@ describe('MessageHandlers forward buffering', () => {
 
       await expect(handlers.maybeBufferForward(ctx)).resolves.toBe(true);
       expect(ctx.reply).toHaveBeenCalledWith(
-        expect.stringContaining('I can only buffer forwarded text and photos'),
+        expect.stringContaining('I can only buffer forwarded text, photos, and polls'),
         { parse_mode: 'MarkdownV2' },
       );
     });
@@ -223,7 +223,7 @@ describe('MessageHandlers forward buffering', () => {
       await expect(handlers.maybeBufferForward(ctx)).resolves.toBe(true);
       expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(0);
       expect(ctx.reply).toHaveBeenCalledWith(
-        expect.stringContaining('I can only buffer forwarded text and photos'),
+        expect.stringContaining('I can only buffer forwarded text, photos, and polls'),
         { parse_mode: 'MarkdownV2' },
       );
     });
