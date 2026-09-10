@@ -225,6 +225,25 @@ def entity_requirements(tool_name: str) -> Tuple[EntityRef, ...]:
     return _ENTITY_REQUIREMENTS.get(tool_name, ())
 
 
+def mutation_resource_key(tool_name: str, args: dict) -> Optional[str]:
+    """Identify the resource a mutation targets for independence grouping.
+
+    Returns ``None`` for creation tools (always independent) or when the
+    entity arg is absent.  Returns ``"service:entity_id"`` for tools that
+    target an existing entity — two mutations with the same key must execute
+    in order; different keys (or ``None``) are independent.
+    """
+    reqs = _ENTITY_REQUIREMENTS.get(tool_name)
+    if not reqs:
+        return None
+    service = get_service(tool_name)
+    for ref in reqs:
+        entity_id = args.get(ref.arg)
+        if entity_id is not None:
+            return f"{service}:{entity_id}"
+    return None
+
+
 __all__ = [
     "DEFAULT_META",
     "EntityRef",
@@ -235,6 +254,7 @@ __all__ = [
     "get_service",
     "get_verb",
     "irreversible_tools",
+    "mutation_resource_key",
     "needs_event_context_tools",
     "needs_task_context_tools",
 ]

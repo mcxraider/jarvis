@@ -4,8 +4,8 @@ This node is deterministic: it never calls the LLM. It applies guards
 (global mutation gate, approval check, hash binding, single-use token)
 and dispatches the exact frozen payloads on success.
 
-Approved mutations execute sequentially so confirmation, idempotency, and external
-side effects retain a single deterministic order. Guard checks are also sequential
+Independent mutations (targeting different resources) execute concurrently;
+mutations on the same resource stay sequential. Guard checks are sequential
 (they are instant set-membership tests).
 
 Resilience: the batch is protected by a configurable timeout, a shared
@@ -24,6 +24,7 @@ from agents.agent_api.app.async_offload import bounded_to_thread
 from agents.agent_api.app.constants import (
     EXECUTOR_BATCH_TIMEOUT_SECONDS,
     EXECUTOR_CIRCUIT_BREAKER_THRESHOLD,
+    EXECUTOR_MAX_WORKERS,
     EXECUTOR_THROTTLE_ENABLED,
 )
 from agents.agent_api.app.graph.canonicalize import verify_hash
@@ -36,7 +37,7 @@ from agents.agent_api.app.graph.resilience import (
 from agents.agent_api.app.graph.run_deps import RunDeps, deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.dispatcher import ToolDispatcher, tool_result_to_message
-from agents.agent_api.app.tools.metadata import get_service
+from agents.agent_api.app.tools.metadata import get_service, mutation_resource_key
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 
 
@@ -72,6 +73,29 @@ def _abort_message(held: dict, reason: str) -> dict:
             "guard_failure": True,
         }, default=str),
     }
+
+
+def _partition_held_calls(
+    indexed_held: List[Tuple[int, dict]],
+) -> List[List[Tuple[int, dict]]]:
+    """Group held calls into independent chains by resource key.
+
+    Same resource key → sequential chain.  Different keys → separate chains
+    that can run concurrently.  Calls with no resource key (creates) each get
+    their own single-item chain.
+    """
+    chains_by_key: Dict[str, List[Tuple[int, dict]]] = {}
+    independent: List[List[Tuple[int, dict]]] = []
+
+    for entry in indexed_held:
+        _idx, held = entry
+        key = mutation_resource_key(held["tool_name"], held.get("args", {}))
+        if key is None:
+            independent.append([entry])
+        else:
+            chains_by_key.setdefault(key, []).append(entry)
+
+    return list(chains_by_key.values()) + independent
 
 
 def create_executor_node(
@@ -207,7 +231,9 @@ def create_executor_node(
             all_consumed.add(held["id"])
             ready_to_execute.append((idx, held))
 
-        # Phase 2: Sequential mutation execution with batch-scoped resilience.
+        # Phase 2: Concurrent mutation execution with batch-scoped resilience.
+        # Independent mutations (different resources) run concurrently; mutations
+        # on the same resource stay sequential within their chain.
         # Once a confirmed mutation starts it is allowed to settle even if the
         # batch deadline elapses; cancelling it would make the external outcome
         # ambiguous. The elapsed deadline prevents later mutations from starting.
@@ -217,99 +243,93 @@ def create_executor_node(
             batch_deadline = time.monotonic() + EXECUTOR_BATCH_TIMEOUT_SECONDS
             throttle = BatchThrottle()
             breaker = BatchCircuitBreaker(threshold=EXECUTOR_CIRCUIT_BREAKER_THRESHOLD)
+            semaphore = asyncio.Semaphore(max(1, EXECUTOR_MAX_WORKERS))
+
+            chains = _partition_held_calls(ready_to_execute)
+            chain_count = len(chains)
 
             tracer.event(
                 "graph.executor",
-                "Dispatching serialized confirmed mutations.",
+                "Dispatching confirmed mutations.",
                 count=len(ready_to_execute),
+                chains=chain_count,
                 timeout=EXECUTOR_BATCH_TIMEOUT_SECONDS,
             )
 
-            completed = 0
-            for position, (idx, held) in enumerate(ready_to_execute):
-                remaining_timeout = max(0.0, batch_deadline - time.monotonic())
-                if remaining_timeout <= 0:
-                    for timeout_idx, timeout_held in ready_to_execute[position:]:
-                        execution_results[timeout_idx] = timeout_error_envelope(
-                            timeout_held,
-                            EXECUTOR_BATCH_TIMEOUT_SECONDS,
-                        )
-                    tracer.event(
-                        "graph.executor",
-                        "Batch timeout reached.",
-                        timeout=EXECUTOR_BATCH_TIMEOUT_SECONDS,
-                        completed=completed,
-                        total=len(ready_to_execute),
-                    )
-                    break
-                tracer.event(
-                    "graph.executor",
-                    "Executing confirmed action.",
-                    held_call_id=held["id"],
-                    tool_name=held["tool_name"],
-                )
-                mutation_task = asyncio.create_task(
-                    _execute_one(
-                        held,
-                        tool_dispatcher,
-                        throttle,
-                        breaker,
-                        batch_deadline,
-                    )
-                )
-                deadline_elapsed = False
-                try:
-                    done, _pending = await asyncio.wait(
-                        {mutation_task},
-                        timeout=max(0.001, remaining_timeout),
-                    )
-                    deadline_elapsed = not done
-                    # Provider-level request timeouts bound this wait. Shielding
-                    # ensures the batch timeout never cancels an in-flight write.
-                    result = await asyncio.shield(mutation_task)
-                except asyncio.CancelledError:
-                    # A request cancellation must likewise wait for a dispatched
-                    # mutation to settle; otherwise its external outcome and
-                    # idempotency claim would be left ambiguous.
-                    while not mutation_task.done():
-                        try:
-                            await asyncio.shield(mutation_task)
-                        except asyncio.CancelledError:
-                            continue
-                        except BaseException:
-                            break
-                    raise
-                except Exception as exc:
-                    result = {
-                        "tool_call_id": held["origin_tool_call_id"],
-                        "tool_name": held["tool_name"],
-                        "success": False,
-                        "content": None,
-                        "error": f"Execution error: {exc}",
-                    }
-                completed += 1
-                tracer.event(
-                    "graph.executor",
-                    "Execution completed.",
-                    held_call_id=held["id"],
-                    success=result.get("success"),
-                )
-                execution_results[idx] = result
+            async def _run_chain(chain: List[Tuple[int, dict]]) -> None:
+                for position, (idx, held) in enumerate(chain):
+                    remaining_timeout = max(0.0, batch_deadline - time.monotonic())
+                    if remaining_timeout <= 0:
+                        for timeout_idx, timeout_held in chain[position:]:
+                            execution_results[timeout_idx] = timeout_error_envelope(
+                                timeout_held,
+                                EXECUTOR_BATCH_TIMEOUT_SECONDS,
+                            )
+                        break
 
-                if deadline_elapsed:
-                    for timeout_idx, timeout_held in ready_to_execute[position + 1 :]:
-                        execution_results[timeout_idx] = timeout_error_envelope(
-                            timeout_held,
-                            EXECUTOR_BATCH_TIMEOUT_SECONDS,
-                        )
                     tracer.event(
                         "graph.executor",
-                        "Batch timeout reached after in-flight mutation settled.",
-                        timeout=EXECUTOR_BATCH_TIMEOUT_SECONDS,
-                        completed=completed,
-                        total=len(ready_to_execute),
+                        "Executing confirmed action.",
+                        held_call_id=held["id"],
+                        tool_name=held["tool_name"],
                     )
-                    break
+
+                    async with semaphore:
+                        mutation_task = asyncio.create_task(
+                            _execute_one(
+                                held,
+                                tool_dispatcher,
+                                throttle,
+                                breaker,
+                                batch_deadline,
+                            )
+                        )
+                        deadline_elapsed = False
+                        try:
+                            done, _pending = await asyncio.wait(
+                                {mutation_task},
+                                timeout=max(0.001, remaining_timeout),
+                            )
+                            deadline_elapsed = not done
+                            result = await asyncio.shield(mutation_task)
+                        except asyncio.CancelledError:
+                            while not mutation_task.done():
+                                try:
+                                    await asyncio.shield(mutation_task)
+                                except asyncio.CancelledError:
+                                    continue
+                                except BaseException:
+                                    break
+                            raise
+                        except Exception as exc:
+                            result = {
+                                "tool_call_id": held["origin_tool_call_id"],
+                                "tool_name": held["tool_name"],
+                                "success": False,
+                                "content": None,
+                                "error": f"Execution error: {exc}",
+                            }
+
+                    tracer.event(
+                        "graph.executor",
+                        "Execution completed.",
+                        held_call_id=held["id"],
+                        success=result.get("success"),
+                    )
+                    execution_results[idx] = result
+
+                    if deadline_elapsed:
+                        for timeout_idx, timeout_held in chain[position + 1:]:
+                            execution_results[timeout_idx] = timeout_error_envelope(
+                                timeout_held,
+                                EXECUTOR_BATCH_TIMEOUT_SECONDS,
+                            )
+                        break
+
+            if chain_count == 1:
+                await _run_chain(chains[0])
+            else:
+                await asyncio.gather(*(_run_chain(c) for c in chains))
 
         # Phase 3: Reassemble results in original order
         result_messages: List[dict] = []

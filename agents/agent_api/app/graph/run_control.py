@@ -29,13 +29,19 @@ class CancelDecision:
 
 
 class RunControl:
-    """Linearizable phase transitions for cancellation versus mutation dispatch."""
+    """Linearizable phase transitions for cancellation versus mutation dispatch.
+
+    Supports multiple concurrent in-flight mutations via a reference counter.
+    Cancellation is deferred while any mutation is in flight and blocks new
+    mutations from starting once requested.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._phase = RunPhase.CANCELLABLE
         self._cancel_reason: Optional[str] = None
         self._deferred_cancel = False
+        self._mutations_in_flight = 0
 
     @property
     def phase(self) -> RunPhase:
@@ -51,6 +57,11 @@ class RunControl:
     def cancel_requested(self) -> bool:
         with self._lock:
             return self._cancel_reason is not None
+
+    @property
+    def mutations_in_flight(self) -> int:
+        with self._lock:
+            return self._mutations_in_flight
 
     def request_cancel(self, reason: str = "cancelled") -> CancelDecision:
         """Request cancellation without crossing an in-flight mutation boundary."""
@@ -70,20 +81,35 @@ class RunControl:
             return CancelDecision(CancelOutcome.CANCELLED, cancel_task=True)
 
     def begin_mutation(self) -> bool:
-        """Atomically cross the last cancellable point before external dispatch."""
+        """Atomically cross the last cancellable point before external dispatch.
+
+        Multiple concurrent callers may each obtain permission; the phase stays
+        MUTATION_IN_FLIGHT until every caller has finished.  Once cancellation
+        is requested (deferred), no new mutations are permitted.
+        """
 
         with self._lock:
-            if self._phase is not RunPhase.CANCELLABLE:
+            if self._phase not in (RunPhase.CANCELLABLE, RunPhase.MUTATION_IN_FLIGHT):
                 return False
+            if self._deferred_cancel:
+                return False
+            self._mutations_in_flight += 1
             self._phase = RunPhase.MUTATION_IN_FLIGHT
             return True
 
     def finish_mutation(self) -> bool:
-        """Leave mutation mode and report whether cancellation was deferred."""
+        """Leave mutation mode and report whether cancellation was deferred.
+
+        Only the last concurrent finisher triggers the phase transition back to
+        CANCELLABLE (or CANCELLED if cancellation was deferred).
+        """
 
         with self._lock:
             if self._phase is not RunPhase.MUTATION_IN_FLIGHT:
                 return self._phase is RunPhase.CANCELLED
+            self._mutations_in_flight = max(0, self._mutations_in_flight - 1)
+            if self._mutations_in_flight > 0:
+                return False
             if self._deferred_cancel:
                 self._phase = RunPhase.CANCELLED
                 return True

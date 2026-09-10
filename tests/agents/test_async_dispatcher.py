@@ -254,8 +254,109 @@ def test_async_batch_serializes_mutations_between_read_groups() -> None:
 
     assert [result["content"] for result in results] == [0, 1, 2, 3, 4]
     assert set(order[:2]) == {"read-0", "read-1"}
-    assert order[2:] == ["mutate-2", "mutate-3", "read-4"]
+    # Independent mutations (no resource key) run concurrently
+    assert set(order[2:4]) == {"mutate-2", "mutate-3"}
+    assert order[4] == "read-4"
+    assert max_active_mutations == 2
+
+
+def test_same_resource_mutations_stay_sequential() -> None:
+    """Mutations targeting the same entity execute in order, not concurrently."""
+    order: list[str] = []
+    active_mutations = 0
+    max_active_mutations = 0
+
+    async def mutate(arguments: dict) -> int:
+        nonlocal active_mutations, max_active_mutations
+        active_mutations += 1
+        max_active_mutations = max(max_active_mutations, active_mutations)
+        order.append(f"mutate-{arguments['task_id']}")
+        await asyncio.sleep(0)
+        active_mutations -= 1
+        return arguments["task_id"]
+
+    registry = ToolRegistry().register(
+        [
+            ToolSpec(
+                name="update_todoist_task",
+                openai_schema={"type": "function", "function": {"name": "update_todoist_task"}},
+                handler=lambda arguments: arguments["task_id"],
+                async_handler=mutate,
+                mutating=True,
+            ),
+        ]
+    )
+    dispatcher = ToolDispatcher(registry, allow_mutations=True)
+
+    results = asyncio.run(
+        async_execute_tool_calls(
+            [
+                _call("update_todoist_task", "call-0", {"task_id": "same-task", "content": "a"}),
+                _call("update_todoist_task", "call-1", {"task_id": "same-task", "content": "b"}),
+            ],
+            dispatcher,
+        )
+    )
+
+    assert [result["content"] for result in results] == ["same-task", "same-task"]
+    assert order == ["mutate-same-task", "mutate-same-task"]
     assert max_active_mutations == 1
+
+
+def test_different_resource_mutations_run_concurrently() -> None:
+    """Mutations targeting different entities can overlap."""
+    active_mutations = 0
+    max_active_mutations = 0
+    barrier = None
+
+    async def mutate(arguments: dict) -> str:
+        nonlocal active_mutations, max_active_mutations, barrier
+        active_mutations += 1
+        max_active_mutations = max(max_active_mutations, active_mutations)
+        if barrier is None:
+            raise RuntimeError("barrier not set")
+        barrier.count += 1
+        if barrier.count >= barrier.target:
+            barrier.event.set()
+        await barrier.event.wait()
+        active_mutations -= 1
+        return arguments["task_id"]
+
+    registry = ToolRegistry().register(
+        [
+            ToolSpec(
+                name="complete_task",
+                openai_schema={"type": "function", "function": {"name": "complete_task"}},
+                handler=lambda arguments: arguments["task_id"],
+                async_handler=mutate,
+                mutating=True,
+            ),
+        ]
+    )
+    dispatcher = ToolDispatcher(registry, allow_mutations=True)
+
+    async def scenario() -> None:
+        nonlocal barrier
+
+        class Barrier:
+            def __init__(self, target: int) -> None:
+                self.target = target
+                self.count = 0
+                self.event = asyncio.Event()
+
+        barrier = Barrier(target=3)
+        results = await async_execute_tool_calls(
+            [
+                _call("complete_task", "call-0", {"task_id": "task-A"}),
+                _call("complete_task", "call-1", {"task_id": "task-B"}),
+                _call("complete_task", "call-2", {"task_id": "task-C"}),
+            ],
+            dispatcher,
+        )
+        assert len(results) == 3
+
+    asyncio.run(scenario())
+    assert max_active_mutations == 3
 
 
 def test_read_concurrency_is_bounded_by_executor_limit() -> None:
@@ -768,6 +869,7 @@ def test_mutation_task_creation_failure_restores_cancellable_phase() -> None:
 
 
 def test_control_cancel_during_mutation_settles_then_skips_later_mutations() -> None:
+    """Same-resource mutations are sequential; cancel during the first skips the second."""
     async def scenario() -> None:
         first_started = asyncio.Event()
         release_first = asyncio.Event()
@@ -783,8 +885,8 @@ def test_control_cancel_during_mutation_settles_then_skips_later_mutations() -> 
         registry = ToolRegistry().register(
             [
                 ToolSpec(
-                    name="create",
-                    openai_schema={"type": "function", "function": {"name": "create"}},
+                    name="update_todoist_task",
+                    openai_schema={"type": "function", "function": {"name": "update_todoist_task"}},
                     handler=lambda arguments: arguments,
                     async_handler=mutate,
                     mutating=True,
@@ -807,8 +909,8 @@ def test_control_cancel_during_mutation_settles_then_skips_later_mutations() -> 
             task = asyncio.create_task(
                 async_execute_tool_calls(
                     [
-                        _call("create", "first", {"value": 1}),
-                        _call("create", "second", {"value": 2}),
+                        _call("update_todoist_task", "first", {"task_id": "same", "value": 1}),
+                        _call("update_todoist_task", "second", {"task_id": "same", "value": 2}),
                     ],
                     dispatcher,
                 )
@@ -835,7 +937,7 @@ def test_control_cancel_during_mutation_settles_then_skips_later_mutations() -> 
             {"retry": 0},
         ):
             retry = await retry_dispatcher.async_execute_tool_call(
-                _call("create", "retry", {"value": 1})
+                _call("update_todoist_task", "retry", {"task_id": "same", "value": 1})
             )
         assert retry["idempotency_deduplicated"] is True
         assert executions == [1]
