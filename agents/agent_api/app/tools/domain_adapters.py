@@ -10,7 +10,7 @@ the orchestrator prompt.
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Protocol, runtime_checkable
 
 from agents.agent_api.app.credentials import (
     IntegrationCredential,
@@ -30,6 +30,11 @@ from agents.agent_api.app.tools.todoist.tools import (
     get_todoist_tool_specs,
 )
 from agents.agent_api.app.tracing import TracePrinter
+
+
+@runtime_checkable
+class Prewarmable(Protocol):
+    def prewarm(self) -> None: ...
 
 
 class CredentialValidationError(ValueError):

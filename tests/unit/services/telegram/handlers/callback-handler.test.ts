@@ -369,6 +369,34 @@ describe('CallbackHandler', () => {
     expect(agentClient.resume).toHaveBeenCalled();
   });
 
+  it('completes resume even when presentation calls fail', async () => {
+    const agentClient = {
+      resume: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'tg_abc_msg123',
+        response: 'Done.',
+        toolResults: [],
+      }),
+    };
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateStore = new MemoryConversationGateStore();
+    await setupWaitingGate(gateStore, pendingStore);
+    const handler = new CallbackHandler(
+      agentClient as any,
+      pendingStore,
+      gateStore,
+      createTerminalReplyStore(),
+    );
+    const ctx = makeCtx('confirm:approve:tg_abc_msg123');
+    ctx.answerCbQuery.mockRejectedValue(new Error('telegram timeout'));
+    ctx.deleteMessage.mockRejectedValue(new Error('message gone'));
+    ctx.reply.mockRejectedValueOnce(new Error('send failed')).mockResolvedValue({ message_id: 99 });
+
+    await handler.handleCallbackQuery(ctx);
+
+    expect(agentClient.resume).toHaveBeenCalled();
+  });
+
   it('does nothing for non-confirm callback data', async () => {
     const agentClient = { resume: jest.fn() };
     const pendingStore = new MemoryPendingClarificationStore();

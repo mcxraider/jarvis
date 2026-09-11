@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 
+from agents.agent_api.app.async_offload import bounded_to_thread
 from agents.agent_api.app.tools.google_calendar.auth import (
     GoogleCalendarApiError,
     load_credentials,
@@ -675,10 +676,28 @@ class GoogleCalendarClient:
         async with self._async_init_lock:
             if self._async_token_manager is not None:
                 return self._async_token_manager
-            # Force credential loading via the sync property (serialized by _lock).
-            _ = self.service
+            if self._credential_coordinator is None:
+                credentials = await bounded_to_thread(
+                    load_credentials,
+                    self._token_path,
+                    credential_json=self._credential_json,
+                    persist_callback=self._persist_callback,
+                )
+                self._credentials = credentials
+                self._credential_coordinator = _CredentialCoordinator(credentials)
             self._async_token_manager = _AsyncTokenManager(self._credential_coordinator)
         return self._async_token_manager
+
+    def prewarm(self) -> None:
+        """Fire-and-forget credential loading so it overlaps with the LLM call."""
+
+        async def _warmup():
+            try:
+                await self._ensure_async_infra()
+            except Exception:
+                logger.debug("calendar.prewarm.failed", exc_info=True)
+
+        asyncio.create_task(_warmup())
 
     @traceable(
         name="api.google_calendar",

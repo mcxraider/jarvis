@@ -85,7 +85,7 @@ describe('AudioProcessorService', () => {
     );
   });
 
-  it('sends the transcription then awaits hooks before processing audio text', async () => {
+  it('invokes transcription hooks and agent with correct arguments', async () => {
     const onTranscription = jest.fn().mockResolvedValue(undefined);
     const onTranscribed = jest.fn().mockResolvedValue(undefined);
     const onProgress = jest.fn();
@@ -114,13 +114,51 @@ describe('AudioProcessorService', () => {
       onProgress,
       undefined,
     );
-    // Transcription is sent first, then the agent phase begins, then processing runs.
-    expect(onTranscription.mock.invocationCallOrder[0]).toBeLessThan(
-      onTranscribed.mock.invocationCallOrder[0],
+  });
+
+  it('starts agent processing concurrently with transcript delivery', async () => {
+    let transcriptionResolved = false;
+    const onTranscription = jest.fn().mockImplementation(
+      () => new Promise<void>(resolve => {
+        setTimeout(() => { transcriptionResolved = true; resolve(); }, 50);
+      }),
     );
-    expect(onTranscribed.mock.invocationCallOrder[0]).toBeLessThan(
-      textProcessor.processTextMessage.mock.invocationCallOrder[0],
+    const textProcessor = {
+      processTextMessage: jest.fn().mockImplementation(async () => {
+        expect(transcriptionResolved).toBe(false);
+        return { response: 'Task created.' };
+      }),
+    };
+    const service = makeService(textProcessor);
+
+    await service.processAudioMessage(
+      'https://example.com/voice.ogg', 7, {},
+      { onTranscription, onTranscribed: jest.fn() },
     );
+
+    expect(onTranscription).toHaveBeenCalled();
+    expect(textProcessor.processTextMessage).toHaveBeenCalled();
+    expect(transcriptionResolved).toBe(true);
+  });
+
+  it('waits for transcript delivery before returning even if agent finishes first', async () => {
+    let transcriptionDone = false;
+    const onTranscription = jest.fn().mockImplementation(
+      () => new Promise<void>(resolve => {
+        setTimeout(() => { transcriptionDone = true; resolve(); }, 50);
+      }),
+    );
+    const textProcessor = {
+      processTextMessage: jest.fn().mockResolvedValue({ response: 'ok' }),
+    };
+    const service = makeService(textProcessor);
+
+    await service.processAudioMessage(
+      'https://example.com/voice.ogg', 7, {},
+      { onTranscription, onTranscribed: jest.fn() },
+    );
+
+    expect(transcriptionDone).toBe(true);
   });
 
   it('still processes the request when sending the transcription fails', async () => {

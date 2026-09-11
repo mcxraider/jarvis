@@ -72,6 +72,7 @@ from agents.agent_api.app.run_logging import (
 )
 from agents.agent_api.app.tools.base import ToolRegistry
 from agents.agent_api.app.tools.access_policy import ResourceAccessPolicy
+from agents.agent_api.app.tools.domain_adapters import Prewarmable
 from agents.agent_api.app.tools.dispatcher import ToolDispatcher
 from agents.agent_api.app.tools.registry_factory import (
     apply_registered_tools,
@@ -813,6 +814,9 @@ async def run_jarvis_async(
             access_policy=access_policy,
         )
         apply_registered_tools(runtime_context, registry, tool_names_by_provider)
+        for client in run_clients:
+            if isinstance(client, Prewarmable):
+                client.prewarm()
         if not resuming:
             # Resume ownership and provider credentials depend on this snapshot.
             # Persist it before the graph can reach an interrupt checkpoint.

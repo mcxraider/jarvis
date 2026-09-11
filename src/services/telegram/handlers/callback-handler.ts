@@ -18,6 +18,7 @@ import {
   resolveRunningGateTtlMs,
   resolveWaitingGateTtlMs,
 } from '../../../config/turn-timeout.config';
+import { guardProgressCallback } from '../processors/text-processor.service';
 
 const CONFIRM_PREFIX = 'confirm:';
 
@@ -124,21 +125,16 @@ export class CallbackHandler {
         return;
       }
 
-      await ctx.answerCbQuery(decision === 'approve' ? 'Approved!' : 'Declined.');
-
-      try {
-        await ctx.deleteMessage();
-      } catch {
-        /* best-effort delete, non-critical */
-      }
-
       const statusEmoji = decision === 'approve' ? '✅' : '❌';
       const statusText = decision === 'approve' ? 'Approved' : 'Declined';
 
-      // Deliver the decision as its own new message instead of editing the confirm message.
-      await sendFinalReply(ctx, `${statusEmoji} ${statusText}`, logContext);
+      void Promise.allSettled([
+        ctx.answerCbQuery(`${statusText}!`),
+        ctx.deleteMessage().catch(() => {}),
+        sendFinalReply(ctx, `${statusEmoji} ${statusText}`, logContext),
+      ]);
 
-      await progress.start();
+      void progress.start();
 
       const agentResponse = await this.agentClient.resume(
         {
@@ -154,17 +150,15 @@ export class CallbackHandler {
           priorImageBatches: pending.imageBatches?.length ? pending.imageBatches : undefined,
         },
         logContext,
-        async (event, signal) => {
-          const snapshot = await this.conversationGate.getSnapshot(gateKey).catch(() => undefined);
-          if (snapshot?.status !== 'running' || snapshot.requestId !== requestId) {
-            logger.info('telegram.callback.confirm.progress_suppressed_stale_owner', {
-              ...logContext,
-              gateKey,
-            });
-            return;
-          }
-          await progress.record(event, signal);
-        },
+        guardProgressCallback(
+          this.conversationGate,
+          gateKey,
+          requestId,
+          logContext,
+          async (event, signal) => {
+            await progress.record(event, signal);
+          },
+        )!,
       );
 
       if (agentResponse.delivery === 'ambiguous') {

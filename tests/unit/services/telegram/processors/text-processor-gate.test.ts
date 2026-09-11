@@ -675,8 +675,9 @@ describe('TextProcessorService — conversation gate integration', () => {
   });
 
   describe('fail-closed ownership binding', () => {
-    it('does not invoke when the gate snapshot cannot be read', async () => {
+    it('does not invoke when acquisition is contended and snapshot cannot be read', async () => {
       const gateStore = new MemoryConversationGateStore();
+      gateStore.tryAcquire = jest.fn().mockResolvedValue(false);
       gateStore.getSnapshot = jest.fn().mockRejectedValue(new Error('store down'));
 
       const agentClient = mockAgentClient();
