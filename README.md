@@ -88,7 +88,7 @@ From **validate_entities**, the graph branches:
   - If output is large → **summarize** condenses it before returning to the orchestrator.
   - If output is small → returns to the orchestrator.
 - **Any risky** → **prepare_confirm** freezes the risky operations into a held payload → **confirm** presents them for approval.
-  - Approve → **executor** applies 4 guards then executes.
+  - Approve → **executor** applies 4 guards then executes (independent resources concurrently, same resource sequentially).
   - Decline → **end**.
 
 All paths return to the orchestrator for the next routing decision.
@@ -154,6 +154,7 @@ Complexity is assessed independently of query length, mutation risk, and the num
 - **Reply context** — swipe/reply to an earlier Telegram message from the bot or the user, and Jarvis includes a quoted version of that message as context for the new request.
 - **Progress messages** — Telegram shows transcription, agent progress states, and streamed reasoning summaries while work is running.
 - **Rich replies** — final answers are formatted for Telegram Markdown, with table normalization and long-message handling.
+- **Poll forwarding** — forward a Telegram poll to the bot; its question, options, and metadata are rendered as structured text for the agent.
 - **Native photo input** — direct JPEG photos and albums of up to 10 images are described by the OpenAI vision model (Luna) and forwarded to the agent; image documents remain unsupported.
 - **Unsupported media guardrails** — stickers, GIFs, video notes, image documents, and unknown message types are rejected with a clear supported-input prompt.
 
@@ -175,6 +176,7 @@ Complexity is assessed independently of query length, mutation risk, and the num
 - **Scheduling help** — reason over dates, due times, availability, task load, and calendar conflicts before taking action.
 - **Per-user integrations** — Telegram identity resolves the user's connected services and preferences from Supabase at runtime.
 - **Safe mutations** — entity IDs must be grounded by prior reads before updates/deletes, and idempotency prevents duplicate external mutations on retries.
+- **Web search** — when the router attaches no tool domain, the orchestrator gains OpenAI's hosted web search for answering general-knowledge questions with cited sources.
 - **Router-aware context** — the query router narrows tools and prompt context to the domains a request actually needs.
 
 ## Local agent CLI

@@ -133,11 +133,12 @@ Node keys are literally `graph.*` in `builder.py` (`graph.orchestrator`, `graph.
 
 ### Input channels
 
-All four channels converge on the same Python graph path:
+All five channels converge on the same Python graph path:
 
 - **Text** → `TextProcessorService` → `/invoke`.
 - **Voice / audio** → FFmpeg normalization (16 kHz mono FLAC) → Whisper transcription → same `TextProcessorService`. Files up to 20 MB / 20 minutes are accepted; anything over 30 s is chunked with 5 s overlap, transcribed concurrently (5 in-flight Groq requests process-wide), and merged. A caption on the audio becomes the instruction above the transcript. Limits live in `src/utils/ai/audio-limits.ts`.
 - **Photos** → `MessageHandlers.handlePhoto` buffers Telegram `media_group_id` albums for `ALBUM_QUIET_MS` (1.5s), then downloads and JPEG-validates each file into `AgentImage[]` (data-URL base64) → `MessageProcessorService.processPhotoMessage`. Bounds live in `src/types/agent.types.ts`: `MAX_AGENT_IMAGE_COUNT` (10), `MAX_AGENT_IMAGE_BYTES` (10 MB total per turn), `MAX_AGENT_IMAGE_BATCHES` (20). Images sent during a HITL pause are persisted as `image_batches` on `telegram_pending_clarifications` so a resume replays them.
+- **Polls** → `MessageHandlers.handlePoll` formats the poll via `poll-content.ts` (`formatPollAsText`) and feeds the structured text into the same text path.
 - **Forwards** → buffered in `forward-buffer.store.ts` until `/forward <instruction>` dispatches them as one combined turn (text + any buffered photos), always force-fresh.
 
 ### Tracing
@@ -181,6 +182,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 - `telegram-bot.service.ts` — Telegraf lifecycle, auth middleware, webhook registration, global error boundary
 - `telegram-menu.registry.ts` — Telegram commands menu (autocomplete): `/new`, `/cancel`, `/help`, `/forward`
 - `telegram-progress-reporter.ts` — single ephemeral input-status/reasoning-summary transport (rich draft or MarkdownV2 edit)
+- `poll-content.ts` — pure formatter: Telegram poll object → plain text (used by forward buffer and reply context)
 - `forward-buffer.store.ts` — in-memory buffer for user-forwarded messages, accumulated per conversation until dispatched
 - `message-processor.service.ts` — gate-aware pipeline orchestrator
 - `conversation-gate.store.ts` — per-conversation serialization (idle/running/waiting); Postgres-backed
@@ -199,7 +201,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 
 - `telegram-handlers.ts` — registration coordinator (wires commands, callbacks, message types)
 - `command-handlers.ts` — `/start`, `/help`, `/status`, `/cancel` only. `/help` also documents `/new` and `/forward`, whose handlers live in `message-handlers.ts`.
-- `message-handlers.ts` — text, voice, audio, photo (+album batching), document, unsupported media; plus `handleNew` (`/new`), `handleForward` (`/forward`), and `maybeBufferForward` (forward buffering)
+- `message-handlers.ts` — text, voice, audio, photo (+album batching), poll, document, unsupported media; plus `handleNew` (`/new`), `handleForward` (`/forward`), and `maybeBufferForward` (forward buffering)
 - `callback-handler.ts` — inline keyboard confirm/decline callbacks, resumes agent
 
 ##### `src/services/telegram/processors/`
@@ -264,7 +266,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 - `entity_index.py` — `SeenEntityIndex`: validates mutation targets were surfaced by prior reads
 - `extractors.py` — shared extractors: `extract_task_items`, `extract_event_items`
 - `resilience.py` — `BatchThrottle` and `BatchCircuitBreaker`
-- `run_control.py` — thread-safe `RunControl` state machine (cancellation vs mutation dispatch)
+- `run_control.py` — thread-safe `RunControl` state machine (cancellation vs concurrent mutation dispatch)
 - `run_deps.py` — `RunDeps` dataclass: per-invocation DI container via LangGraph config
 
 #### `graph/nodes/`
@@ -274,7 +276,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 - `hitl.py` — human-in-the-loop clarification interrupt (registered as node `graph.clarify`)
 - `confirm.py` — confirmation interrupt node (pauses run, awaits approve/decline)
 - `prepare_confirm.py` — freezes risky calls into `held_calls`, enriches with context
-- `executor.py` — post-approval execution: hash-binding guard, sequential dispatch, circuit breaker
+- `executor.py` — post-approval execution: hash-binding guard, concurrent independent-resource dispatch, circuit breaker
 - `validate_entities.py` — blocks mutations targeting hallucinated entity IDs
 - `summarize.py` — condenses large tool outputs via secondary LLM call
 - `end.py` — no-op terminal node (`graph.end`): gives every exit a traceable span
@@ -291,10 +293,10 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 
 - `base.py` — `ToolSpec`, `ToolRegistry` (schema + handler + mutating flag)
 - `control.py` — `ask_user` pseudo-tool (graph control)
-- `dispatcher.py` — `ToolDispatcher`: mutation guard, idempotency, classified errors, batch async
+- `dispatcher.py` — `ToolDispatcher`: mutation guard, idempotency, classified errors, concurrent independent-resource dispatch
 - `domain_adapters.py` — `DOMAIN_ADAPTERS` registry (pluggable credential-aware client factories)
 - `errors.py` — `ClassifiedApiError` base class
-- `metadata.py` — `ToolDisplayMeta`, `EntityRef`, risk/display metadata registry
+- `metadata.py` — `ToolDisplayMeta`, `EntityRef`, risk/display metadata registry, `mutation_resource_key` for independence grouping
 - `registry_factory.py` — `build_runtime_registry` (prod) and `build_registry_from_clients` (tests)
 - `selection.py` — `ToolSelector` protocol + `get_selector()` factory
 - `selectors/static.py` — `StaticToolSelector` (pass-through)
@@ -486,7 +488,7 @@ Do not commit generated or local files:
 - `venv/`
 - `.env`
 - `__pycache__/`
-- Editor/Finder duplicates matching `* 2.ts`, `* 2.py`, `* 2.md`. Several exist untracked in the worktree (e.g. `src/services/telegram/telegram-reasoning-summary-reporter 2.ts`, `agents/agent_api/app/llm/streaming 2.py`). Never stage them, never edit them, and never treat them as source when searching.
+- Editor/Finder duplicates matching `* 2.ts`, `* 2.py`, `* 2.md`. Several exist untracked in the worktree (e.g. `src/services/telegram/poll-content 2.ts`, `agents/agent_api/app/llm/citations 2.py`). Never stage them, never edit them, and never treat them as source when searching.
 
 Keep `.env.sample` committed; add any new env var there in the same change that reads it.
 
