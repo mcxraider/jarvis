@@ -6,6 +6,7 @@
 // integration test can drive the bundled FFmpeg binary for real.
 
 import { EventEmitter } from 'events';
+import { existsSync } from 'fs';
 import { basename, join } from 'path';
 import { tmpdir } from 'os';
 
@@ -702,6 +703,7 @@ describe('AudioConverter', () => {
       if (!available) return;
 
       const assetPath = join(__dirname, '../../../../assets/audio-test.ogg');
+      if (!existsSync(assetPath)) return;
       const workDir = await realFs.mkdtemp(join(tmpdir(), 'jarvis-audio-asset-'));
       try {
         const result = await AudioConverter.prepare({ inputPath: assetPath, workDir });
@@ -738,6 +740,7 @@ describe('AudioConverter', () => {
       if (!available) return;
 
       const assetPath = join(__dirname, '../../../../assets/MWINIWIO-30-Aug.m4a.mp4');
+      if (!existsSync(assetPath)) return;
       const workDir = await realFs.mkdtemp(join(tmpdir(), 'jarvis-audio-mwiniwio-'));
       try {
         const result = await AudioConverter.prepare({ inputPath: assetPath, workDir });

@@ -1,9 +1,9 @@
 // tests/unit/services/ai/whisper.service.test.ts — long-audio transcription pipeline.
 //
-// Seams that are mocked: the Groq client (`openai`), `AudioConverter.prepare`, `global.fetch`
-// and `fs/promises.mkdtemp` (wrapping the real implementation so temp-directory cleanup is a
-// real filesystem assertion). Everything else — the streamed download, the worker pool, the
-// retry ladder, the merge and the quality pass — runs for real.
+// Seams that are mocked: the Groq client (`openai`), `AudioConverter.normalize`,
+// `AudioConverter.extractChunk`, `global.fetch` and `fs/promises.mkdtemp` (wrapping the
+// real implementation so temp-directory cleanup is a real filesystem assertion). Everything
+// else — the worker pool, the retry ladder, the merge and the quality pass — runs for real.
 //
 // Determinism: `Date.now` is a fake clock that only the injected `retrySleep` advances, so
 // deadlines, backoff and the shared limiter cooldown are all observable without timers.
@@ -30,9 +30,8 @@ import { GroqTranscriptionError } from '../../../../src/services/ai/groq-transcr
 import { AudioAdmissionError } from '../../../../src/utils/ai/audio-admission-error';
 import {
   AudioConverter,
-  PrepareAudioOptions,
-  PreparedAudio,
-  PreparedAudioChunk,
+  NormalizeOptions,
+  NormalizedAudio,
 } from '../../../../src/utils/ai/audioConverter';
 import { planAudioChunks } from '../../../../src/utils/ai/audio-chunk-plan';
 import {
@@ -140,7 +139,8 @@ describe('WhisperService', () => {
   const originalEnv = process.env;
   const originalFetch = global.fetch;
   let dateNowSpy: jest.SpyInstance<number, []>;
-  let prepareSpy: jest.SpyInstance<Promise<PreparedAudio>, [PrepareAudioOptions]>;
+  let normalizeSpy: jest.SpyInstance;
+  let extractChunkSpy: jest.SpyInstance;
 
   // Fake clock: only `retrySleep` (and therefore the limiter cooldown sleep) moves it.
   let clock: number;
@@ -151,7 +151,7 @@ describe('WhisperService', () => {
   // Prepared-audio shape for the run under test.
   let preparedDurationSeconds: number;
   let chunkSizeBytesOverride: number | undefined;
-  let prepareOutcome: ((options: PrepareAudioOptions) => Promise<PreparedAudio>) | undefined;
+  let normalizeOutcome: ((options: NormalizeOptions) => Promise<NormalizedAudio>) | undefined;
 
   // Groq responses, keyed by chunk index. `respond` may be called more than once per index
   // when a chunk is retried.
@@ -163,25 +163,24 @@ describe('WhisperService', () => {
 
   const loggerMock = logger as jest.Mocked<typeof logger>;
 
-  function buildPrepared(options: PrepareAudioOptions): PreparedAudio {
-    const plans = planAudioChunks(preparedDurationSeconds, {
+  function buildNormalized(options: NormalizeOptions): NormalizedAudio {
+    const plan = planAudioChunks(preparedDurationSeconds, {
       coreSeconds: options.coreSeconds,
       overlapSeconds: options.overlapSeconds,
     });
 
-    const chunks: PreparedAudioChunk[] = plans.map((plan) => {
-      const path = join(options.workDir, `chunk-${String(plan.index).padStart(3, '0')}.flac`);
-      const bytes = Buffer.alloc(CHUNK_BASE_BYTES + plan.index, plan.index);
-      writeFileSync(path, bytes);
-      return { ...plan, path, sizeBytes: chunkSizeBytesOverride ?? bytes.length };
-    });
+    const normalizedPath = join(options.workDir, 'normalized.flac');
+    // Single-chunk: the normalized file IS the upload. Write CHUNK_BASE_BYTES so the Groq
+    // mock recovers index 0 from file.size - CHUNK_BASE_BYTES.
+    const fileBytes = plan.length === 1 ? CHUNK_BASE_BYTES : 4_096;
+    writeFileSync(normalizedPath, Buffer.alloc(fileBytes, 0));
 
     return {
       durationSeconds: preparedDurationSeconds,
-      normalizedPath: join(options.workDir, 'normalized.flac'),
-      chunks,
-      normalizedSizeBytes: 4_096,
-      prepareTimeMs: 25,
+      normalizedPath,
+      normalizedSizeBytes: chunkSizeBytesOverride ?? 4_096,
+      plan,
+      normalizeTimeMs: 25,
     };
   }
 
@@ -298,12 +297,20 @@ describe('WhisperService', () => {
 
     preparedDurationSeconds = 10;
     chunkSizeBytesOverride = undefined;
-    prepareOutcome = undefined;
-    prepareSpy = jest
-      .spyOn(AudioConverter, 'prepare')
-      .mockImplementation(async (options: PrepareAudioOptions) =>
-        prepareOutcome ? prepareOutcome(options) : buildPrepared(options),
+    normalizeOutcome = undefined;
+    normalizeSpy = jest
+      .spyOn(AudioConverter, 'normalize')
+      .mockImplementation(async (options: NormalizeOptions) =>
+        normalizeOutcome ? normalizeOutcome(options) : buildNormalized(options),
       );
+    extractChunkSpy = jest
+      .spyOn(AudioConverter, 'extractChunk')
+      .mockImplementation(async (_normalizedPath, workDir, entry) => {
+        const chunkPath = join(workDir, `chunk-${String(entry.index).padStart(3, '0')}.flac`);
+        const bytes = Buffer.alloc(CHUNK_BASE_BYTES + entry.index, entry.index);
+        writeFileSync(chunkPath, bytes);
+        return { ...entry, path: chunkPath, sizeBytes: bytes.length };
+      });
 
     createdChunkIndexes = [];
     attemptsByChunk = new Map();
@@ -346,7 +353,8 @@ describe('WhisperService', () => {
     process.env = originalEnv;
     global.fetch = originalFetch;
     dateNowSpy.mockRestore();
-    prepareSpy.mockRestore();
+    normalizeSpy.mockRestore();
+    extractChunkSpy.mockRestore();
     mockTranscriptionsCreate.mockReset();
   });
 
@@ -361,7 +369,7 @@ describe('WhisperService', () => {
       await expect(makeService().transcribeAudio(FILE_URL)).resolves.toMatchObject({
         chunkCount: 1,
       });
-      expect(prepareSpy).toHaveBeenCalledTimes(1);
+      expect(normalizeSpy).toHaveBeenCalledTimes(1);
     });
 
     it('rejects a declared content-length one byte over the limit without preparing', async () => {
@@ -375,7 +383,7 @@ describe('WhisperService', () => {
       expect((failure as AudioAdmissionError).reason).toBe('too_large');
       expect((failure as AudioAdmissionError).limit).toBe(4_096);
       expect((failure as AudioAdmissionError).observed).toBe(4_097);
-      expect(prepareSpy).not.toHaveBeenCalled();
+      expect(normalizeSpy).not.toHaveBeenCalled();
       expect(mockTranscriptionsCreate).not.toHaveBeenCalled();
     });
 
@@ -388,7 +396,7 @@ describe('WhisperService', () => {
 
       expect(failure).toBeInstanceOf(AudioAdmissionError);
       expect((failure as AudioAdmissionError).reason).toBe('too_large');
-      expect(prepareSpy).not.toHaveBeenCalled();
+      expect(normalizeSpy).not.toHaveBeenCalled();
       expect(mockTranscriptionsCreate).not.toHaveBeenCalled();
     });
 
@@ -405,7 +413,7 @@ describe('WhisperService', () => {
       );
       const cause = (failure as Error & { cause?: Error }).cause as Error;
       expect(cause.message.startsWith('Failed to download audio file:')).toBe(true);
-      expect(prepareSpy).not.toHaveBeenCalled();
+      expect(normalizeSpy).not.toHaveBeenCalled();
     });
 
     it('reports an empty body as a download failure', async () => {
@@ -414,7 +422,7 @@ describe('WhisperService', () => {
       await expect(makeService().transcribeAudio(FILE_URL)).rejects.toThrow(
         /Failed to download audio file: Downloaded audio file is empty/,
       );
-      expect(prepareSpy).not.toHaveBeenCalled();
+      expect(normalizeSpy).not.toHaveBeenCalled();
     });
 
     it('reports a missing body as a download failure', async () => {
@@ -423,7 +431,7 @@ describe('WhisperService', () => {
       await expect(makeService().transcribeAudio(FILE_URL)).rejects.toThrow(
         /Failed to download audio file: Response body was empty/,
       );
-      expect(prepareSpy).not.toHaveBeenCalled();
+      expect(normalizeSpy).not.toHaveBeenCalled();
     });
 
     it('removes the work directory after a download failure', async () => {
@@ -453,25 +461,25 @@ describe('WhisperService', () => {
 
       await service.transcribeAudio(FILE_URL, 42, { requestId: 'tg_prepare' });
 
-      const options = prepareSpy.mock.calls[0][0];
+      const options = normalizeSpy.mock.calls[0][0];
       const dir = await workDir();
       expect(options).toMatchObject({
         workDir: dir,
         maxDurationSeconds: 900,
         coreSeconds: 25,
         overlapSeconds: 4,
-        maxChunkBytes: 1_000_000,
-        timeoutMs: 45_000,
+        totalTimeoutMs: 45_000,
         userId: 42,
         logContext: { requestId: 'tg_prepare' },
       });
+      expect(options.deadlineMs).toBeGreaterThan(0);
       expect(dirname(options.inputPath)).toBe(dir);
       expect(options.inputPath).toContain('input.ogg');
     });
 
     it('propagates an AudioAdmissionError from prepare unchanged', async () => {
       const admission = new AudioAdmissionError('too_long', { observed: 1_500, limit: 1_200 });
-      prepareOutcome = async () => {
+      normalizeOutcome = async () => {
         throw admission;
       };
 
@@ -486,7 +494,7 @@ describe('WhisperService', () => {
     });
 
     it('wraps a generic prepare failure and removes the work directory', async () => {
-      prepareOutcome = async () => {
+      normalizeOutcome = async () => {
         throw new Error('Audio preparation failed: no audio stream found');
       };
 
@@ -607,7 +615,7 @@ describe('WhisperService', () => {
       jobs.push(service.transcribeAudio(FILE_URL, 2));
 
       // Both jobs must be past prepare — i.e. all ten workers live — before measuring.
-      await waitFor(() => prepareSpy.mock.calls.length === 2, 'both jobs prepared');
+      await waitFor(() => normalizeSpy.mock.calls.length === 2, 'both jobs prepared');
       await turn(5);
       expect(outstandingCreates).toBe(5);
 
@@ -627,6 +635,43 @@ describe('WhisperService', () => {
       expect(mockTranscriptionsCreate).toHaveBeenCalledTimes(12);
       // Exactly five, never ten: the cap comes from the shared limiter, not the pool size.
       expect(peakOutstandingCreates).toBe(5);
+    });
+
+    it('starts transcribing before all chunks are extracted (overlap verification)', async () => {
+      preparedDurationSeconds = 120; // 4 chunks
+      const extractionOrder: number[] = [];
+      const transcriptionOrder: number[] = [];
+
+      extractChunkSpy.mockImplementation(
+        async (
+          _normalizedPath: string,
+          workDir: string,
+          entry: { index: number; startSeconds: number; endSeconds: number },
+        ) => {
+          extractionOrder.push(entry.index);
+          // Yield to let consumers run between extractions.
+          await new Promise((resolve) => setImmediate(resolve));
+          const chunkPath = join(workDir, `chunk-${String(entry.index).padStart(3, '0')}.flac`);
+          const bytes = Buffer.alloc(CHUNK_BASE_BYTES + entry.index, entry.index);
+          writeFileSync(chunkPath, bytes);
+          return { ...entry, path: chunkPath, sizeBytes: bytes.length };
+        },
+      );
+
+      respond = async (index) => {
+        transcriptionOrder.push(index);
+        return verboseJson({ text: `chunk ${index}` });
+      };
+
+      await makeService({ maxConcurrentRequests: 5 }).transcribeAudio(FILE_URL);
+
+      // At least one transcription must have started before all extractions finished.
+      // Since extraction yields between chunks and transcription is instant (mock),
+      // the first chunk's transcription should interleave with later extractions.
+      expect(extractionOrder).toEqual([0, 1, 2, 3]);
+      expect(transcriptionOrder).toHaveLength(4);
+      expect(extractChunkSpy).toHaveBeenCalledTimes(4);
+      expect(mockTranscriptionsCreate).toHaveBeenCalledTimes(4);
     });
 
     it('merges out-of-order completions in timeline order', async () => {
@@ -840,6 +885,29 @@ describe('WhisperService', () => {
       // Bounded by the two in-flight requests, so no chunk beyond index 1 was scheduled.
       expect(totalCreates).toBeLessThanOrEqual(3);
       expect(createdChunkIndexes.every((index) => index <= 1)).toBe(true);
+    });
+
+    it('propagates extraction failure and stops transcription workers', async () => {
+      preparedDurationSeconds = 120; // 4 chunks
+      extractChunkSpy.mockImplementation(
+        async (
+          _normalizedPath: string,
+          workDir: string,
+          entry: { index: number; startSeconds: number; endSeconds: number },
+        ) => {
+          if (entry.index === 2) throw new Error('Audio preparation timed out after 120s');
+          const chunkPath = join(workDir, `chunk-${String(entry.index).padStart(3, '0')}.flac`);
+          const bytes = Buffer.alloc(CHUNK_BASE_BYTES + entry.index, entry.index);
+          writeFileSync(chunkPath, bytes);
+          return { ...entry, path: chunkPath, sizeBytes: bytes.length };
+        },
+      );
+
+      await expect(makeService().transcribeAudio(FILE_URL)).rejects.toThrow(
+        /Audio preparation timed out/,
+      );
+      // Chunks 0 and 1 were extracted and potentially transcribed, but chunk 3 was never extracted.
+      expect(extractChunkSpy).toHaveBeenCalledTimes(3); // 0, 1, 2 (2 threw)
     });
 
     it('rejects an oversized prepared chunk before any Groq request', async () => {

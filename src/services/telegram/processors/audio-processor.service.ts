@@ -85,18 +85,11 @@ export class AudioProcessorService {
         return { response: 'No speech detected in the audio.' };
       }
 
+      const agentText = buildAgentText(text, instruction);
+
+      const transcriptPresented = this.presentTranscript(text, hooks, logContext, userId);
+
       try {
-        try {
-          await hooks?.onTranscription?.(text);
-        } catch (sendError) {
-          logger.warn('audio_processor.transcription_send_failed', {
-            ...logContext,
-            userId,
-            error: (sendError as Error).message,
-          });
-        }
-        await hooks?.onTranscribed?.();
-        const agentText = buildAgentText(text, instruction);
         const result = await this.textProcessor.processTextMessage(
           agentText,
           userId,
@@ -104,6 +97,7 @@ export class AudioProcessorService {
           hooks?.onProgress,
           textOptions,
         );
+        await transcriptPresented;
 
         logger.info('audio_processor.completed', {
           ...logContext,
@@ -134,6 +128,8 @@ export class AudioProcessorService {
           resolvedPendingPause: result.resolvedPendingPause,
         };
       } catch (processingError) {
+        await transcriptPresented;
+
         logger.warn('audio_processor.text_processing_failed', {
           ...logContext,
           userId,
@@ -192,19 +188,11 @@ export class AudioProcessorService {
         return { response: `No speech detected in \`${fileName}\`.` };
       }
 
+      const agentText = buildAgentText(text, instruction);
+
+      const transcriptPresented = this.presentTranscript(text, hooks, logContext, userId, fileName);
+
       try {
-        try {
-          await hooks?.onTranscription?.(text);
-        } catch (sendError) {
-          logger.warn('audio_processor.transcription_send_failed', {
-            ...logContext,
-            userId,
-            fileName,
-            error: (sendError as Error).message,
-          });
-        }
-        await hooks?.onTranscribed?.();
-        const agentText = buildAgentText(text, instruction);
         const result = await this.textProcessor.processTextMessage(
           agentText,
           userId,
@@ -212,6 +200,7 @@ export class AudioProcessorService {
           hooks?.onProgress,
           textOptions,
         );
+        await transcriptPresented;
 
         logger.info('audio_processor.document_completed', {
           ...logContext,
@@ -243,6 +232,8 @@ export class AudioProcessorService {
           resolvedPendingPause: result.resolvedPendingPause,
         };
       } catch (processingError) {
+        await transcriptPresented;
+
         logger.warn('audio_processor.document_text_processing_failed', {
           ...logContext,
           userId,
@@ -268,6 +259,32 @@ export class AudioProcessorService {
 
       return { response: this.handleAudioDocumentError(error as Error, fileName, mimeType) };
     }
+  }
+
+  private presentTranscript(
+    text: string,
+    hooks: AudioProcessingHooks | undefined,
+    logContext: LogContext,
+    userId?: number,
+    fileName?: string,
+  ): Promise<void> {
+    return (async () => {
+      try {
+        await hooks?.onTranscription?.(text);
+      } catch (sendError) {
+        logger.warn('audio_processor.transcription_send_failed', {
+          ...logContext,
+          userId,
+          ...(fileName && { fileName }),
+          error: (sendError as Error).message,
+        });
+      }
+      try {
+        await hooks?.onTranscribed?.();
+      } catch {
+        // best-effort refresh
+      }
+    })();
   }
 
   private handleAudioProcessingError(error: Error): string {

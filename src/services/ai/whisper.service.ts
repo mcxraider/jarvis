@@ -31,7 +31,12 @@ import {
 import { LogContext, logger, truncateForLog } from '../../utils/logger';
 import { AudioMimeTypes } from '../../utils/constants';
 import { validateFileSize } from '../../utils/ai/fileValidation';
-import { AudioConverter, PreparedAudio, PreparedAudioChunk } from '../../utils/ai/audioConverter';
+import {
+  AudioConverter,
+  ExtractChunkOptions,
+  NormalizedAudio,
+  PreparedAudioChunk,
+} from '../../utils/ai/audioConverter';
 import { AUDIO_LIMITS } from '../../utils/ai/audio-limits';
 import {
   ChunkMergeInput,
@@ -78,6 +83,38 @@ const DEFAULT_QUALITY_THRESHOLDS = {
   minCompressionRatio: 0.8,
   maxCompressionRatio: 2.4,
 } as const;
+
+// Async channel for producer-consumer chunk overlap. The sequential FFmpeg producer
+// pushes chunks as they're extracted; transcription workers pull and transcribe
+// immediately. push() is synchronous because the producer is always slower than the
+// network consumers, so the buffer stays at 0–1 items naturally.
+class AsyncChunkQueue<T> {
+  private readonly buffer: T[] = [];
+  private closed = false;
+  private readonly pullWaiters: Array<(v: T | null) => void> = [];
+
+  push(item: T): void {
+    const waiter = this.pullWaiters.shift();
+    if (waiter) {
+      waiter(item);
+      return;
+    }
+    this.buffer.push(item);
+  }
+
+  async pull(): Promise<T | null> {
+    const item = this.buffer.shift();
+    if (item !== undefined) return item;
+    if (this.closed) return null;
+    return new Promise((resolve) => this.pullWaiters.push(resolve));
+  }
+
+  close(): void {
+    this.closed = true;
+    for (const w of this.pullWaiters) w(null);
+    this.pullWaiters.length = 0;
+  }
+}
 
 export interface WhisperConfig {
   apiKey: string;
@@ -375,14 +412,14 @@ export class WhisperService {
     try {
       const inputPath = await this.downloadAudioFile(fileUrl, workDir, userId, logContext);
 
-      const prepared = await AudioConverter.prepare({
+      const normalized = await AudioConverter.normalize({
         inputPath,
         workDir,
         maxDurationSeconds: this.maxDurationSeconds,
         coreSeconds: this.coreSeconds,
         overlapSeconds: this.overlapSeconds,
-        maxChunkBytes: this.config.maxFileSizeBytes,
-        timeoutMs: this.prepareTimeoutMs,
+        deadlineMs: Date.now() + this.prepareTimeoutMs,
+        totalTimeoutMs: this.prepareTimeoutMs,
         userId,
         logContext,
       });
@@ -390,18 +427,20 @@ export class WhisperService {
       logger.info('whisper.prepare.completed', {
         ...logContext,
         userId,
-        durationSeconds: prepared.durationSeconds,
-        chunkCount: prepared.chunks.length,
-        normalizedSizeBytes: prepared.normalizedSizeBytes,
-        chunkSizeBytes: prepared.chunks.map((chunk) => chunk.sizeBytes),
-        prepareTimeMs: prepared.prepareTimeMs,
+        durationSeconds: normalized.durationSeconds,
+        chunkCount: normalized.plan.length,
+        normalizedSizeBytes: normalized.normalizedSizeBytes,
+        normalizeTimeMs: normalized.normalizeTimeMs,
       });
 
-      const merged = await this.transcribePrepared(prepared, userId, logContext);
+      const merged =
+        normalized.plan.length === 1
+          ? await this.transcribeSingleChunk(normalized, userId, logContext)
+          : await this.transcribeOverlapped(normalized, workDir, userId, logContext);
 
       return this.buildTranscriptionResult({
         merged,
-        prepared,
+        normalized,
         fileUrl,
         startTime,
         userId,
@@ -561,62 +600,156 @@ export class WhisperService {
   // Concurrent transcription
   // ---------------------------------------------------------------------------
 
-  /**
-   * Runs every chunk through Groq and merges the results in timeline order.
-   *
-   * Atomicity: the first chunk to exhaust its retries records the failure and stops the
-   * pool from picking up further work. In-flight requests are still awaited so nothing
-   * writes to a temp directory that is about to be removed, and then the error is
-   * rethrown — no partial transcript is ever produced.
-   */
-  private async transcribePrepared(
-    prepared: PreparedAudio,
+  // Short-audio fast path: the normalized file IS the single chunk, no extraction.
+  private async transcribeSingleChunk(
+    normalized: NormalizedAudio,
     userId?: number,
     logContext: LogContext = {},
   ): Promise<ReturnType<typeof mergeChunkTranscriptions>> {
-    const chunks = prepared.chunks;
-    const longForm = chunks.length > 1;
-    const stageStart = Date.now();
-    const deadlineMs = stageStart + (longForm ? this.longFormTimeoutMs : this.retryTotalTimeoutMs);
-    const maxAttempts = longForm ? this.maxChunkAttempts : this.maxRetryAttempts;
-    const requestTimeoutMs = longForm ? this.chunkRequestTimeoutMs : this.requestTimeoutMs;
+    const plan = normalized.plan[0];
+    const chunk: PreparedAudioChunk = {
+      ...plan,
+      path: normalized.normalizedPath,
+      sizeBytes: normalized.normalizedSizeBytes,
+    };
 
-    const results = new Array<ParsedTranscription | undefined>(chunks.length);
-    let nextIndex = 0;
+    const stageStart = Date.now();
+    const deadlineMs = stageStart + this.retryTotalTimeoutMs;
+
+    const { transcription, attempts } = await this.transcribeChunk(
+      chunk,
+      {
+        deadlineMs,
+        maxAttempts: this.maxRetryAttempts,
+        requestTimeoutMs: this.requestTimeoutMs,
+        chunkCount: 1,
+      },
+      userId,
+      logContext,
+    );
+
+    const merged = mergeChunkTranscriptions([
+      {
+        plan,
+        transcription: {
+          text: transcription.text,
+          words: transcription.words,
+          segments: transcription.segments,
+        },
+      },
+    ]);
+
+    logger.info('whisper.transcription.merged', {
+      ...logContext,
+      userId,
+      chunkCount: 1,
+      strategy: merged.strategy,
+      degraded: merged.degraded,
+      segmentCount: merged.segments.length,
+      textLength: merged.text.length,
+      attemptsTotal: attempts,
+      limiterCooldownEventsTotal: this.limiter.cooldownCountTotal,
+      limiterPeakConcurrentRequests: this.limiter.peakActiveCount,
+      stageMs: Date.now() - stageStart,
+    });
+
+    return merged;
+  }
+
+  /**
+   * Overlapped extraction + transcription for multi-chunk audio. The producer extracts
+   * chunks sequentially (one FFmpeg at a time) and feeds them into a queue; consumers
+   * pull and transcribe concurrently under the shared Groq limiter.
+   *
+   * Atomicity: the first failure (extraction or transcription) sets a shared flag that
+   * stops both sides. In-flight requests are still awaited so nothing writes to a temp
+   * directory that is about to be removed, and then the error is rethrown.
+   */
+  private async transcribeOverlapped(
+    normalized: NormalizedAudio,
+    workDir: string,
+    userId?: number,
+    logContext: LogContext = {},
+  ): Promise<ReturnType<typeof mergeChunkTranscriptions>> {
+    const plan = normalized.plan;
+    const stageStart = Date.now();
+    const deadlineMs = stageStart + this.longFormTimeoutMs;
+
+    const results = new Array<ParsedTranscription | undefined>(plan.length);
+    const queue = new AsyncChunkQueue<PreparedAudioChunk>();
     let failure: Error | undefined;
     let attemptsTotal = 0;
 
-    const worker = async (): Promise<void> => {
-      for (;;) {
-        if (failure) return;
-        const index = nextIndex;
-        nextIndex += 1;
-        if (index >= chunks.length) return;
-
-        try {
-          const { transcription, attempts } = await this.transcribeChunk(
-            chunks[index],
-            { deadlineMs, maxAttempts, requestTimeoutMs, chunkCount: chunks.length },
-            userId,
-            logContext,
-          );
-          attemptsTotal += attempts;
-          results[index] = transcription;
-        } catch (error) {
-          failure ??= error as Error;
-          return;
-        }
-      }
+    const extractOpts: ExtractChunkOptions = {
+      deadlineMs,
+      totalTimeoutMs: this.longFormTimeoutMs,
+      maxChunkBytes: this.config.maxFileSizeBytes,
+      userId,
+      logContext,
     };
 
-    const workerCount = Math.min(chunks.length, this.limiter.limit);
-    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    // Producer: extract chunks sequentially, feed into queue.
+    const producer = (async () => {
+      try {
+        for (const entry of plan) {
+          if (failure) break;
+          const chunk = await AudioConverter.extractChunk(
+            normalized.normalizedPath,
+            workDir,
+            entry,
+            extractOpts,
+          );
+          if (failure) break;
+          queue.push(chunk);
+        }
+      } catch (err) {
+        failure ??= err as Error;
+      } finally {
+        queue.close();
+      }
+    })();
+
+    // Consumers: pull chunks as they arrive, transcribe under the shared limiter.
+    const workerCount = Math.min(plan.length, this.limiter.limit);
+    const consumers = Promise.all(
+      Array.from({ length: workerCount }, () =>
+        (async () => {
+          for (;;) {
+            if (failure) return;
+            const chunk = await queue.pull();
+            if (chunk === null) return;
+            if (failure) return;
+
+            try {
+              const { transcription, attempts } = await this.transcribeChunk(
+                chunk,
+                {
+                  deadlineMs,
+                  maxAttempts: this.maxChunkAttempts,
+                  requestTimeoutMs: this.chunkRequestTimeoutMs,
+                  chunkCount: plan.length,
+                },
+                userId,
+                logContext,
+              );
+              attemptsTotal += attempts;
+              results[chunk.index] = transcription;
+            } catch (error) {
+              failure ??= error as Error;
+              return;
+            }
+          }
+        })(),
+      ),
+    );
+
+    await Promise.all([producer, consumers]);
 
     if (failure) {
       logger.error('whisper.transcription.aborted', {
         ...logContext,
         userId,
-        chunkCount: chunks.length,
+        chunkCount: plan.length,
         completedChunks: results.filter(Boolean).length,
         attemptsTotal,
         stageMs: Date.now() - stageStart,
@@ -627,14 +760,13 @@ export class WhisperService {
       throw failure;
     }
 
-    const inputs: ChunkMergeInput[] = chunks.map((chunk, index) => {
+    const inputs: ChunkMergeInput[] = plan.map((entry, index) => {
       const transcription = results[index];
       if (!transcription) {
-        // Unreachable: the pool only exits cleanly once every index is filled.
         throw new Error(`Transcription chunk ${index} produced no result`);
       }
       return {
-        plan: chunk,
+        plan: entry,
         transcription: {
           text: transcription.text,
           words: transcription.words,
@@ -648,14 +780,12 @@ export class WhisperService {
     logger.info('whisper.transcription.merged', {
       ...logContext,
       userId,
-      chunkCount: chunks.length,
+      chunkCount: plan.length,
       strategy: merged.strategy,
       degraded: merged.degraded,
       segmentCount: merged.segments.length,
       textLength: merged.text.length,
       attemptsTotal,
-      // Limiter counters are process-lifetime, not run-scoped: the limiter is shared by
-      // every concurrent job on purpose (Groq rate-limits per organization).
       limiterCooldownEventsTotal: this.limiter.cooldownCountTotal,
       limiterPeakConcurrentRequests: this.limiter.peakActiveCount,
       stageMs: Date.now() - stageStart,
@@ -842,14 +972,14 @@ export class WhisperService {
 
   private buildTranscriptionResult(options: {
     merged: ReturnType<typeof mergeChunkTranscriptions>;
-    prepared: PreparedAudio;
+    normalized: NormalizedAudio;
     fileUrl: string;
     startTime: number;
     userId?: number;
     logContext: LogContext;
   }): TranscriptionResult {
     const processingTimeMs = Date.now() - options.startTime;
-    const { merged, prepared } = options;
+    const { merged, normalized } = options;
 
     if (this.config.enforceEnglishOnly && merged.text) {
       this.validateEnglishContent(merged.text, options.logContext);
@@ -859,9 +989,9 @@ export class WhisperService {
       text: merged.text,
       fileUrl: options.fileUrl,
       processingTimeMs,
-      fileSizeBytes: prepared.normalizedSizeBytes,
-      durationSeconds: prepared.durationSeconds,
-      chunkCount: prepared.chunks.length,
+      fileSizeBytes: normalized.normalizedSizeBytes,
+      durationSeconds: normalized.durationSeconds,
+      chunkCount: normalized.plan.length,
       detectedLanguage: this.language,
     };
 
@@ -878,12 +1008,12 @@ export class WhisperService {
       textPreview: truncateForLog(result.text, WHISPER_CONSTANTS.MAX_LOG_TEXT_LENGTH),
       textLength: result.text.length,
       processingTimeMs,
-      prepareTimeMs: prepared.prepareTimeMs,
-      durationSeconds: prepared.durationSeconds,
-      chunkCount: prepared.chunks.length,
+      normalizeTimeMs: normalized.normalizeTimeMs,
+      durationSeconds: normalized.durationSeconds,
+      chunkCount: normalized.plan.length,
       mergeStrategy: merged.strategy,
       mergeDegraded: merged.degraded,
-      fileSizeBytes: prepared.normalizedSizeBytes,
+      fileSizeBytes: normalized.normalizedSizeBytes,
       qualityFlaggedSegments: result.quality?.flaggedSegments,
       qualityTotalSegments: result.quality?.totalSegments,
     });

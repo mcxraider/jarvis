@@ -48,7 +48,7 @@ describe('Confirm flow: text → buttons → callback → reply', () => {
       expect.any(Object),
       expect.any(Function),
     );
-    expect(ctx.answerCbQuery).toHaveBeenCalledWith('Declined.');
+    expect(ctx.answerCbQuery).toHaveBeenCalledWith('Declined!');
   });
 
   it('chained confirm: first approve triggers second interrupt with new buttons', async () => {
@@ -162,7 +162,7 @@ describe('Confirm flow: text → buttons → callback → reply', () => {
     await harness.sendText('action');
     const { ctx } = await harness.pressButton(`confirm:decline:${THREAD_ID}`);
 
-    expect(ctx.answerCbQuery).toHaveBeenCalledWith('Declined.');
+    expect(ctx.answerCbQuery).toHaveBeenCalledWith('Declined!');
     expect(ctx.reply).toHaveBeenCalledWith('❌ Declined', { parse_mode: 'MarkdownV2' });
     expect(ctx.editMessageText).not.toHaveBeenCalled();
   });

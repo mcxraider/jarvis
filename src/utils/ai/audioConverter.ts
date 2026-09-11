@@ -48,6 +48,38 @@ export interface PreparedAudio {
   prepareTimeMs: number;
 }
 
+export interface NormalizedAudio {
+  durationSeconds: number;
+  normalizedPath: string;
+  normalizedSizeBytes: number;
+  plan: AudioChunkPlan[];
+  normalizeTimeMs: number;
+}
+
+export interface NormalizeOptions {
+  inputPath: string;
+  workDir: string;
+  maxDurationSeconds?: number;
+  coreSeconds?: number;
+  overlapSeconds?: number;
+  /** Absolute epoch ms deadline. Normalization is killed when this passes. */
+  deadlineMs: number;
+  /** Total budget — only used in the timeout error message. */
+  totalTimeoutMs: number;
+  userId?: number;
+  logContext?: LogContext;
+}
+
+export interface ExtractChunkOptions {
+  /** Absolute epoch ms deadline shared across all extractions. */
+  deadlineMs: number;
+  /** Total budget — only used in the timeout error message. */
+  totalTimeoutMs: number;
+  maxChunkBytes?: number;
+  userId?: number;
+  logContext?: LogContext;
+}
+
 export interface PrepareAudioOptions {
   /** Absolute path to the downloaded source file. */
   inputPath: string;
@@ -134,25 +166,23 @@ export class AudioConverter {
     });
   }
 
-  // Normalizes to 16 kHz mono FLAC and splits into upload-ready chunks. Rejects with
-  // AudioAdmissionError('too_long') for over-duration audio, plain Errors otherwise.
-  static async prepare(options: PrepareAudioOptions): Promise<PreparedAudio> {
+  // Normalizes to 16 kHz mono FLAC, measures duration, validates limits, and computes
+  // the chunk plan. Does NOT extract chunks — call extractChunk() for each plan entry.
+  static async normalize(options: NormalizeOptions): Promise<NormalizedAudio> {
     const {
       inputPath,
       workDir,
       maxDurationSeconds = AUDIO_LIMITS.MAX_DURATION_SECONDS,
       coreSeconds = AUDIO_LIMITS.CORE_SECONDS,
       overlapSeconds = AUDIO_LIMITS.OVERLAP_SECONDS,
-      maxChunkBytes = AUDIO_LIMITS.GROQ_MAX_ATTACHMENT_BYTES,
-      timeoutMs = TURN_TIMEOUT_DEFAULTS.audioPrepareMs,
+      deadlineMs,
+      totalTimeoutMs,
       userId,
       logContext = {},
     } = options;
 
     const startedAt = Date.now();
-    const deadlineMs = startedAt + timeoutMs;
     const normalizedPath = join(workDir, 'normalized.flac');
-    let stage: 'normalize' | 'chunk' = 'normalize';
 
     logger.info('audio.prepare.started', {
       ...logContext,
@@ -179,7 +209,7 @@ export class AudioConverter {
           normalizedPath,
         ],
         deadlineMs,
-        totalTimeoutMs: timeoutMs,
+        totalTimeoutMs,
         limitSeconds: maxDurationSeconds,
         userId,
         logContext,
@@ -191,8 +221,6 @@ export class AudioConverter {
       }
       const durationSeconds = round3(measured);
 
-      // A file whose progress stream never crossed the limit mid-encode must still be
-      // rejected on its final measured duration.
       if (durationSeconds > maxDurationSeconds) {
         logger.warn('audio.prepare.duration_exceeded', {
           ...logContext,
@@ -210,52 +238,131 @@ export class AudioConverter {
       if (normalizedSizeBytes === 0) {
         throw new Error('Audio preparation failed: FFmpeg produced no output');
       }
-      const normalizedAt = Date.now();
+
+      const normalizeTimeMs = Date.now() - startedAt;
       logger.info('audio.prepare.normalized', {
         ...logContext,
         userId,
         durationSeconds,
         normalizedSizeBytes,
-        ms: normalizedAt - startedAt,
+        ms: normalizeTimeMs,
       });
 
-      stage = 'chunk';
       const plan = planAudioChunks(durationSeconds, { coreSeconds, overlapSeconds });
+
+      return { durationSeconds, normalizedPath, normalizedSizeBytes, plan, normalizeTimeMs };
+    } catch (error) {
+      logger.error('audio.prepare.failed', {
+        ...logContext,
+        userId,
+        stage: 'normalize',
+        error: (error as Error).message,
+        prepareTimeMs: Date.now() - startedAt,
+      });
+      throw error;
+    }
+  }
+
+  // Extracts a single chunk from the normalized FLAC. One FFmpeg invocation per call.
+  static async extractChunk(
+    normalizedPath: string,
+    workDir: string,
+    entry: AudioChunkPlan,
+    options: ExtractChunkOptions,
+  ): Promise<PreparedAudioChunk> {
+    const {
+      deadlineMs,
+      totalTimeoutMs,
+      maxChunkBytes = AUDIO_LIMITS.GROQ_MAX_ATTACHMENT_BYTES,
+      userId,
+      logContext = {},
+    } = options;
+
+    const chunkPath = join(workDir, `chunk-${String(entry.index).padStart(3, '0')}.flac`);
+    await this.runFFmpeg({
+      args: [
+        '-nostdin',
+        '-hide_banner',
+        '-nostats',
+        '-ss',
+        String(entry.startSeconds),
+        '-t',
+        String(round3(entry.endSeconds - entry.startSeconds)),
+        '-i',
+        normalizedPath,
+        ...ENCODE_ARGS,
+        '-y',
+        chunkPath,
+      ],
+      deadlineMs,
+      totalTimeoutMs,
+      userId,
+      logContext,
+    });
+
+    const sizeBytes = await this.fileSize(chunkPath);
+    this.validateChunkSize(entry.index, sizeBytes, maxChunkBytes);
+    return { ...entry, path: chunkPath, sizeBytes };
+  }
+
+  // Normalizes to 16 kHz mono FLAC and splits into upload-ready chunks. Rejects with
+  // AudioAdmissionError('too_long') for over-duration audio, plain Errors otherwise.
+  static async prepare(options: PrepareAudioOptions): Promise<PreparedAudio> {
+    const {
+      inputPath,
+      workDir,
+      maxDurationSeconds = AUDIO_LIMITS.MAX_DURATION_SECONDS,
+      coreSeconds = AUDIO_LIMITS.CORE_SECONDS,
+      overlapSeconds = AUDIO_LIMITS.OVERLAP_SECONDS,
+      maxChunkBytes = AUDIO_LIMITS.GROQ_MAX_ATTACHMENT_BYTES,
+      timeoutMs = TURN_TIMEOUT_DEFAULTS.audioPrepareMs,
+      userId,
+      logContext = {},
+    } = options;
+
+    const startedAt = Date.now();
+    const deadlineMs = startedAt + timeoutMs;
+
+    const normalized = await this.normalize({
+      inputPath,
+      workDir,
+      maxDurationSeconds,
+      coreSeconds,
+      overlapSeconds,
+      deadlineMs,
+      totalTimeoutMs: timeoutMs,
+      userId,
+      logContext,
+    });
+
+    let stage: 'normalize' | 'chunk' = 'chunk';
+
+    try {
       const chunks: PreparedAudioChunk[] = [];
 
-      if (plan.length === 1) {
-        // Single request: the normalized file *is* the upload, so never re-encode it.
-        this.validateChunkSize(plan[0].index, normalizedSizeBytes, maxChunkBytes);
-        chunks.push({ ...plan[0], path: normalizedPath, sizeBytes: normalizedSizeBytes });
+      if (normalized.plan.length === 1) {
+        this.validateChunkSize(
+          normalized.plan[0].index,
+          normalized.normalizedSizeBytes,
+          maxChunkBytes,
+        );
+        chunks.push({
+          ...normalized.plan[0],
+          path: normalized.normalizedPath,
+          sizeBytes: normalized.normalizedSizeBytes,
+        });
       } else {
-        // Sequential on purpose: the deployment is dual-core, so parallel FFmpeg would
-        // only trade wall-clock for contention. Parallelism belongs on the network side.
-        for (const entry of plan) {
-          const chunkPath = join(workDir, `chunk-${String(entry.index).padStart(3, '0')}.flac`);
-          await this.runFFmpeg({
-            args: [
-              '-nostdin',
-              '-hide_banner',
-              '-nostats',
-              '-ss',
-              String(entry.startSeconds),
-              '-t',
-              String(round3(entry.endSeconds - entry.startSeconds)),
-              '-i',
-              normalizedPath,
-              ...ENCODE_ARGS,
-              '-y',
-              chunkPath,
-            ],
-            deadlineMs,
-            totalTimeoutMs: timeoutMs,
-            userId,
-            logContext,
-          });
-
-          const sizeBytes = await this.fileSize(chunkPath);
-          this.validateChunkSize(entry.index, sizeBytes, maxChunkBytes);
-          chunks.push({ ...entry, path: chunkPath, sizeBytes });
+        const extractOpts: ExtractChunkOptions = {
+          deadlineMs,
+          totalTimeoutMs: timeoutMs,
+          maxChunkBytes,
+          userId,
+          logContext,
+        };
+        for (const entry of normalized.plan) {
+          chunks.push(
+            await this.extractChunk(normalized.normalizedPath, workDir, entry, extractOpts),
+          );
         }
 
         logger.info('audio.prepare.chunked', {
@@ -263,7 +370,7 @@ export class AudioConverter {
           userId,
           chunkCount: chunks.length,
           totalChunkBytes: chunks.reduce((sum, chunk) => sum + chunk.sizeBytes, 0),
-          ms: Date.now() - normalizedAt,
+          ms: Date.now() - (startedAt + normalized.normalizeTimeMs),
         });
       }
 
@@ -271,13 +378,19 @@ export class AudioConverter {
       logger.info('audio.prepare.completed', {
         ...logContext,
         userId,
-        durationSeconds,
+        durationSeconds: normalized.durationSeconds,
         chunkCount: chunks.length,
-        normalizedSizeBytes,
+        normalizedSizeBytes: normalized.normalizedSizeBytes,
         prepareTimeMs,
       });
 
-      return { durationSeconds, normalizedPath, chunks, normalizedSizeBytes, prepareTimeMs };
+      return {
+        durationSeconds: normalized.durationSeconds,
+        normalizedPath: normalized.normalizedPath,
+        chunks,
+        normalizedSizeBytes: normalized.normalizedSizeBytes,
+        prepareTimeMs,
+      };
     } catch (error) {
       logger.error('audio.prepare.failed', {
         ...logContext,

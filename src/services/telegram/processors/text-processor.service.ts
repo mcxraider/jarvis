@@ -173,49 +173,37 @@ export class TextProcessorService {
       }
 
       if (!gateAcquired) {
-        const gateSnapshot = await this.safeGetGateSnapshot(gateKey);
-        const gateStatus = gateSnapshot.status;
+        // tryAcquire atomically acquires the gate AND writes active_request_id,
+        // collapsing the fresh-request happy path to a single DB round trip.
+        const chatIdNum = typeof logContext.chatId === 'number' ? logContext.chatId : undefined;
+        gateAcquired = await this.safeAcquireGate(gateKey, activeRequestId, chatIdNum);
 
-        // A competitor may acquire after /new successfully supersedes the old
-        // pause. Never feed the /new payload into that newer generation, and do
-        // not lose the old prompt metadata that the handler still must clean up.
-        if (options?.forceFresh && gateStatus !== 'idle') {
-          return {
-            response: "I'm still working on another request. Please wait.",
-            blocked: true,
-            consumedInterruptType: supersededInterruptType,
-            consumedPromptMessageId: supersededPromptMessageId,
-            consumedClarificationMessageId: supersededClarificationMessageId,
-            consumedClarificationQuestion: supersededClarificationQuestion,
-            resolvedPendingPause: supersededPause,
-          };
-        }
+        if (!gateAcquired) {
+          logger.info('conversation_gate.acquire_failed', { ...logContext, gateKey });
 
-        if (gateStatus === 'running') {
-          const buffered = options?.images
-            ? false
-            : await this.conversationGate
-                .setBufferedMessageIfActiveRequestId(
-                  gateKey,
-                  gateSnapshot.requestId,
-                  normalizedText,
-                )
-                .catch(() => false);
-          logger.info('conversation_gate.blocked', { ...logContext, gateKey });
-          return {
-            response: buffered
-              ? "I'm still working on your previous request. Your message has been noted — I'll mention it when I'm done."
-              : "I'm still working on your previous request. Please wait.",
-            blocked: true,
-          };
-        }
+          // forceFresh: after abandon, a competitor grabbed the gate — blocked.
+          if (options?.forceFresh) {
+            return {
+              response: "I'm still working on another request. Please wait.",
+              blocked: true,
+              consumedInterruptType: supersededInterruptType,
+              consumedPromptMessageId: supersededPromptMessageId,
+              consumedClarificationMessageId: supersededClarificationMessageId,
+              consumedClarificationQuestion: supersededClarificationQuestion,
+              resolvedPendingPause: supersededPause,
+            };
+          }
 
-        if (gateStatus === 'waiting_for_clarification') {
-          const pending = await this.pendingClarificationStore.get(gateKey);
-          if (!pending) {
-            logger.warn('conversation_gate.inconsistent_state', { ...logContext, gateKey });
-            return this.suppressedResult();
-          } else {
+          // Inspect gate state to decide: blocked or resume?
+          const gateSnapshot = await this.safeGetGateSnapshot(gateKey);
+          const gateStatus = gateSnapshot.status;
+
+          if (gateStatus === 'waiting_for_clarification') {
+            const pending = await this.pendingClarificationStore.get(gateKey);
+            if (!pending) {
+              logger.warn('conversation_gate.inconsistent_state', { ...logContext, gateKey });
+              return this.suppressedResult();
+            }
             if (pending.requestId !== gateSnapshot.requestId) return this.suppressedResult();
             return await this.handlePendingClarification(
               normalizedText,
@@ -234,20 +222,22 @@ export class TextProcessorService {
               },
             );
           }
-        }
 
-        const chatIdNum = typeof logContext.chatId === 'number' ? logContext.chatId : undefined;
-        gateAcquired = await this.safeAcquireGate(gateKey, activeRequestId, chatIdNum);
-        if (!gateAcquired) {
-          logger.info('conversation_gate.acquire_failed', { ...logContext, gateKey });
+          const buffered = options?.images
+            ? false
+            : await this.conversationGate
+                .setBufferedMessageIfActiveRequestId(
+                  gateKey,
+                  gateSnapshot.requestId,
+                  normalizedText,
+                )
+                .catch(() => false);
+          logger.info('conversation_gate.blocked', { ...logContext, gateKey });
           return {
-            response: "I'm still working on your previous request. Please wait.",
+            response: buffered
+              ? "I'm still working on your previous request. Your message has been noted — I'll mention it when I'm done."
+              : "I'm still working on your previous request. Please wait.",
             blocked: true,
-            consumedInterruptType: supersededInterruptType,
-            consumedPromptMessageId: supersededPromptMessageId,
-            consumedClarificationMessageId: supersededClarificationMessageId,
-            consumedClarificationQuestion: supersededClarificationQuestion,
-            resolvedPendingPause: supersededPause,
           };
         }
       }
@@ -270,8 +260,12 @@ export class TextProcessorService {
         replyContext: options?.replyContext,
         images: options?.images,
       };
-      const bound = await this.conversationGate.setActiveRequestId(gateKey, activeRequestId);
-      if (!bound) return this.suppressedResult();
+      // Revalidate ownership only for pre-acquired paths (audio transcription gap).
+      // Fresh requests already have active_request_id bound by tryAcquire.
+      if (options?.gatePreAcquired) {
+        const bound = await this.conversationGate.setActiveRequestId(gateKey, activeRequestId);
+        if (!bound) return this.suppressedResult();
+      }
       const guardedProgress = this.guardProgressCallback(
         gateKey,
         activeRequestId,
@@ -812,33 +806,13 @@ export class TextProcessorService {
     logContext: LogContext,
     onProgress?: LangGraphProgressCallback,
   ): LangGraphProgressCallback | undefined {
-    if (!onProgress) return undefined;
-
-    // ponytail: check every 10s, not every event. Tighten if stale updates become visible.
-    const CHECK_INTERVAL_MS = 10_000;
-    let lastCheckAt = 0;
-    let stale = false;
-
-    return async (event, signal) => {
-      if (stale) return;
-
-      const now = Date.now();
-      if (now - lastCheckAt >= CHECK_INTERVAL_MS) {
-        lastCheckAt = now;
-        const snapshot = await this.safeGetGateSnapshot(gateKey);
-        if (snapshot.status !== 'running' || snapshot.requestId !== expectedRequestId) {
-          logger.info('conversation_gate.progress_suppressed_stale_owner', {
-            ...logContext,
-            gateKey,
-            expectedRequestId,
-          });
-          stale = true;
-          return;
-        }
-      }
-
-      await onProgress(event, signal);
-    };
+    return guardProgressCallback(
+      this.conversationGate,
+      gateKey,
+      expectedRequestId,
+      logContext,
+      onProgress,
+    );
   }
 
   private async safeAcquireGate(
@@ -918,4 +892,43 @@ export class TextProcessorService {
     const declineTokens = new Set(['no', 'n', 'decline', 'cancel']);
     return approveTokens.has(normalized) || declineTokens.has(normalized);
   }
+}
+
+// ponytail: check every 10s, not every event. Tighten if stale updates become visible.
+const PROGRESS_GUARD_CHECK_INTERVAL_MS = 10_000;
+
+export function guardProgressCallback(
+  conversationGate: ConversationGateStore,
+  gateKey: string,
+  expectedRequestId: string,
+  logContext: LogContext,
+  onProgress?: LangGraphProgressCallback,
+): LangGraphProgressCallback | undefined {
+  if (!onProgress) return undefined;
+
+  let lastCheckAt = 0;
+  let stale = false;
+
+  return async (event, signal) => {
+    if (stale) return;
+
+    const now = Date.now();
+    if (now - lastCheckAt >= PROGRESS_GUARD_CHECK_INTERVAL_MS) {
+      lastCheckAt = now;
+      const snapshot = await conversationGate
+        .getSnapshot(gateKey)
+        .catch((): ConversationGateSnapshot => ({ status: 'running' }));
+      if (snapshot.status !== 'running' || snapshot.requestId !== expectedRequestId) {
+        logger.info('conversation_gate.progress_suppressed_stale_owner', {
+          ...logContext,
+          gateKey,
+          expectedRequestId,
+        });
+        stale = true;
+        return;
+      }
+    }
+
+    await onProgress(event, signal);
+  };
 }

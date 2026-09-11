@@ -24,6 +24,15 @@ def _client(service: MagicMock) -> GoogleCalendarClient:
     return GoogleCalendarClient(service=service)
 
 
+class _FakeCreds:
+    token = "fake-token"
+    valid = True
+    expired = False
+    refresh_token = "rt"
+    client_id = "cid"
+    client_secret = "cs"
+
+
 class TestReadMethods:
     def test_list_calendars(self):
         service = MagicMock()
@@ -356,14 +365,6 @@ class TestAsyncNativeHTTPX:
             async def get(self, url, **kwargs):
                 return mock_response
 
-        class FakeCreds:
-            token = "fake-token"
-            valid = True
-            expired = False
-            refresh_token = "rt"
-            client_id = "cid"
-            client_secret = "cs"
-
         import agents.agent_api.app.tools.google_calendar.client as cal_mod
         monkeypatch.setattr(cal_mod, "_get_calendar_async_http_client", lambda: FakeAsyncClient())
 
@@ -373,7 +374,7 @@ class TestAsyncNativeHTTPX:
             _CredentialCoordinator,
         )
 
-        creds = FakeCreds()
+        creds = _FakeCreds()
         client = GoogleCalendarClient(service=MagicMock(), credentials=creds)
         client._async_token_manager = _AsyncTokenManager(_CredentialCoordinator(creds))
 
@@ -397,14 +398,6 @@ class TestAsyncNativeHTTPX:
                     request=_httpx.Request("GET", url),
                 )
 
-        class FakeCreds:
-            token = "fake-token"
-            valid = True
-            expired = False
-            refresh_token = "rt"
-            client_id = "cid"
-            client_secret = "cs"
-
         import agents.agent_api.app.tools.google_calendar.client as cal_mod
         monkeypatch.setattr(cal_mod, "_get_calendar_async_http_client", lambda: FakeAsyncClient())
 
@@ -414,7 +407,7 @@ class TestAsyncNativeHTTPX:
             _CredentialCoordinator,
         )
 
-        creds = FakeCreds()
+        creds = _FakeCreds()
         client = GoogleCalendarClient(service=MagicMock(), credentials=creds)
         client._async_token_manager = _AsyncTokenManager(_CredentialCoordinator(creds))
 
@@ -430,20 +423,12 @@ class TestAsyncInfraLifecycle:
     def test_concurrent_ensure_creates_one_token_manager(self):
         import asyncio
 
-        class FakeCreds:
-            token = "t"
-            valid = True
-            expired = False
-            refresh_token = "rt"
-            client_id = "cid"
-            client_secret = "cs"
-
         from agents.agent_api.app.tools.google_calendar.client import (
             GoogleCalendarClient,
             _AsyncTokenManager,
         )
 
-        client = GoogleCalendarClient(service=MagicMock(), credentials=FakeCreds())
+        client = GoogleCalendarClient(service=MagicMock(), credentials=_FakeCreds())
 
         async def race():
             results = await asyncio.gather(*[client._ensure_async_infra() for _ in range(10)])
@@ -451,6 +436,65 @@ class TestAsyncInfraLifecycle:
 
         managers = asyncio.run(race())
         assert all(m is managers[0] for m in managers)
+
+    def test_ensure_async_infra_loads_credentials_via_thread(self, monkeypatch):
+        import asyncio
+
+        from agents.agent_api.app.tools.google_calendar.client import (
+            GoogleCalendarClient,
+            _AsyncTokenManager,
+            _CredentialCoordinator,
+        )
+        import agents.agent_api.app.tools.google_calendar.client as cal_mod
+
+        fake_creds = _FakeCreds()
+        mock_load = MagicMock(return_value=fake_creds)
+        monkeypatch.setattr(cal_mod, "load_credentials", mock_load)
+
+        persist_cb = MagicMock()
+        client = GoogleCalendarClient(
+            credential_json='{"refresh_token": "rt"}',
+            persist_callback=persist_cb,
+        )
+        assert client._credential_coordinator is None
+
+        mgr = asyncio.run(client._ensure_async_infra())
+
+        mock_load.assert_called_once_with(
+            None,
+            credential_json='{"refresh_token": "rt"}',
+            persist_callback=persist_cb,
+        )
+        assert client._credentials is fake_creds
+        assert isinstance(client._credential_coordinator, _CredentialCoordinator)
+        assert client._credential_coordinator.credentials is fake_creds
+        assert isinstance(mgr, _AsyncTokenManager)
+
+    def test_prewarm_starts_background_ensure(self, monkeypatch):
+        import asyncio
+
+        from agents.agent_api.app.tools.google_calendar.client import (
+            GoogleCalendarClient,
+            _AsyncTokenManager,
+        )
+        import agents.agent_api.app.tools.google_calendar.client as cal_mod
+
+        fake_creds = _FakeCreds()
+        mock_load = MagicMock(return_value=fake_creds)
+        monkeypatch.setattr(cal_mod, "load_credentials", mock_load)
+
+        client = GoogleCalendarClient(
+            credential_json='{"refresh_token": "rt"}',
+        )
+
+        async def run():
+            client.prewarm()
+            await asyncio.sleep(0)  # let the background task run
+            mgr = await client._ensure_async_infra()
+            assert isinstance(mgr, _AsyncTokenManager)
+            mock_load.assert_called_once()
+
+        asyncio.run(run())
 
     def test_close_calendar_async_http_client(self, monkeypatch):
         import asyncio

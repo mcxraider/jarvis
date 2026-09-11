@@ -32,6 +32,7 @@ export interface FakeContext {
   message?: Record<string, unknown>;
   callbackQuery?: { data: string; message?: { text: string; chat: { id: number } } };
   reply: jest.Mock;
+  deleteMessage: jest.Mock;
   answerCbQuery: jest.Mock;
   editMessageText: jest.Mock;
   editMessageReplyMarkup?: jest.Mock;
@@ -75,6 +76,7 @@ export function createTextCtx(text: string, opts: CtxOpts = {}): FakeContext {
     chat: { id: chatId },
     message: { text, message_id: messageId, chat: { id: chatId } },
     reply: jest.fn().mockResolvedValue({ message_id: 77 }),
+    deleteMessage: jest.fn().mockResolvedValue(true),
     answerCbQuery: jest.fn().mockResolvedValue(undefined),
     editMessageText: jest.fn().mockResolvedValue(undefined),
     telegram: {
@@ -94,6 +96,7 @@ export function createCallbackCtx(data: string, opts: CtxOpts & { originalText?:
       message: { text: originalText, chat: { id: chatId } },
     },
     reply: jest.fn().mockResolvedValue({ message_id: 88 }),
+    deleteMessage: jest.fn().mockResolvedValue(true),
     answerCbQuery: jest.fn().mockResolvedValue(undefined),
     editMessageText: jest.fn().mockResolvedValue(undefined),
     editMessageReplyMarkup: jest.fn().mockResolvedValue(undefined),
