@@ -368,12 +368,13 @@ class TestRelevantDomainsSlimming:
             runtime_context=self._both_active(),
             relevant_domains={"todoist"},
         )
-        # The lightweight availability summary still lists Calendar as available.
-        assert "- Google Calendar: available" in prompt
+        # The lightweight availability summary still lists Calendar as registered.
+        assert "- Google Calendar: registered" in prompt
         assert "Task provider: todoist" in prompt
 
-    def test_empty_set_omits_all_fragments(self):
-        """A query needing no domain (e.g. a greeting) drops every fragment."""
+    def test_empty_set_omits_all_fragments_and_routing_prefs(self):
+        """A query needing no domain (e.g. a greeting) drops every fragment
+        and the routing preferences section."""
         prompt = get_orchestrator_prompt(
             runtime_context=self._both_active(),
             relevant_domains=set(),
@@ -382,9 +383,41 @@ class TestRelevantDomainsSlimming:
         assert "## Google Calendar tool tips" not in prompt
         assert self._TODOIST_GROUNDING not in prompt
         assert self._CALENDAR_GROUNDING not in prompt
+        assert "## User routing preferences" not in prompt
+        assert "Task provider:" not in prompt
         # Role + policy body survive so the agent still behaves.
         assert "personal assistant" in prompt
         assert "## Operating loop" in prompt
+        # Response prefs and domain availability always survive.
+        assert "## User response preferences" in prompt
+        assert "## Domain availability" in prompt
+
+    def test_none_keeps_routing_preferences(self):
+        """No slimming (relevant_domains=None) keeps routing preferences."""
+        prompt = get_orchestrator_prompt(
+            runtime_context=self._both_active(),
+            relevant_domains=None,
+        )
+        assert "## User routing preferences" in prompt
+        assert "Task provider:" in prompt
+
+    def test_nonempty_keeps_routing_preferences(self):
+        """When domains are routed, routing preferences are present."""
+        prompt = get_orchestrator_prompt(
+            runtime_context=self._both_active(),
+            relevant_domains={"todoist"},
+        )
+        assert "## User routing preferences" in prompt
+        assert "Task provider:" in prompt
+
+    def test_tools_line_is_last(self):
+        """Available tools line appears after all other sections."""
+        prompt = get_orchestrator_prompt(
+            runtime_context=self._both_active(),
+        )
+        tools_pos = prompt.rfind("Available tools:")
+        avail_pos = prompt.rfind("## Domain availability")
+        assert tools_pos > avail_pos
 
     def test_relevant_domains_only_intersects_active(self):
         """Requesting an inactive domain adds nothing (intersection with active)."""

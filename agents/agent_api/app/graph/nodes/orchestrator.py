@@ -157,13 +157,6 @@ def _compose_orchestrator_tools(
     return request_tools
 
 
-_WEB_SEARCH_CAPABILITY = (
-    "Hosted web_search is available for public web information in this turn. "
-    "Use it when current or externally verified information is needed. "
-    "It does not access connected private services."
-)
-
-
 @dataclass
 class UsageSummary:
     """Token usage aggregated across DeepSeek calls within one Jarvis run.
@@ -1419,6 +1412,32 @@ def create_agent_node(
                 "intent": intent,
             })
 
+        # Determine hosted tools (web_search) before prompt slimming so the
+        # rebuilt system prompt includes them in the Available tools line.
+        effective_domains = set(effective_router_domains(selector_decision)) if selector_decision else set()
+        selector_selected = getattr(run_tool_selector, "selected_domains", None)
+        attached_domains = frozenset(
+            effective_domains | (selector_selected if isinstance(selector_selected, frozenset) else set())
+        )
+        client_profile = getattr(run_agent_client, "profile", None)
+        request_tools = _compose_orchestrator_tools(
+            tool_schemas,
+            decision=selector_decision,
+            attached_domains=attached_domains,
+            profile=client_profile if isinstance(client_profile, LLMProviderProfile) else type(None),
+        )
+        has_hosted_search = len(request_tools) > len(tool_schemas)
+        if has_hosted_search:
+            selected_tool_names.append("web_search")
+            run_tracer.event(
+                "orchestrator.hosted_tools.selected",
+                "Attached hosted web_search for domain-free turn.",
+                router_outcome=selector_decision.outcome.value if selector_decision else None,
+                attached_domains=sorted(attached_domains) or None,
+                dialect=type(client_profile).__name__,
+                hosted_tools=["web_search"],
+            )
+
         run_tracer.event(
             "graph.tools.selected",
             "Selected tools for this turn.",
@@ -1476,33 +1495,6 @@ def create_agent_node(
             if run_images or run_prior_image_batches
             else None
         )
-        effective_domains = set(effective_router_domains(selector_decision)) if selector_decision else set()
-        selector_selected = getattr(run_tool_selector, "selected_domains", None)
-        attached_domains = frozenset(
-            effective_domains | (selector_selected if isinstance(selector_selected, frozenset) else set())
-        )
-        client_profile = getattr(run_agent_client, "profile", None)
-        request_tools = _compose_orchestrator_tools(
-            tool_schemas,
-            decision=selector_decision,
-            attached_domains=attached_domains,
-            profile=client_profile if isinstance(client_profile, LLMProviderProfile) else type(None),
-        )
-        has_hosted_search = len(request_tools) > len(tool_schemas)
-        base_content = messages[0]["content"]
-        if _WEB_SEARCH_CAPABILITY in base_content:
-            base_content = base_content.replace("\n\n" + _WEB_SEARCH_CAPABILITY, "")
-        messages[0]["content"] = base_content
-        if has_hosted_search:
-            run_tracer.event(
-                "orchestrator.hosted_tools.selected",
-                "Attached hosted web_search for domain-free turn.",
-                router_outcome=selector_decision.outcome.value if selector_decision else None,
-                attached_domains=sorted(attached_domains) or None,
-                dialect=type(client_profile).__name__,
-                hosted_tools=["web_search"],
-            )
-            messages[0]["content"] += "\n\n" + _WEB_SEARCH_CAPABILITY
         try:
             if isinstance(run_agent_client, LLMAgentClient):
                 if run_agent_client.async_client is not None:
