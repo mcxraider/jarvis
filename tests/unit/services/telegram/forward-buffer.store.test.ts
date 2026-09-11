@@ -129,6 +129,101 @@ describe('MemoryForwardBufferStore', () => {
     store.clear('k');
     expect(store.getConfirmationMessageId('k')).toBeUndefined();
   });
+
+  describe('acknowledge', () => {
+    it('removes the exact prefix and returns remaining count', () => {
+      const store = new MemoryForwardBufferStore();
+      const m1 = msg({ text: 'first' });
+      const m2 = msg({ text: 'second' });
+      const m3 = msg({ text: 'third' });
+      store.push('k', m1);
+      store.push('k', m2);
+      store.push('k', m3);
+
+      const result = store.acknowledge('k', [m1, m2]);
+      expect(result).toEqual({ acknowledged: true, remainingCount: 1, confirmationMessageId: undefined });
+      expect(store.peek('k').map((m) => m.text)).toEqual(['third']);
+    });
+
+    it('preserves messages appended after the snapshot was taken', () => {
+      const store = new MemoryForwardBufferStore();
+      const m1 = msg({ text: 'before' });
+      store.push('k', m1);
+      const snapshot = store.peek('k');
+
+      const m2 = msg({ text: 'during' });
+      store.push('k', m2);
+
+      const result = store.acknowledge('k', snapshot);
+      expect(result).toEqual({ acknowledged: true, remainingCount: 1, confirmationMessageId: undefined });
+      expect(store.peek('k')[0].text).toBe('during');
+    });
+
+    it('returns mismatch when the buffer head diverged', () => {
+      const store = new MemoryForwardBufferStore();
+      const m1 = msg({ text: 'original' });
+      store.push('k', m1);
+      const staleSnapshot = store.peek('k');
+
+      store.clear('k');
+      store.push('k', msg({ text: 'replaced' }));
+
+      expect(store.acknowledge('k', staleSnapshot)).toEqual({ acknowledged: false, reason: 'mismatch' });
+      expect(store.count('k')).toBe(1);
+    });
+
+    it('returns mismatch when the buffer is empty', () => {
+      const store = new MemoryForwardBufferStore();
+      const m1 = msg();
+      store.push('k', m1);
+      const snapshot = store.peek('k');
+      store.clear('k');
+
+      expect(store.acknowledge('k', snapshot)).toEqual({ acknowledged: false, reason: 'mismatch' });
+    });
+
+    it('returns empty for a zero-length prefix', () => {
+      const store = new MemoryForwardBufferStore();
+      store.push('k', msg());
+      expect(store.acknowledge('k', [])).toEqual({ acknowledged: false, reason: 'empty' });
+      expect(store.count('k')).toBe(1);
+    });
+
+    it('deletes the entry when all messages are acknowledged', () => {
+      const store = new MemoryForwardBufferStore();
+      const m1 = msg();
+      store.push('k', m1);
+      store.setConfirmationMessageId('k', 42);
+
+      const result = store.acknowledge('k', [m1]);
+      expect(result).toEqual({ acknowledged: true, remainingCount: 0, confirmationMessageId: 42 });
+      expect(store.count('k')).toBe(0);
+      expect(store.getConfirmationMessageId('k')).toBeUndefined();
+    });
+
+    it('retains the confirmation message id when messages remain', () => {
+      const store = new MemoryForwardBufferStore();
+      const m1 = msg({ text: 'first' });
+      const m2 = msg({ text: 'second' });
+      store.push('k', m1);
+      store.push('k', m2);
+      store.setConfirmationMessageId('k', 99);
+
+      const result = store.acknowledge('k', [m1]);
+      expect(result).toEqual({ acknowledged: true, remainingCount: 1, confirmationMessageId: 99 });
+      expect(store.getConfirmationMessageId('k')).toBe(99);
+    });
+
+    it('is a no-op when prefix is longer than the buffer', () => {
+      const store = new MemoryForwardBufferStore();
+      const m1 = msg();
+      store.push('k', m1);
+      const fakeExtra = msg({ text: 'fake' });
+
+      expect(store.acknowledge('k', [m1, fakeExtra])).toEqual({ acknowledged: false, reason: 'mismatch' });
+      expect(store.count('k')).toBe(1);
+    });
+  });
 });
 
 describe('extractForwardOrigin', () => {

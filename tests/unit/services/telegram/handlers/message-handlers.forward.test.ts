@@ -34,8 +34,14 @@ describe('MessageHandlers forward buffering', () => {
 
   function createHandlers(options: { gateStore?: any; forwardBuffer?: MemoryForwardBufferStore; fileService?: any } = {}) {
     const messageProcessor = {
-      processTextMessage: jest.fn().mockResolvedValue({ response: 'processed text' }),
-      processPhotoMessage: jest.fn().mockResolvedValue({ response: 'processed photo' }),
+      processTextMessage: jest.fn().mockImplementation(async (_text: string, _userId: any, _log: any, _progress: any, opts: any) => {
+        await opts?.onRequestAccepted?.();
+        return { response: 'processed text' };
+      }),
+      processPhotoMessage: jest.fn().mockImplementation(async (_msg: string, _imgs: any, _userId: any, _log: any, _progress: any, opts: any) => {
+        await opts?.onRequestAccepted?.();
+        return { response: 'processed photo' };
+      }),
       abandonConversation: jest.fn().mockResolvedValue('abandoned'),
     };
     const forwardBuffer = options.forwardBuffer ?? new MemoryForwardBufferStore();
@@ -274,18 +280,21 @@ describe('MessageHandlers forward buffering', () => {
       expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
     });
 
-    it('dispatches with default instruction on bare command and clears the buffer', async () => {
+    it('shows usage guidance on bare /forward and retains the buffer', async () => {
       const { handlers, messageProcessor, forwardBuffer } = createHandlers();
       const ctx = createContext({ text: 'fwd', forward_origin: FORWARD_ORIGIN, message_id: 21 });
       await handlers.maybeBufferForward(ctx);
+      const key = (handlers as any).gateKey(ctx);
 
       ctx.message = { text: '/forward', message_id: 22 };
       await handlers.handleForward(ctx);
 
-      expect(messageProcessor.processTextMessage).toHaveBeenCalledTimes(1);
-      const combined = messageProcessor.processTextMessage.mock.calls[0][0] as string;
-      expect(combined).toContain('Help me with these.');
-      expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(0);
+      expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
+      expect(forwardBuffer.count(key)).toBe(1);
+      expect(ctx.reply).toHaveBeenLastCalledWith(
+        expect.stringContaining('Send /forward'),
+        { parse_mode: 'MarkdownV2' },
+      );
     });
 
     it('dispatches formatted context + instruction and clears the buffer', async () => {
@@ -401,7 +410,7 @@ describe('MessageHandlers forward buffering', () => {
       expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(0);
     });
 
-    it('falls back to text dispatch when photo download fails', async () => {
+    it('retains the buffer when photo download fails (all-or-nothing)', async () => {
       const fileService = {
         isAudioFile: jest.fn(),
         getFileUrl: jest.fn(),
@@ -414,15 +423,153 @@ describe('MessageHandlers forward buffering', () => {
         message_id: 42,
       });
       await handlers.maybeBufferForward(ctx);
+      const key = (handlers as any).gateKey(ctx);
 
       ctx.message = { text: '/forward summarize', message_id: 43 };
       await handlers.handleForward(ctx);
 
-      // Still dispatches (with empty images) via processPhotoMessage
-      expect(messageProcessor.processPhotoMessage).toHaveBeenCalledTimes(1);
-      const [, images] = messageProcessor.processPhotoMessage.mock.calls[0];
-      expect(images).toHaveLength(0);
-      expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(0);
+      expect(messageProcessor.processPhotoMessage).not.toHaveBeenCalled();
+      expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
+      expect(forwardBuffer.count(key)).toBe(1);
+      expect(ctx.reply).toHaveBeenLastCalledWith(
+        expect.stringContaining('couldn\'t load every forwarded photo'),
+        { parse_mode: 'MarkdownV2' },
+      );
+    });
+
+    it('retains the buffer when the processor blocks the dispatch', async () => {
+      const { handlers, messageProcessor, forwardBuffer } = createHandlers();
+      messageProcessor.processTextMessage.mockImplementation(async () => ({
+        response: "I'm still working on your previous request. Please wait.",
+        blocked: true,
+      }));
+      const ctx = createContext({ text: 'fwd', forward_origin: FORWARD_ORIGIN, message_id: 70 });
+      await handlers.maybeBufferForward(ctx);
+      const key = (handlers as any).gateKey(ctx);
+
+      ctx.message = { text: '/forward summarize', message_id: 71 };
+      await handlers.handleForward(ctx);
+
+      expect(forwardBuffer.count(key)).toBe(1);
+    });
+
+    it('a forward arriving during dispatch survives the acknowledged batch', async () => {
+      const { handlers, messageProcessor, forwardBuffer } = createHandlers();
+      const ctx = createContext({ text: 'original', forward_origin: FORWARD_ORIGIN, message_id: 72 });
+      await handlers.maybeBufferForward(ctx);
+      const key = (handlers as any).gateKey(ctx);
+
+      // The processor mock simulates a forward arriving during processing:
+      // it pushes a new message before invoking the acceptance callback.
+      messageProcessor.processTextMessage.mockImplementation(async (_t: string, _u: any, _l: any, _p: any, opts: any) => {
+        forwardBuffer.push(key, {
+          senderName: 'Bob',
+          forwardedAt: new Date(),
+          receivedAt: new Date(),
+          text: 'arrived during processing',
+        });
+        await opts?.onRequestAccepted?.();
+        return { response: 'done' };
+      });
+
+      ctx.message = { text: '/forward summarize', message_id: 73 };
+      await handlers.handleForward(ctx);
+
+      expect(forwardBuffer.count(key)).toBe(1);
+      expect(forwardBuffer.peek(key)[0].text).toBe('arrived during processing');
+    });
+
+    it('concurrent /forward commands produce at most one acknowledged batch', async () => {
+      const { handlers, messageProcessor, forwardBuffer } = createHandlers();
+      const reply = jest.fn().mockResolvedValue({ message_id: 77 });
+      const telegram = {
+        callApi: jest.fn().mockResolvedValue(true),
+        editMessageText: jest.fn().mockResolvedValue(true),
+        deleteMessage: jest.fn().mockResolvedValue(true),
+      };
+      const ctx = createContext({ text: 'msg', forward_origin: FORWARD_ORIGIN, message_id: 74 }, { reply, telegram });
+      await handlers.maybeBufferForward(ctx);
+      const key = (handlers as any).gateKey(ctx);
+
+      // First call succeeds (invokes callback); second blocks (callback not invoked).
+      let callCount = 0;
+      messageProcessor.processTextMessage.mockImplementation(async (_t: string, _u: any, _l: any, _p: any, opts: any) => {
+        callCount++;
+        if (callCount === 1) {
+          await opts?.onRequestAccepted?.();
+          return { response: 'done' };
+        }
+        return { response: 'blocked', blocked: true };
+      });
+
+      const ctx2 = createContext({ text: '/forward do it', message_id: 75 }, { reply, telegram });
+      const ctx3 = createContext({ text: '/forward also do it', message_id: 76 }, { reply, telegram });
+      await Promise.all([handlers.handleForward(ctx2), handlers.handleForward(ctx3)]);
+
+      // The first dispatch acknowledged and cleared; the second had nothing to acknowledge.
+      expect(forwardBuffer.count(key)).toBe(0);
+    });
+
+    it('rejects the 11th forwarded photo', async () => {
+      const { handlers, forwardBuffer } = createHandlers();
+      const key = 'will-be-set';
+      let resolvedKey = '';
+      for (let i = 0; i < 10; i++) {
+        const ctx = createContext({
+          photo: [{ file_id: `p${i}`, width: 100, height: 100 }],
+          forward_origin: FORWARD_ORIGIN,
+          message_id: 80 + i,
+        });
+        await handlers.maybeBufferForward(ctx);
+        if (i === 0) resolvedKey = (handlers as any).gateKey(ctx);
+      }
+      expect(forwardBuffer.peek(resolvedKey).filter((m: any) => m.fileId).length).toBe(10);
+
+      const ctx = createContext({
+        photo: [{ file_id: 'p10', width: 100, height: 100 }],
+        forward_origin: FORWARD_ORIGIN,
+        message_id: 91,
+      });
+      await handlers.maybeBufferForward(ctx);
+
+      expect(forwardBuffer.peek(resolvedKey).filter((m: any) => m.fileId).length).toBe(10);
+      expect(ctx.reply).toHaveBeenLastCalledWith(
+        expect.stringContaining('Up to 10 forwarded photos per batch'),
+        { parse_mode: 'MarkdownV2' },
+      );
+    });
+
+    it('confirmation count reflects forwards received during processing', async () => {
+      const { handlers, messageProcessor, forwardBuffer } = createHandlers();
+      const reply = jest.fn().mockResolvedValue({ message_id: 77 });
+      const telegram = {
+        callApi: jest.fn().mockResolvedValue(true),
+        editMessageText: jest.fn().mockResolvedValue(true),
+        deleteMessage: jest.fn().mockResolvedValue(true),
+      };
+      const ctx = createContext({ text: 'msg', forward_origin: FORWARD_ORIGIN, message_id: 92 }, { reply, telegram });
+      await handlers.maybeBufferForward(ctx);
+      const key = (handlers as any).gateKey(ctx);
+
+      messageProcessor.processTextMessage.mockImplementation(async (_t: string, _u: any, _l: any, _p: any, opts: any) => {
+        forwardBuffer.push(key, {
+          senderName: 'Charlie',
+          forwardedAt: new Date(),
+          receivedAt: new Date(),
+          text: 'late arrival',
+        });
+        await opts?.onRequestAccepted?.();
+        return { response: 'done' };
+      });
+
+      ctx.message = { text: '/forward summarize', message_id: 93 };
+      await handlers.handleForward(ctx);
+
+      // Remaining message triggers a confirmation update (not a delete)
+      expect(telegram.editMessageText).toHaveBeenCalledWith(
+        456, 77, undefined,
+        expect.stringContaining('1 message'),
+      );
     });
   });
 

@@ -59,6 +59,9 @@ export interface TextProcessorOptions {
   forceFresh?: boolean;
   /** Request-scoped only; never copied into gate, pending, or checkpoint state. */
   images?: AgentImage[];
+  /** Invoked once after the agent client returns (terminal, interrupted, or ambiguous).
+   *  NOT invoked for blocked, pre-admission, or thrown requests. Best-effort. */
+  onRequestAccepted?: () => void | Promise<void>;
 }
 
 export interface PendingPausePresentation {
@@ -275,6 +278,8 @@ export class TextProcessorService {
       const agentResponse = guardedProgress
         ? await this.agentClient.invoke(agentRequest, requestContext, guardedProgress)
         : await this.agentClient.invoke(agentRequest, requestContext);
+
+      try { await options?.onRequestAccepted?.(); } catch { /* best-effort */ }
 
       if (agentResponse.delivery === 'ambiguous') {
         // The backend may still be producing a result after our transport died.

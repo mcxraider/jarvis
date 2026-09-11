@@ -36,6 +36,7 @@ import {
   formatForwardContext,
   ForwardBufferStore,
   ForwardedMessage,
+  AcknowledgeResult,
 } from '../forward-buffer.store';
 import {
   AgentImage,
@@ -141,6 +142,19 @@ export class MessageHandlers {
     }
 
     const gateKey = this.gateKey(ctx);
+
+    if (fileId) {
+      const existingPhotos = this.forwardBuffer.peek(gateKey).filter((m) => m.fileId).length;
+      if (existingPhotos >= MAX_AGENT_IMAGE_COUNT) {
+        await sendFinalReply(
+          ctx,
+          'Up to 10 forwarded photos per batch. Send `/forward <instruction>` now, then start another batch.',
+          logContext,
+        );
+        return true;
+      }
+    }
+
     await this.pushToForwardBuffer(
       ctx,
       gateKey,
@@ -247,15 +261,15 @@ export class MessageHandlers {
     const startedAt = Date.now();
     const instruction = ctx.message.text.replace(/^\/forward(?:@\w+)?\s*/i, '').trim();
     const gateKey = this.gateKey(ctx);
-    const messages = this.forwardBuffer.peek(gateKey);
+    const snapshot = this.forwardBuffer.peek(gateKey);
 
     logger.info('telegram.command.forward', {
       ...logContext,
-      bufferedCount: messages.length,
+      bufferedCount: snapshot.length,
       hasInstruction: instruction.length > 0,
     });
 
-    if (messages.length === 0) {
+    if (snapshot.length === 0) {
       await sendFinalReply(
         ctx,
         'No forwarded messages buffered. Forward some messages first, then /forward.',
@@ -263,7 +277,15 @@ export class MessageHandlers {
       );
       return;
     }
-    const resolvedInstruction = instruction || 'Help me with these.';
+
+    if (!instruction) {
+      await sendFinalReply(
+        ctx,
+        `You have ${snapshot.length} message${snapshot.length === 1 ? '' : 's'} buffered. Send /forward <instruction> to tell me what to do with them.`,
+        logContext,
+      );
+      return;
+    }
 
     // Keep the buffer intact if the previous request is still running — the processor
     // would reject the dispatch anyway, and draining first would lose the forwards.
@@ -282,50 +304,56 @@ export class MessageHandlers {
       return;
     }
 
-    const combined = formatForwardContext(messages, resolvedInstruction);
-    const confirmationId = this.forwardBuffer.getConfirmationMessageId(gateKey);
-    this.forwardBuffer.clear(gateKey);
-
-    const photoFileIds = messages
+    const combined = formatForwardContext(snapshot, instruction);
+    const photoFileIds = snapshot
       .map((m) => m.fileId)
-      .filter((id): id is string => Boolean(id))
-      .slice(0, MAX_AGENT_IMAGE_COUNT);
+      .filter((id): id is string => Boolean(id));
 
     logger.info('telegram.forward.dispatched', {
       ...logContext,
-      count: messages.length,
+      count: snapshot.length,
       totalChars: combined.length,
       imageCount: photoFileIds.length,
     });
 
-    if (confirmationId !== undefined && ctx.chat) {
-      await ctx.telegram.deleteMessage(ctx.chat.id, confirmationId).catch(() => undefined);
-    }
+    const acceptCallback = () => this.acknowledgeForwardBuffer(ctx, gateKey, snapshot, logContext);
 
     if (photoFileIds.length === 0) {
       await this.runFreshText(ctx, combined, logContext, startedAt, {
         forceFresh: true,
         inputKind: 'forwarded',
+        onRequestAccepted: acceptCallback,
       });
       return;
     }
 
-    // Download buffered photos and dispatch with images alongside the text context.
+    // All-or-nothing: download every photo before processing. If any fails, retain
+    // the complete buffer so the user can retry /forward or re-forward the photos.
+    let images: AgentImage[];
+    try {
+      const result = await this.downloadImages(photoFileIds, logContext, { skipFailures: false });
+      images = result.images;
+    } catch {
+      await sendFinalReply(
+        ctx,
+        "I couldn't load every forwarded photo. Your buffer is still intact; retry `/forward`, or `/new` and re-forward the photos.",
+        logContext,
+      );
+      return;
+    }
+
     await this.runWithAgentProgress(
       ctx,
       logContext,
       startedAt,
       async (onProgress, onPendingPauseAccepted) => {
-        const { images } = await this.downloadImages(photoFileIds, logContext, {
-          skipFailures: true,
-        });
         return this.messageProcessor.processPhotoMessage(
           combined,
           images,
           ctx.from?.id,
           logContext,
           onProgress,
-          { forceFresh: true, onPendingPauseAccepted },
+          { forceFresh: true, onPendingPauseAccepted, onRequestAccepted: acceptCallback },
         );
       },
       'Something went wrong processing your forwarded messages. Please try again.',
@@ -337,6 +365,31 @@ export class MessageHandlers {
   private gateKey(ctx: Context): string {
     const userId = ctx.from?.id;
     return buildConversationKey(userId, mapTelegramUserId(userId), ctx.chat?.id);
+  }
+
+  private async acknowledgeForwardBuffer(
+    ctx: Context,
+    gateKey: string,
+    snapshot: ForwardedMessage[],
+    logContext: LogContext,
+  ): Promise<void> {
+    if (!this.forwardBuffer) return;
+    const result = this.forwardBuffer.acknowledge(gateKey, snapshot);
+    if (!result.acknowledged) return;
+
+    if (result.remainingCount === 0) {
+      if (result.confirmationMessageId !== undefined && ctx.chat) {
+        await ctx.telegram.deleteMessage(ctx.chat.id, result.confirmationMessageId).catch(() => undefined);
+      }
+    } else {
+      const prev = this.confirmationChains.get(gateKey) ?? Promise.resolve();
+      const next = prev.then(() => this.updateForwardConfirmation(ctx, gateKey, logContext));
+      this.confirmationChains.set(gateKey, next);
+      await next;
+      if (this.confirmationChains.get(gateKey) === next) {
+        this.confirmationChains.delete(gateKey);
+      }
+    }
   }
 
   // Primary text message handler. Shows a rotating progress indicator while the
@@ -461,6 +514,7 @@ export class MessageHandlers {
       forceFresh?: boolean;
       replyContext?: import('../reply-context').ReplyContextData;
       inputKind?: TelegramInputKind;
+      onRequestAccepted?: () => void | Promise<void>;
     },
   ): Promise<void> {
     const userId = ctx.from?.id;

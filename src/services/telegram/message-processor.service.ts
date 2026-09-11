@@ -38,6 +38,7 @@ export class MessageProcessorService {
       forceFresh?: boolean;
       replyContext?: ReplyContextData;
       onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
+      onRequestAccepted?: () => void | Promise<void>;
     },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
@@ -255,6 +256,7 @@ export class MessageProcessorService {
       forceFresh?: boolean;
       replyContext?: ReplyContextData;
       onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
+      onRequestAccepted?: () => void | Promise<void>;
     },
   ): Promise<TextProcessorResult> {
     logger.info('processor.route.selected', {
