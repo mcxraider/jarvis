@@ -1,23 +1,23 @@
 // src/services/telegram/poll-content.ts — Pure formatter: Telegram poll object → plain text.
 // No side effects, no logger, no networking. Used by forward buffer and reply context.
 
-export function formatPollAsText(poll: unknown): string | undefined {
-  if (!poll || typeof poll !== 'object') return undefined;
-  const p = poll as Record<string, unknown>;
+import { Poll } from 'telegraf/typings/core/types/typegram';
 
-  const question = typeof p.question === 'string' ? p.question.trim() : undefined;
+export function formatPollAsText(poll: Poll): string | undefined {
+  if (!poll || typeof poll !== 'object') return undefined;
+
+  const question = poll.question?.trim();
   if (!question) return undefined;
 
-  const options = Array.isArray(p.options) ? p.options : [];
+  const options = Array.isArray(poll.options) ? poll.options : [];
   const optionLines = options
     .map((opt, i) => {
       if (!opt || typeof opt !== 'object') return undefined;
-      const o = opt as Record<string, unknown>;
-      const text = typeof o.text === 'string' ? o.text : undefined;
+      const text = typeof opt.text === 'string' ? opt.text : undefined;
       if (!text) return undefined;
       const count =
-        typeof o.voter_count === 'number' && Number.isFinite(o.voter_count)
-          ? ` (${o.voter_count} vote${o.voter_count === 1 ? '' : 's'})`
+        typeof opt.voter_count === 'number' && Number.isFinite(opt.voter_count)
+          ? ` (${opt.voter_count} vote${opt.voter_count === 1 ? '' : 's'})`
           : '';
       return `${i + 1}. ${text}${count}`;
     })
@@ -30,30 +30,25 @@ export function formatPollAsText(poll: unknown): string | undefined {
     `Question: ${question}`,
   ];
 
-  if (typeof p.question_text === 'string' && p.question_text.trim()) {
-    lines.push(`Description: ${p.question_text.trim()}`);
-  }
-
   lines.push('Options:', ...optionLines);
 
   const meta: string[] = [];
-  if (typeof p.type === 'string') meta.push(`Type: ${p.type}`);
-  if (typeof p.allows_multiple_answers === 'boolean')
-    meta.push(`Multiple answers allowed: ${p.allows_multiple_answers ? 'yes' : 'no'}`);
-  if (typeof p.is_anonymous === 'boolean')
-    meta.push(`Anonymous: ${p.is_anonymous ? 'yes' : 'no'}`);
-  if (typeof p.is_closed === 'boolean')
-    meta.push(`Closed: ${p.is_closed ? 'yes' : 'no'}`);
-  if (typeof p.total_voter_count === 'number' && Number.isFinite(p.total_voter_count))
-    meta.push(`Reported total voters: ${p.total_voter_count}`);
+  if (typeof poll.type === 'string') meta.push(`Type: ${poll.type}`);
+  if (typeof poll.allows_multiple_answers === 'boolean')
+    meta.push(`Multiple answers allowed: ${poll.allows_multiple_answers ? 'yes' : 'no'}`);
+  if (typeof poll.is_anonymous === 'boolean')
+    meta.push(`Anonymous: ${poll.is_anonymous ? 'yes' : 'no'}`);
+  if (typeof poll.is_closed === 'boolean')
+    meta.push(`Closed: ${poll.is_closed ? 'yes' : 'no'}`);
+  if (typeof poll.total_voter_count === 'number' && Number.isFinite(poll.total_voter_count))
+    meta.push(`Reported total voters: ${poll.total_voter_count}`);
 
-  // Quiz correct answer — index zero is valid, so check for number type, not truthiness.
-  const correctId = p.correct_option_id;
+  const correctId = poll.correct_option_id;
   if (typeof correctId === 'number' && Number.isInteger(correctId) && correctId >= 0 && correctId < optionLines.length) {
     meta.push(`Correct answer: option ${correctId + 1}`);
   }
-  if (typeof p.explanation === 'string' && p.explanation.trim()) {
-    meta.push(`Explanation: ${p.explanation.trim()}`);
+  if (typeof poll.explanation === 'string' && poll.explanation.trim()) {
+    meta.push(`Explanation: ${poll.explanation.trim()}`);
   }
 
   if (meta.length > 0) lines.push(...meta);

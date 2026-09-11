@@ -29,7 +29,7 @@ class DeepSeekContinuation:
 _WEB_SEARCH_ACTION_TYPES = frozenset({"search", "open_page", "find_in_page"})
 
 
-def _validate_web_search_action(action: Any) -> None:
+def validate_web_search_action(action: Any) -> None:
     if not isinstance(action, Mapping):
         raise ValueError("OpenAI web_search_call action must be an object")
     action_type = action.get("type")
@@ -83,7 +83,7 @@ def _validated_responses_item(value: Any) -> dict[str, Any]:
         status = item.get("status")
         if not isinstance(status, str) or not status.strip():
             raise ValueError("OpenAI web_search_call must include a status")
-        _validate_web_search_action(item.get("action"))
+        validate_web_search_action(item.get("action"))
         return item
     if item_type == "message":
         if item.get("role") != "assistant":
@@ -482,4 +482,5 @@ __all__ = [
     "OpenAIResponsesContinuation",
     "canonicalize_messages",
     "serialize_messages",
+    "validate_web_search_action",
 ]

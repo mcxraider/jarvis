@@ -5,6 +5,7 @@
 // status then agent processing status). Text uses a single-phase progress rotation.
 
 import { Context } from 'telegraf';
+import { Message, Poll } from 'telegraf/typings/core/types/typegram';
 import { createRequestId, LogContext, logger, truncateForLog } from '../../../utils/logger';
 import { FileService } from '../file.service';
 import { MessageProcessorService } from '../message-processor.service';
@@ -112,7 +113,7 @@ export class MessageHandlers {
       fileId = largest.file_id;
       text = typeof message.caption === 'string' ? `[photo] ${message.caption}` : '[photo]';
     } else if ('poll' in message && message.poll) {
-      const pollText = formatPollAsText(message.poll);
+      const pollText = formatPollAsText(message.poll as Poll);
       if (pollText) {
         text = pollText;
       }
@@ -495,19 +496,25 @@ export class MessageHandlers {
     const progressReporter = new TelegramProgressReporter(ctx, logContext, inputKind);
 
     try {
-      await progressReporter.start();
+      void progressReporter.start();
       const result = await processFn(
         async (event: LangGraphProgressEvent, signal?: AbortSignal) => {
           await progressReporter.record(event, signal);
         },
         (presentation) => this.resolvePausePresentation(ctx, presentation, logContext),
       );
-      await progressReporter.complete();
       if (result.suppressed) {
         logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
+        void progressReporter.complete();
         return;
       }
-      if (!this.claimTerminalReply(logContext, `${resultKind}_result`)) return;
+      if (!this.claimTerminalReply(logContext, `${resultKind}_result`)) {
+        void progressReporter.complete();
+        return;
+      }
+      // ponytail: send answer first, clean up progress in background.
+      // Telegram renders in send order; delete races are already caught.
+      void progressReporter.complete();
       await this.sendResult(ctx, result, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
@@ -523,7 +530,7 @@ export class MessageHandlers {
         userId,
         durationMs: Date.now() - startedAt,
       });
-      await progressReporter.complete();
+      void progressReporter.complete();
       if (this.claimTerminalReply(logContext, `${resultKind}_error`)) {
         await sendFinalReply(ctx, errorMessage, logContext);
       }
@@ -877,7 +884,7 @@ export class MessageHandlers {
   async handlePoll(ctx: Context): Promise<void> {
     if (!ctx.message || !('poll' in ctx.message)) return;
 
-    const poll = (ctx.message as any).poll;
+    const poll = (ctx.message as Message.PollMessage).poll;
     const logContext = this.createLogContext(ctx, 'poll');
     const optionCount = Array.isArray(poll?.options) ? poll.options.length : 0;
     const questionLength = typeof poll?.question === 'string' ? poll.question.length : 0;
@@ -1052,19 +1059,24 @@ export class MessageHandlers {
     const progressReporter = new TelegramProgressReporter(ctx, logContext, 'audio');
 
     try {
-      await progressReporter.start();
+      void progressReporter.start();
       const result = await processFn(
         () => progressReporter.refresh(),
         async (event: LangGraphProgressEvent, signal?: AbortSignal) => {
           await progressReporter.record(event, signal);
         },
       );
-      await progressReporter.complete();
       if (result.suppressed) {
         logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
+        void progressReporter.complete();
         return;
       }
-      if (!this.claimTerminalReply(logContext, 'audio_result')) return;
+      if (!this.claimTerminalReply(logContext, 'audio_result')) {
+        void progressReporter.complete();
+        return;
+      }
+      // ponytail: send answer first, clean up progress in background.
+      void progressReporter.complete();
       await this.sendResult(ctx, result, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
@@ -1078,7 +1090,7 @@ export class MessageHandlers {
         userId,
         durationMs: Date.now() - startedAt,
       });
-      await progressReporter.complete();
+      void progressReporter.complete();
       if (this.claimTerminalReply(logContext, 'audio_error')) {
         // Size/duration admission (and any other user-actionable failure) carries copy that
         // tells the user what to change; the generic message would hide it.

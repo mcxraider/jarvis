@@ -115,10 +115,11 @@ export class TelegramProgressReporter {
 
   async complete(): Promise<void> {
     if (this.completed) return;
-    this.completed = true;
     this.clearTimer();
-    const activePump = this.pump;
-    if (activePump) await activePump;
+    // Drain all pumps (including follow-ups triggered by .finally()) before
+    // setting completed, so pending content still gets delivered.
+    while (this.pump) await this.pump;
+    this.completed = true;
     await this.removePlainStatus();
     this.desired = undefined;
     this.delivered = undefined;
@@ -202,11 +203,18 @@ export class TelegramProgressReporter {
       dueAt = Math.max(dueAt, this.retryNotBefore);
     }
 
+    const delay = Math.max(0, dueAt - now);
+    if (delay === 0) {
+      // Pump synchronously so the follow-up starts as a microtask before
+      // a concurrent complete() can set the completed flag.
+      void this.ensurePump();
+      return;
+    }
     this.clearTimer();
     this.timer = setTimeout(() => {
       this.timer = undefined;
       void this.ensurePump();
-    }, Math.max(0, dueAt - now));
+    }, delay);
     this.timer.unref?.();
   }
 

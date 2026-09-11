@@ -29,7 +29,7 @@ from agents.agent_api.app.llm.messages import (
     CanonicalToolMessage,
     CanonicalUserMessage,
     OpenAIResponsesContinuation,
-    _validate_web_search_action,
+    validate_web_search_action,
     canonicalize_messages,
 )
 from agents.agent_api.app.llm.provider import (
@@ -410,7 +410,7 @@ def normalize_response(
         if item_type == "web_search_call":
             item = _dump(raw_item)
             try:
-                _validate_web_search_action(item.get("action"))
+                validate_web_search_action(item.get("action"))
             except ValueError as exc:
                 raise LLMProviderError("invalid_response", str(exc)) from exc
             replay_items.append(item)
