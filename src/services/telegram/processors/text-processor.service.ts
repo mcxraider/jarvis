@@ -813,16 +813,30 @@ export class TextProcessorService {
     onProgress?: LangGraphProgressCallback,
   ): LangGraphProgressCallback | undefined {
     if (!onProgress) return undefined;
+
+    // ponytail: check every 10s, not every event. Tighten if stale updates become visible.
+    const CHECK_INTERVAL_MS = 10_000;
+    let lastCheckAt = 0;
+    let stale = false;
+
     return async (event, signal) => {
-      const snapshot = await this.safeGetGateSnapshot(gateKey);
-      if (snapshot.status !== 'running' || snapshot.requestId !== expectedRequestId) {
-        logger.info('conversation_gate.progress_suppressed_stale_owner', {
-          ...logContext,
-          gateKey,
-          expectedRequestId,
-        });
-        return;
+      if (stale) return;
+
+      const now = Date.now();
+      if (now - lastCheckAt >= CHECK_INTERVAL_MS) {
+        lastCheckAt = now;
+        const snapshot = await this.safeGetGateSnapshot(gateKey);
+        if (snapshot.status !== 'running' || snapshot.requestId !== expectedRequestId) {
+          logger.info('conversation_gate.progress_suppressed_stale_owner', {
+            ...logContext,
+            gateKey,
+            expectedRequestId,
+          });
+          stale = true;
+          return;
+        }
       }
+
       await onProgress(event, signal);
     };
   }

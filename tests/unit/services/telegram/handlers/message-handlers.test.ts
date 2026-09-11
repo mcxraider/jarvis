@@ -218,6 +218,7 @@ describe('MessageHandlers', () => {
     const ctx = createContext({ text: 'hello', message_id: 99 });
 
     await handlers.handleText(ctx);
+    await new Promise((r) => setTimeout(r, 20));
 
     expect(ctx.reply).toHaveBeenCalledTimes(2);
     expect(ctx.telegram.editMessageText).toHaveBeenCalledWith(
@@ -355,6 +356,7 @@ describe('MessageHandlers', () => {
     const ctx = createContext({ text: 'hello', message_id: 99 });
 
     await handlers.handleText(ctx);
+    await new Promise((r) => setTimeout(r, 20));
 
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
     expect(ctx.reply).not.toHaveBeenCalledWith('stale response', expect.anything());
@@ -585,6 +587,7 @@ describe('MessageHandlers', () => {
     );
 
     await handlers.handleVoice(ctx);
+    await new Promise((r) => setTimeout(r, 20));
 
     const draftCalls = ctx.telegram.callApi.mock.calls.filter(
       (call: unknown[]) => call[0] === 'sendRichMessageDraft',
@@ -617,6 +620,7 @@ describe('MessageHandlers', () => {
     const ctx = createContext({ voice: { file_id: 'voice-1', duration: 3 } });
 
     await handlers.handleVoice(ctx);
+    await new Promise((r) => setTimeout(r, 20));
 
     expect(ctx.telegram.deleteMessage).toHaveBeenCalledWith(456, 77);
     expect(ctx.reply).not.toHaveBeenCalledWith('stale audio', expect.anything());
@@ -1110,6 +1114,7 @@ describe('MessageHandlers', () => {
       const ctx = createContext({ voice: { file_id: 'voice-1', duration: 2000 }, message_id: 41 });
 
       await handlers.handleVoice(ctx);
+      await new Promise((r) => setTimeout(r, 20));
 
       expect(ctx.reply).toHaveBeenCalledWith(toTelegramMarkdownV2(AUDIO_LIMIT_MESSAGES.tooLong), {
         parse_mode: 'MarkdownV2',

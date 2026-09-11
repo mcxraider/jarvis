@@ -100,6 +100,9 @@ _QUESTION_PHRASES = re.compile(
     re.IGNORECASE,
 )
 
+_MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\([^)]*\)")
+
+
 def _last_sentence(text: str) -> str:
     """Extract the last sentence from text for phrase matching."""
     for sep in ("\n", ". ", "! "):
@@ -117,7 +120,7 @@ def _looks_like_question(content: str) -> bool:
     Returns True when the text ends with '?' (any length) or the last sentence
     contains ask-user-like phrases — indicating the model failed to call ask_user.
     """
-    text = content.strip()
+    text = _MARKDOWN_LINK.sub("", content.strip())
     if not text:
         return False
     if text.endswith("?"):
@@ -134,6 +137,31 @@ def _tool_schema_names(tool_schemas: List[Dict[str, Any]]) -> List[str]:
         if isinstance(name, str) and name:
             names.append(name)
     return names
+
+
+def _compose_orchestrator_tools(
+    local_schemas: List[Dict[str, Any]],
+    *,
+    decision: Any,
+    attached_domains: frozenset[str],
+    profile: LLMProviderProfile,
+) -> List[Dict[str, Any]]:
+    """Append hosted tools when eligible. Returns a fresh list."""
+    request_tools = list(local_schemas)
+    if (
+        isinstance(profile, OpenAIResponsesProfile)
+        and decision is not None
+        and not attached_domains
+    ):
+        request_tools.append({"type": "web_search"})
+    return request_tools
+
+
+_WEB_SEARCH_CAPABILITY = (
+    "Hosted web_search is available for public web information in this turn. "
+    "Use it when current or externally verified information is needed. "
+    "It does not access connected private services."
+)
 
 
 @dataclass
@@ -1448,12 +1476,39 @@ def create_agent_node(
             if run_images or run_prior_image_batches
             else None
         )
+        effective_domains = set(effective_router_domains(selector_decision)) if selector_decision else set()
+        selector_selected = getattr(run_tool_selector, "selected_domains", None)
+        attached_domains = frozenset(
+            effective_domains | (selector_selected if isinstance(selector_selected, frozenset) else set())
+        )
+        client_profile = getattr(run_agent_client, "profile", None)
+        request_tools = _compose_orchestrator_tools(
+            tool_schemas,
+            decision=selector_decision,
+            attached_domains=attached_domains,
+            profile=client_profile if isinstance(client_profile, LLMProviderProfile) else type(None),
+        )
+        has_hosted_search = len(request_tools) > len(tool_schemas)
+        base_content = messages[0]["content"]
+        if _WEB_SEARCH_CAPABILITY in base_content:
+            base_content = base_content.replace("\n\n" + _WEB_SEARCH_CAPABILITY, "")
+        messages[0]["content"] = base_content
+        if has_hosted_search:
+            run_tracer.event(
+                "orchestrator.hosted_tools.selected",
+                "Attached hosted web_search for domain-free turn.",
+                router_outcome=selector_decision.outcome.value if selector_decision else None,
+                attached_domains=sorted(attached_domains) or None,
+                dialect=type(client_profile).__name__,
+                hosted_tools=["web_search"],
+            )
+            messages[0]["content"] += "\n\n" + _WEB_SEARCH_CAPABILITY
         try:
             if isinstance(run_agent_client, LLMAgentClient):
                 if run_agent_client.async_client is not None:
                     assistant_message = await run_agent_client.async_create_message(
                         messages,
-                        tool_schemas,
+                        request_tools,
                         model=model_override,
                         reasoning_effort=effort_override,
                         request_timeout_seconds=timeout_override,
@@ -1466,7 +1521,7 @@ def create_agent_node(
                     assistant_message = await bounded_to_thread(
                         run_agent_client.create_message,
                         messages,
-                        tool_schemas,
+                        request_tools,
                         model=model_override,
                         reasoning_effort=effort_override,
                         request_timeout_seconds=timeout_override,
@@ -1491,7 +1546,7 @@ def create_agent_node(
                     if run_image_context is not None:
                         kwargs["image_context"] = run_image_context
                     assistant_message = await async_create_message(
-                        messages, tool_schemas, **kwargs
+                        messages, request_tools, **kwargs
                     )
                 else:
                     kwargs = {
@@ -1504,7 +1559,7 @@ def create_agent_node(
                     assistant_message = await bounded_to_thread(
                         run_agent_client.create_message,
                         messages,
-                        tool_schemas,
+                        request_tools,
                         **kwargs,
                     )
         except LLMAgentClientError as error:

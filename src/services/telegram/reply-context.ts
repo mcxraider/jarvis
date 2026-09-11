@@ -1,4 +1,5 @@
 import { Message } from 'telegraf/typings/core/types/typegram';
+import { formatPollAsText } from './poll-content';
 
 const MAX_QUOTE_LEN = 700;
 
@@ -123,9 +124,7 @@ export function formatReplyContext(
     ('rich_message' in replied && extractRichMessageText((replied as any).rich_message)) ||
     ('text' in replied && replied.text) ||
     ('caption' in replied && replied.caption) ||
-    ('poll' in replied &&
-      (replied as any).poll?.question &&
-      `[Poll: ${(replied as any).poll.question}]`) ||
+    ('poll' in replied && formatPollAsText((replied as any).poll)) ||
     ('sticker' in replied &&
       (replied as any).sticker?.emoji &&
       `[Sticker: ${(replied as any).sticker.emoji}]`) ||

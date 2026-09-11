@@ -139,8 +139,8 @@ class TestSuccessfulExecution:
 
 
 class TestSerializedExecution:
-    def test_multiple_calls_execute_serially_in_original_order(self):
-        """Confirmed mutations execute once each in their frozen order."""
+    def test_independent_mutations_all_execute_with_results_in_order(self):
+        """Independent mutations (creates) all execute; results are in held_calls order."""
         held_calls = []
         for i in range(5):
             tc = {"id": f"call_{i}", "function": {"name": "add_todoist_task", "arguments": json.dumps({"content": f"task {i}"})}}
@@ -167,16 +167,46 @@ class TestSerializedExecution:
         result = _run(node, state)
 
         assert dispatcher.async_execute_tool.await_count == 5
-        assert [call.args[0] for call in dispatcher.async_execute_tool.await_args_list] == [
-            f"call_{i}" for i in range(5)
-        ]
         assert len(result["messages"]) == 5
         assert len(result["tool_results"]) == 5
         assert len(result["consumed_call_ids"]) == 5
-        # Results are in original order
+        # Results are in original held_calls order regardless of execution order
         for i, tool_result in enumerate(result["tool_results"]):
             assert tool_result["tool_call_id"] == f"call_{i}"
             assert tool_result["content"]["content"] == f"task {i}"
+
+    def test_same_resource_mutations_execute_in_order(self):
+        """Mutations targeting the same entity execute sequentially in original order."""
+        held_calls = []
+        for i in range(3):
+            tc = {"id": f"call_{i}", "function": {"name": "update_todoist_task", "arguments": json.dumps({"task_id": "shared", "content": f"v{i}"})}}
+            held_calls.append(build_held_call(tc, "thread_1", 1))
+
+        call_order: list[str] = []
+        dispatcher = MagicMock()
+        dispatcher.allow_mutations = True
+        dispatcher.async_execute_tool = AsyncMock(side_effect=lambda call_id, name, args, **_kwargs: (
+            call_order.append(call_id) or {
+                "tool_call_id": call_id,
+                "tool_name": name,
+                "success": True,
+                "content": {"updated": True},
+                "error": None,
+            }
+        ))
+
+        node = create_executor_node(dispatcher)
+        state = {
+            "held_calls": held_calls,
+            "confirm_decision": "approve",
+            "consumed_call_ids": [],
+            "messages": [],
+            "tool_results": [],
+        }
+        result = _run(node, state)
+
+        assert call_order == ["call_0", "call_1", "call_2"]
+        assert len(result["tool_results"]) == 3
 
     def test_mixed_guard_failures_and_successes(self):
         """Guard failures and successes should both appear in order."""
@@ -265,7 +295,7 @@ class TestBatchTimeout:
         """Fast calls succeed, slow calls get timeout envelopes."""
         held_calls = []
         for i in range(3):
-            tc = {"id": f"call_{i}", "function": {"name": "add_todoist_task", "arguments": json.dumps({"content": f"task {i}"})}}
+            tc = {"id": f"call_{i}", "function": {"name": "update_todoist_task", "arguments": json.dumps({"task_id": "shared", "content": f"task {i}"})}}
             held_calls.append(build_held_call(tc, "thread_1", 1))
 
         call_count = {"n": 0}
@@ -316,7 +346,7 @@ class TestCircuitBreakerIntegration:
         """After threshold transient failures, remaining calls get circuit breaker error."""
         held_calls = []
         for i in range(4):
-            tc = {"id": f"call_{i}", "function": {"name": "add_todoist_task", "arguments": json.dumps({"content": f"task {i}"})}}
+            tc = {"id": f"call_{i}", "function": {"name": "update_todoist_task", "arguments": json.dumps({"task_id": "shared", "content": f"task {i}"})}}
             held_calls.append(build_held_call(tc, "thread_1", 1))
 
         def execute_side_effect(call_id, name, args, **_kwargs):
@@ -366,7 +396,7 @@ class TestThrottleIntegration:
         """A 429 with retry_after should delay subsequent calls."""
         held_calls = []
         for i in range(2):
-            tc = {"id": f"call_{i}", "function": {"name": "add_todoist_task", "arguments": json.dumps({"content": f"task {i}"})}}
+            tc = {"id": f"call_{i}", "function": {"name": "update_todoist_task", "arguments": json.dumps({"task_id": "shared", "content": f"task {i}"})}}
             held_calls.append(build_held_call(tc, "thread_1", 1))
 
         call_times = []
@@ -445,7 +475,7 @@ class TestBatchDeadlineSettlement:
         """The async timeout leaves no orphan and prevents later writes from starting."""
         held_calls = []
         for i in range(3):
-            tc = {"id": f"call_{i}", "function": {"name": "add_todoist_task", "arguments": json.dumps({"content": f"task {i}"})}}
+            tc = {"id": f"call_{i}", "function": {"name": "update_todoist_task", "arguments": json.dumps({"task_id": "shared", "content": f"task {i}"})}}
             held_calls.append(build_held_call(tc, "thread_1", 1))
 
         started = []

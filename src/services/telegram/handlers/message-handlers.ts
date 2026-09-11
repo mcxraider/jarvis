@@ -5,6 +5,7 @@
 // status then agent processing status). Text uses a single-phase progress rotation.
 
 import { Context } from 'telegraf';
+import { Message, Poll } from 'telegraf/typings/core/types/typegram';
 import { createRequestId, LogContext, logger, truncateForLog } from '../../../utils/logger';
 import { FileService } from '../file.service';
 import { MessageProcessorService } from '../message-processor.service';
@@ -43,6 +44,7 @@ import {
 } from '../../../types/agent.types';
 import { AUDIO_LIMIT_MESSAGES, AUDIO_LIMITS } from '../../../utils/ai/audio-limits';
 import { classifyError } from '../errors/classified-error';
+import { formatPollAsText } from '../poll-content';
 
 const ALBUM_QUIET_MS = 1500;
 // Bounds the late-arrival ledger so a stream of albums can't grow it without limit
@@ -110,6 +112,11 @@ export class MessageHandlers {
       );
       fileId = largest.file_id;
       text = typeof message.caption === 'string' ? `[photo] ${message.caption}` : '[photo]';
+    } else if ('poll' in message && message.poll) {
+      const pollText = formatPollAsText(message.poll as Poll);
+      if (pollText) {
+        text = pollText;
+      }
     } else if (typeof message.caption === 'string' && 'document' in message) {
       const name = (message.document as { file_name?: string })?.file_name ?? 'unnamed';
       text = `[file: ${name}] ${message.caption}`;
@@ -127,7 +134,7 @@ export class MessageHandlers {
       logger.info('telegram.forward.rejected', { ...logContext, reason: 'no_text' });
       await sendFinalReply(
         ctx,
-        'I can only buffer forwarded text and photos. Voice, video, and sticker forwards are not supported.',
+        'I can only buffer forwarded text, photos, and polls. Voice, video, and sticker forwards are not supported.',
         logContext,
       );
       return true;
@@ -489,19 +496,25 @@ export class MessageHandlers {
     const progressReporter = new TelegramProgressReporter(ctx, logContext, inputKind);
 
     try {
-      await progressReporter.start();
+      void progressReporter.start();
       const result = await processFn(
         async (event: LangGraphProgressEvent, signal?: AbortSignal) => {
           await progressReporter.record(event, signal);
         },
         (presentation) => this.resolvePausePresentation(ctx, presentation, logContext),
       );
-      await progressReporter.complete();
       if (result.suppressed) {
         logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
+        void progressReporter.complete();
         return;
       }
-      if (!this.claimTerminalReply(logContext, `${resultKind}_result`)) return;
+      if (!this.claimTerminalReply(logContext, `${resultKind}_result`)) {
+        void progressReporter.complete();
+        return;
+      }
+      // ponytail: send answer first, clean up progress in background.
+      // Telegram renders in send order; delete races are already caught.
+      void progressReporter.complete();
       await this.sendResult(ctx, result, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
@@ -517,7 +530,7 @@ export class MessageHandlers {
         userId,
         durationMs: Date.now() - startedAt,
       });
-      await progressReporter.complete();
+      void progressReporter.complete();
       if (this.claimTerminalReply(logContext, `${resultKind}_error`)) {
         await sendFinalReply(ctx, errorMessage, logContext);
       }
@@ -868,8 +881,53 @@ export class MessageHandlers {
     );
   }
 
-  // Catch-all for unrecognized message types (e.g. contacts, locations, polls).
+  async handlePoll(ctx: Context): Promise<void> {
+    if (!ctx.message || !('poll' in ctx.message)) return;
+
+    const poll = (ctx.message as Message.PollMessage).poll;
+    const logContext = this.createLogContext(ctx, 'poll');
+    const optionCount = Array.isArray(poll?.options) ? poll.options.length : 0;
+    const questionLength = typeof poll?.question === 'string' ? poll.question.length : 0;
+
+    logger.info('telegram.poll.received', { ...logContext, optionCount, questionLength });
+
+    const pollText = formatPollAsText(poll);
+    if (!pollText) {
+      await sendFinalReply(
+        ctx,
+        "I couldn't read that poll. Please make sure it has a question and options.",
+        logContext,
+      );
+      return;
+    }
+
+    if (!this.forwardBuffer) {
+      await sendFinalReply(
+        ctx,
+        'I received a poll but forwarding is not available. Try forwarding the poll instead.',
+        logContext,
+      );
+      return;
+    }
+
+    const gateKey = this.gateKey(ctx);
+    await this.pushToForwardBuffer(
+      ctx,
+      gateKey,
+      {
+        senderName: 'You (direct poll)',
+        forwardedAt: new Date(),
+        receivedAt: new Date(),
+        text: pollText,
+      },
+      logContext,
+    );
+  }
+
+  // Catch-all for unrecognized message types (e.g. contacts, locations).
   // Skips messages already handled by a more specific handler above.
+  // Polls route through here because Telegraf's bot.on('poll') matches Update.poll
+  // (top-level poll state changes), not Message.poll — so there's no safe sub-type filter.
   async handleUnknown(ctx: Context): Promise<void> {
     if (!ctx.message) return;
 
@@ -885,6 +943,11 @@ export class MessageHandlers {
       'video_note' in ctx.message ||
       'animation' in ctx.message
     ) {
+      return;
+    }
+
+    if ('poll' in ctx.message) {
+      await this.handlePoll(ctx);
       return;
     }
 
@@ -996,19 +1059,24 @@ export class MessageHandlers {
     const progressReporter = new TelegramProgressReporter(ctx, logContext, 'audio');
 
     try {
-      await progressReporter.start();
+      void progressReporter.start();
       const result = await processFn(
         () => progressReporter.refresh(),
         async (event: LangGraphProgressEvent, signal?: AbortSignal) => {
           await progressReporter.record(event, signal);
         },
       );
-      await progressReporter.complete();
       if (result.suppressed) {
         logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
+        void progressReporter.complete();
         return;
       }
-      if (!this.claimTerminalReply(logContext, 'audio_result')) return;
+      if (!this.claimTerminalReply(logContext, 'audio_result')) {
+        void progressReporter.complete();
+        return;
+      }
+      // ponytail: send answer first, clean up progress in background.
+      void progressReporter.complete();
       await this.sendResult(ctx, result, logContext);
       logger.info('telegram.reply.sent', {
         ...logContext,
@@ -1022,7 +1090,7 @@ export class MessageHandlers {
         userId,
         durationMs: Date.now() - startedAt,
       });
-      await progressReporter.complete();
+      void progressReporter.complete();
       if (this.claimTerminalReply(logContext, 'audio_error')) {
         // Size/duration admission (and any other user-actionable failure) carries copy that
         // tells the user what to change; the generic message would hide it.

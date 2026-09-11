@@ -1062,11 +1062,41 @@ def tool_result_to_message(result: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _partition_mutations(
+    indexed_mutations: List[tuple],
+) -> List[List[tuple]]:
+    """Group indexed mutations into independent chains by resource key.
+
+    Each chain contains mutations that must execute in order (same resource).
+    Different chains are independent and can run concurrently.
+    ``indexed_mutations`` is a list of ``(original_index, tool_call)`` tuples.
+    """
+    from agents.agent_api.app.tools.metadata import mutation_resource_key
+
+    chains_by_key: Dict[str, List[tuple]] = {}
+    independent: List[List[tuple]] = []
+
+    for entry in indexed_mutations:
+        _idx, tc = entry
+        name = tool_call_name(tc)
+        try:
+            args = parse_tool_call_arguments(tc)
+        except Exception:
+            args = {}
+        key = mutation_resource_key(name, args)
+        if key is None:
+            independent.append([entry])
+        else:
+            chains_by_key.setdefault(key, []).append(entry)
+
+    return list(chains_by_key.values()) + independent
+
+
 async def async_execute_tool_calls(
     tool_calls: List[Dict[str, Any]],
     tool_dispatcher: ToolDispatcher,
 ) -> List[Dict[str, Any]]:
-    """Run consecutive reads concurrently and every mutation serially in order."""
+    """Run consecutive reads concurrently; run independent mutations concurrently."""
 
     results: List[Optional[Dict[str, Any]]] = [None] * len(tool_calls)
     semaphore = asyncio.Semaphore(max(1, settings.executor_max_workers))
@@ -1079,24 +1109,38 @@ async def async_execute_tool_calls(
         async with semaphore:
             results[index] = await tool_dispatcher.async_execute_tool_call(tool_call)
 
+    async def execute_mutation(index: int, tool_call: Dict[str, Any]) -> None:
+        async with semaphore:
+            results[index] = await tool_dispatcher.async_execute_tool_call(tool_call)
+
+    async def run_mutation_chain(chain: List[tuple]) -> None:
+        for idx, tc in chain:
+            await execute_mutation(idx, tc)
+
     index = 0
     while index < len(tool_calls):
-        if not is_read_only(tool_calls[index]):
-            results[index] = await tool_dispatcher.async_execute_tool_call(
-                tool_calls[index]
+        if is_read_only(tool_calls[index]):
+            group_end = index
+            while group_end < len(tool_calls) and is_read_only(tool_calls[group_end]):
+                group_end += 1
+            await asyncio.gather(
+                *(
+                    execute_read(read_index, tool_calls[read_index])
+                    for read_index in range(index, group_end)
+                )
             )
-            index += 1
+            index = group_end
             continue
 
         group_end = index
-        while group_end < len(tool_calls) and is_read_only(tool_calls[group_end]):
+        while group_end < len(tool_calls) and not is_read_only(tool_calls[group_end]):
             group_end += 1
-        await asyncio.gather(
-            *(
-                execute_read(read_index, tool_calls[read_index])
-                for read_index in range(index, group_end)
-            )
-        )
+        indexed = [(i, tool_calls[i]) for i in range(index, group_end)]
+        chains = _partition_mutations(indexed)
+        if len(chains) == 1:
+            await run_mutation_chain(chains[0])
+        else:
+            await asyncio.gather(*(run_mutation_chain(c) for c in chains))
         index = group_end
 
     if any(result is None for result in results):

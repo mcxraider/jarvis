@@ -19,6 +19,7 @@ from openai.types.responses.response_create_params import (
 )
 
 from agents.agent_api.app.llm.chat import ModelCallResult, UsageRecord
+from agents.agent_api.app.llm.citations import render_url_citations
 from agents.agent_api.app.llm.messages import (
     CanonicalAssistantMessage,
     CanonicalMessage,
@@ -28,6 +29,7 @@ from agents.agent_api.app.llm.messages import (
     CanonicalToolMessage,
     CanonicalUserMessage,
     OpenAIResponsesContinuation,
+    validate_web_search_action,
     canonicalize_messages,
 )
 from agents.agent_api.app.llm.provider import (
@@ -97,9 +99,15 @@ def _validate_safety_identifier(
     return identifier
 
 
+_HOSTED_TOOL_TYPES = frozenset({"web_search"})
+
+
 def _responses_tool_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
-    if schema.get("type") != "function":
-        raise LLMProviderError("configuration", "Only function tools are supported.")
+    tool_type = schema.get("type")
+    if tool_type in _HOSTED_TOOL_TYPES:
+        return {"type": tool_type}
+    if tool_type != "function":
+        raise LLMProviderError("configuration", f"Unsupported tool type: {tool_type!r}.")
     function = schema.get("function")
     if not isinstance(function, Mapping):
         raise LLMProviderError("configuration", "Malformed function tool schema.")
@@ -399,6 +407,14 @@ def normalize_response(
         if item_type == "reasoning":
             replay_items.append(_dump(raw_item))
             continue
+        if item_type == "web_search_call":
+            item = _dump(raw_item)
+            try:
+                validate_web_search_action(item.get("action"))
+            except ValueError as exc:
+                raise LLMProviderError("invalid_response", str(exc)) from exc
+            replay_items.append(item)
+            continue
         if item_type == "function_call":
             item = _dump(raw_item)
             call_id = item.get("call_id")
@@ -442,7 +458,11 @@ def normalize_response(
                     )
                 part_type = part.get("type")
                 if part_type == "output_text" and isinstance(part.get("text"), str):
-                    message_text_parts.append(part["text"])
+                    raw_text = part["text"]
+                    part_annotations = part.get("annotations")
+                    if isinstance(part_annotations, list) and part_annotations:
+                        raw_text = render_url_citations(raw_text, part_annotations)
+                    message_text_parts.append(raw_text)
                 elif part_type == "refusal" and isinstance(part.get("refusal"), str):
                     refusals.append(part["refusal"])
                 else:

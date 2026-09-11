@@ -457,16 +457,22 @@ describe('formatReplyContext', () => {
     expect(result.message).toContain('Last updated today');
   });
 
-  it('extracts poll question as fallback', () => {
+  it('extracts poll question and options as fallback', () => {
     const replied = asMessage({
-      poll: { question: 'Where should we eat?' },
+      poll: {
+        question: 'Where should we eat?',
+        options: [{ text: 'Sushi' }, { text: 'Pasta' }, { text: 'Burgers' }],
+      },
       from: { id: 22, first_name: 'Alex' },
     });
 
-    expect(formatReplyContext(replied, 10)).toEqual({
-      role: 'user',
-      message: '[Poll: Where should we eat?]',
-    });
+    const result = formatReplyContext(replied, 10);
+    expect(result).toBeDefined();
+    expect(result!.role).toBe('user');
+    expect(result!.message).toContain('Where should we eat?');
+    expect(result!.message).toContain('Sushi');
+    expect(result!.message).toContain('Pasta');
+    expect(result!.message).toContain('Burgers');
   });
 
   it('extracts sticker emoji as fallback', () => {
