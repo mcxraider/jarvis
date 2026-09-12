@@ -4,7 +4,20 @@ A multi-user Telegram assistant built on a Python LangGraph agent that manages T
 
 ## Architecture
 
-![Jarvis — full architecture](assets/jarvis-full-architecture-mvp.png)
+[![Jarvis — architecture overview](assets/jarvis-architecture.png)](assets/jarvis-architecture.png)
+
+[Editable D2 source](assets/jarvis-architecture.d2) · [PNG](assets/jarvis-architecture.png).
+Open the SVG to zoom into the graph loop. Telegram chat input flows through
+Auth + Context Builder directly to the orchestrator. Database connections show
+shared storage and idempotency; dashed rose arrows show user replies and approvals.
+
+Render from the repository root with [D2](https://d2lang.com/tour/install/)
+(validated with v0.9.0; ELK is bundled):
+
+```bash
+d2 --layout elk --elk-nodeNodeBetweenLayers 35 --elk-edgeNodeBetweenLayers 20 assets/jarvis-architecture.d2 assets/jarvis-architecture.svg
+d2 --layout elk --elk-nodeNodeBetweenLayers 35 --elk-edgeNodeBetweenLayers 20 --scale 1 assets/jarvis-architecture.d2 assets/jarvis-architecture.png
+```
 
 ### Input channels & API
 
