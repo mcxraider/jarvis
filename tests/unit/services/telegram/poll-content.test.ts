@@ -2,7 +2,7 @@ import { formatPollAsText } from '../../../../src/services/telegram/poll-content
 import { Poll } from 'telegraf/typings/core/types/typegram';
 
 describe('formatPollAsText', () => {
-  it('renders a regular poll with question, options, and metadata', () => {
+  it('renders a regular poll with question, options, and collapsed metadata', () => {
     const result = formatPollAsText({
       id: '1',
       question: 'What should we have for dinner?',
@@ -18,15 +18,13 @@ describe('formatPollAsText', () => {
       total_voter_count: 6,
     } as Poll);
 
-    expect(result).toContain('Question: What should we have for dinner?');
+    expect(result).toContain('[poll] Question: What should we have for dinner?');
     expect(result).toContain('1. Sushi (3 votes)');
     expect(result).toContain('2. Pasta (2 votes)');
     expect(result).toContain('3. Burgers (1 vote)');
-    expect(result).toContain('Type: regular');
-    expect(result).toContain('Multiple answers allowed: yes');
-    expect(result).toContain('Anonymous: yes');
-    expect(result).toContain('Closed: no');
-    expect(result).toContain('Reported total voters: 6');
+    expect(result).toContain('Multiple answers: yes | 6 voters | Open');
+    expect(result).not.toContain('Type:');
+    expect(result).not.toContain('Anonymous:');
   });
 
   it('renders a quiz poll with correct_option_id 0 and explanation', () => {
@@ -42,7 +40,7 @@ describe('formatPollAsText', () => {
       is_anonymous: true,
     } as unknown as Poll);
 
-    expect(result).toContain('Type: quiz');
+    expect(result).toContain('[poll] Question: Capital of France?');
     expect(result).toContain('Correct answer: option 1');
     expect(result).toContain('Explanation: Paris is the capital of France.');
   });
@@ -58,10 +56,9 @@ describe('formatPollAsText', () => {
       total_voter_count: 11,
     } as unknown as Poll);
 
-    expect(result).toContain('Closed: yes');
+    expect(result).toContain('11 voters | Closed');
     expect(result).toContain('1. Monday (4 votes)');
     expect(result).toContain('2. Tuesday (7 votes)');
-    expect(result).toContain('Reported total voters: 11');
   });
 
   it('renders a minimal poll with only question and options', () => {
@@ -71,12 +68,11 @@ describe('formatPollAsText', () => {
     } as unknown as Poll);
 
     expect(result).toBeDefined();
-    expect(result).toContain('Question: Pick one');
+    expect(result).toContain('[poll] Question: Pick one');
     expect(result).toContain('1. A');
     expect(result).toContain('2. B');
     expect(result).not.toContain('Type:');
     expect(result).not.toContain('Anonymous:');
-    expect(result).not.toContain('Closed:');
   });
 
   it('returns undefined for missing question', () => {
@@ -129,8 +125,8 @@ describe('formatPollAsText', () => {
       allows_multiple_answers: false,
     } as unknown as Poll);
 
-    expect(result).toContain('Anonymous: no');
-    expect(result).toContain('Multiple answers allowed: no');
+    expect(result).toContain('Multiple answers: no');
+    expect(result).not.toContain('Anonymous:');
   });
 
   it('returns undefined for null input', () => {
@@ -141,12 +137,12 @@ describe('formatPollAsText', () => {
     expect(formatPollAsText('not a poll' as unknown as Poll)).toBeUndefined();
   });
 
-  it('always includes the snapshot footer', () => {
+  it('starts with [poll] tag', () => {
     const result = formatPollAsText({
       question: 'Q?',
       options: [{ text: 'A' }],
     } as unknown as Poll);
 
-    expect(result).toContain('Your selected answer: not available in this snapshot');
+    expect(result).toMatch(/^\[poll\] Question:/);
   });
 });
