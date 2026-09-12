@@ -78,10 +78,10 @@ class TestAssistantPreferencesRuntimeSections:
     def test_sections_parse_when_supplied(self):
         prefs = make_preferences(
             llm={"model": "deepseek-v4-pro", "reasoning_effort": "max"},
-            execution={"max_agent_turns": 20, "allow_mutations": False},
+            execution={"max_agent_turns": 30, "allow_mutations": False},
         )
         assert prefs.llm.model == "deepseek-v4-pro"
-        assert prefs.execution.max_agent_turns == 20
+        assert prefs.execution.max_agent_turns == 30
         assert prefs.execution.allow_mutations is False
 
 

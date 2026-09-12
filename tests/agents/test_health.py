@@ -75,7 +75,7 @@ def test_health_detail_identifies_orchestrator_not_role_override(monkeypatch) ->
             model="deepseek-v4-flash",
         ),
         run_deadline_seconds=150.0,
-        max_agent_turns=20,
+        max_agent_turns=30,
         model_router_complex_timeout_seconds=90.0,
     )
     monkeypatch.setattr(health_module, "settings", fake_settings)

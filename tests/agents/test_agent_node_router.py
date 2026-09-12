@@ -116,7 +116,7 @@ def _state_with_history(snapshot, *, turn_count=1):
 
 def _run_node(state, selector):
     client = RecordingClient()
-    node = create_agent_node(client, _registry(), max_agent_turns=20, tool_selector=selector)
+    node = create_agent_node(client, _registry(), max_agent_turns=30, tool_selector=selector)
     result = asyncio.run(node(state))
     return client, result
 
@@ -388,7 +388,7 @@ class TestComplexityModelRouting:
         node = create_agent_node(
             client,
             _registry(),
-            max_agent_turns=20,
+            max_agent_turns=30,
             tool_selector=selector,
             model_router=create_default_model_router(
                 default_model="flash",
@@ -420,7 +420,7 @@ class TestAsyncCompatibility:
         node = create_agent_node(
             client,
             _registry(),
-            max_agent_turns=20,
+            max_agent_turns=30,
             tool_selector=FakeDecisionSelector(
                 RouterDecision(
                     outcome="routed",
@@ -451,7 +451,7 @@ class TestAsyncCompatibility:
         node = create_agent_node(
             client,
             _registry(),
-            max_agent_turns=20,
+            max_agent_turns=30,
             tool_selector=FakeDecisionSelector(
                 RouterDecision(
                     outcome="routed",
@@ -478,7 +478,7 @@ class TestAsyncCompatibility:
         node = create_agent_node(
             client,
             _registry(),
-            max_agent_turns=20,
+            max_agent_turns=30,
             tool_selector=selector,
         )
 
@@ -520,7 +520,7 @@ class NoDomainSelector(FakeDecisionSelector):
 
 
 def _run_node_with_client(state, selector, client):
-    node = create_agent_node(client, _registry(), max_agent_turns=20, tool_selector=selector)
+    node = create_agent_node(client, _registry(), max_agent_turns=30, tool_selector=selector)
     result = asyncio.run(node(state))
     return result
 

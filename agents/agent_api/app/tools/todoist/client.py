@@ -672,6 +672,7 @@ class TodoistApiClient:
     def add_todoist_task(self, arguments: Dict[str, Any]) -> Any:
         payload = _without_none(arguments)
         _validate_duration_pair(payload)
+        payload.setdefault("priority", 4)
         return self._request(f"{TODOIST_REST_BASE_URL}/tasks", "POST", payload)
 
     def get_todoist_task(self, arguments: Dict[str, Any]) -> Any:
@@ -804,6 +805,7 @@ class TodoistApiClient:
     async def async_add_todoist_task(self, arguments: Dict[str, Any]) -> Any:
         payload = _without_none(arguments)
         _validate_duration_pair(payload)
+        payload.setdefault("priority", 4)
         return await self.async_request(
             f"{TODOIST_REST_BASE_URL}/tasks",
             "POST",

@@ -76,7 +76,7 @@ from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 # Cap the classifier's output. It only ever returns a small JSON object
 # (outcome, domains, uncertainty, and complexity), so a tight
 # ceiling keeps the call fast and cheap without ever truncating a valid decision.
-_ROUTER_MAX_TOKENS = 400
+_ROUTER_MAX_TOKENS = 150
 _ROUTER_SDK_MAX_RETRIES = 0
 _THINKING_DISABLED = {"thinking": {"type": "disabled"}}
 _THINKING_ENABLED = {"thinking": {"type": "enabled"}}
