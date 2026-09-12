@@ -239,18 +239,11 @@ _UNAVAILABLE_REASON_SENTENCES = {
 }
 
 
-def _preference_block(runtime_context: RuntimeContextSnapshot) -> str:
-    """Render the routing preferences + domain-availability summary."""
+def _response_preferences_block(runtime_context: RuntimeContextSnapshot) -> str:
+    """Render the ``## User response preferences`` section (always included)."""
 
-    routing = runtime_context.preferences.routing
-    category_defaults = (
-        runtime_context.preferences.domains.google_calendar.event_category_defaults
-    )
     communication = runtime_context.preferences.communication
-    fallback_calendar = (
-        runtime_context.preferences.domains.google_calendar.fallback_calendar
-    )
-    response_lines = [
+    lines = [
         "## User response preferences",
         f"Tone: {communication.tone}",
         f"Answer length: {communication.verbosity}",
@@ -265,11 +258,24 @@ def _preference_block(runtime_context: RuntimeContextSnapshot) -> str:
         ("Notes", communication.notes),
     ):
         if values:
-            response_lines.append(
+            lines.append(
                 f"{label}: "
                 + "; ".join(" ".join(value.split()) for value in values)
             )
-    routing_lines = [
+    return "\n".join(lines)
+
+
+def _routing_preferences_block(runtime_context: RuntimeContextSnapshot) -> str:
+    """Render the ``## User routing preferences`` section (conditional)."""
+
+    routing = runtime_context.preferences.routing
+    category_defaults = (
+        runtime_context.preferences.domains.google_calendar.event_category_defaults
+    )
+    fallback_calendar = (
+        runtime_context.preferences.domains.google_calendar.fallback_calendar
+    )
+    lines = [
         "## User routing preferences",
         f"Task provider: {routing.task_provider}",
         f"Event provider: {routing.event_provider}",
@@ -279,7 +285,7 @@ def _preference_block(runtime_context: RuntimeContextSnapshot) -> str:
         f"Calendar usage: {routing.calendar_usage}",
     ]
     if routing.task_provider == "google_calendar":
-        routing_lines.extend(
+        lines.extend(
             [
                 "Calendar-backed task mode is active:",
                 (
@@ -302,18 +308,18 @@ def _preference_block(runtime_context: RuntimeContextSnapshot) -> str:
             ]
         )
     if routing.reminder_provider == "google_calendar":
-        routing_lines.append(
+        lines.append(
             "Calendar-backed reminders use Google Calendar events with structured "
             "popup reminder overrides; ask for the missing date or time instead of "
             "inventing it."
         )
     for exception in routing.exceptions:
-        routing_lines.append(
+        lines.append(
             "Routing exception: "
             f"{' '.join(exception.when.split())} → {exception.provider}"
         )
     if category_defaults:
-        routing_lines.append(
+        lines.append(
             "Calendar category defaults: "
             + ", ".join(
                 f"{category} → {calendar}"
@@ -321,27 +327,33 @@ def _preference_block(runtime_context: RuntimeContextSnapshot) -> str:
             )
         )
     if fallback_calendar:
-        routing_lines.append(f"Fallback calendar: {fallback_calendar}")
+        lines.append(f"Fallback calendar: {fallback_calendar}")
     if runtime_context.preferences.access.has_restrictions():
-        routing_lines.append(
+        lines.append(
             "Resource access restrictions are active and enforced by the tool layer. "
             "Do not ask to bypass them."
         )
-    domain_lines = ["## Domain availability"]
+    return "\n".join(lines)
+
+
+def _domain_availability_block(runtime_context: RuntimeContextSnapshot) -> str:
+    """Render the ``## Domain availability`` section (always included)."""
+
+    lines = ["## Domain availability"]
     for domain in runtime_context.domains:
         adapter = DOMAIN_ADAPTERS.get(domain.provider)
         display_name = adapter.display_name if adapter else domain.provider
         if domain.status == "active":
-            domain_lines.append(f"- {display_name}: available")
+            lines.append(f"- {display_name}: registered")
         elif domain.status == "unsupported":
-            domain_lines.append(f"- {display_name} is unavailable (unsupported)")
+            lines.append(f"- {display_name} is unavailable (unsupported)")
         else:
             reason = _UNAVAILABLE_REASON_SENTENCES.get(
                 domain.reason or "",
                 "because it needs reauthentication",
             )
-            domain_lines.append(f"- {display_name} is unavailable {reason}")
-    return "\n".join([*response_lines, "", *routing_lines, "", *domain_lines])
+            lines.append(f"- {display_name} is unavailable {reason}")
+    return "\n".join(lines)
 
 
 def _domain_specific_comments_block(
@@ -420,32 +432,45 @@ def get_orchestrator_prompt(
             *_active_domain_blocks(runtime_context, relevant_domains),
         ]
         prompt_body = "\n\n".join(blocks)
-        preference_block = _preference_block(runtime_context)
+        response_block = _response_preferences_block(runtime_context)
+        show_routing = relevant_domains is None or bool(relevant_domains)
+        routing_block = _routing_preferences_block(runtime_context) if show_routing else ""
         domain_comments_block = _domain_specific_comments_block(
             runtime_context,
             relevant_domains,
         )
+        domain_avail_block = _domain_availability_block(runtime_context)
         resolved_tz = _user_timezone(runtime_context.timezone)
         locale = runtime_context.locale
     else:
         role = _build_role_line(user_name) if user_name else _ROLE_LINE
         prompt_body = f"{role}\n\n{_POLICY_BODY}"
-        preference_block = ""
+        response_block = ""
+        routing_block = ""
         domain_comments_block = ""
+        domain_avail_block = ""
         resolved_tz = _user_timezone(tz)
         locale = "en"
 
     tools_line = _tools_line(runtime_context, registered_tools)
-    runtime_preferences = "\n\n".join(
-        block for block in (preference_block, domain_comments_block) if block
-    )
+    tail_blocks = [
+        block
+        for block in (
+            response_block,
+            routing_block,
+            domain_comments_block,
+            domain_avail_block,
+        )
+        if block
+    ]
+    tail = "\n\n".join(tail_blocks)
     return (
         f"{prompt_body}\n\n"
         "## Runtime context\n"
         f"User timezone: {resolved_tz}\n"
         f"User locale: {locale}\n"
-        f"{tools_line}\n"
-        f"{runtime_preferences}\n"
+        + (f"\n{tail}\n\n" if tail else "\n")
+        + f"{tools_line}\n"
     )
 
 

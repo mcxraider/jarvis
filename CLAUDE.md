@@ -168,7 +168,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 
 - `langgraph-agent-client.service.ts` — HTTP client for Python agent: streaming NDJSON, dual-timer deadline, retry, cancellation, fallback to non-streaming
 - `agent-contract-readiness.ts` — startup barrier: verifies timeout ladder invariants against agent `/health/detail`
-- `whisper.service.ts` — audio transcription via Groq Whisper large-v3: streamed size-capped download, FFmpeg normalization + chunking, concurrent chunk transcription, deterministic merge, retry, quality metrics
+- `whisper.service.ts` — audio transcription via Groq Whisper large-v3: streamed size-capped download, FFmpeg normalization + chunking, overlapped producer-consumer extraction/transcription, deterministic merge, retry, quality metrics
 - `groq-request-limiter.ts` — process-global admission control for Groq calls (shared concurrency cap + shared `429` cooldown, since Groq rate-limits per organization)
 - `groq-transcription-error.ts` — structured error with category, retryable flag, provider metadata
 - `index.ts` — barrel re-exporting the client, Whisper service, transcription error, and `ai/audio-admission-error.ts` from `src/utils/`
@@ -183,7 +183,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 - `telegram-menu.registry.ts` — Telegram commands menu (autocomplete): `/new`, `/cancel`, `/help`, `/forward`
 - `telegram-progress-reporter.ts` — single ephemeral input-status/reasoning-summary transport (rich draft or MarkdownV2 edit)
 - `poll-content.ts` — pure formatter: Telegram poll object → plain text (used by forward buffer and reply context)
-- `forward-buffer.store.ts` — in-memory buffer for user-forwarded messages, accumulated per conversation until dispatched
+- `forward-buffer.store.ts` — in-memory buffer for user-forwarded messages, accumulated per conversation; `acknowledge(prefix)` drains only the dispatched snapshot so forwards appended mid-request survive
 - `message-processor.service.ts` — gate-aware pipeline orchestrator
 - `conversation-gate.store.ts` — per-conversation serialization (idle/running/waiting); Postgres-backed
 - `pending-clarification.store.ts` — HITL interrupt state persistence incl. queued `imageBatches`; Postgres-backed
@@ -223,7 +223,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 - `log-worker.ts` — Worker thread: receives events, writes via Winston
 - `log-redact.ts` — scrubs tokens, API keys, private IDs from log payloads
 - `constants.ts` — `AudioMimeTypes` (11 accepted MIME types)
-- `ai/audioConverter.ts` — `AudioConverter.prepare()`: FFmpeg normalization to 16 kHz mono FLAC (first audio track), authoritative duration measurement, duration-limit kill, sequential chunk extraction; `isFFmpegAvailable()` backs the startup barrier
+- `ai/audioConverter.ts` — `AudioConverter.prepare()`: FFmpeg normalization to 16 kHz mono FLAC (first audio track), authoritative duration measurement, duration-limit kill, chunk extraction (sequential FFmpeg, yielded into async channel for overlapped transcription); `isFFmpegAvailable()` backs the startup barrier
 - `ai/audio-limits.ts` — `AUDIO_LIMITS` (size, duration, chunk geometry, concurrency, retry ceilings) and `AUDIO_LIMIT_MESSAGES` user copy
 - `ai/audio-admission-error.ts` — `AudioAdmissionError` (`too_large` / `too_long`) carrying user-facing copy; classified as `user_actionable`; re-exported by `src/services/ai/index.ts`
 - `ai/audio-chunk-plan.ts` — `planAudioChunks()`: equal core regions widened into overlapping upload windows
@@ -294,7 +294,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 - `base.py` — `ToolSpec`, `ToolRegistry` (schema + handler + mutating flag)
 - `control.py` — `ask_user` pseudo-tool (graph control)
 - `dispatcher.py` — `ToolDispatcher`: mutation guard, idempotency, classified errors, concurrent independent-resource dispatch
-- `domain_adapters.py` — `DOMAIN_ADAPTERS` registry (pluggable credential-aware client factories)
+- `domain_adapters.py` — `DOMAIN_ADAPTERS` registry (pluggable credential-aware client factories), `Prewarmable` protocol
 - `errors.py` — `ClassifiedApiError` base class
 - `metadata.py` — `ToolDisplayMeta`, `EntityRef`, risk/display metadata registry, `mutation_resource_key` for independence grouping
 - `registry_factory.py` — `build_runtime_registry` (prod) and `build_registry_from_clients` (tests)

@@ -39,8 +39,9 @@ Audio never reaches Groq as the user sent it. Every accepted file is downloaded,
 Telegram file -> size admission (declared, getFile, streamed bytes)
   -> FFmpeg normalize to 16 kHz mono FLAC + authoritative duration
   -> duration admission
-  -> sequential chunk extraction (30s cores, 5s overlap)
-  -> concurrent Groq whisper-large-v3 (verbose_json, word + segment timestamps)
+  -> overlapped chunk extraction + transcription (30s cores, 5s overlap)
+     (FFmpeg extracts sequentially; an async channel feeds chunks to
+      concurrent Groq whisper-large-v3 so extraction and transcription overlap)
   -> deterministic merge by core-midpoint ownership
   -> transcript -> same text path as a typed message
 ```

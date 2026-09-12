@@ -20,10 +20,17 @@ export type PushResult =
   | { ok: true; count: number }
   | { ok: false; reason: 'buffer_full' | 'message_too_long' };
 
+export type AcknowledgeResult =
+  | { acknowledged: true; remainingCount: number; confirmationMessageId?: number }
+  | { acknowledged: false; reason: 'mismatch' | 'empty' };
+
 export interface ForwardBufferStore {
   push(conversationKey: string, msg: ForwardedMessage): PushResult;
   /** Read without clearing — dispatch clears only after the processor accepts. */
   peek(conversationKey: string): ForwardedMessage[];
+  /** Remove exactly `prefix` from the head of the buffer. Forwards appended while the
+   *  request was running survive; returns mismatch (no-op) if the stored head diverged. */
+  acknowledge(conversationKey: string, prefix: ForwardedMessage[]): AcknowledgeResult;
   clear(conversationKey: string): void;
   count(conversationKey: string): number;
   getConfirmationMessageId(conversationKey: string): number | undefined;
@@ -85,6 +92,26 @@ export class MemoryForwardBufferStore implements ForwardBufferStore {
 
   peek(conversationKey: string): ForwardedMessage[] {
     return this.getLive(conversationKey)?.messages.slice() ?? [];
+  }
+
+  acknowledge(conversationKey: string, prefix: ForwardedMessage[]): AcknowledgeResult {
+    if (prefix.length === 0) return { acknowledged: false, reason: 'empty' };
+    const entry = this.getLive(conversationKey);
+    if (!entry || entry.messages.length < prefix.length) {
+      return { acknowledged: false, reason: 'mismatch' };
+    }
+    for (let i = 0; i < prefix.length; i++) {
+      if (entry.messages[i] !== prefix[i]) {
+        return { acknowledged: false, reason: 'mismatch' };
+      }
+    }
+    const removed = entry.messages.splice(0, prefix.length);
+    entry.totalChars -= removed.reduce((sum, m) => sum + m.text.length, 0);
+    const confirmationMessageId = entry.confirmationMessageId;
+    if (entry.messages.length === 0) {
+      this.buffers.delete(conversationKey);
+    }
+    return { acknowledged: true, remainingCount: entry.messages.length, confirmationMessageId };
   }
 
   clear(conversationKey: string): void {
