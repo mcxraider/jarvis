@@ -166,7 +166,8 @@ def _routing_rules(snapshot: RuntimeContextSnapshot) -> List[str]:
         )
         next_index += 1
     rules.append(
-        f"{next_index}. Greetings, small talk, and meta questions use outcome `conversation` and empty domains."
+        f"{next_index}. Greetings, small talk, meta questions, and general-knowledge or informational queries "
+        "that do not require any listed domain use outcome `conversation` with empty domains."
     )
     next_index += 1
     rules.append(
