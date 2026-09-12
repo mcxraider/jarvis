@@ -485,6 +485,22 @@ class LLMAgentClient:
                 trace_meta["tool_calls"] = message["tool_calls"]
             if trace_meta:
                 rt.add_metadata(trace_meta)
+            if result.usage is not None:
+                u = result.usage
+                rt.add_outputs({
+                    "usage_metadata": {
+                        "input_tokens": u.prompt_tokens,
+                        "output_tokens": u.completion_tokens,
+                        "total_tokens": u.prompt_tokens + u.completion_tokens,
+                        "input_token_details": {
+                            "cache_read": u.cached_read_tokens,
+                            "cache_creation": u.cache_write_tokens,
+                        },
+                        "output_token_details": {
+                            "reasoning": u.reasoning_tokens,
+                        },
+                    }
+                })
         return result, turn_usage, message
 
     def _build_failure_payload(

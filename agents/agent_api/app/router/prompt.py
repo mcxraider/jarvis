@@ -212,65 +212,6 @@ def _calendar_allocation_lines(snapshot: RuntimeContextSnapshot) -> List[str]:
     return lines
 
 
-def _few_shot_examples(snapshot: RuntimeContextSnapshot) -> List[str]:
-    """Concrete input/output pairs anchoring the classification pattern.
-
-    These are rendered from the live snapshot so the routed domain in each
-    example matches the user's current provider preference — the examples teach
-    the *pattern* (task words → task provider, schedule words → event provider),
-    not any hardcoded domain key.
-    """
-
-    routing = snapshot.preferences.routing
-    task_provider = routing.task_provider
-    event_provider = routing.event_provider
-    reminder_provider = routing.reminder_provider
-    time_related_provider = routing.time_related_provider
-    explicit_calendar_provider = routing.explicit_calendar_provider
-    examples = [
-        f'User: "what tasks do I have today?" -> '
-        f'{{"outcome": "routed", "domains": ["{task_provider}"], "uncertain": false, '
-        f'"candidate_domains": [], "complexity": "low"}}',
-        f'User: "what\'s on my schedule this week?" -> '
-        f'{{"outcome": "routed", "domains": ["{event_provider}"], "uncertain": false, '
-        f'"candidate_domains": [], "complexity": "low"}}',
-        f'User: "remind me to call Mum tomorrow" -> '
-        f'{{"outcome": "routed", "domains": ["{reminder_provider}"], "uncertain": false, '
-        f'"candidate_domains": [], "complexity": "low"}}',
-        f'User: "block Friday afternoon for studying" -> '
-        f'{{"outcome": "routed", "domains": ["{time_related_provider}"], "uncertain": false, '
-        f'"candidate_domains": [], "complexity": "low"}}',
-        f'User: "put lunch in my calendar" -> '
-        f'{{"outcome": "routed", "domains": ["{explicit_calendar_provider}"], "uncertain": false, '
-        f'"candidate_domains": [], "complexity": "low"}}',
-        'User: "hello!" -> '
-        '{"outcome": "conversation", "domains": [], "uncertain": false, '
-        '"candidate_domains": [], "complexity": "low"}',
-        'User: "check my Slack messages" -> '
-        '{"outcome": "unsupported_provider", "domains": [], "uncertain": false, '
-        '"candidate_domains": [], "complexity": "low"}',
-        'User: "check my plans somewhere" -> '
-        '{"outcome": "ambiguous", "domains": [], "uncertain": true, '
-        '"candidate_domains": ["todoist", "google_calendar"], "complexity": "low"}',
-        'User: "which overdue tasks should I do first today?" -> '
-        f'{{"outcome": "routed", "domains": ["{task_provider}"], "uncertain": false, '
-        '"candidate_domains": [], "complexity": "medium"}',
-        'User: "analyze all my projects and build an optimized monthly execution plan" -> '
-        f'{{"outcome": "routed", "domains": ["{task_provider}"], "uncertain": false, '
-        '"candidate_domains": [], "complexity": "high"}',
-    ]
-    # Only include the explicit-Google-Calendar example when the domain exists
-    # in the adapter catalogue — otherwise it references a domain the model
-    # would be told not to emit.
-    if "google_calendar" in DOMAIN_ADAPTERS:
-        examples.append(
-            'User: "add a meeting to my google calendar" -> '
-            '{"outcome": "routed", "domains": ["google_calendar"], "uncertain": false, '
-            '"candidate_domains": [], "complexity": "low"}'
-        )
-    return examples
-
-
 def build_router_system_prompt(snapshot: RuntimeContextSnapshot) -> str:
     """Render the router's system prompt from the resolved snapshot."""
 
@@ -308,9 +249,6 @@ def build_router_system_prompt(snapshot: RuntimeContextSnapshot) -> str:
             "- `high`: complex planning, optimization, substantial analysis, or many interdependent constraints.",
             "Judge complexity independently of the selected domains, number of domains, query length, "
             "or mutation risk. Domain breadth is handled separately by deterministic model routing.",
-            "",
-            "## Examples",
-            *_few_shot_examples(snapshot),
             "",
             "## Output format",
             "Return exactly one JSON object. No prose, no code fences.",

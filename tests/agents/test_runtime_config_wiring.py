@@ -84,7 +84,7 @@ def _run(*, selector, model_router=None, forced_model=None, forced_reasoning_eff
     node = create_agent_node(
         client,
         _registry(),
-        max_agent_turns=20,
+        max_agent_turns=30,
         tool_selector=selector,
         model_router=model_router,
     )
@@ -163,7 +163,7 @@ class TestConcurrentUserConfigIsolation:
         node = create_agent_node(
             None,  # agent_client comes from each run's RunDeps
             _registry(),
-            max_agent_turns=20,
+            max_agent_turns=30,
             tool_selector=StaticToolSelector(),
         )
         snapshot = make_snapshot(active=("todoist",))

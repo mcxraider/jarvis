@@ -11,7 +11,7 @@ const validHealth = {
   checks: {},
   limits: {
     run_deadline_seconds: 150,
-    max_agent_turns: 20,
+    max_agent_turns: 30,
     llm_request_timeout_seconds: 60,
     model_router_complex_timeout_seconds: 90,
   },

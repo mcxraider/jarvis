@@ -26,34 +26,29 @@ export function formatPollAsText(poll: Poll): string | undefined {
   if (optionLines.length === 0) return undefined;
 
   const lines: string[] = [
-    'Telegram poll — received snapshot',
-    `Question: ${question}`,
+    `[poll] Question: ${question}`,
+    'Options:',
+    ...optionLines,
   ];
 
-  lines.push('Options:', ...optionLines);
-
-  const meta: string[] = [];
-  if (typeof poll.type === 'string') meta.push(`Type: ${poll.type}`);
+  // Collapsed metadata line: only actionable fields, pipe-separated.
+  const metaParts: string[] = [];
   if (typeof poll.allows_multiple_answers === 'boolean')
-    meta.push(`Multiple answers allowed: ${poll.allows_multiple_answers ? 'yes' : 'no'}`);
-  if (typeof poll.is_anonymous === 'boolean')
-    meta.push(`Anonymous: ${poll.is_anonymous ? 'yes' : 'no'}`);
-  if (typeof poll.is_closed === 'boolean')
-    meta.push(`Closed: ${poll.is_closed ? 'yes' : 'no'}`);
+    metaParts.push(`Multiple answers: ${poll.allows_multiple_answers ? 'yes' : 'no'}`);
   if (typeof poll.total_voter_count === 'number' && Number.isFinite(poll.total_voter_count))
-    meta.push(`Reported total voters: ${poll.total_voter_count}`);
+    metaParts.push(`${poll.total_voter_count} voters`);
+  if (poll.is_closed === true) metaParts.push('Closed');
+  else if (metaParts.length > 0) metaParts.push('Open');
 
   const correctId = poll.correct_option_id;
   if (typeof correctId === 'number' && Number.isInteger(correctId) && correctId >= 0 && correctId < optionLines.length) {
-    meta.push(`Correct answer: option ${correctId + 1}`);
+    metaParts.push(`Correct answer: option ${correctId + 1}`);
   }
   if (typeof poll.explanation === 'string' && poll.explanation.trim()) {
-    meta.push(`Explanation: ${poll.explanation.trim()}`);
+    metaParts.push(`Explanation: ${poll.explanation.trim()}`);
   }
 
-  if (meta.length > 0) lines.push(...meta);
-
-  lines.push('Your selected answer: not available in this snapshot');
+  if (metaParts.length > 0) lines.push(metaParts.join(' | '));
 
   return lines.join('\n');
 }

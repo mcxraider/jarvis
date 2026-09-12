@@ -70,8 +70,8 @@ def get_todoist_tool_schemas() -> List[Dict[str, Any]]:
                 "enum": [1, 2, 3, 4],
                 "description": (
                     "Task priority as an integer 1-4. 4 = highest urgency (shown as P1 in "
-                    "the Todoist UI), 3 = P2, 2 = P3, 1 = normal/default (P4). Higher number "
-                    "means more urgent."
+                    "the Todoist UI), 3 = P2, 2 = P3, 1 = normal (P4). Defaults to 4 (P1) "
+                    "when omitted. Higher number means more urgent."
                 ),
             },
             "due_string": {

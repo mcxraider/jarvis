@@ -152,7 +152,7 @@ describe('Agent API contract — health detail', () => {
     if (result.success) {
       expect(result.data.limits).toEqual({
         run_deadline_seconds: 150,
-        max_agent_turns: 20,
+        max_agent_turns: 30,
         llm_request_timeout_seconds: 60,
         model_router_complex_timeout_seconds: 90,
       });
@@ -167,7 +167,7 @@ describe('Agent API contract — health detail', () => {
       checks: { deepseek: { ok: true, detail: 'reachable' } },
       limits: {
         run_deadline_seconds: 150,
-        max_agent_turns: 20,
+        max_agent_turns: 30,
         deepseek_request_timeout_seconds: 30,
         model_router_complex_timeout_seconds: 90,
       },
@@ -179,7 +179,7 @@ describe('Agent API contract — health detail', () => {
       expect(result.data.provider).toBe('deepseek');
       expect(result.data.limits).toEqual({
         run_deadline_seconds: 150,
-        max_agent_turns: 20,
+        max_agent_turns: 30,
         llm_request_timeout_seconds: 30,
         model_router_complex_timeout_seconds: 90,
       });

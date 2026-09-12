@@ -1,0 +1,96 @@
+# Jarvis's implemented Telegram flow. Render with D2 + ELK; see README.md.
+vars: {d2-config: {layout-engine: elk; theme-id: 0; pad: 40}}
+direction: right
+classes: {
+  box: {style: {fill: "#F7F7FF"; stroke: "#7275A5"; border-radius: 8; font-size: 20; bold: true}}
+  layer: {style: {fill: "#E9E9FC"; stroke: "#7275A5"; font-size: 26; bold: true}}
+  node: {style: {fill: PapayaWhip; fill-pattern: grain; stroke: "#A58A61"; border-radius: 8; font-size: 20; bold: true}}
+  human: {style: {fill: "#FCE8EF"; stroke: "#AD6380"; border-radius: 8; font-size: 20; bold: true}}
+  storage: {style: {stroke: "#81879B"; stroke-dash: 5; font-color: "#596276"}}
+  resume: {style: {stroke: "#AD6380"; stroke-dash: 3; font-color: "#914964"}}
+  service: {style: {stroke: "#498A7A"; font-color: "#357566"}}
+}
+title: Jarvis | Telegram assistant {
+  near: top-center
+  shape: text
+  style: {font-size: 34; bold: true; font-color: "#383957"}
+}
+user: User {shape: person; class: box; style.multiple: true}
+inputs: Telegram chat input {
+  class: layer
+  grid-columns: 1
+  text: Text {class: box}
+  audio: Voice / audio {class: box}
+  photos: Photos / albums {class: box; style.multiple: true}
+  polls: Polls {class: box}
+  forwards: Forwarded messages {class: box}
+}
+builder: Auth + Context Builder {class: box}
+agent: Jarvis Agent {
+  class: layer
+  graph: LangGraph | checkpointed loop {
+    class: layer
+    style.fill: honeydew
+    orchestrator: "Orchestrator\nDomain / model selection + LLM" {class: node}
+    validate: "Validate entities\nPrior-read IDs + risk split" {class: node}
+    tools: Safe tools {class: node}
+    summarize: Summarize large results {class: node}
+    clarify: "Clarify\nPause for user reply" {class: human}
+    prepare: "Prepare confirmation\nFreeze risky calls" {class: node}
+    confirm: "Confirm\nPause for approval" {class: human}
+    executor: "Executor\nApproved mutations" {class: node}
+    end: End {class: box}
+
+    orchestrator -> validate: tool calls
+    validate -> tools: safe
+    orchestrator <- tools: results
+    tools -> summarize: large results
+    orchestrator <- summarize: summary
+    orchestrator <- validate: invalid IDs
+    validate -> prepare: risky
+    prepare -> confirm
+    confirm -> executor: approve {class: resume}
+    orchestrator <- executor: results
+    orchestrator -> clarify: ask user {class: resume}
+    orchestrator <- clarify: resumed reply {class: resume}
+    confirm -> end: decline {class: resume}
+    orchestrator -> end: final / error
+    validate -> end: no next action
+  }
+  dispatcher: "Shared tool dispatcher\nTodoist + Google Calendar" {class: box}
+  graph.tools -> dispatcher: execute {class: service}
+  graph.executor -> dispatcher: execute {class: service}
+}
+database: "Database\n\nStorage · Idempotency" {
+  shape: cylinder
+  class: box
+  style: {fill: "#EDF1FA"; fill-pattern: lines; font-size: 20}
+}
+services: External services {
+  class: layer
+  style.fill: "#ECF7F3"
+  llm: "OpenAI: GPT 5.6-luna" {class: box}
+  todoist: Todoist API {class: box}
+  calendar: Google Calendar API {class: box}
+}
+output: Telegram delivery {
+  class: layer
+  replies: "Progress + reasoning summaries\nClarification questions\nApprove / Decline buttons\nFinal formatted replies" {class: box}
+  recipient: User {shape: person; class: box}
+  replies -> recipient: messages
+}
+user -> inputs: sends
+inputs -> builder
+builder -> agent.graph.orchestrator: start / resume
+builder <-> database: storage {class: storage}
+agent.graph <-> database: storage / idempotency {class: storage}
+agent.graph <-> services.llm: "LLM calls\n+ responses" {class: service}
+agent.dispatcher <-> services.todoist: tasks {class: service}
+agent.dispatcher <-> services.calendar: events {class: service}
+agent -> output.replies: "Progress · questions · replies"
+builder <- output: "Reply / approval → resume" {class: resume}
+legend: "Solid: processing / results     Green: external APIs\nDashed gray: persistence     Dashed rose: human interaction" {
+  shape: text
+  near: bottom-center
+  style: {font-size: 18; font-color: "#596276"}
+}

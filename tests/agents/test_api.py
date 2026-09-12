@@ -478,7 +478,7 @@ class JarvisApiTests(unittest.TestCase):
             body["limits"],
             {
                 "run_deadline_seconds": 150.0,
-                "max_agent_turns": 20,
+                "max_agent_turns": 30,
                 "llm_request_timeout_seconds": 60.0,
                 "model_router_complex_timeout_seconds": 90.0,
             },
@@ -684,7 +684,7 @@ class JarvisApiTests(unittest.TestCase):
             tracer.progress({"phase": "request", "action": "started"})
             tracer.progress({"phase": "lookup", "action": "started", "domains": ["todoist"], "intent": "read"})
             tracer.event("runtime.start", "Starting graph invocation.", resuming=False)
-            tracer.event("graph.agent", "Entering agent node.", turn=1, max_turns=20)
+            tracer.event("graph.agent", "Entering agent node.", turn=1, max_turns=30)
             tracer.event("agent.request", "Calling DeepSeek chat completions.")
             tracer.event("agent.response", "Received assistant message.", tool_calls=1)
             tracer.event("graph.route", "Agent node completed.", next="tools")

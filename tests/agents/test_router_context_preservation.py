@@ -193,7 +193,7 @@ class TestOrchestratorActiveDomains:
         router_client = _CannedRouterClient({"google calendar": decision})
         selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
         client = _RecordingClient()
-        node = create_agent_node(client, _registry(), max_agent_turns=20, tool_selector=selector)
+        node = create_agent_node(client, _registry(), max_agent_turns=30, tool_selector=selector)
 
         state = _fresh_state(
             snapshot,
@@ -210,7 +210,7 @@ class TestOrchestratorActiveDomains:
         router_client = _CannedRouterClient({})  # default todoist
         selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
         client = _RecordingClient()
-        node = create_agent_node(client, _registry(), max_agent_turns=20, tool_selector=selector)
+        node = create_agent_node(client, _registry(), max_agent_turns=30, tool_selector=selector)
 
         state = _resume_state(
             snapshot,
@@ -231,7 +231,7 @@ class TestOrchestratorActiveDomains:
         router_client = _CannedRouterClient({"google calendar": decision})
         selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
         client = _RecordingClient()
-        node = create_agent_node(client, _registry(), max_agent_turns=20, tool_selector=selector)
+        node = create_agent_node(client, _registry(), max_agent_turns=30, tool_selector=selector)
 
         state = _resume_state(
             snapshot,
@@ -258,7 +258,7 @@ class TestOrchestratorActiveDomains:
             use_lru_cache=False,
         )
         client = _RecordingClient()
-        node = create_agent_node(client, _registry(), max_agent_turns=20, tool_selector=selector)
+        node = create_agent_node(client, _registry(), max_agent_turns=30, tool_selector=selector)
         state = _resume_state(
             snapshot,
             user_prompt="make it due tomorrow",
@@ -298,7 +298,7 @@ class TestPromptSlimmingPinnedDomains:
         router_client = _CannedRouterClient({"google calendar": RouterDecision(outcome="routed", domains=["google_calendar"], uncertain=False, candidate_domains=[], complexity="low")})
         selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
         client = _RecordingClient()
-        node = create_agent_node(client, _registry(), max_agent_turns=20, tool_selector=selector)
+        node = create_agent_node(client, _registry(), max_agent_turns=30, tool_selector=selector)
 
         state = _resume_state(
             snapshot,
@@ -436,7 +436,7 @@ class TestEndToEndContextPreservation:
         selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
         client = _RecordingClient()
         registry = _registry()
-        node = create_agent_node(client, registry, max_agent_turns=20, tool_selector=selector)
+        node = create_agent_node(client, registry, max_agent_turns=30, tool_selector=selector)
 
         state_turn1 = _fresh_state(snapshot, user_prompt="add event to google calendar next friday")
         result_turn1 = asyncio.run(node(state_turn1))
@@ -459,7 +459,7 @@ class TestEndToEndContextPreservation:
         )
         client_resume = _RecordingClient()
         node_resume = create_agent_node(
-            client_resume, registry, max_agent_turns=20, tool_selector=selector_resume
+            client_resume, registry, max_agent_turns=30, tool_selector=selector_resume
         )
 
         state_resume = _resume_state(
@@ -482,7 +482,7 @@ class TestEndToEndContextPreservation:
         router_client = _CannedRouterClient({})  # default → todoist
         selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
         client = _RecordingClient()
-        node = create_agent_node(client, _registry(), max_agent_turns=20, tool_selector=selector)
+        node = create_agent_node(client, _registry(), max_agent_turns=30, tool_selector=selector)
 
         state = _fresh_state(snapshot, user_prompt="show me my tasks for today")
         result = asyncio.run(node(state))

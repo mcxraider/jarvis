@@ -90,11 +90,11 @@ def test_load_preferences_serializes_llm_and_execution_sections():
     document = {
         **VALID_PREFERENCES,
         "llm": {"model": "deepseek-v4-pro", "reasoning_effort": "max"},
-        "execution": {"max_agent_turns": 20, "allow_mutations": False},
+        "execution": {"max_agent_turns": 30, "allow_mutations": False},
     }
     serialized = admin._load_preferences(Path("-"), io.StringIO(json.dumps(document)))
     assert serialized["llm"] == {"model": "deepseek-v4-pro", "reasoning_effort": "max"}
-    assert serialized["execution"] == {"max_agent_turns": 20, "allow_mutations": False}
+    assert serialized["execution"] == {"max_agent_turns": 30, "allow_mutations": False}
 
 
 def test_load_preferences_clearing_section_omits_it():
