@@ -72,6 +72,7 @@ services: External services {
   llm: "OpenAI: GPT 5.6-luna" {class: box}
   todoist: Todoist API {class: box}
   calendar: Google Calendar API {class: box}
+  websearch: Web search {class: box}
 }
 output: Telegram delivery {
   class: layer
@@ -87,6 +88,7 @@ agent.graph <-> database: storage / idempotency {class: storage}
 agent.graph <-> services.llm: "LLM calls\n+ responses" {class: service}
 agent.dispatcher <-> services.todoist: tasks {class: service}
 agent.dispatcher <-> services.calendar: events {class: service}
+agent.graph <-> services.websearch: queries {class: service}
 agent -> output.replies: "Progress · questions · replies"
 builder <- output: "Reply / approval → resume" {class: resume}
 legend: "Solid: processing / results     Green: external APIs\nDashed gray: persistence     Dashed rose: human interaction" {
