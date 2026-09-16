@@ -14,6 +14,8 @@
     "test:coverage": "jest --config jest.config.js --coverage",
     "test:integration": "jest --config jest.integration.config.js",
     "test:telegram-rich": "ts-node tests/send-telegram-rich-messages.ts",
+    "test:audio": "ts-node --transpile-only scripts/test_audio_transcription.ts",
+    "eval:chunking": "ts-node --transpile-only scripts/eval_chunking_params.ts",
     "test:telegram-rich-emojis": "ts-node tests/send-telegram-rich-emojis.ts",
     "agent": "./scripts/run_agent_cli.sh",
     "db:start": "supabase start",

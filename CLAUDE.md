@@ -136,7 +136,7 @@ Node keys are literally `graph.*` in `builder.py` (`graph.orchestrator`, `graph.
 All five channels converge on the same Python graph path:
 
 - **Text** → `TextProcessorService` → `/invoke`.
-- **Voice / audio** → FFmpeg normalization (16 kHz mono FLAC) → Whisper transcription → same `TextProcessorService`. Files up to 20 MB / 20 minutes are accepted; anything over 30 s is chunked with 5 s overlap, transcribed concurrently (5 in-flight Groq requests process-wide), and merged. A caption on the audio becomes the instruction above the transcript. Limits live in `src/utils/ai/audio-limits.ts`.
+- **Voice / audio** → FFmpeg normalization (16 kHz mono FLAC) → Whisper transcription → same `TextProcessorService`. Files up to 20 MB / 20 minutes are accepted; anything over 45 s is chunked (45 s cores, 0 s overlap), transcribed concurrently (5 in-flight Groq requests process-wide), and merged. A caption on the audio becomes the instruction above the transcript. Limits live in `src/utils/ai/audio-limits.ts`.
 - **Photos** → `MessageHandlers.handlePhoto` buffers Telegram `media_group_id` albums for `ALBUM_QUIET_MS` (1.5s), then downloads and JPEG-validates each file into `AgentImage[]` (data-URL base64) → `MessageProcessorService.processPhotoMessage`. Bounds live in `src/types/agent.types.ts`: `MAX_AGENT_IMAGE_COUNT` (10), `MAX_AGENT_IMAGE_BYTES` (10 MB total per turn), `MAX_AGENT_IMAGE_BATCHES` (20). Images sent during a HITL pause are persisted as `image_batches` on `telegram_pending_clarifications` so a resume replays them.
 - **Polls** → `MessageHandlers.handlePoll` formats the poll via `poll-content.ts` (`formatPollAsText`) and feeds the structured text into the same text path.
 - **Forwards** → buffered in `forward-buffer.store.ts` until `/forward <instruction>` dispatches them as one combined turn (text + any buffered photos), always force-fresh.
@@ -168,7 +168,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 
 - `langgraph-agent-client.service.ts` — HTTP client for Python agent: streaming NDJSON, dual-timer deadline, retry, cancellation, fallback to non-streaming
 - `agent-contract-readiness.ts` — startup barrier: verifies timeout ladder invariants against agent `/health/detail`
-- `whisper.service.ts` — audio transcription via Groq Whisper large-v3: streamed size-capped download, FFmpeg normalization + chunking, overlapped producer-consumer extraction/transcription, deterministic merge, retry, quality metrics
+- `whisper.service.ts` — audio transcription via Groq Whisper large-v3: streamed size-capped download, FFmpeg normalization + chunking (45 s cores, 0 s overlap), overlapped producer-consumer extraction/transcription, deterministic merge, retry, quality metrics
 - `groq-request-limiter.ts` — process-global admission control for Groq calls (shared concurrency cap + shared `429` cooldown, since Groq rate-limits per organization)
 - `groq-transcription-error.ts` — structured error with category, retryable flag, provider metadata
 - `index.ts` — barrel re-exporting the client, Whisper service, transcription error, and `ai/audio-admission-error.ts` from `src/utils/`
@@ -226,8 +226,8 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 - `ai/audioConverter.ts` — `AudioConverter.prepare()`: FFmpeg normalization to 16 kHz mono FLAC (first audio track), authoritative duration measurement, duration-limit kill, chunk extraction (sequential FFmpeg, yielded into async channel for overlapped transcription); `isFFmpegAvailable()` backs the startup barrier
 - `ai/audio-limits.ts` — `AUDIO_LIMITS` (size, duration, chunk geometry, concurrency, retry ceilings) and `AUDIO_LIMIT_MESSAGES` user copy
 - `ai/audio-admission-error.ts` — `AudioAdmissionError` (`too_large` / `too_long`) carrying user-facing copy; classified as `user_actionable`; re-exported by `src/services/ai/index.ts`
-- `ai/audio-chunk-plan.ts` — `planAudioChunks()`: equal core regions widened into overlapping upload windows
-- `ai/transcript-merge.ts` — `mergeChunkTranscriptions()`: deterministic overlap removal by core-midpoint ownership (words → segments → text fallback)
+- `ai/audio-chunk-plan.ts` — `planAudioChunks()`: equal core regions (45 s default, 0 s overlap)
+- `ai/transcript-merge.ts` — `mergeChunkTranscriptions()`: deterministic merge by core-midpoint ownership (words → segments → text fallback)
 - `ai/fileValidation.ts` — `validateFileSize()`, `validateFileExtension()`
 
 ### Python (`agents/agent_api/app/`)
@@ -477,6 +477,8 @@ Live tests are gated by explicit env flags and may mutate Todoist only when enab
 - `scripts/generate_friend_token.py` — OAuth consent for friends to generate Google Calendar tokens
 - `scripts/loadtest_concurrent.sh` — concurrent load testing
 - `scripts/loadtest_seed.sql` / `scripts/loadtest_teardown.sql` — load test DB fixtures
+- `scripts/test_audio_transcription.ts` — exercise real WhisperService pipeline against a local audio file (`npm run test:audio`)
+- `scripts/eval_chunking_params.ts` — grid search over chunking parameters for optimal WER (`npm run eval:chunking`)
 
 ## Repo Hygiene
 

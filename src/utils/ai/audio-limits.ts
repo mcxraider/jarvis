@@ -7,10 +7,10 @@ export const AUDIO_LIMITS = {
   MAX_INPUT_BYTES: 20 * 1024 * 1024,
   /** Jarvis product/operational limit on decoded audio duration. */
   MAX_DURATION_SECONDS: 1_200,
-  /** Whisper large-v3 is optimised for 30-second segments. */
-  CORE_SECONDS: 30,
-  /** Total shared audio between two neighbouring uploads (2.5s each side). */
-  OVERLAP_SECONDS: 5,
+  /** Tuned via grid search (WER eval, Sep 2026): 45s cores with no overlap. */
+  CORE_SECONDS: 45,
+  /** Tuned via grid search: overlap=0 outperformed 3/5/8s on test corpus. */
+  OVERLAP_SECONDS: 0,
   /** Groq rate limits are organization-wide, so this cap is process-global. */
   MAX_CONCURRENT_REQUESTS: 5,
   /** Attempts per chunk, including the first. */
