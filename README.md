@@ -46,13 +46,13 @@ Canonical display names are stored only on `users`.
 
 ### Audio transcription
 
-Audio never reaches Groq as the user sent it. Every accepted file is downloaded, re-encoded by the bundled FFmpeg to **16 kHz mono FLAC** (first audio track only), and — if it is longer than 30 seconds — split into overlapping windows that are transcribed concurrently and merged back into a single transcript.
+Audio never reaches Groq as the user sent it. Every accepted file is downloaded, re-encoded by the bundled FFmpeg to **16 kHz mono FLAC** (first audio track only), and — if it is longer than one core window (45 s) — split into chunks that are transcribed concurrently and merged back into a single transcript.
 
 ```text
 Telegram file -> size admission (declared, getFile, streamed bytes)
   -> FFmpeg normalize to 16 kHz mono FLAC + authoritative duration
   -> duration admission
-  -> overlapped chunk extraction + transcription (30s cores, 5s overlap)
+  -> overlapped chunk extraction + transcription (45s cores, 0s overlap)
      (FFmpeg extracts sequentially; an async channel feeds chunks to
       concurrent Groq whisper-large-v3 so extraction and transcription overlap)
   -> deterministic merge by core-midpoint ownership
@@ -63,8 +63,8 @@ Telegram file -> size admission (declared, getFile, streamed bytes)
 |-------|-------|----------|
 | Max file size | 20 MB (hosted Telegram `getFile` ceiling) | `GROQ_AUDIO_MAX_INPUT_BYTES` |
 | Max duration | 20 minutes | `GROQ_AUDIO_MAX_DURATION_SECONDS` |
-| Chunk core length | 30 s | `GROQ_AUDIO_CORE_SECONDS` |
-| Chunk overlap | 5 s (2.5 s widening at each internal boundary) | code-only |
+| Chunk core length | 45 s | `GROQ_AUDIO_CORE_SECONDS` |
+| Chunk overlap | 0 s | code-only |
 | Concurrent Groq requests | 5, process-wide | `GROQ_TRANSCRIPTION_MAX_CONCURRENCY` |
 | Attempts per chunk | 3 | `GROQ_TRANSCRIPTION_MAX_CHUNK_ATTEMPTS` |
 
@@ -72,7 +72,7 @@ Size is enforced three times — on Telegram's declared `file_size`, on the `fil
 
 The concurrency cap and the `429` cooldown live on the singleton transcription service, not per request: Groq rate-limits at the organization level, so two simultaneous users share one pool of slots and one shared cooldown deadline. `Retry-After` is honoured but clamped to a single 60 s wait, so a provider asking for fifteen minutes gets 60 s and another attempt; the wait is only refused — failing the turn — when it no longer fits in the job's remaining budget. Auth, permission, invalid-audio, and payload errors fail immediately without retrying.
 
-Merging is deterministic (no LLM, no fuzzy alignment beyond a bounded suffix/prefix match): each chunk owns the words whose timestamps fall inside its core region, so the 5 s overlap is dropped rather than duplicated. If a chunk fails all attempts, the whole turn fails — a partial transcript is never delivered and never sent to the agent.
+Merging is deterministic (no LLM, no fuzzy alignment): each chunk owns the words whose timestamps fall inside its core region. Overlap (currently 0 s after tuning) is handled by core-midpoint ownership, so any future non-zero overlap is dropped rather than duplicated. If a chunk fails all attempts, the whole turn fails — a partial transcript is never delivered and never sent to the agent.
 
 Timeouts form a strict ladder, verified at startup by `agent-contract-readiness.ts`:
 
@@ -163,7 +163,7 @@ Complexity is assessed independently of query length, mutation risk, and the num
 - **Text mode** — send plain English requests to create, find, update, complete, reschedule, or delete tasks and calendar items.
 - **Voice mode** — send a Telegram voice note; Jarvis transcribes it, echoes the transcription, then runs the same agent flow as text.
 - **Audio files** — send OGG, MP3, WAV, M4A, or other Telegram audio/document uploads with audio MIME types for transcription and action.
-- **Long audio** — recordings up to **20 minutes** and **20 MB** are accepted. Anything longer than 30 seconds is split into overlapping windows, transcribed concurrently, and stitched back into one transcript before the agent sees it. You get the whole transcript or a clear error — never a partial one.
+- **Long audio** — recordings up to **20 minutes** and **20 MB** are accepted. Anything longer than 45 seconds is split into chunks, transcribed concurrently, and stitched back into one transcript before the agent sees it. You get the whole transcript or a clear error — never a partial one.
 - **Audio captions** — a caption sent with the audio becomes the instruction applied to the transcript ("summarize this into 3 bullets"), while the transcript itself is echoed unchanged.
 - **Reply context** — swipe/reply to an earlier Telegram message from the bot or the user, and Jarvis includes a quoted version of that message as context for the new request.
 - **Progress messages** — Telegram shows transcription, agent progress states, and streamed reasoning summaries while work is running.

@@ -55,10 +55,6 @@ const WHISPER_CONSTANTS = {
   DEFAULT_MODEL: 'whisper-large-v3',
   DEFAULT_RESPONSE_FORMAT: 'verbose_json' as const, // Needed for timestamps + quality metadata
   DEFAULT_LANGUAGE: 'en',
-  // Context prompt that helps Whisper recognize domain-specific terms.
-  DEFAULT_PROMPT:
-    'Telegram voice note to Jarvis, a personal assistant for tasks, events, reminders, and scheduling. Preserve task titles, dates, times, names, and app names accurately.',
-  MAX_PROMPT_TOKENS: 224, // Groq's prompt token limit
   MAX_LOG_TEXT_LENGTH: 100,
   DEFAULT_DOWNLOAD_TIMEOUT_MS: 30_000,
   DEFAULT_REQUEST_TIMEOUT_MS: 12_000,
@@ -130,7 +126,6 @@ export interface WhisperConfig {
   language?: string;
   responseFormat?: 'json' | 'text' | 'srt' | 'verbose_json' | 'vtt';
   enforceEnglishOnly?: boolean;
-  prompt?: string;
   qualityMonitoringEnabled?: boolean;
   qualityThresholds?: Partial<QualityThresholds>;
   downloadTimeoutMs?: number;
@@ -213,7 +208,6 @@ export class WhisperService {
       | 'model'
       | 'responseFormat'
       | 'enforceEnglishOnly'
-      | 'prompt'
       | 'qualityMonitoringEnabled'
     >
   >;
@@ -349,7 +343,6 @@ export class WhisperService {
       model: config?.model || WHISPER_CONSTANTS.DEFAULT_MODEL,
       responseFormat: config?.responseFormat || WHISPER_CONSTANTS.DEFAULT_RESPONSE_FORMAT,
       enforceEnglishOnly,
-      prompt: this.normalizePrompt(config?.prompt || WHISPER_CONSTANTS.DEFAULT_PROMPT),
       qualityMonitoringEnabled: config?.qualityMonitoringEnabled !== false,
     };
 
@@ -374,7 +367,6 @@ export class WhisperService {
       responseFormat: this.config.responseFormat,
       language: this.language,
       enforceEnglishOnly: this.config.enforceEnglishOnly,
-      promptLength: this.config.prompt.length,
       qualityMonitoringEnabled: this.config.qualityMonitoringEnabled,
       qualityThresholds: this.qualityThresholds,
       downloadTimeoutMs: this.downloadTimeoutMs,
@@ -830,7 +822,6 @@ export class WhisperService {
         model: this.config.model,
         language: this.language,
         responseFormat: this.config.responseFormat,
-        promptLength: this.config.prompt.length,
         chunkIndex: chunk.index,
         chunkCount: budget.chunkCount,
         chunkStartSeconds: chunk.startSeconds,
@@ -938,7 +929,6 @@ export class WhisperService {
         model: this.config.model,
         language: this.language,
         response_format: this.config.responseFormat,
-        prompt: this.config.prompt,
         timestamp_granularities: ['segment', 'word'],
         temperature: 0,
       },
@@ -1343,20 +1333,6 @@ export class WhisperService {
     });
   }
 
-  private normalizePrompt(prompt: string): string {
-    const trimmedPrompt = prompt.trim();
-    if (!trimmedPrompt) {
-      return WHISPER_CONSTANTS.DEFAULT_PROMPT;
-    }
-
-    const promptTokens = trimmedPrompt.split(/\s+/);
-    if (promptTokens.length <= WHISPER_CONSTANTS.MAX_PROMPT_TOKENS) {
-      return trimmedPrompt;
-    }
-
-    return promptTokens.slice(0, WHISPER_CONSTANTS.MAX_PROMPT_TOKENS).join(' ');
-  }
-
   // Maps a file extension to the corresponding MIME type for the File constructor.
   private getMimeTypeFromExtension(extension: string): string {
     const mimeTypeMap: Record<string, string> = {
@@ -1403,7 +1379,6 @@ export class WhisperService {
       language: this.language,
       responseFormat: this.config.responseFormat,
       enforceEnglishOnly: this.config.enforceEnglishOnly,
-      prompt: this.config.prompt,
       qualityMonitoringEnabled: this.config.qualityMonitoringEnabled,
       qualityThresholds: this.qualityThresholds,
       downloadTimeoutMs: this.downloadTimeoutMs,

@@ -393,7 +393,7 @@ describe('AudioConverter', () => {
       const result = await AudioConverter.prepare({
         inputPath: INPUT_PATH,
         workDir: WORK_DIR,
-        coreSeconds: 30,
+        coreSeconds: 45,
       });
 
       expect(calls).toHaveLength(1);
