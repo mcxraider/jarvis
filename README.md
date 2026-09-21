@@ -179,7 +179,7 @@ Complexity is assessed independently of query length, mutation risk, and the num
 - **Typed approval** — pending confirmations can also be answered with `yes`/`y`, `approve`, `confirm`, `ok`, `no`/`n`, `decline`, or `cancel`.
 - **Conversation gate** — only one request per Telegram conversation runs at a time; extra messages are buffered and surfaced after the active run finishes.
 - **`/new <message>`** — abandon a pending clarification/confirmation and start fresh in one step.
-- **`/forward <instruction>`** — forward messages into a buffer, then dispatch them as structured context with an instruction.
+- **Forward context** — forwarded messages are buffered; your next plain-text message is treated as the instruction and dispatched with that context. `/forward <instruction>` remains available as an explicit dispatch.
 - **`/cancel`** — clear the current pending operation and release the conversation gate.
 - **`/status`** — check service health from Telegram.
 
