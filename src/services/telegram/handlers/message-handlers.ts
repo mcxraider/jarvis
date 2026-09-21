@@ -226,7 +226,7 @@ export class MessageHandlers {
     const count = this.forwardBuffer.count(gateKey);
     // Buffer dispatched or cleared while this turn waited in the chain — nothing to show.
     if (count === 0) return;
-    const text = `📥 ${count} message${count === 1 ? '' : 's'} buffered. Send /forward <instruction> when ready.`;
+    const text = `📥 ${count} message${count === 1 ? '' : 's'} buffered. Send your instruction next, or use /forward <instruction>.`;
     const existingId = this.forwardBuffer.getConfirmationMessageId(gateKey);
     if (existingId !== undefined && ctx.chat) {
       try {
@@ -402,6 +402,27 @@ export class MessageHandlers {
       await sendFinalReply(ctx, 'Please send a message with some text.');
       return;
     }
+    // A forwarded-message buffer acts like temporary reply context: the next ordinary
+    // text message is the instruction for that buffer. Preserve clarification/confirmation
+    // semantics, though — if the agent is waiting for user input, plain text must resume
+    // that pending turn instead of silently starting a fresh forwarded-content request.
+    const gateKey = this.gateKey(ctx);
+    const bufferedForwardCount = this.forwardBuffer?.count(gateKey) ?? 0;
+    if (bufferedForwardCount > 0) {
+      const gateSnapshot = this.conversationGate
+        ? await this.conversationGate.getSnapshot(gateKey).catch(() => undefined)
+        : undefined;
+      if (gateSnapshot?.status !== 'waiting_for_clarification') {
+        logger.info('telegram.forward.auto_dispatch', {
+          ...this.createLogContext(ctx, 'text'),
+          bufferedCount: bufferedForwardCount,
+        });
+        this.activityService.recordActivity('message_text');
+        await this.handleForward(ctx);
+        return;
+      }
+    }
+
     const userId = ctx.from?.id;
     const logContext = this.createLogContext(ctx, 'text');
     const startedAt = Date.now();
@@ -485,11 +506,25 @@ export class MessageHandlers {
         );
         return;
       }
-      // /new means "abandon everything", including any accumulated forwards.
-      this.forwardBuffer?.clear(gateKey);
       if (outcome === 'abandoned') {
         await this.cleanupPendingPrompt(ctx, pending, logContext);
       }
+      try {
+        await this.messageProcessor.resetConversationMemory(userId, logContext);
+      } catch (error) {
+        logger.error('telegram.command.new_memory_reset_failed', {
+          ...logContext,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        await sendFinalReply(
+          ctx,
+          "I couldn't start a new conversation right now. Please try /new again.",
+          logContext,
+        );
+        return;
+      }
+      // /new means "abandon everything", including any accumulated forwards.
+      this.forwardBuffer?.clear(gateKey);
       await sendFinalReply(
         ctx,
         "We're in a new conversation — send your next message.",
@@ -500,7 +535,10 @@ export class MessageHandlers {
 
     // Explicitly starting a new request abandons accumulated forwards along with it.
     this.forwardBuffer?.clear(this.gateKey(ctx));
-    await this.runFreshText(ctx, remainder, logContext, startedAt, { forceFresh: true });
+    await this.runFreshText(ctx, remainder, logContext, startedAt, {
+      forceFresh: true,
+      resetMemory: true,
+    });
   }
 
   // Shared fresh-text pipeline used by handleText (normal) and handleNew (forceFresh): show
@@ -512,6 +550,7 @@ export class MessageHandlers {
     startedAt: number,
     options?: {
       forceFresh?: boolean;
+      resetMemory?: boolean;
       replyContext?: import('../reply-context').ReplyContextData;
       inputKind?: TelegramInputKind;
       onRequestAccepted?: () => void | Promise<void>;

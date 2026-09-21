@@ -17,6 +17,7 @@ USD_QUANTUM = Decimal("0.0001")
 OPENAI_LONG_CONTEXT_THRESHOLD = 272_000
 OPENAI_PRICING_AS_OF = "2026-08-03"
 DEEPSEEK_PRICING_AS_OF = "2026-07-05"
+TYPESAFE_PRICING_AS_OF = "2026-09-17"
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,19 @@ class TokenRates:
 
 _OPENAI_PRICING_SOURCE = "https://developers.openai.com/api/docs/pricing"
 _DEEPSEEK_PRICING_SOURCE = "https://api-docs.deepseek.com/quick_start/pricing"
+_TYPESAFE_PRICING_SOURCE = "https://docs.typesafe.ai/models"
+
+# TypeSafe charges per input token only; output tokens are free.  Jev has no
+# prompt-cache tier, so the cached and uncached input rates are the same price.
+TYPESAFE_TOKEN_RATES: Mapping[str, TokenRates] = {
+    "jev-1.13.0": TokenRates(
+        cached_input=Decimal("0.042"),
+        uncached_input=Decimal("0.042"),
+        output=Decimal("0"),
+        source=_TYPESAFE_PRICING_SOURCE,
+        as_of=TYPESAFE_PRICING_AS_OF,
+    ),
+}
 
 # DeepSeek API prices retained from the existing production table.  These are
 # provider keyed so a foreign provider can never inherit them by model alone.
@@ -113,6 +127,8 @@ def pricing_tier_for_request(provider: str, request_input_tokens: Optional[int])
         )
     if normalized_provider == "deepseek":
         return "standard"
+    if normalized_provider == "typesafe":
+        return "standard"
     return None
 
 
@@ -122,6 +138,8 @@ def _rates_for(provider: str, model: str, pricing_tier: Optional[str]) -> Option
         return DEEPSEEK_TOKEN_RATES.get(model)
     if normalized_provider == "openai" and pricing_tier is not None:
         return OPENAI_TOKEN_RATES.get((model, pricing_tier))
+    if normalized_provider == "typesafe" and pricing_tier in {None, "standard"}:
+        return TYPESAFE_TOKEN_RATES.get(model)
     return None
 
 
@@ -135,11 +153,16 @@ def calculate_call_cost_usd(
     output_tokens: int,
     request_input_tokens: Optional[int],
     pricing_tier: Optional[str] = None,
+    quantum: Decimal = USD_QUANTUM,
 ) -> Optional[Decimal]:
     """Calculate one call before aggregation.
 
     Reasoning tokens are already included in Chat Completions output tokens and
     must not be charged a second time.
+
+    ``quantum`` defaults to the telemetry-wide ``USD_QUANTUM``.  Benchmarks pass
+    a finer one: a single cheap classifier call can cost well under $0.0001, and
+    rounding each one to zero would make a per-call cost comparison meaningless.
     """
 
     if output_tokens < 0:
@@ -163,10 +186,14 @@ def calculate_call_cost_usd(
         + Decimal(uncached_tokens) * rates.uncached_input
         + Decimal(output_tokens) * rates.output
     ) / TOKENS_PER_RATE_UNIT
-    return cost_usd.quantize(USD_QUANTUM, rounding=ROUND_HALF_UP)
+    return cost_usd.quantize(quantum, rounding=ROUND_HALF_UP)
 
 
-def calculate_usage_record_cost_usd(record: Any) -> Optional[Decimal]:
+def calculate_usage_record_cost_usd(
+    record: Any,
+    *,
+    quantum: Decimal = USD_QUANTUM,
+) -> Optional[Decimal]:
     """Cost a typed usage record without coupling pricing to its implementation."""
 
     provider = getattr(record, "provider", "")
@@ -180,6 +207,7 @@ def calculate_usage_record_cost_usd(record: Any) -> Optional[Decimal]:
         output_tokens=int(getattr(record, "completion_tokens")),
         request_input_tokens=getattr(record, "request_input_tokens", None),
         pricing_tier=getattr(record, "pricing_tier", None),
+        quantum=quantum,
     )
 
 

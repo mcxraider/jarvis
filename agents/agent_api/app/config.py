@@ -182,6 +182,8 @@ class Settings:
     debug_payloads: bool
     langsmith_hide_payloads: bool
     postgres_dsn: Optional[str]
+    supabase_url: Optional[str]
+    supabase_service_role_key: Optional[str] = field(repr=False)
     checkpoint_backend: str
     run_checkpoint_setup: bool
     idempotency_request_ttl_seconds: int
@@ -654,6 +656,8 @@ def load_settings() -> Settings:
         # JARVIS_TRACE_PAYLOADS=0 for deployments that must hide full payloads.
         langsmith_hide_payloads=not _bool_env("JARVIS_TRACE_PAYLOADS", True),
         postgres_dsn=postgres_dsn,
+        supabase_url=_optional_non_empty_env("SUPABASE_URL"),
+        supabase_service_role_key=_unused_secret_env("SUPABASE_SERVICE_ROLE_KEY"),
         checkpoint_backend=checkpoint_backend,
         run_checkpoint_setup=_bool_env("JARVIS_RUN_CHECKPOINT_SETUP", False),
         idempotency_request_ttl_seconds=idempotency_request_ttl_seconds,

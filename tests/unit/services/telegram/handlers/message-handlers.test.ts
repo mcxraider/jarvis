@@ -1260,6 +1260,7 @@ describe('MessageHandlers', () => {
         expect.any(Function),
         expect.objectContaining({
           forceFresh: true,
+          resetMemory: true,
           onPendingPauseAccepted: expect.any(Function),
         }),
       );
@@ -1311,6 +1312,7 @@ describe('MessageHandlers', () => {
         expect.any(Function),
         expect.objectContaining({
           forceFresh: true,
+          resetMemory: true,
           onPendingPauseAccepted: expect.any(Function),
         }),
       );
@@ -1320,6 +1322,7 @@ describe('MessageHandlers', () => {
       const messageProcessor = {
         processTextMessage: jest.fn(),
         abandonConversation: jest.fn().mockResolvedValue('abandoned'),
+        resetConversationMemory: jest.fn().mockResolvedValue(undefined),
       } as any;
       const { handlers } = createHandlers({ messageProcessor });
       const ctx = createContext({ text: '/new', message_id: 7 });
@@ -1327,10 +1330,17 @@ describe('MessageHandlers', () => {
       await handlers.handleNew(ctx);
 
       expect(messageProcessor.abandonConversation).toHaveBeenCalledWith(123, expect.any(Object));
+      expect(messageProcessor.resetConversationMemory).toHaveBeenCalledWith(
+        123,
+        expect.any(Object),
+      );
       expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
       expect(ctx.reply).toHaveBeenCalledWith(
         "We're in a new conversation — send your next message\\.",
         { parse_mode: 'MarkdownV2' },
+      );
+      expect(messageProcessor.resetConversationMemory.mock.invocationCallOrder[0]).toBeLessThan(
+        ctx.reply.mock.invocationCallOrder[0],
       );
     });
 
@@ -1338,6 +1348,7 @@ describe('MessageHandlers', () => {
       const messageProcessor = {
         processTextMessage: jest.fn(),
         abandonConversation: jest.fn().mockResolvedValue('running'),
+        resetConversationMemory: jest.fn(),
       } as any;
       const { handlers } = createHandlers({ messageProcessor });
       const ctx = createContext({ text: '/new', message_id: 8 });
@@ -1349,6 +1360,7 @@ describe('MessageHandlers', () => {
         { parse_mode: 'MarkdownV2' },
       );
       expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
+      expect(messageProcessor.resetConversationMemory).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -1362,6 +1374,7 @@ describe('MessageHandlers', () => {
       const messageProcessor = {
         processTextMessage: jest.fn(),
         abandonConversation: jest.fn().mockResolvedValue(outcome),
+        resetConversationMemory: jest.fn().mockResolvedValue(undefined),
       } as any;
       const { handlers } = createHandlers({ messageProcessor });
       const ctx = createContext({ text: '/new', message_id: 11 });
@@ -1379,6 +1392,7 @@ describe('MessageHandlers', () => {
       const messageProcessor = {
         processTextMessage: jest.fn(),
         abandonConversation: jest.fn().mockResolvedValue('abandoned'),
+        resetConversationMemory: jest.fn().mockResolvedValue(undefined),
       } as any;
       const pendingStore = makePendingStore({
         get: jest.fn().mockResolvedValue({
@@ -1409,6 +1423,7 @@ describe('MessageHandlers', () => {
         const messageProcessor = {
           processTextMessage: jest.fn(),
           abandonConversation: jest.fn().mockResolvedValue('abandoned'),
+          resetConversationMemory: jest.fn().mockResolvedValue(undefined),
         } as any;
         const pendingStore = makePendingStore({
           get: jest.fn().mockResolvedValue({
@@ -1434,6 +1449,7 @@ describe('MessageHandlers', () => {
       const messageProcessor = {
         processTextMessage: jest.fn(),
         abandonConversation: jest.fn().mockResolvedValue('running'),
+        resetConversationMemory: jest.fn(),
       } as any;
       const pendingStore = makePendingStore({
         get: jest.fn().mockResolvedValue({
@@ -1449,6 +1465,27 @@ describe('MessageHandlers', () => {
       expect(ctx.telegram.callApi).not.toHaveBeenCalledWith(
         'editMessageText',
         expect.objectContaining({ message_id: 556 }),
+      );
+    });
+
+    it('bare /new reports reset failure without claiming a new conversation', async () => {
+      const messageProcessor = {
+        processTextMessage: jest.fn(),
+        abandonConversation: jest.fn().mockResolvedValue('idle'),
+        resetConversationMemory: jest.fn().mockRejectedValue(new Error('reset unavailable')),
+      } as any;
+      const { handlers } = createHandlers({ messageProcessor });
+      const ctx = createContext({ text: '/new', message_id: 14 });
+
+      await handlers.handleNew(ctx);
+
+      expect(ctx.reply).toHaveBeenCalledWith(
+        "I couldn't start a new conversation right now\\. Please try /new again\\.",
+        { parse_mode: 'MarkdownV2' },
+      );
+      expect(ctx.reply).not.toHaveBeenCalledWith(
+        expect.stringContaining("We're in a new conversation"),
+        expect.anything(),
       );
     });
   });

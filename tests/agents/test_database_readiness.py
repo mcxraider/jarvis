@@ -16,6 +16,7 @@ class ReadinessCursor:
         missing_tables=(),
         missing_columns=(),
         missing_privileges=(),
+        missing_memory_contract=(),
     ):
         self.results = iter(
             [
@@ -23,6 +24,7 @@ class ReadinessCursor:
                 [(value,) for value in missing_tables],
                 [(value,) for value in missing_columns],
                 [(value,) for value in missing_privileges],
+                [(value,) for value in missing_memory_contract],
             ]
         )
         self.rows = []
@@ -92,6 +94,7 @@ def test_readiness_accepts_complete_least_privilege_schema():
         {"missing_tables": ("idempotency_results",)},
         {"missing_columns": ("lease_expires_at",)},
         {"missing_privileges": ("DELETE",)},
+        {"missing_memory_contract": ("function:prepare_thread_memory:EXECUTE",)},
     ],
 )
 def test_readiness_rejects_incomplete_idempotency_provisioning(cursor_options):

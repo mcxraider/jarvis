@@ -565,6 +565,50 @@ class JarvisApiTests(unittest.TestCase):
             self.client.post("/invoke", json={"message": "hi", "user_id": "jerry"})
         self.assertIsNone(run.call_args.kwargs["allow_mutations"])
 
+    def test_invoke_forwards_thread_memory_scope(self) -> None:
+        conversation_key = "telegram-chat:" + "a" * 32
+        with patch(
+            "agents.agent_api.app.api.routes.invoke.run_jarvis",
+            return_value=self._completed(),
+        ) as run:
+            response = self.client.post(
+                "/invoke",
+                json={
+                    "message": "start over",
+                    "user_id": "jerry",
+                    "telegram_identity": {"telegram_id": 123},
+                    "conversation_key": conversation_key,
+                    "reset_memory": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(run.call_args.kwargs["conversation_key"], conversation_key)
+        self.assertIs(run.call_args.kwargs["reset_memory"], True)
+
+    def test_memory_reset_endpoint_is_awaited(self) -> None:
+        conversation_key = "telegram-chat:" + "b" * 32
+        reset = AsyncMock(return_value="lineage-2")
+        with patch(
+            "agents.agent_api.app.api.routes.memory.reset_thread_memory_async",
+            reset,
+        ):
+            response = self.client.post(
+                "/memory/reset",
+                json={
+                    "user_id": "jerry",
+                    "telegram_identity": {"telegram_id": 123},
+                    "conversation_key": conversation_key,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(), {"status": "reset", "lineage_id": "lineage-2"}
+        )
+        reset.assert_awaited_once()
+        self.assertEqual(reset.await_args.kwargs["conversation_key"], conversation_key)
+
     def test_invoke_explicit_allow_mutations_false_is_preserved(self) -> None:
         with patch(
             "agents.agent_api.app.api.routes.invoke.run_jarvis",

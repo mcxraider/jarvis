@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from agents.agent_api.app.api.routes.cancel import router as cancel_router
 from agents.agent_api.app.api.routes.health import router as health_router
 from agents.agent_api.app.api.routes.invoke import router as invoke_router
+from agents.agent_api.app.api.routes.memory import router as memory_router
 from agents.agent_api.app.api.routes.resume import router as resume_router
 from agents.agent_api.app.config import settings
 from agents.agent_api.app.idempotency import DEFAULT_IDEMPOTENCY_STORE, IdempotencyStore
@@ -148,6 +149,9 @@ async def lifespan(_app: FastAPI):
         from agents.agent_api.app.tools.google_calendar.client import (
             close_calendar_async_http_client,
         )
+        from agents.agent_api.app.thread_memory import (
+            close_thread_memory_storage_client,
+        )
 
         # Producers can outlive disconnected streaming responses. Drain them before
         # closing shared resources, then attempt every cleanup without allowing a
@@ -256,6 +260,10 @@ async def lifespan(_app: FastAPI):
             await close_calendar_async_http_client()
         except BaseException as error:
             cleanup_errors.append(error)
+        try:
+            await close_thread_memory_storage_client()
+        except BaseException as error:
+            cleanup_errors.append(error)
         if hasattr(DEFAULT_IDEMPOTENCY_STORE, "close"):
             try:
                 DEFAULT_IDEMPOTENCY_STORE.close()
@@ -319,6 +327,7 @@ def create_app() -> FastAPI:
     app.include_router(invoke_router)
     app.include_router(resume_router)
     app.include_router(cancel_router)
+    app.include_router(memory_router)
     return app
 
 
