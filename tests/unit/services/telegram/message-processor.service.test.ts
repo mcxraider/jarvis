@@ -1,6 +1,7 @@
 jest.mock('../../../../src/services/telegram/processors/text-processor.service', () => ({
   TextProcessorService: jest.fn().mockImplementation(() => ({
     processTextMessage: jest.fn().mockResolvedValue({ response: 'text response' }),
+    resetConversationMemory: jest.fn().mockResolvedValue(undefined),
   })),
 }));
 
@@ -64,6 +65,14 @@ describe('MessageProcessorService', () => {
       undefined,
       { replyContext },
     );
+  });
+
+  it('delegates durable conversation resets to the text processor', async () => {
+    const textProcessor = (service as any).textProcessor;
+
+    await service.resetConversationMemory(7, { chatId: 100 });
+
+    expect(textProcessor.resetConversationMemory).toHaveBeenCalledWith(7, { chatId: 100 });
   });
 
   it('routes audio messages to the audio processor', async () => {

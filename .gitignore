@@ -32,6 +32,14 @@ logs/
 /coverage
 venv/
 
+# router benchmark output (regenerated/appended on every eval run)
+tests/data/router_evals/router_results.json
+tests/data/router_evals/*.summary.json
+
+# local scratch artifacts (never commit)
+domain_router_runs.parquet
+THREAD_MEMORY_FEATURE_PLAN.md
+
 # python
 __pycache__/
 *.py[cod]
@@ -78,3 +86,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local scratch/debug dir
+work/

@@ -586,6 +586,8 @@ async def invoke(
             checkpointer=runtime_checkpointer(http_request),
             reply_context=reply_ctx,
             images=[image.model_dump() for image in request.images or ()],
+            conversation_key=request.conversation_key,
+            reset_memory=request.reset_memory,
         )
 
     return await run_agent_request(
@@ -638,6 +640,8 @@ async def invoke_stream(
             checkpointer=runtime_checkpointer(http_request),
             reply_context=reply_ctx,
             images=[image.model_dump() for image in request.images or ()],
+            conversation_key=request.conversation_key,
+            reset_memory=request.reset_memory,
         )
 
     return await stream_agent_run(

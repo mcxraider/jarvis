@@ -82,6 +82,11 @@ from agents.agent_api.app.tools.registry_factory import (
 from agents.agent_api.app.tools.selection import ToolSelector, get_selector
 from agents.agent_api.app.tools.todoist.client import TodoistApiClient
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter, name_current_run
+from agents.agent_api.app.thread_memory import (
+    PreviousThreadMemory,
+    persist_thread_memory_async,
+    prepare_previous_thread_memory_async,
+)
 from agents.agent_api.app.user_context.resolver import (
     load_thread_runtime_context_async,
     resolve_runtime_context_async,
@@ -630,6 +635,8 @@ def _run_trace_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     safe["prompt_chars"] = len(inputs.get("user_prompt") or "")
     safe["resuming"] = inputs.get("clarification_reply") is not None
     safe["image_count"] = len(images) + sum(len(batch) for batch in prior)
+    safe["thread_memory"] = bool(inputs.get("conversation_key"))
+    safe["reset_memory"] = bool(inputs.get("reset_memory"))
     return safe
 
 
@@ -649,13 +656,64 @@ def _run_trace_outputs(result: Any) -> dict[str, Any]:
     }
 
 
-@traceable(
-    run_type="chain",
-    name="jarvis",
-    process_inputs=_run_trace_inputs,
-    process_outputs=_run_trace_outputs,
-)
-async def run_jarvis_async(
+async def _latest_checkpoint_state(checkpointer: Any, config: dict[str, Any]) -> JarvisState:
+    """Best-effort canonical state for graph failures and cancellation."""
+
+    try:
+        checkpoint = await checkpointer.aget(config)
+    except BaseException:
+        return {}
+    if not isinstance(checkpoint, dict):
+        return {}
+    values = checkpoint.get("channel_values")
+    return dict(values) if isinstance(values, dict) else {}
+
+
+async def _persist_memory_safely(
+    *,
+    thread_id: str,
+    canonical_user_id: str | None,
+    conversation_key: str | None,
+    terminal_status: str,
+    state: JarvisState,
+    fallback_messages: list[dict[str, Any]],
+    images: tuple[dict[str, str], ...],
+    prior_image_batches: tuple[tuple[dict[str, str], ...], ...] | None,
+    tracer: TracePrinter,
+) -> None:
+    """Await authoritative persistence without replacing the user's run result."""
+
+    if not canonical_user_id or not settings.postgres_dsn:
+        return
+    messages = state.get("messages") or fallback_messages
+    try:
+        complete = await persist_thread_memory_async(
+            thread_id=thread_id,
+            canonical_user_id=canonical_user_id,
+            conversation_key=conversation_key,
+            terminal_status=terminal_status,
+            messages=messages,
+            images=images,
+            prior_image_batches=prior_image_batches,
+        )
+    except Exception as error:
+        tracer.event(
+            "thread_memory.persist_failed",
+            "Thread-memory snapshot persistence failed without replacing the run result.",
+            terminal_status=terminal_status,
+            error_type=type(error).__name__,
+        )
+        return
+    tracer.event(
+        "thread_memory.persisted",
+        "Thread-memory snapshot persistence completed.",
+        terminal_status=terminal_status,
+        memory_status="complete" if complete else "incomplete",
+        message_count=len(messages),
+    )
+
+
+async def _run_jarvis_async_impl(
     user_prompt: str = USER_PROMPT,
     user_id: str = USER_ID,
     request_source: str = "api",
@@ -679,6 +737,9 @@ async def run_jarvis_async(
     reply_context: Optional[dict] = None,
     images: Optional[list[dict[str, str]]] = None,
     prior_image_batches: Optional[list[list[dict[str, str]]]] = None,
+    conversation_key: Optional[str] = None,
+    reset_memory: bool = False,
+    _memory_tasks: Optional[list[asyncio.Task[PreviousThreadMemory]]] = None,
 ) -> JarvisState:
     """Run the full Jarvis graph natively on the caller's event loop.
 
@@ -708,9 +769,36 @@ async def run_jarvis_async(
         idempotency_store = DEFAULT_IDEMPOTENCY_STORE
 
     resuming = clarification_reply is not None
+    if reset_memory and (resuming or not conversation_key or identity is None):
+        raise ValueError(
+            "reset_memory requires a fresh invocation, conversation_key, and identity."
+        )
+    memory_images = tuple(images or ())
+    memory_prior_image_batches = (
+        tuple(tuple(batch) for batch in prior_image_batches)
+        if prior_image_batches is not None
+        else None
+    )
+    memory_task: asyncio.Task[PreviousThreadMemory] | None = None
+    if not resuming and conversation_key and identity is not None and settings.postgres_dsn:
+        memory_task = asyncio.create_task(
+            prepare_previous_thread_memory_async(
+                identity=identity,
+                conversation_key=conversation_key,
+                current_thread_id=thread_id,
+                user_prompt=user_prompt,
+                reset_memory=reset_memory,
+                current_images=memory_images,
+            ),
+            name=f"thread-memory:{thread_id}",
+        )
+        if _memory_tasks is not None:
+            _memory_tasks.append(memory_task)
+    elif reset_memory:
+        raise RuntimeError("Durable thread memory requires a configured Postgres runtime.")
     invocation_type = "resume" if resuming else "invoke"
     run_name = f"jarvis.{invocation_type}"
-    # The @traceable above opens the root run as "jarvis"; rename it now that we know
+    # The public @traceable wrapper opens the root run as "jarvis"; rename it once we know
     # whether this is an invoke or a resume. No-op when tracing is disabled.
     name_current_run(run_name)
     started_at = datetime.now()
@@ -870,6 +958,34 @@ async def run_jarvis_async(
             settings.model_router_multi_domain_timeout_seconds
         ),
     )
+    previous_memory = PreviousThreadMemory(outcome="disabled")
+    memory_owner_matches = True
+    if memory_task is not None:
+        previous_memory = await memory_task
+        tracer.event(
+            "thread_memory.loaded",
+            "Previous-thread memory lookup settled.",
+            outcome=previous_memory.outcome,
+            duration_ms=previous_memory.duration_ms,
+            row_count=previous_memory.row_count,
+            image_count=len(previous_memory.images),
+        )
+        if reset_memory and previous_memory.outcome in {"db_error", "db_timeout"}:
+            raise RuntimeError("Durable thread-memory reset failed.")
+        runtime_user_id = (
+            runtime_context.snapshot.user_id if runtime_context is not None else None
+        )
+        if (
+            previous_memory.canonical_user_id
+            and runtime_user_id
+            and previous_memory.canonical_user_id != runtime_user_id
+        ):
+            memory_owner_matches = False
+            tracer.event(
+                "thread_memory.owner_mismatch",
+                "Discarded previous-thread memory with a mismatched canonical owner.",
+            )
+            previous_memory = PreviousThreadMemory(outcome="owner_mismatch")
     run_deps = RunDeps(
         agent_client=agent_client,
         registry=registry,
@@ -882,12 +998,10 @@ async def run_jarvis_async(
         forced_model=resolved_config.forced_model,
         forced_reasoning_effort=resolved_config.forced_reasoning_effort,
         run_control=run_control,
-        images=tuple(images or ()),
-        prior_image_batches=(
-            tuple(tuple(batch) for batch in prior_image_batches)
-            if prior_image_batches is not None
-            else None
-        ),
+        images=memory_images,
+        prior_image_batches=memory_prior_image_batches,
+        previous_thread_context=previous_memory.text,
+        previous_thread_images=previous_memory.images,
     )
     app = get_or_compile_graph(checkpointer)
     config = {
@@ -919,6 +1033,39 @@ async def run_jarvis_async(
         # getattr: tests inject stub graph objects that have no node registry.
         nodes=", ".join(n for n in getattr(app, "nodes", ()) if not n.startswith("__")),
     )
+    initial_state: JarvisState = {}
+    if not resuming:
+        initial_state = build_initial_state(
+            user_prompt,
+            user_id=user_id,
+            thread_id=thread_id,
+            request_source=request_source,
+            timezone=(
+                runtime_context.snapshot.timezone
+                if runtime_context is not None
+                else None
+            ),
+            user_name=(
+                runtime_context.snapshot.display_name
+                if runtime_context is not None
+                else None
+            ),
+            runtime_context=(
+                runtime_context.snapshot if runtime_context is not None else None
+            ),
+            registered_tools=offline_tool_names,
+            reply_context=reply_context,
+        )
+    canonical_user_id = (
+        (
+            runtime_context.snapshot.user_id
+            if runtime_context is not None
+            else previous_memory.canonical_user_id
+        )
+        if memory_owner_matches
+        else None
+    )
+    fallback_messages = list(initial_state.get("messages") or ())
     # Native LangSmith tracing (LangGraph node spans + @traceable / wrap_openai
     # child spans) is governed by the LANGSMITH_TRACING env var. Tracing is
     # best-effort: callback failures never propagate into the graph result.
@@ -926,37 +1073,55 @@ async def run_jarvis_async(
         if resuming:
             result = await app.ainvoke(Command(resume=clarification_reply), config)
         else:
-            result = await app.ainvoke(
-                build_initial_state(
-                    user_prompt,
-                    user_id=user_id,
-                    thread_id=thread_id,
-                    request_source=request_source,
-                    timezone=(
-                        runtime_context.snapshot.timezone
-                        if runtime_context is not None
-                        else None
-                    ),
-                    user_name=(
-                        runtime_context.snapshot.display_name
-                        if runtime_context is not None
-                        else None
-                    ),
-                    runtime_context=(
-                        runtime_context.snapshot
-                        if runtime_context is not None
-                        else None
-                    ),
-                    registered_tools=offline_tool_names,
-                    reply_context=reply_context,
-                ),
-                config,
-            )
+            result = await app.ainvoke(initial_state, config)
+        result = enrich_interrupt_status(result, thread_id)
+        terminal_status = (
+            "failed"
+            if result.get("error")
+            else "interrupted"
+            if result.get("interrupted")
+            else "completed"
+        )
+        await _persist_memory_safely(
+            thread_id=thread_id,
+            canonical_user_id=canonical_user_id,
+            conversation_key=conversation_key,
+            terminal_status=terminal_status,
+            state=result,
+            fallback_messages=fallback_messages,
+            images=memory_images,
+            prior_image_batches=memory_prior_image_batches,
+            tracer=tracer,
+        )
     except asyncio.CancelledError:
         # Intentional run cancellation/deadline is a controlled terminal path,
         # not a graph crash. The API producer persists its terminal response.
+        checkpoint_state = await _latest_checkpoint_state(checkpointer, config)
+        await _persist_memory_safely(
+            thread_id=thread_id,
+            canonical_user_id=canonical_user_id,
+            conversation_key=conversation_key,
+            terminal_status="cancelled",
+            state=checkpoint_state,
+            fallback_messages=fallback_messages,
+            images=memory_images,
+            prior_image_batches=memory_prior_image_batches,
+            tracer=tracer,
+        )
         raise
     except BaseException as exc:
+        checkpoint_state = await _latest_checkpoint_state(checkpointer, config)
+        await _persist_memory_safely(
+            thread_id=thread_id,
+            canonical_user_id=canonical_user_id,
+            conversation_key=conversation_key,
+            terminal_status="failed",
+            state=checkpoint_state,
+            fallback_messages=fallback_messages,
+            images=memory_images,
+            prior_image_batches=memory_prior_image_batches,
+            tracer=tracer,
+        )
         if run_log is not None:
             await bounded_to_thread(run_log.write_crash, exc)
         raise
@@ -965,7 +1130,6 @@ async def run_jarvis_async(
         run_deps.prior_image_batches = None
         images = None
         prior_image_batches = None
-    result = enrich_interrupt_status(result, thread_id)
 
     # Production LLM clients write into the explicitly run-scoped
     # accumulator. Preserve compatibility with injected/duck-typed clients that
@@ -978,7 +1142,13 @@ async def run_jarvis_async(
     )
     finished_at = datetime.now()
     duration_ms = int((finished_at - started_at).total_seconds() * 1000)
-    thread_status = "interrupted" if result.get("interrupted") else "completed"
+    thread_status = (
+        "failed"
+        if result.get("error")
+        else "interrupted"
+        if result.get("interrupted")
+        else "completed"
+    )
     run_model = effective_run_model(
         getattr(usage, "models", set()), settings.orchestrator_llm.model
     )
@@ -1064,6 +1234,77 @@ async def run_jarvis_async(
     return result
 
 
+@traceable(
+    run_type="chain",
+    name="jarvis",
+    process_inputs=_run_trace_inputs,
+    process_outputs=_run_trace_outputs,
+)
+async def run_jarvis_async(
+    user_prompt: str = USER_PROMPT,
+    user_id: str = USER_ID,
+    request_source: str = "api",
+    allow_mutations: Optional[bool] = None,
+    agent_client: Optional[Any] = None,
+    todoist_client: Optional[Any] = None,
+    max_agent_turns: Optional[int] = None,
+    tracer: Optional[TracePrinter] = None,
+    thread_id: Optional[str] = None,
+    identity: Optional[TelegramIdentity] = None,
+    telegram_user_id: Optional[int] = None,
+    telegram_username: Optional[str] = None,
+    telegram_first_name: Optional[str] = None,
+    clarification_reply: Optional[str] = None,
+    checkpointer: Optional[Any] = None,
+    request_id: Optional[str] = None,
+    tool_selector: Optional[ToolSelector] = None,
+    idempotency_store: Optional[IdempotencyStore] = None,
+    run_control: Optional[RunControl] = None,
+    reply_context: Optional[dict] = None,
+    images: Optional[list[dict[str, str]]] = None,
+    prior_image_batches: Optional[list[list[dict[str, str]]]] = None,
+    conversation_key: Optional[str] = None,
+    reset_memory: bool = False,
+) -> JarvisState:
+    """Run Jarvis and keep its overlapped memory lookup request-owned."""
+
+    memory_tasks: list[asyncio.Task[PreviousThreadMemory]] = []
+    try:
+        return await _run_jarvis_async_impl(
+            user_prompt=user_prompt,
+            user_id=user_id,
+            request_source=request_source,
+            allow_mutations=allow_mutations,
+            agent_client=agent_client,
+            todoist_client=todoist_client,
+            max_agent_turns=max_agent_turns,
+            tracer=tracer,
+            thread_id=thread_id,
+            identity=identity,
+            telegram_user_id=telegram_user_id,
+            telegram_username=telegram_username,
+            telegram_first_name=telegram_first_name,
+            clarification_reply=clarification_reply,
+            checkpointer=checkpointer,
+            request_id=request_id,
+            tool_selector=tool_selector,
+            idempotency_store=idempotency_store,
+            run_control=run_control,
+            reply_context=reply_context,
+            images=images,
+            prior_image_batches=prior_image_batches,
+            conversation_key=conversation_key,
+            reset_memory=reset_memory,
+            _memory_tasks=memory_tasks,
+        )
+    finally:
+        for task in memory_tasks:
+            if not task.done():
+                task.cancel()
+        if memory_tasks:
+            await asyncio.gather(*memory_tasks, return_exceptions=True)
+
+
 def run_jarvis(
     user_prompt: str = USER_PROMPT,
     user_id: str = USER_ID,
@@ -1086,6 +1327,8 @@ def run_jarvis(
     run_control: Optional[RunControl] = None,
     images: Optional[list[dict[str, str]]] = None,
     prior_image_batches: Optional[list[list[dict[str, str]]]] = None,
+    conversation_key: Optional[str] = None,
+    reset_memory: bool = False,
 ) -> JarvisState:
     """Synchronous CLI/test adapter around :func:`run_jarvis_async`.
 
@@ -1130,6 +1373,8 @@ def run_jarvis(
         run_control=run_control,
         images=images,
         prior_image_batches=prior_image_batches,
+        conversation_key=conversation_key,
+        reset_memory=reset_memory,
     )
     with _SYNC_RUNNER_LOCK:
         if _SYNC_RUNNER is None:
@@ -1166,6 +1411,9 @@ def shutdown_sync_runner() -> None:
                 close_todoist_async_http_client,
             )
             from agents.agent_api.app.post_run import shutdown_post_run_jobs
+            from agents.agent_api.app.thread_memory import (
+                close_thread_memory_storage_client,
+            )
 
             if not await shutdown_post_run_jobs(5.0):
                 raise TimeoutError("Post-run metadata did not drain before CLI shutdown.")
@@ -1176,6 +1424,7 @@ def shutdown_sync_runner() -> None:
             await close_shared_async_summarizer_client()
             reset_summarizer_limiters()
             await close_todoist_async_http_client()
+            await close_thread_memory_storage_client()
 
         try:
             runner.run(close_resources())

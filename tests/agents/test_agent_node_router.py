@@ -25,6 +25,7 @@ with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c, **_: c):
     )
 
 from agents.agent_api.app.graph.prompts.context import build_initial_messages
+from agents.agent_api.app.graph.run_deps import CONFIGURABLE_DEPS_KEY, RunDeps
 from agents.agent_api.app.router.model_router import create_default_model_router
 from agents.agent_api.app.router.prompt import RouterDecision
 from agents.agent_api.app.tools.base import ToolRegistry, ToolSpec
@@ -147,6 +148,43 @@ class TestPromptSlimming:
         )
         # ...and in the state the node returns.
         assert any(m.get("content") == SENTINEL_TOOL_RESULT for m in result["messages"])
+
+    def test_previous_thread_context_is_model_only_and_images_are_ordered(self):
+        snapshot = make_snapshot(active=("todoist",))
+        state = _state_with_history(snapshot)
+        client = RecordingClient()
+        node = create_agent_node(
+            client,
+            _registry(),
+            max_agent_turns=30,
+            tool_selector=StaticToolSelector(),
+        )
+        historical = {"image_url": "history", "detail": "high"}
+        hitl = {"image_url": "hitl", "detail": "high"}
+        current = {"image_url": "current", "detail": "high"}
+        deps = RunDeps(
+            previous_thread_context="bounded historical context",
+            previous_thread_images=(historical,),
+            prior_image_batches=((hitl,),),
+            images=(current,),
+        )
+
+        result = asyncio.run(
+            node(state, {"configurable": {CONFIGURABLE_DEPS_KEY: deps}})
+        )
+
+        assert client.seen_messages[0]["role"] == "system"
+        assert client.seen_messages[1] == {
+            "role": "user",
+            "content": "bounded historical context",
+        }
+        assert all(
+            message.get("content") != "bounded historical context"
+            for message in result["messages"]
+        )
+        image_context = client.seen_kwargs["image_context"]
+        assert image_context["prior_batches"] == ((historical,), (hitl,))
+        assert image_context["images"] == (current,)
 
     def test_empty_decision_slims_to_no_domain_fragments(self):
         snapshot = make_snapshot(active=("todoist", "google_calendar"))

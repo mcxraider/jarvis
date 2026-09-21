@@ -29,6 +29,7 @@ Telegram (voice or text) hits the **FastAPI** service through the invoke and res
 | `invoke_router` | `POST /invoke`, `POST /invoke/stream`, `POST /invoke-bulk` |
 | `resume_router` | `POST /resume`, `POST /resume/stream` |
 | `cancel_router` | `POST /runs/cancel` |
+| `memory_router` | `POST /memory/reset` |
 
 Voice input is transcribed before entering the same path as text. Standard invoke and resume routes pass through the request gate before the graph runs:
 
@@ -127,6 +128,21 @@ Every graph node is stateless. Persistence and external IO live in shared single
 | **Observability** | LangSmith tracing and structured logs |
 | **External APIs** | DeepSeek or OpenAI (LLM), Todoist (task CRUD), Google Calendar (event CRUD) |
 
+### Durable thread memory
+
+Fresh Telegram threads can reference the immediately previous thread from the
+same canonical user, conversation, and lineage. The Python runtime overlaps one
+bounded predecessor lookup with normal request setup, injects at most 40,000
+characters as untrusted model-only context, and gives current-request images
+priority under the existing 10-image/10-MiB limit.
+
+Canonical user, assistant, and tool messages are retained for 48 hours.
+User-supplied JPEGs live in the private `thread-images` Supabase Storage bucket;
+system prompts, hidden reasoning, credentials, and copied historical context are
+never stored. `/new` rotates the durable lineage, including bare `/new`, so a
+blank-slate boundary survives process restarts. Nightly cleanup removes expired
+Storage objects before their database references.
+
 ## Router configuration
 
 The router is enabled by default:
@@ -178,8 +194,8 @@ Complexity is assessed independently of query length, mutation risk, and the num
 - **Approval buttons** — risky actions such as deletes, bulk mutations, and calendar-changing updates are held for confirmation with inline Approve/Decline buttons.
 - **Typed approval** — pending confirmations can also be answered with `yes`/`y`, `approve`, `confirm`, `ok`, `no`/`n`, `decline`, or `cancel`.
 - **Conversation gate** — only one request per Telegram conversation runs at a time; extra messages are buffered and surfaced after the active run finishes.
-- **`/new <message>`** — abandon a pending clarification/confirmation and start fresh in one step.
-- **`/forward <instruction>`** — forward messages into a buffer, then dispatch them as structured context with an instruction.
+- **`/new <message>`** — abandon a pending clarification/confirmation, rotate the durable memory lineage, and start fresh in one step. Bare `/new` persists the same blank-slate boundary before acknowledging it.
+- **Forward context** — forwarded messages are buffered; your next plain-text message is treated as the instruction and dispatched with that context. `/forward <instruction>` remains available as an explicit dispatch.
 - **`/cancel`** — clear the current pending operation and release the conversation gate.
 - **`/status`** — check service health from Telegram.
 

@@ -81,6 +81,14 @@ export interface LangGraphAgentRequest {
   replyContext?: { role: 'assistant' | 'user'; message: string };
   images?: AgentImage[];
   priorImageBatches?: AgentImage[][];
+  conversationKey?: string;
+  resetMemory?: boolean;
+}
+
+export interface LangGraphMemoryResetRequest {
+  userId: string;
+  telegramIdentity: TelegramIdentity;
+  conversationKey: string;
 }
 
 export interface LangGraphAgentClientConfig {
@@ -101,6 +109,7 @@ const RETRY_DELAYS_MS = [1000, 3000];
 // generous invoke/resume timeout.
 const HEALTH_TIMEOUT_MS = 8000;
 const CANCEL_TIMEOUT_MS = 5000;
+const MEMORY_RESET_TIMEOUT_MS = 5000;
 const CANCEL_OUTCOMES = new Set<LangGraphCancelOutcome>([
   'cancelled',
   'mutation_in_flight',
@@ -226,6 +235,46 @@ export class LangGraphAgentClient {
         throw new Error('LangGraph cancel returned an invalid outcome');
       }
       return body.outcome as LangGraphCancelOutcome;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /** Rotate a Telegram conversation's durable memory lineage. */
+  async resetMemory(request: LangGraphMemoryResetRequest): Promise<void> {
+    const startedAt = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), MEMORY_RESET_TIMEOUT_MS);
+    try {
+      logger.info('langgraph.memory_reset.started', { userId: request.userId });
+      const response = await fetch(`${this.baseUrl}/memory/reset`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({
+          user_id: request.userId,
+          telegram_identity: {
+            telegram_id: request.telegramIdentity.telegramId,
+            username: request.telegramIdentity.username,
+          },
+          conversation_key: request.conversationKey,
+        }),
+        signal: controller.signal,
+      });
+      await this.awaitWithAbort(response.text(), controller.signal);
+      if (!response.ok) {
+        throw new Error(`LangGraph memory reset returned ${response.status}`);
+      }
+      logger.info('langgraph.memory_reset.completed', {
+        userId: request.userId,
+        durationMs: Date.now() - startedAt,
+      });
+    } catch (error) {
+      logger.error('langgraph.memory_reset.failed', {
+        userId: request.userId,
+        error: error instanceof Error ? error.message : String(error),
+        durationMs: Date.now() - startedAt,
+      });
+      throw error;
     } finally {
       clearTimeout(timeout);
     }
@@ -881,6 +930,8 @@ export class LangGraphAgentClient {
       reply_context: request.replyContext,
       images,
       prior_image_batches: priorImageBatches,
+      conversation_key: request.conversationKey,
+      reset_memory: request.resetMemory,
     };
   }
 

@@ -38,6 +38,10 @@ class RunDeps:
     prior_image_batches: tuple[tuple[dict[str, str], ...], ...] | None = field(
         default=None, repr=False, compare=False
     )
+    previous_thread_context: str = field(default="", repr=False, compare=False)
+    previous_thread_images: tuple[dict[str, str], ...] = field(
+        default_factory=tuple, repr=False, compare=False
+    )
 
 
 def deps_from_config(config: Any) -> Optional[RunDeps]:

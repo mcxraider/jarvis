@@ -36,6 +36,7 @@ export class MessageProcessorService {
     onProgress?: LangGraphProgressCallback,
     options?: {
       forceFresh?: boolean;
+      resetMemory?: boolean;
       replyContext?: ReplyContextData;
       onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
       onRequestAccepted?: () => void | Promise<void>;
@@ -57,6 +58,10 @@ export class MessageProcessorService {
   // TextProcessor, which owns the gate/pending state machine. Used by the bare /new command.
   async abandonConversation(userId?: number, logContext: LogContext = {}): Promise<AbandonOutcome> {
     return this.textProcessor.abandonConversation(userId, logContext);
+  }
+
+  async resetConversationMemory(userId?: number, logContext: LogContext = {}): Promise<void> {
+    await this.textProcessor.resetConversationMemory(userId, logContext);
   }
 
   async processAudioMessage(

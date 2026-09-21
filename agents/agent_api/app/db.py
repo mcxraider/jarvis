@@ -29,6 +29,9 @@ _REQUIRED_RUNTIME_TABLES = (
     "telegram_conversation_gates",
     "rate_limits",
     "idempotency_results",
+    "threads",
+    "thread_memory_heads",
+    "thread_messages",
 )
 
 _REQUIRED_IDEMPOTENCY_COLUMNS = (
@@ -162,6 +165,101 @@ def verify_database_runtime() -> None:
                 missing_privileges = [row[0] for row in cursor.fetchall()]
                 if missing_privileges:
                     raise RuntimeError("Idempotency table privileges are incomplete")
+
+                cursor.execute(
+                    """
+                    WITH required_columns(table_name, column_name, data_type, nullable) AS (
+                        VALUES
+                            ('threads', 'conversation_key', 'text', 'YES'),
+                            ('threads', 'lineage_id', 'uuid', 'YES'),
+                            ('threads', 'previous_thread_id', 'text', 'YES'),
+                            ('threads', 'memory_status', 'text', 'YES'),
+                            ('thread_memory_heads', 'user_id', 'uuid', 'NO'),
+                            ('thread_memory_heads', 'conversation_key', 'text', 'NO'),
+                            ('thread_memory_heads', 'lineage_id', 'uuid', 'NO'),
+                            ('thread_memory_heads', 'latest_thread_id', 'text', 'YES'),
+                            ('thread_memory_heads', 'updated_at', 'timestamp with time zone', 'NO'),
+                            ('thread_messages', 'id', 'bigint', 'NO'),
+                            ('thread_messages', 'thread_id', 'text', 'NO'),
+                            ('thread_messages', 'user_id', 'uuid', 'NO'),
+                            ('thread_messages', 'sequence', 'integer', 'NO'),
+                            ('thread_messages', 'kind', 'text', 'NO'),
+                            ('thread_messages', 'payload', 'jsonb', 'NO'),
+                            ('thread_messages', 'created_at', 'timestamp with time zone', 'NO')
+                    ), required_constraints(name) AS (
+                        VALUES
+                            ('threads_conversation_key_check'),
+                            ('threads_memory_status_check'),
+                            ('threads_previous_thread_id_fkey'),
+                            ('threads_status_check'),
+                            ('thread_memory_heads_pkey'),
+                            ('thread_memory_heads_conversation_key_check'),
+                            ('thread_memory_heads_latest_thread_id_fkey'),
+                            ('thread_messages_pkey'),
+                            ('thread_messages_thread_id_fkey'),
+                            ('thread_messages_user_id_fkey'),
+                            ('thread_messages_sequence_check'),
+                            ('thread_messages_kind_check'),
+                            ('thread_messages_payload_check'),
+                            ('thread_messages_thread_id_sequence_key')
+                    ), required_privileges(table_name, privilege) AS (
+                        SELECT table_name, privilege
+                        FROM unnest(ARRAY[
+                            'threads',
+                            'thread_memory_heads',
+                            'thread_messages'
+                        ]) AS tables(table_name)
+                        CROSS JOIN unnest(ARRAY[
+                            'SELECT', 'INSERT', 'UPDATE', 'DELETE'
+                        ]) AS privileges(privilege)
+                    )
+                    SELECT 'column:' || required.table_name || '.' || required.column_name
+                    FROM required_columns required
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns actual
+                        WHERE actual.table_schema = 'public'
+                          AND actual.table_name = required.table_name
+                          AND actual.column_name = required.column_name
+                          AND actual.data_type = required.data_type
+                          AND actual.is_nullable = required.nullable
+                    )
+                    UNION ALL
+                    SELECT 'constraint:' || required.name
+                    FROM required_constraints required
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM pg_constraint actual
+                        WHERE actual.conname = required.name
+                          AND actual.connamespace = 'public'::regnamespace
+                    )
+                    UNION ALL
+                    SELECT 'privilege:' || required.table_name || ':' || required.privilege
+                    FROM required_privileges required
+                    WHERE NOT has_table_privilege(
+                        current_user,
+                        'public.' || required.table_name,
+                        required.privilege
+                    )
+                    UNION ALL
+                    SELECT 'sequence:thread_messages_id_seq:USAGE'
+                    WHERE NOT has_sequence_privilege(
+                        current_user,
+                        'public.thread_messages_id_seq',
+                        'USAGE'
+                    )
+                    UNION ALL
+                    SELECT 'function:prepare_thread_memory:EXECUTE'
+                    WHERE NOT has_function_privilege(
+                        current_user,
+                        'public.prepare_thread_memory(bigint,text,text,text,boolean)',
+                        'EXECUTE'
+                    )
+                    """
+                )
+                missing_memory_contract = [row[0] for row in cursor.fetchall()]
+                if missing_memory_contract:
+                    raise RuntimeError("Thread-memory database contract is incomplete")
 
                 for table_name in _REQUIRED_RUNTIME_TABLES:
                     cursor.execute(f"SELECT 1 FROM public.{table_name} LIMIT 0")

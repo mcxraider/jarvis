@@ -176,6 +176,56 @@ describe('LangGraphAgentClient', () => {
     );
   });
 
+  it('serializes memory scope and posts authenticated lineage resets', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: jest.fn().mockResolvedValue(
+          JSON.stringify({ status: 'completed', thread_id: 'thread-1', response: 'Done.' }),
+        ),
+      })
+      .mockResolvedValueOnce({ ok: true, text: jest.fn().mockResolvedValue('{}') });
+    global.fetch = fetchMock as any;
+    const client = new LangGraphAgentClient({
+      baseUrl: 'http://localhost:8000',
+      apiKey: 'secret',
+    });
+
+    await client.invoke({
+      message: 'start over',
+      userId: 'local-user',
+      conversationKey: 'telegram-chat:hashed',
+      resetMemory: true,
+    });
+    await client.resetMemory({
+      userId: 'local-user',
+      telegramIdentity: { telegramId: 123, username: 'tester' },
+      conversationKey: 'telegram-chat:hashed',
+    });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+      conversation_key: 'telegram-chat:hashed',
+      reset_memory: true,
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:8000/memory/reset',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Jarvis-Agent-Key': 'secret',
+        },
+        body: JSON.stringify({
+          user_id: 'local-user',
+          telegram_identity: { telegram_id: 123, username: 'tester' },
+          conversation_key: 'telegram-chat:hashed',
+        }),
+      }),
+    );
+  });
+
   it('serializes identical image fields for standard and streaming requests without logging pixels', async () => {
     const final = {
       status: 'completed',

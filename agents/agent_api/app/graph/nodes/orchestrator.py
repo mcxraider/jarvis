@@ -1502,10 +1502,36 @@ def create_agent_node(
                 model=model_override,
                 reasoning_effort=effort_override,
             )
+        historical_context = (
+            deps.previous_thread_context if deps is not None else ""
+        )
+        historical_images = (
+            deps.previous_thread_images if deps is not None else ()
+        )
+        historical_insertion_index: int | None = None
+        if historical_context:
+            historical_insertion_index = (
+                1 if messages and messages[0].get("role") == "system" else 0
+            )
+            messages.insert(
+                historical_insertion_index,
+                {"role": "user", "content": historical_context},
+            )
+            run_tracer.event(
+                "thread_memory.injected",
+                "Attached bounded previous-thread reference context.",
+                context_chars=len(historical_context),
+                image_count=len(historical_images),
+            )
         run_images = deps.images if deps is not None else ()
         run_prior_image_batches = (
             deps.prior_image_batches if deps is not None else None
         )
+        if historical_context:
+            run_prior_image_batches = (
+                (historical_images,)
+                + tuple(run_prior_image_batches or ())
+            )
         run_image_context: ImageContext | None = (
             ImageContext(images=run_images, prior_batches=run_prior_image_batches)
             if run_images or run_prior_image_batches
@@ -1622,6 +1648,9 @@ def create_agent_node(
             "Agent node completed.",
             turn=turn_count + 1,
         )
+
+        if historical_insertion_index is not None:
+            messages.pop(historical_insertion_index)
 
         return {
             "messages": messages,

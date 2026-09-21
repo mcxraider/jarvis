@@ -56,6 +56,14 @@ ImageBatch = Annotated[List[ImageInput], Field(max_length=MAX_IMAGE_COUNT)]
 PriorImageBatches = Annotated[
     List[ImageBatch], Field(max_length=MAX_IMAGE_BATCHES)
 ]
+ConversationKey = Annotated[
+    str,
+    Field(
+        min_length=10,
+        max_length=160,
+        pattern=r"^(?:telegram-chat:[0-9a-f]{32}|telegram:[0-9a-f]{32}|internal:[A-Za-z0-9_-]{1,128})$",
+    ),
+]
 
 
 def _validate_cumulative_images(
@@ -187,6 +195,16 @@ class InvokeRequest(IdentityRequestMixin):
     allow_mutations: Optional[bool] = None
     reply_context: Optional[ReplyContext] = None
     images: Optional[ImageInputs] = None
+    conversation_key: Optional[ConversationKey] = None
+    reset_memory: bool = False
+
+    @model_validator(mode="after")
+    def validate_memory_reset(self) -> "InvokeRequest":
+        if self.reset_memory and self.conversation_key is None:
+            raise ValueError("conversation_key is required when reset_memory is true")
+        if self.reset_memory and self.telegram_identity is None:
+            raise ValueError("telegram_identity is required when reset_memory is true")
+        return self
 
 
 class ResumeRequest(IdentityRequestMixin):
@@ -241,6 +259,22 @@ class CancelResponse(BaseModel):
         "not_found",
     ]
     request_id: str
+
+
+class MemoryResetRequest(IdentityRequestMixin):
+    user_id: str = Field(..., min_length=1)
+    conversation_key: ConversationKey
+
+    @model_validator(mode="after")
+    def require_telegram_identity(self) -> "MemoryResetRequest":
+        if self.telegram_identity is None:
+            raise ValueError("telegram_identity is required")
+        return self
+
+
+class MemoryResetResponse(BaseModel):
+    status: Literal["reset"] = "reset"
+    lineage_id: str = Field(..., min_length=1)
 
 
 class DependencyHealth(BaseModel):

@@ -78,6 +78,33 @@ describe('MessageHandlers forward buffering', () => {
       expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('1 message buffered'));
     });
 
+    it('buffers a forwarded poll as structured text', async () => {
+      const { handlers, forwardBuffer } = createHandlers();
+      const ctx = createContext({
+        poll: {
+          question: "Zac's bday\n17 Oct, 630pm\nVenue TBC",
+          options: [
+            { text: 'I can make it', voter_count: 10 },
+            { text: 'I cannot make it', voter_count: 0 },
+          ],
+          total_voter_count: 10,
+          allows_multiple_answers: false,
+          is_closed: false,
+        },
+        forward_origin: FORWARD_ORIGIN,
+        message_id: 101,
+      });
+
+      await expect(handlers.maybeBufferForward(ctx)).resolves.toBe(true);
+
+      const buffered = forwardBuffer.peek((handlers as any).gateKey(ctx));
+      expect(buffered).toHaveLength(1);
+      expect(buffered[0].text).toContain("[poll] Question: Zac's bday");
+      expect(buffered[0].text).toContain('17 Oct, 630pm');
+      expect(buffered[0].text).toContain('1. I can make it (10 votes)');
+      expect(buffered[0].text).toContain('2. I cannot make it (0 votes)');
+    });
+
     it('ignores non-forwarded messages so the normal pipeline continues', async () => {
       const { handlers, messageProcessor } = createHandlers();
       const ctx = createContext({ text: 'do a thing', message_id: 2 });
@@ -614,19 +641,53 @@ describe('MessageHandlers forward buffering', () => {
   });
 
   describe('handleText during an active forward session', () => {
-    it('passes plain text to the processor without swallowing it into the buffer', async () => {
+    it('uses the next plain-text message as the instruction for buffered forwards', async () => {
       const gateStore = { getSnapshot: jest.fn().mockResolvedValue({ status: 'idle' }) };
       const { handlers, messageProcessor, forwardBuffer } = createHandlers({ gateStore });
-      const ctx = createContext({ text: 'fwd', forward_origin: FORWARD_ORIGIN, message_id: 60 });
+      const ctx = createContext({
+        poll: {
+          question: "Zac's bday\n17 Oct, 630pm\nVenue TBC",
+          options: [
+            { text: 'I can make it', voter_count: 10 },
+            { text: 'I cannot make it', voter_count: 0 },
+          ],
+          total_voter_count: 10,
+        },
+        forward_origin: FORWARD_ORIGIN,
+        message_id: 60,
+      });
       await handlers.maybeBufferForward(ctx);
       const key = (handlers as any).gateKey(ctx);
 
-      // An unrelated question mid-session must still reach the agent — the forward stays
-      // buffered for a later /forward, but the question is answered, not swallowed.
-      ctx.message = { text: 'an unrelated question', message_id: 61 };
+      ctx.message = { text: "add this in for me. i'll be going", message_id: 61 };
       await handlers.handleText(ctx);
 
       expect(messageProcessor.processTextMessage).toHaveBeenCalledTimes(1);
+      const combined = messageProcessor.processTextMessage.mock.calls[0][0] as string;
+      expect(combined).toContain("[poll] Question: Zac's bday");
+      expect(combined).toContain('17 Oct, 630pm');
+      expect(combined).toContain("Instruction: add this in for me. i'll be going");
+      expect(messageProcessor.processTextMessage.mock.calls[0][4]).toMatchObject({ forceFresh: true });
+      expect(forwardBuffer.count(key)).toBe(0);
+    });
+
+    it('does not auto-dispatch buffered forwards while a clarification is pending', async () => {
+      const gateStore = {
+        getSnapshot: jest.fn().mockResolvedValue({
+          status: 'waiting_for_clarification',
+          requestId: 'request-1',
+        }),
+      };
+      const { handlers, messageProcessor, forwardBuffer } = createHandlers({ gateStore });
+      const ctx = createContext({ text: 'fwd', forward_origin: FORWARD_ORIGIN, message_id: 62 });
+      await handlers.maybeBufferForward(ctx);
+      const key = (handlers as any).gateKey(ctx);
+
+      ctx.message = { text: 'the clarification answer', message_id: 63 };
+      await handlers.handleText(ctx);
+
+      expect(messageProcessor.processTextMessage).toHaveBeenCalledTimes(1);
+      expect(messageProcessor.processTextMessage.mock.calls[0][0]).toBe('the clarification answer');
       expect(forwardBuffer.count(key)).toBe(1);
     });
 

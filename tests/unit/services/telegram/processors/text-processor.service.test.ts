@@ -62,6 +62,8 @@ describe('TextProcessorService', () => {
           username: 'jerry',
         },
         requestId: 'tg_test',
+        conversationKey: buildConversationKey(701122767, 'jerry', 555),
+        resetMemory: false,
       },
       {
         requestId: 'tg_test',
@@ -72,6 +74,27 @@ describe('TextProcessorService', () => {
       },
     );
     expect(agentClient.resume).not.toHaveBeenCalled();
+  });
+
+  it('uses the same hashed conversation scope for a durable reset', async () => {
+    process.env.TELEGRAM_USER_MAP = '701122767:jerry';
+    const agentClient = {
+      invoke: jest.fn(),
+      resume: jest.fn(),
+      resetMemory: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = createService(agentClient);
+
+    await service.resetConversationMemory(701122767, {
+      chatId: 555,
+      telegramUsername: 'jerry',
+    });
+
+    expect(agentClient.resetMemory).toHaveBeenCalledWith({
+      userId: 'jerry',
+      telegramIdentity: { telegramId: 701122767, username: 'jerry' },
+      conversationKey: buildConversationKey(701122767, 'jerry', 555),
+    });
   });
 
   it('prepends reply context to fresh agent requests after normalizing the new text', async () => {
@@ -1175,7 +1198,7 @@ describe('TextProcessorService', () => {
         42,
         { chatId: 100, messageId: 12 },
         undefined,
-        { forceFresh: true },
+        { forceFresh: true, resetMemory: true },
       );
 
       expect(result.consumedClarificationMessageId).toBe(654);
@@ -1183,6 +1206,13 @@ describe('TextProcessorService', () => {
       expect(result.consumedPromptMessageId).toBe(654);
       expect(result.resolvedPendingPause).toBe(true);
       expect(agentClient.invoke).toHaveBeenCalledTimes(1);
+      expect(agentClient.invoke).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationKey: buildConversationKey(42, 'telegram:42', 100),
+          resetMemory: true,
+        }),
+        expect.any(Object),
+      );
     });
 
     it('does NOT flag a resolved pause on a fresh message with nothing pending', async () => {
@@ -1212,6 +1242,10 @@ describe('TextProcessorService', () => {
 
       expect(result.resolvedPendingPause).toBeFalsy();
       expect(result.consumedClarificationMessageId).toBeUndefined();
+      expect(agentClient.invoke).toHaveBeenCalledWith(
+        expect.objectContaining({ resetMemory: false }),
+        expect.any(Object),
+      );
     });
   });
 });

@@ -82,7 +82,7 @@ Telegram update
   -> LangGraphAgentClient (streaming NDJSON: /invoke/stream, /resume/stream)
   -> deliverProgress()  ← 5s per-callback budget, single shared kill switch
   -> TelegramProgressReporter (one ephemeral input-status/reasoning-summary line)
-  -> Python FastAPI /invoke, /invoke/stream, /invoke-bulk, /resume, /resume/stream
+  -> Python FastAPI /invoke, /invoke/stream, /invoke-bulk, /resume, /resume/stream, /memory/reset
      (agents/agent_api/app/api/routes/)
   -> request_gate middleware (auth, rate_limit, idempotency, admission, thread_ownership)
   -> graph/builder.py: run_jarvis / run_jarvis_async
@@ -139,7 +139,7 @@ All five channels converge on the same Python graph path:
 - **Voice / audio** → FFmpeg normalization (16 kHz mono FLAC) → Whisper transcription → same `TextProcessorService`. Files up to 20 MB / 20 minutes are accepted; anything over 45 s is chunked (45 s cores, 0 s overlap), transcribed concurrently (5 in-flight Groq requests process-wide), and merged. A caption on the audio becomes the instruction above the transcript. Limits live in `src/utils/ai/audio-limits.ts`.
 - **Photos** → `MessageHandlers.handlePhoto` buffers Telegram `media_group_id` albums for `ALBUM_QUIET_MS` (1.5s), then downloads and JPEG-validates each file into `AgentImage[]` (data-URL base64) → `MessageProcessorService.processPhotoMessage`. Bounds live in `src/types/agent.types.ts`: `MAX_AGENT_IMAGE_COUNT` (10), `MAX_AGENT_IMAGE_BYTES` (10 MB total per turn), `MAX_AGENT_IMAGE_BATCHES` (20). Images sent during a HITL pause are persisted as `image_batches` on `telegram_pending_clarifications` so a resume replays them.
 - **Polls** → `MessageHandlers.handlePoll` formats the poll via `poll-content.ts` (`formatPollAsText`) and feeds the structured text into the same text path.
-- **Forwards** → buffered in `forward-buffer.store.ts` until `/forward <instruction>` dispatches them as one combined turn (text + any buffered photos), always force-fresh.
+- **Forwards** → buffered in `forward-buffer.store.ts`; the next ordinary text message auto-dispatches them as one combined turn (text + any buffered photos), while `/forward <instruction>` remains an explicit dispatch path. Dispatch is always force-fresh unless a clarification/confirmation is already pending.
 
 ### Tracing
 
@@ -242,6 +242,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 - `errors.py` — API key validation, shared exception types
 - `async_offload.py` — bounded `asyncio.to_thread` with per-loop semaphore and cancellation safety
 - `post_run.py` — bounded FIFO queue for non-critical post-run DB writes
+- `thread_memory.py` — awaited canonical transcript persistence, bounded predecessor loading/rendering, and private Supabase Storage image IO
 - `tracing.py` — `TracePrinter`, `UserProgressTracePrinter`, `name_current_run()`, `ProgressCallback` protocol
 - `runner.py` — local CLI runner (terminal prompts, HITL via input())
 - `studio.py` — LangGraph Studio graph entrypoint
@@ -257,7 +258,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 
 #### `graph/`
 
-- `builder.py` — `create_jarvis_graph`, `run_jarvis`/`run_jarvis_async`, state init, usage persistence
+- `builder.py` — `create_jarvis_graph`, `run_jarvis`/`run_jarvis_async`, state init, awaited thread-memory persistence, usage persistence
 - `assembly.py` — declarative `NodeSpec` dataclass, `build_graph()` compiler, `_named_router()` edge-span naming
 - `state.py` — `JarvisState` TypedDict + interrupt enrichment
 - `edges.py` — routing functions: `route_after_agent`, `route_after_tools`, `route_after_confirm`, `route_by_next`
@@ -328,6 +329,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 - `routes/resume.py` — POST `/resume`, `/resume/stream` (HITL resume)
 - `routes/health.py` — GET `/health` (liveness/readiness), `/health/detail` (timeout ladder + dependency checks consumed by `agent-contract-readiness.ts`)
 - `routes/cancel.py` — POST `/runs/cancel` (run cancellation)
+- `routes/memory.py` — authenticated POST `/memory/reset` lineage rotation for bare `/new`
 - `schemas.py` — Pydantic request/response models (`AgentResponse`, `BulkAgentResponse`, `CancelResponse`, `DetailedHealthResponse`)
 - `active_runs.py` — `ActiveRunRegistry`: identity-safe registry of in-flight runs with deadlines
 - `admission.py` — `RunAdmission`: process-wide bounded semaphore for concurrent runs
@@ -362,7 +364,12 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 
 The project uses **Supabase/PostgreSQL** for user identity, preferences, checkpointing, idempotency, and rate limiting.
 
-Key tables: `public.users`, `public.telegram_identities`, `public.user_preferences`, `public.telegram_pending_clarifications`, `public.telegram_conversation_gates`, `public.rate_limits`.
+Key tables: `public.users`, `public.telegram_identities`, `public.user_preferences`, `public.telegram_pending_clarifications`, `public.telegram_conversation_gates`, `public.rate_limits`, `public.threads`, `public.thread_memory_heads`, `public.thread_messages`.
+
+Durable thread images use the private Supabase Storage bucket `thread-images`.
+Cross-thread reads use a rolling 48-hour cutoff and are scoped by canonical
+user, hashed Telegram conversation, and `/new` lineage. Stored snapshots exclude
+Base64 image data, system prompts, hidden reasoning, and injected predecessors.
 
 Migrations live in `supabase/migrations/`. Use `npm run db:*` scripts for local Supabase management.
 
@@ -473,7 +480,7 @@ Live tests are gated by explicit env flags and may mutate Todoist only when enab
 - `scripts/kill_servers.sh` — stops ngrok + both servers
 - `scripts/notify_live` / `scripts/notify_maintenance` — broadcast user notifications via Telegram
 - `scripts/_broadcast_onboarded_telegram_users.sh` — sends a message to all onboarded users
-- `scripts/eval_router.py` — evaluate router decisions across test fixtures
+- `scripts/eval_router.py` — evaluate/benchmark router decisions across persona × query fixtures. Prompts come from the `PROMPTS` list at the top of the script, falling back to `--queries-file` when it is empty. Every run appends to one cumulative `tests/data/router_evals/router_results.json` (user prompt, decision, latency, tokens, USD cost per pair; system prompt stored as SHA-256 only) and also writes `<ts>.summary.json` (run metadata + latency percentiles + totals) and per-persona Markdown
 - `scripts/generate_friend_token.py` — OAuth consent for friends to generate Google Calendar tokens
 - `scripts/loadtest_concurrent.sh` — concurrent load testing
 - `scripts/loadtest_seed.sql` / `scripts/loadtest_teardown.sql` — load test DB fixtures

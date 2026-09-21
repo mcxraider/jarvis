@@ -1,6 +1,12 @@
 -- Allow the checkpoint library to advance its own migration marker without
 -- granting schema ownership or DDL privileges.
-grant select, insert on public.checkpoint_migrations to jarvis_runtime;
+do $$
+begin
+  if to_regclass('public.checkpoint_migrations') is not null then
+    grant select, insert on public.checkpoint_migrations to jarvis_runtime;
+  end if;
+end
+$$;
 
 -- Canonical names come from the verified identity during the one-time backfill,
 -- not from hard-coded prompt maps.

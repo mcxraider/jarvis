@@ -57,6 +57,8 @@ export interface TextProcessorOptions {
   // running (not just waiting on the user), the request is refused rather than started
   // concurrently — see abandonIfWaiting().
   forceFresh?: boolean;
+  /** Rotate durable memory before this fresh invoke. Used only by /new <message>. */
+  resetMemory?: boolean;
   /** Request-scoped only; never copied into gate, pending, or checkpoint state. */
   images?: AgentImage[];
   /** Invoked once after the agent client returns (terminal, interrupted, or ambiguous).
@@ -262,6 +264,8 @@ export class TextProcessorService {
         requestId: activeRequestId,
         replyContext: options?.replyContext,
         images: options?.images,
+        conversationKey: gateKey,
+        resetMemory: options?.resetMemory ?? false,
       };
       // Revalidate ownership only for pre-acquired paths (audio transcription gap).
       // Fresh requests already have active_request_id bound by tryAcquire.
@@ -405,6 +409,22 @@ export class TextProcessorService {
     const internalUserId = mapTelegramUserId(userId);
     const gateKey = buildConversationKey(userId, internalUserId, logContext.chatId);
     return (await this.abandonIfWaiting(gateKey, logContext)).outcome;
+  }
+
+  async resetConversationMemory(
+    userId: number | undefined,
+    logContext: LogContext = {},
+  ): Promise<void> {
+    if (userId === undefined) throw new Error('Telegram identity is required to reset memory');
+    const internalUserId = mapTelegramUserId(userId);
+    await this.agentClient.resetMemory({
+      userId: internalUserId,
+      telegramIdentity: {
+        telegramId: userId,
+        username: logContext.telegramUsername,
+      },
+      conversationKey: buildConversationKey(userId, internalUserId, logContext.chatId),
+    });
   }
 
   private async abandonIfWaiting(gateKey: string, logContext: LogContext): Promise<AbandonResult> {
