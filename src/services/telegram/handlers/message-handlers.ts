@@ -226,7 +226,7 @@ export class MessageHandlers {
     const count = this.forwardBuffer.count(gateKey);
     // Buffer dispatched or cleared while this turn waited in the chain — nothing to show.
     if (count === 0) return;
-    const text = `📥 ${count} message${count === 1 ? '' : 's'} buffered. Send /forward <instruction> when ready.`;
+    const text = `📥 ${count} message${count === 1 ? '' : 's'} buffered. Send your instruction next, or use /forward <instruction>.`;
     const existingId = this.forwardBuffer.getConfirmationMessageId(gateKey);
     if (existingId !== undefined && ctx.chat) {
       try {
@@ -402,6 +402,27 @@ export class MessageHandlers {
       await sendFinalReply(ctx, 'Please send a message with some text.');
       return;
     }
+    // A forwarded-message buffer acts like temporary reply context: the next ordinary
+    // text message is the instruction for that buffer. Preserve clarification/confirmation
+    // semantics, though — if the agent is waiting for user input, plain text must resume
+    // that pending turn instead of silently starting a fresh forwarded-content request.
+    const gateKey = this.gateKey(ctx);
+    const bufferedForwardCount = this.forwardBuffer?.count(gateKey) ?? 0;
+    if (bufferedForwardCount > 0) {
+      const gateSnapshot = this.conversationGate
+        ? await this.conversationGate.getSnapshot(gateKey).catch(() => undefined)
+        : undefined;
+      if (gateSnapshot?.status !== 'waiting_for_clarification') {
+        logger.info('telegram.forward.auto_dispatch', {
+          ...this.createLogContext(ctx, 'text'),
+          bufferedCount: bufferedForwardCount,
+        });
+        this.activityService.recordActivity('message_text');
+        await this.handleForward(ctx);
+        return;
+      }
+    }
+
     const userId = ctx.from?.id;
     const logContext = this.createLogContext(ctx, 'text');
     const startedAt = Date.now();
