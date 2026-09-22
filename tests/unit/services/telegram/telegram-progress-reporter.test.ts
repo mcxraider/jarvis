@@ -102,6 +102,49 @@ describe('TelegramProgressReporter', () => {
     await reporter.complete();
   });
 
+  it('shows only the current stage of a cumulative reasoning snapshot (rich)', async () => {
+    setRichMessagesEnabled(true);
+    const ctx = context('private');
+    const reporter = new TelegramProgressReporter(ctx);
+    await reporter.start();
+
+    // Backend emits cumulative snapshots: A, then A\nB, then A\nB\nC.
+    await recordSummary(reporter, 'Confirming browsing method', 2);
+    await recordSummary(reporter, 'Confirming browsing method\nInitiating web search', 3);
+    await recordSummary(
+      reporter,
+      'Confirming browsing method\nInitiating web search\nSearching for exact page',
+      4,
+    );
+
+    const markdowns = ctx.telegram.callApi.mock.calls
+      .map((call: any[]) => call[1].rich_message.markdown as string);
+    // Each stage rendered alone, never the accumulated wall.
+    expect(markdowns.some((m: string) => m.includes('Confirming browsing method') && !m.includes('Initiating'))).toBe(true);
+    expect(markdowns.some((m: string) => m.includes('Initiating web search') && !m.includes('Confirming') && !m.includes('Searching'))).toBe(true);
+    expect(markdowns.some((m: string) => m.includes('Searching for exact page') && !m.includes('Confirming') && !m.includes('Initiating'))).toBe(true);
+    expect(markdowns.every((m: string) => !m.includes('methodInitiating'))).toBe(true);
+    await reporter.complete();
+  });
+
+  it('shows only the current stage of a cumulative reasoning snapshot (plain)', async () => {
+    const ctx = context('group');
+    const reporter = new TelegramProgressReporter(ctx);
+    await reporter.start();
+
+    await recordSummary(reporter, 'Confirming browsing method', 2);
+    await recordSummary(
+      reporter,
+      'Confirming browsing method\nInitiating web search\nSearching for exact page',
+      3,
+    );
+
+    const editTexts = ctx.telegram.editMessageText.mock.calls.map((call: any[]) => call[3] as string);
+    expect(editTexts.at(-1)).toBe('Searching for exact page');
+    expect(editTexts.every((t: string) => !t.includes('Confirming browsing method\nInitiating'))).toBe(true);
+    await reporter.complete();
+  });
+
   it('edits the initial plain message instead of creating a summary message', async () => {
     const ctx = context('group');
     const reporter = new TelegramProgressReporter(ctx);
