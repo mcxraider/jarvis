@@ -203,7 +203,7 @@ def _build_user_content(
                 {
                     "type": "input_image",
                     "image_url": image["image_url"],
-                    "detail": image.get("detail", "high"),
+                    "detail": image.get("detail", "original"),
                 },
             )
         )
