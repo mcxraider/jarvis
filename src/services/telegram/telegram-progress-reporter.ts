@@ -96,7 +96,14 @@ export class TelegramProgressReporter {
 
   async record(event: LangGraphProgressEvent, signal?: AbortSignal): Promise<void> {
     if (this.completed || signal?.aborted) return;
-    const trimmed = event.reasoningSummary?.trim();
+    // The backend emits cumulative reasoning-summary snapshots (whole text so far,
+    // parts joined by "\n"). This single-line widget wants the current stage only,
+    // so keep just the last non-empty segment (also drops the "…" truncation prefix).
+    const trimmed = event.reasoningSummary
+      ?.split('\n')
+      .map((stage) => stage.trim())
+      .filter(Boolean)
+      .at(-1);
     if (!trimmed) return;
 
     const text = trimmed.length > SUMMARY_MAX_CHARS
