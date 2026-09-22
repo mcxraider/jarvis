@@ -327,7 +327,7 @@ async def _download_image(payload: Mapping[str, Any]) -> dict[str, str] | None:
         return None
     return {
         "image_url": JPEG_DATA_URL_PREFIX + base64.b64encode(data).decode("ascii"),
-        "detail": payload.get("detail") if payload.get("detail") in {"auto", "high"} else "high",
+        "detail": payload.get("detail") if payload.get("detail") in {"auto", "high", "original"} else "original",
     }
 
 
@@ -616,7 +616,7 @@ def build_memory_snapshot(
                 "mime_type": "image/jpeg",
                 "sha256": digest,
                 "bytes": len(data),
-                "detail": image.get("detail", "high"),
+                "detail": image.get("detail", "original"),
                 "user_message_sequence": user_sequence,
                 "batch_index": batch_index,
                 "position": position,

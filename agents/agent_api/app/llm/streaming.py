@@ -21,15 +21,19 @@ class SummaryAccumulator:
     """Bounded reasoning-summary accumulator for one model call."""
 
     _parts: list[str] = field(default_factory=list)
-    _current_index: int = -1
+    _current_key: tuple[int, int] | None = None
     _dirty: bool = False
     _last_emit: float = 0.0
 
     def append_delta(self, event: ResponseReasoningSummaryTextDeltaEvent) -> None:
-        if event.summary_index != self._current_index:
+        # A stage boundary is a change in (output_index, summary_index): summary_index
+        # is scoped within one reasoning item, so a new item restarts it at 0 and
+        # would otherwise merge into the previous stage with no separator.
+        key = (event.output_index, event.summary_index)
+        if key != self._current_key:
             if self._parts:
                 self._parts.append("\n")
-            self._current_index = event.summary_index
+            self._current_key = key
         self._parts.append(event.delta)
         self._dirty = True
 

@@ -983,11 +983,11 @@ def test_summary_fallback_on_rejection():
 # mirror the sync coverage onto the async transport.
 
 
-def _summary_delta(summary_index: int, delta: str, sequence: int):
+def _summary_delta(summary_index: int, delta: str, sequence: int, output_index: int = 0):
     return ResponseReasoningSummaryTextDeltaEvent(
         delta=delta,
-        item_id="rs_1",
-        output_index=0,
+        item_id=f"rs_{output_index}",
+        output_index=output_index,
         sequence_number=sequence,
         summary_index=summary_index,
         type="response.reasoning_summary_text.delta",
@@ -1067,6 +1067,23 @@ def test_async_stream_consumption_matches_sync_summaries_and_response():
     assert async_response == sync_response == _text_response("Done.")
     assert async_emitted == sync_emitted
     assert async_emitted[-1] == "Checking your tasks."
+
+
+def test_new_reasoning_item_separates_stages_despite_reused_summary_index():
+    # Two reasoning items both restart summary_index at 0; without keying on
+    # output_index the stages merge into a run-on with no separator (the Telegram
+    # thinking-indicator bug). The snapshot must keep a "\n" between them.
+    deltas = [
+        _summary_delta(0, "Stage one", 1, output_index=0),
+        _summary_delta(0, "Stage two", 2, output_index=1),
+    ]
+    emitted: list[str] = []
+
+    consume_response_stream(
+        _EventStream(_text_response("Done."), deltas), on_summary=emitted.append
+    )
+
+    assert emitted[-1] == "Stage one\nStage two"
 
 
 def test_async_image_run_pins_vision_model_and_attaches_image():

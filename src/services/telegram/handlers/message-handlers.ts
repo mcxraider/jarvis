@@ -806,7 +806,7 @@ export class MessageHandlers {
         decodedBytes += buffer.length;
         images.push({
           image_url: `data:image/jpeg;base64,${buffer.toString('base64')}`,
-          detail: 'high',
+          detail: 'original',
         });
       } catch (error) {
         if (!options.skipFailures) throw error;
