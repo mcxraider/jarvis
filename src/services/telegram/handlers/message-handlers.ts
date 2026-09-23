@@ -51,6 +51,10 @@ const ALBUM_QUIET_MS = 1500;
 // Bounds the late-arrival ledger so a stream of albums can't grow it without limit
 // between the age-based sweeps in pruneStaleAlbumEntries.
 const MAX_RECENT_ALBUMS = 100;
+// Caps in-flight photo downloads. Each may buy up to MAX_AGENT_IMAGE_BYTES before the
+// budget check runs, so transient memory is bounded at N × MAX_AGENT_IMAGE_BYTES rather
+// than COUNT × that. Forwarded photos are untrusted, so this ceiling is load-bearing.
+const IMAGE_DOWNLOAD_CONCURRENCY = 4;
 const PHOTO_ERROR =
   "I couldn't process that image or album. Send 1–10 JPEG photos totaling no more than 10 MB, then try again.";
 
@@ -287,23 +291,9 @@ export class MessageHandlers {
       return;
     }
 
-    // Keep the buffer intact if the previous request is still running — the processor
-    // would reject the dispatch anyway, and draining first would lose the forwards.
-    // The processor still owns final arbitration; this pre-check only closes the
-    // common "user is impatient" path.
-    const gateStatus = await this.conversationGate
-      ?.getSnapshot(gateKey)
-      .then((s) => s.status)
-      .catch(() => undefined);
-    if (gateStatus === 'running') {
-      await sendFinalReply(
-        ctx,
-        "I'm still finishing your previous request — /forward again in a moment, or /cancel.",
-        logContext,
-      );
-      return;
-    }
-
+    // No gate pre-check here: the processor's tryAcquire is authoritative and rejects a
+    // running gate anyway (and never fires onRequestAccepted on rejection, so the buffer
+    // stays intact). Skipping it drops one DB round trip before the progress indicator.
     const combined = formatForwardContext(snapshot, instruction);
     const photoFileIds = snapshot
       .map((m) => m.fileId)
@@ -327,26 +317,26 @@ export class MessageHandlers {
       return;
     }
 
-    // All-or-nothing: download every photo before processing. If any fails, retain
-    // the complete buffer so the user can retry /forward or re-forward the photos.
-    let images: AgentImage[];
-    try {
-      const result = await this.downloadImages(photoFileIds, logContext, { skipFailures: false });
-      images = result.images;
-    } catch {
-      await sendFinalReply(
-        ctx,
-        "I couldn't load every forwarded photo. Your buffer is still intact; retry `/forward`, or `/new` and re-forward the photos.",
-        logContext,
-      );
-      return;
-    }
-
     await this.runWithAgentProgress(
       ctx,
       logContext,
       startedAt,
       async (onProgress, onPendingPauseAccepted) => {
+        // Download inside the progress scope so "Reviewing forwarded messages…" paints
+        // immediately, in parallel with the (now concurrent) CDN fetches. All-or-nothing:
+        // any failure keeps the buffer intact (onRequestAccepted never fires) for a retry.
+        let images: AgentImage[];
+        try {
+          const result = await this.downloadImages(photoFileIds, logContext, {
+            skipFailures: false,
+          });
+          images = result.images;
+        } catch {
+          return {
+            response:
+              "I couldn't load every forwarded photo. Your buffer is still intact; retry `/forward`, or `/new` and re-forward the photos.",
+          };
+        }
         return this.messageProcessor.processPhotoMessage(
           combined,
           images,
@@ -795,26 +785,54 @@ export class MessageHandlers {
     logContext: LogContext,
     options: { skipFailures: boolean },
   ): Promise<{ images: AgentImage[]; decodedBytes: number }> {
+    // Download with bounded concurrency, then enforce the byte budget afterward in order —
+    // so N small photos no longer pay N sequential CDN round trips, while transient memory
+    // stays bounded at IMAGE_DOWNLOAD_CONCURRENCY × MAX_AGENT_IMAGE_BYTES. The per-file cap
+    // still guards a single oversized file.
+    type Downloaded = { ok: true; buffer: Buffer } | { ok: false; error: unknown };
+    const downloadOne = async (fileId: string): Promise<Downloaded> => {
+      try {
+        const buffer = await this.fileService.downloadFile(fileId, MAX_AGENT_IMAGE_BYTES);
+        if (!this.isJpeg(buffer)) throw new Error('Telegram photo is not a valid JPEG');
+        return { ok: true, buffer };
+      } catch (error) {
+        return { ok: false, error };
+      }
+    };
+    const settled = new Array<Downloaded>(fileIds.length);
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      while (cursor < fileIds.length) {
+        const i = cursor++;
+        settled[i] = await downloadOne(fileIds[i]);
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(IMAGE_DOWNLOAD_CONCURRENCY, fileIds.length) }, worker),
+    );
+
     let remaining = MAX_AGENT_IMAGE_BYTES;
     let decodedBytes = 0;
     const images: AgentImage[] = [];
-    for (const fileId of fileIds) {
-      try {
-        const buffer = await this.fileService.downloadFile(fileId, remaining);
-        if (!this.isJpeg(buffer)) throw new Error('Telegram photo is not a valid JPEG');
-        remaining -= buffer.length;
-        decodedBytes += buffer.length;
-        images.push({
-          image_url: `data:image/jpeg;base64,${buffer.toString('base64')}`,
-          detail: 'original',
-        });
-      } catch (error) {
+    for (const result of settled) {
+      if (!result.ok || result.buffer.length > remaining) {
+        const error = result.ok
+          ? new Error('Forwarded photos exceed the size budget')
+          : result.error;
         if (!options.skipFailures) throw error;
         logger.warn('telegram.photo.download_failed', {
           ...logContext,
           errorType: error instanceof Error ? error.name : 'UnknownError',
         });
+        continue;
       }
+      // result.ok narrowed to true and within budget: result.buffer is defined.
+      remaining -= result.buffer.length;
+      decodedBytes += result.buffer.length;
+      images.push({
+        image_url: `data:image/jpeg;base64,${result.buffer.toString('base64')}`,
+        detail: 'original',
+      });
     }
     return { images, decodedBytes };
   }
