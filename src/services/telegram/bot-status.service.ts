@@ -80,7 +80,7 @@ export class BotStatusService {
     this.fallbackModel =
       options.agentModel ||
       (this.fallbackProvider === 'openai'
-        ? process.env.OPENAI_MODEL || 'gpt-5.6-luna'
+        ? process.env.OPENAI_MODEL || 'gpt-6-luna'
         : process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash');
     this.agentHealth = options.agentHealth;
   }

@@ -58,12 +58,12 @@ def test_openai_luna_medium_is_default_and_profiles_are_frozen(monkeypatch):
     assert isinstance(configured.orchestrator_llm, OpenAIResponsesProfile)
     assert isinstance(configured.router_llm, OpenAIChatProfile)
     assert isinstance(configured.summarizer_llm, OpenAIChatProfile)
-    assert configured.orchestrator_llm.model == "gpt-5.6-luna"
+    assert configured.orchestrator_llm.model == "gpt-6-luna"
     assert configured.orchestrator_llm.reasoning_effort == "medium"
     assert configured.router_llm.reasoning_effort == "none"
     assert configured.summarizer_llm.reasoning_effort == "none"
-    assert configured.model_router_default_model == "gpt-5.6-luna"
-    assert configured.model_router_complex_model == "gpt-5.6-luna"
+    assert configured.model_router_default_model == "gpt-6-luna"
+    assert configured.model_router_complex_model == "gpt-6-luna"
     assert configured.model_router_default_reasoning == "medium"
     assert configured.model_router_simple_reasoning == "low"
     assert configured.model_router_complex_reasoning == "medium"
@@ -102,8 +102,8 @@ def test_provider_parsing_normalizes_case_and_whitespace(monkeypatch, raw):
     assert isinstance(configured.orchestrator_llm, OpenAIResponsesProfile)
     assert isinstance(configured.router_llm, OpenAIChatProfile)
     assert isinstance(configured.summarizer_llm, OpenAIChatProfile)
-    assert configured.orchestrator_llm.model == "gpt-5.6-luna"
-    assert configured.model_router_complex_model == "gpt-5.6-luna"
+    assert configured.orchestrator_llm.model == "gpt-6-luna"
+    assert configured.model_router_complex_model == "gpt-6-luna"
     assert configured.model_router_default_reasoning == "medium"
     assert configured.model_router_simple_reasoning == "low"
 
@@ -195,7 +195,7 @@ def test_inactive_router_override_does_not_require_unused_provider(
     monkeypatch.setenv("TOOL_SELECTOR", tool_selector)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("LLM_SAFETY_IDENTIFIER_SECRET", raising=False)
-    monkeypatch.setenv("ROUTER_MODEL", "gpt-5.6-luna")
+    monkeypatch.setenv("ROUTER_MODEL", "gpt-6-luna")
     monkeypatch.setenv("ROUTER_REASONING_EFFORT", "none")
 
     configured = load_settings()
@@ -249,7 +249,7 @@ def test_model_and_reasoning_pins_are_provider_checked(monkeypatch):
         validate_model_for_profile(profile, "deepseek-v4-pro")
     with pytest.raises(LLMProviderError, match="must be one of"):
         validate_reasoning_for_profile(profile, "off")
-    with pytest.raises(LLMProviderError, match="requires a GPT-5.6 model"):
+    with pytest.raises(LLMProviderError, match="requires a GPT-5.6 or GPT-6 model"):
         validate_model_for_profile(profile, "gpt-5.4")
 
 

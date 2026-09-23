@@ -15,7 +15,7 @@ from typing import Any, Iterable, Mapping, Optional
 TOKENS_PER_RATE_UNIT = Decimal("1000000")
 USD_QUANTUM = Decimal("0.0001")
 OPENAI_LONG_CONTEXT_THRESHOLD = 272_000
-OPENAI_PRICING_AS_OF = "2026-08-03"
+OPENAI_PRICING_AS_OF = "2026-09-23"
 DEEPSEEK_PRICING_AS_OF = "2026-07-05"
 TYPESAFE_PRICING_AS_OF = "2026-09-17"
 
@@ -88,6 +88,8 @@ def _openai_rates(input_rate: str, output_rate: str, *, long_context: bool) -> T
 # for the entire request.  Therefore tier resolution is per call, never after
 # aggregating usage across a run.
 OPENAI_TOKEN_RATES: Mapping[tuple[str, str], TokenRates] = {
+    ("gpt-6-luna", "standard"): _openai_rates("0.10", "0.50", long_context=False),
+    ("gpt-6-luna", "long_context"): _openai_rates("0.10", "0.50", long_context=True),
     ("gpt-5.6-luna", "standard"): _openai_rates("0.2", "1.2", long_context=False),
     ("gpt-5.6-luna", "long_context"): _openai_rates("0.2", "1.2", long_context=True),
     ("gpt-5.6-terra", "standard"): _openai_rates("2.5", "15", long_context=False),
