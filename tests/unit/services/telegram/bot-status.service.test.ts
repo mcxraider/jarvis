@@ -8,7 +8,7 @@ describe('BotStatusService', () => {
   const healthyReport: AgentDependencyHealth = {
     status: 'ok',
     provider: 'openai',
-    model: 'gpt-5.6-luna',
+    model: 'gpt-6-luna',
     checks: {
       llm: { ok: true, detail: 'reachable' },
       todoist: { ok: true, detail: '5 project(s)' },
@@ -27,7 +27,7 @@ describe('BotStatusService', () => {
     expect(agentHealth).toHaveBeenCalledWith(123);
     expect(status).toContain('healthy');
     expect(status).toContain('Provider: OpenAI');
-    expect(status).toContain('gpt-5.6-luna');
+    expect(status).toContain('gpt-6-luna');
     expect(status).toContain('Agent API: reachable');
     expect(status).toContain('OpenAI: reachable');
     expect(status).toContain('Todoist: reachable (5 project(s))');
@@ -68,7 +68,7 @@ describe('BotStatusService', () => {
     expect(status).toContain('Agent API: unreachable (connect ECONNREFUSED)');
     // Falls back to the configured/default model name when the agent can't report it.
     expect(status).toContain('Provider: OpenAI');
-    expect(status).toContain('gpt-5.6-luna');
+    expect(status).toContain('gpt-6-luna');
   });
 
   it('reports degraded when no agent health probe is configured', async () => {

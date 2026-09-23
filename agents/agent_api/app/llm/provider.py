@@ -133,11 +133,11 @@ def validate_model_for_provider(provider: LLMProvider, model: str) -> str:
 def validate_model_for_profile(profile: LLMProviderProfile, model: str) -> str:
     normalized = validate_model_for_provider(profile.provider, model)
     if isinstance(profile, OpenAIResponsesProfile) and not normalized.startswith(
-        "gpt-5.6"
+        ("gpt-5.6", "gpt-6")
     ):
         raise LLMProviderError(
             "configuration",
-            "OpenAI Responses reasoning requires a GPT-5.6 model.",
+            "OpenAI Responses reasoning requires a GPT-5.6 or GPT-6 model.",
             provider=profile.provider,
             model=normalized,
         )

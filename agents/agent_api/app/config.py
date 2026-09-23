@@ -415,15 +415,15 @@ def load_settings() -> Settings:
 
     openai_model = validate_model_for_provider(
         LLMProvider.OPENAI,
-        _non_empty_env("OPENAI_MODEL", "gpt-5.6-luna"),
+        _non_empty_env("OPENAI_MODEL", "gpt-6-luna"),
     )
     openai_complex_model = validate_model_for_provider(
         LLMProvider.OPENAI,
-        _non_empty_env("OPENAI_COMPLEX_MODEL", "gpt-5.6-luna"),
+        _non_empty_env("OPENAI_COMPLEX_MODEL", "gpt-6-luna"),
     )
     openai_vision_model = validate_model_for_provider(
         LLMProvider.OPENAI,
-        _non_empty_env("OPENAI_VISION_MODEL", "gpt-5.6-luna"),
+        _non_empty_env("OPENAI_VISION_MODEL", "gpt-6-luna"),
     )
     openai_base_url = _non_empty_env(
         "OPENAI_BASE_URL", "https://api.openai.com/v1"

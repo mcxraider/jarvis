@@ -106,6 +106,7 @@ def test_cache_writes_are_separated_from_ordinary_uncached_input() -> None:
 @pytest.mark.parametrize(
     ("model", "input_rate", "cached_rate", "write_rate", "output_rate"),
     [
+        ("gpt-6-luna", "0.1000", "0.0100", "0.1250", "0.5000"),
         ("gpt-5.6-luna", "0.2000", "0.0200", "0.2500", "1.2000"),
         ("gpt-5.6-terra", "2.5000", "0.2500", "3.1250", "15.0000"),
         ("gpt-5.6-sol", "5.0000", "0.5000", "6.2500", "30.0000"),

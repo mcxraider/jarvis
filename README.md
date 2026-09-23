@@ -152,7 +152,7 @@ The router is enabled by default:
 | `TOOL_SELECTOR` | `router` | Chooses `router`, `keyword`, or `static` tool selection |
 | `ROUTER_ENABLED` | `true` | Enables the pre-orchestrator domain classifier |
 | `ROUTER_PROVIDER` | `LLM_PROVIDER` | Provider used for routing |
-| `ROUTER_MODEL` | Selected provider model (`gpt-5.6-luna` by default) | Model used for routing |
+| `ROUTER_MODEL` | Selected provider model (`gpt-6-luna` by default) | Model used for routing |
 | `ROUTER_BASE_URL` | Selected provider base URL | OpenAI-compatible router endpoint |
 | `ROUTER_API_KEY` | Selected provider API key | Router API key |
 | `ROUTER_REASONING_EFFORT` | `off` | Keeps classification fast |
@@ -165,10 +165,10 @@ The router also labels the intrinsic complexity of the current query as `low`, `
 
 | Route | Model / effort | Timeout setting | Default |
 |-------|----------------|-----------------|---------|
-| High-complexity or uncertain | GPT-5.6 Luna / medium | `MODEL_ROUTER_COMPLEX_TIMEOUT_SECONDS` | `90.0` |
-| Empty domains | GPT-5.6 Luna / medium | `MODEL_ROUTER_DEFAULT_TIMEOUT_SECONDS` | `60.0` |
-| Medium or multi-domain | GPT-5.6 Luna / medium | `MODEL_ROUTER_MULTI_DOMAIN_TIMEOUT_SECONDS` | `60.0` |
-| Low, certain, single-domain | GPT-5.6 Luna / low | `MODEL_ROUTER_DEFAULT_TIMEOUT_SECONDS` | `60.0` |
+| High-complexity or uncertain | GPT-6 Luna / medium | `MODEL_ROUTER_COMPLEX_TIMEOUT_SECONDS` | `90.0` |
+| Empty domains | GPT-6 Luna / medium | `MODEL_ROUTER_DEFAULT_TIMEOUT_SECONDS` | `60.0` |
+| Medium or multi-domain | GPT-6 Luna / medium | `MODEL_ROUTER_MULTI_DOMAIN_TIMEOUT_SECONDS` | `60.0` |
+| Low, certain, single-domain | GPT-6 Luna / low | `MODEL_ROUTER_DEFAULT_TIMEOUT_SECONDS` | `60.0` |
 
 Complexity is assessed independently of query length, mutation risk, and the number of selected domains. Model, effort, and timeout settings remain configurable for the selected orchestrator provider.
 
