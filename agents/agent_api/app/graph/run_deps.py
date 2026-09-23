@@ -42,6 +42,11 @@ class RunDeps:
     previous_thread_images: tuple[dict[str, str], ...] = field(
         default_factory=tuple, repr=False, compare=False
     )
+    # recall id (image sha256) -> reference dict; fetched on demand by the tools
+    # node when the model calls recall_previous_image.
+    recallable_images: dict[str, dict[str, Any]] = field(
+        default_factory=dict, repr=False, compare=False
+    )
 
 
 def deps_from_config(config: Any) -> Optional[RunDeps]:

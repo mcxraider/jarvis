@@ -33,7 +33,10 @@ from agents.agent_api.app.router.prompt import (
 )
 from agents.agent_api.app.async_offload import bounded_to_thread
 from agents.agent_api.app.tools.base import ToolRegistry
-from agents.agent_api.app.tools.control import ASK_USER_TOOL_NAME
+from agents.agent_api.app.tools.control import (
+    ASK_USER_TOOL_NAME,
+    RECALL_IMAGE_TOOL_NAME,
+)
 from agents.agent_api.app.tools.selectors.static import StaticToolSelector
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
@@ -544,7 +547,7 @@ class RouterToolSelector:
     def _allowed_tool_names(self, relevant: Set[str]) -> Set[str]:
         """Union of the relevant domains' registered tool names, plus ask_user."""
 
-        allowed: Set[str] = {ASK_USER_TOOL_NAME}
+        allowed: Set[str] = {ASK_USER_TOOL_NAME, RECALL_IMAGE_TOOL_NAME}
         tool_names_by_provider = {
             domain.provider: domain.tool_names for domain in self._snapshot.domains
         }

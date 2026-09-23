@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 from agents.agent_api.app.tools.base import ToolSpec, tool_call_name
 
 ASK_USER_TOOL_NAME = "ask_user"
+RECALL_IMAGE_TOOL_NAME = "recall_previous_image"
 
 
 def _ask_user_parameters() -> Dict[str, Any]:
@@ -57,10 +58,47 @@ def get_ask_user_schema() -> Dict[str, Any]:
     }
 
 
+def get_recall_image_schema() -> Dict[str, Any]:
+    """Return the function schema for the recall_previous_image pseudo-tool."""
+
+    return {
+        "type": "function",
+        "function": {
+            "name": RECALL_IMAGE_TOOL_NAME,
+            "description": (
+                "Fetch one image from the user's previous thread into view. Pass the "
+                "sha256 shown in that image's image_reference block. Only call this "
+                "when you actually need to see a past image; it is fetched on demand, "
+                "not attached by default."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "recall_id": {
+                        "type": "string",
+                        "description": "The sha256 from the image_reference block to recall.",
+                    },
+                },
+                "required": ["recall_id"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
 def get_control_tool_specs() -> List[ToolSpec]:
     """Control pseudo-tools as registry specs (no handler, no LangChain builder)."""
 
     return [ToolSpec(name=ASK_USER_TOOL_NAME, openai_schema=get_ask_user_schema())]
+
+
+def get_recall_image_tool_spec() -> ToolSpec:
+    """Recall pseudo-tool spec. No handler: the tools node fetches + attaches the
+    image itself, since only it (not a stateless handler) can reach RunDeps."""
+
+    return ToolSpec(
+        name=RECALL_IMAGE_TOOL_NAME, openai_schema=get_recall_image_schema()
+    )
 
 
 def get_control_tools() -> List[Dict[str, Any]]:
@@ -77,8 +115,11 @@ def is_ask_user_tool_call(tool_call: Dict[str, Any]) -> bool:
 
 __all__ = [
     "ASK_USER_TOOL_NAME",
+    "RECALL_IMAGE_TOOL_NAME",
     "get_ask_user_schema",
     "get_control_tool_specs",
     "get_control_tools",
+    "get_recall_image_schema",
+    "get_recall_image_tool_spec",
     "is_ask_user_tool_call",
 ]

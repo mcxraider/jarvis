@@ -14,14 +14,27 @@ Two ways to build the registry:
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from agents.agent_api.app.config import settings
+from agents.agent_api.app.llm.provider import OpenAIResponsesProfile
 from agents.agent_api.app.tools.access_policy import ResourceAccessPolicy
 from agents.agent_api.app.tools.base import ToolRegistry
 from agents.agent_api.app.tools.google_calendar.tools import get_calendar_tool_specs
-from agents.agent_api.app.tools.control import get_control_tool_specs
+from agents.agent_api.app.tools.control import (
+    get_control_tool_specs,
+    get_recall_image_tool_spec,
+)
 from agents.agent_api.app.tools.domain_adapters import DOMAIN_ADAPTERS
 from agents.agent_api.app.tools.todoist.tools import get_todoist_tool_specs
 from agents.agent_api.app.tracing import TracePrinter
 from agents.agent_api.app.user_context.runtime import ResolvedRuntimeContext
+
+
+def _register_recall_if_vision(registry: ToolRegistry) -> None:
+    """Register recall_previous_image only on the vision-capable (OpenAI Responses)
+    orchestrator — the other providers can't view images, so recall is inert there."""
+
+    if isinstance(settings.orchestrator_llm, OpenAIResponsesProfile):
+        registry.register([get_recall_image_tool_spec()])
 
 
 def build_registry_from_clients(
@@ -38,6 +51,7 @@ def build_registry_from_clients(
 
     registry = ToolRegistry()
     registry.register(get_control_tool_specs())
+    _register_recall_if_vision(registry)
     if todoist_client is not None:
         registry.register(get_todoist_tool_specs(todoist_client))
     if calendar_client is not None:
@@ -60,6 +74,7 @@ def build_runtime_registry(
 
     registry = ToolRegistry()
     registry.register(get_control_tool_specs())
+    _register_recall_if_vision(registry)
     clients: List[Any] = []
     tool_names_by_provider: Dict[str, List[str]] = {}
     domain_by_provider = {

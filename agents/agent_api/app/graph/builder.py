@@ -788,7 +788,6 @@ async def _run_jarvis_async_impl(
                 current_thread_id=thread_id,
                 user_prompt=user_prompt,
                 reset_memory=reset_memory,
-                current_images=memory_images,
             ),
             name=f"thread-memory:{thread_id}",
         )
@@ -968,7 +967,7 @@ async def _run_jarvis_async_impl(
             outcome=previous_memory.outcome,
             duration_ms=previous_memory.duration_ms,
             row_count=previous_memory.row_count,
-            image_count=len(previous_memory.images),
+            image_reference_count=len(previous_memory.image_references),
         )
         if reset_memory and previous_memory.outcome in {"db_error", "db_timeout"}:
             raise RuntimeError("Durable thread-memory reset failed.")
@@ -1001,7 +1000,11 @@ async def _run_jarvis_async_impl(
         images=memory_images,
         prior_image_batches=memory_prior_image_batches,
         previous_thread_context=previous_memory.text,
-        previous_thread_images=previous_memory.images,
+        recallable_images={
+            ref["sha256"]: ref
+            for ref in previous_memory.image_references
+            if isinstance(ref.get("sha256"), str)
+        },
     )
     app = get_or_compile_graph(checkpointer)
     config = {

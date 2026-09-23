@@ -1,12 +1,21 @@
 """Tool execution graph node."""
 
-from typing import Dict, Optional
+import base64
+import binascii
+from typing import Any, Dict, Optional, Sequence
 
 from langchain_core.runnables import RunnableConfig
 
+from agents.agent_api.app.api.schemas import (
+    JPEG_DATA_URL_PREFIX,
+    MAX_IMAGE_BYTES,
+    MAX_IMAGE_COUNT,
+)
 from agents.agent_api.app.graph.run_deps import RunDeps, deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
-from agents.agent_api.app.tools.base import tool_call_name
+from agents.agent_api.app.thread_memory import fetch_previous_image_by_reference
+from agents.agent_api.app.tools.base import parse_tool_call_arguments, tool_call_name
+from agents.agent_api.app.tools.control import RECALL_IMAGE_TOOL_NAME
 from agents.agent_api.app.tools.dispatcher import (
     ToolDispatcher,
     async_execute_tool_calls,
@@ -35,6 +44,74 @@ def _progress_domain(tool_name: str) -> Optional[str]:
     if "notion" in tool_name:
         return "notion"
     return None
+
+
+def _accumulated_image_bytes(images: Sequence[Dict[str, Any]]) -> int:
+    """Total decoded bytes of the JPEG data-URL images already in the batch."""
+
+    total = 0
+    for image in images:
+        url = image.get("image_url", "")
+        if isinstance(url, str) and url.startswith(JPEG_DATA_URL_PREFIX):
+            try:
+                total += len(
+                    base64.b64decode(url[len(JPEG_DATA_URL_PREFIX):], validate=True)
+                )
+            except (binascii.Error, ValueError):
+                continue
+    return total
+
+
+async def _resolve_recall_call(
+    tool_call: Dict[str, Any],
+    deps: Optional[RunDeps],
+    tracer: TracePrinter,
+) -> Dict[str, Any]:
+    """Fetch a previous-thread image on demand and attach it to the run's image
+    batch, so the next orchestrator turn sees it. Fail-open: any miss/error leaves
+    ``deps.images`` untouched and reports the image as unavailable to the model."""
+
+    call_id = tool_call.get("id", "missing_tool_call_id")
+    try:
+        recall_id = parse_tool_call_arguments(tool_call).get("recall_id")
+    except ValueError:
+        recall_id = None
+    recallable = (deps.recallable_images if deps is not None else None) or {}
+    ref = recallable.get(recall_id) if isinstance(recall_id, str) else None
+    if ref is None or deps is None:
+        return build_tool_result(
+            call_id, RECALL_IMAGE_TOOL_NAME, success=False,
+            error=f"No recallable image for id '{recall_id}'.",
+        )
+    if len(deps.images) >= MAX_IMAGE_COUNT:
+        return build_tool_result(
+            call_id, RECALL_IMAGE_TOOL_NAME, success=False,
+            error="Image recall limit reached for this turn.",
+        )
+    try:
+        fetched = await fetch_previous_image_by_reference(ref)
+    except Exception:
+        fetched = None
+    if fetched is None:
+        return build_tool_result(
+            call_id, RECALL_IMAGE_TOOL_NAME, success=False,
+            error="Requested image could not be retrieved.",
+        )
+    if _accumulated_image_bytes(deps.images) + _accumulated_image_bytes((fetched,)) > MAX_IMAGE_BYTES:
+        return build_tool_result(
+            call_id, RECALL_IMAGE_TOOL_NAME, success=False,
+            error="Image recall byte budget exceeded for this turn.",
+        )
+    deps.images = tuple(deps.images) + (fetched,)
+    tracer.event(
+        "thread_memory.recall",
+        "Recalled a previous-thread image on demand.",
+        recall_id=recall_id,
+    )
+    return build_tool_result(
+        call_id, RECALL_IMAGE_TOOL_NAME, success=True,
+        content={"recall_id": recall_id, "status": "attached"},
+    )
 
 
 def create_tools_node(
@@ -90,15 +167,17 @@ def create_tools_node(
 
         selected_tool_names = state.get("selected_tool_names") or []
         selected = set(selected_tool_names)
-        rejected_results: Dict[int, dict] = {}
-        executable_calls = tool_calls
-        if selected:
-            executable_calls = []
-            for call_index, tool_call in enumerate(tool_calls):
-                name = tool_call_name(tool_call)
-                if name in selected:
-                    executable_calls.append(tool_call)
-                    continue
+        # Results computed in-node, never dispatched: out-of-route rejections and
+        # recall_previous_image (a pseudo-tool the node handles because only it, not
+        # a stateless registry handler, can reach RunDeps to attach the image).
+        # ponytail: if recall is emitted in the same turn as a risky mutation the
+        # whole batch routes to prepare_confirm (validate_entities), so recall is
+        # deferred, not fetched here — the model just re-calls it alone next turn.
+        precomputed: Dict[int, dict] = {}
+        executable_calls = []
+        for call_index, tool_call in enumerate(tool_calls):
+            name = tool_call_name(tool_call)
+            if selected and name not in selected:
                 result = build_tool_result(
                     tool_call.get("id", "missing_tool_call_id"),
                     name,
@@ -109,20 +188,29 @@ def create_tools_node(
                     ),
                 )
                 result["out_of_route_tool"] = True
-                rejected_results[call_index] = result
-            if rejected_results:
-                tracer.event(
-                    "graph.tools.rejected",
-                    "Rejected tool calls outside the selected route.",
-                    requested=sorted({tool_call_name(call) for call in tool_calls}),
-                    allowed=selected_tool_names,
-                    rejected=sorted(
-                        {result["tool_name"] for result in rejected_results.values()}
-                    ),
+                precomputed[call_index] = result
+                continue
+            if name == RECALL_IMAGE_TOOL_NAME:
+                precomputed[call_index] = await _resolve_recall_call(
+                    tool_call, deps, tracer
                 )
+                continue
+            executable_calls.append(tool_call)
+
+        rejected_names = sorted(
+            {r["tool_name"] for r in precomputed.values() if r.get("out_of_route_tool")}
+        )
+        if rejected_names:
+            tracer.event(
+                "graph.tools.rejected",
+                "Rejected tool calls outside the selected route.",
+                requested=sorted({tool_call_name(call) for call in tool_calls}),
+                allowed=selected_tool_names,
+                rejected=rejected_names,
+            )
 
         # Idempotency keys use the call's original assistant-message position, not
-        # its position after out-of-route calls have been filtered out.
+        # its position after in-node calls have been filtered out.
         executable_ids = {id(tool_call) for tool_call in executable_calls}
         call_index_map = {
             tool_call.get("id", ""): index
@@ -140,8 +228,8 @@ def create_tools_node(
             )
         executable_iter = iter(executable_results)
         results = [
-            rejected_results[index]
-            if index in rejected_results
+            precomputed[index]
+            if index in precomputed
             else next(executable_iter)
             for index in range(len(tool_calls))
         ]
