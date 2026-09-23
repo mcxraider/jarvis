@@ -397,20 +397,26 @@ describe('MessageHandlers forward buffering', () => {
       expect(combined.trimEnd().endsWith('do it')).toBe(true);
     });
 
-    it('keeps the buffer when the gate is running', async () => {
-      const gateStore = { getSnapshot: jest.fn().mockResolvedValue({ status: 'running' }) };
-      const { handlers, messageProcessor, forwardBuffer } = createHandlers({ gateStore });
+    it('keeps the buffer when the request is not accepted', async () => {
+      // No gate pre-check any more: the processor arbitrates and only drains the buffer
+      // by firing onRequestAccepted. A rejected dispatch never fires it, so the buffer
+      // survives. The mock processor here never calls the callback (simulating rejection).
+      const { handlers, messageProcessor, forwardBuffer } = createHandlers();
+      // Simulate a rejected dispatch: the processor returns without accepting.
+      messageProcessor.processTextMessage.mockImplementation(async () => ({
+        response: "I'm still working on another request. Please wait.",
+      }));
       const ctx = createContext({ text: 'fwd', forward_origin: FORWARD_ORIGIN, message_id: 27 });
       await handlers.maybeBufferForward(ctx);
 
       ctx.message = { text: '/forward summarize', message_id: 28 };
       await handlers.handleForward(ctx);
 
-      expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
+      expect(messageProcessor.processTextMessage).toHaveBeenCalledTimes(1);
+      expect(messageProcessor.processTextMessage.mock.calls[0][4]).toEqual(
+        expect.objectContaining({ forceFresh: true, onRequestAccepted: expect.any(Function) }),
+      );
       expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(1);
-      expect(ctx.reply).toHaveBeenLastCalledWith(expect.stringContaining('still finishing'), {
-        parse_mode: 'MarkdownV2',
-      });
     });
 
     it('downloads buffered photos and dispatches via processPhotoMessage', async () => {
@@ -435,6 +441,62 @@ describe('MessageHandlers forward buffering', () => {
       expect(images[0].image_url).toMatch(/^data:image\/jpeg;base64,/);
       expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
       expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(0);
+    });
+
+    it('bounds photo-download concurrency and preserves order', async () => {
+      let active = 0;
+      let peak = 0;
+      let openGate!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        openGate = resolve;
+      });
+      const fileService = {
+        isAudioFile: jest.fn(),
+        getFileUrl: jest.fn(),
+        downloadFile: jest.fn().mockImplementation(async (fileId: string) => {
+          active++;
+          peak = Math.max(peak, active);
+          await gate;
+          active--;
+          const idx = Number(fileId.replace('pic', ''));
+          const b = Buffer.alloc(16);
+          b[0] = 0xff; b[1] = 0xd8; b[2] = idx; b[14] = 0xff; b[15] = 0xd9;
+          return b;
+        }),
+      };
+      const { handlers, messageProcessor } = createHandlers({ fileService });
+
+      // Buffer 6 forwarded photos (> the concurrency cap of 4).
+      for (let i = 0; i < 6; i++) {
+        const photoCtx = createContext({
+          photo: [{ file_id: `pic${i}`, width: 100, height: 100 }],
+          forward_origin: FORWARD_ORIGIN,
+          message_id: 100 + i,
+        });
+        await handlers.maybeBufferForward(photoCtx);
+      }
+
+      const dispatchCtx = createContext({ text: '/forward describe', message_id: 200 });
+      const dispatch = handlers.handleForward(dispatchCtx);
+
+      // Let the pool spin up and block on the gate.
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+
+      // Unbounded parallelism would put all 6 in flight; the cap holds it at 4.
+      expect(active).toBe(4);
+      expect(peak).toBeLessThanOrEqual(4);
+
+      openGate();
+      await dispatch;
+
+      expect(peak).toBe(4);
+      const images = messageProcessor.processPhotoMessage.mock.calls[0][1];
+      expect(images).toHaveLength(6);
+      const order = images.map(
+        (im: { image_url: string }) => Buffer.from(im.image_url.split(',')[1], 'base64')[2],
+      );
+      expect(order).toEqual([0, 1, 2, 3, 4, 5]);
     });
 
     it('retains the buffer when photo download fails (all-or-nothing)', async () => {
