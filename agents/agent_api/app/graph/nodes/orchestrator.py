@@ -1267,7 +1267,7 @@ def _apply_router_prompt_slimming(
         "content": get_system_prompt(
             runtime_context=snapshot,
             registered_tools=selected_tool_names,
-            relevant_domains=relevant,
+            included_domains=relevant,
         ),
     }
     tracer.event(

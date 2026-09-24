@@ -247,7 +247,7 @@ class TestRuntimeContextPrompt:
 
         todoist_prompt = get_orchestrator_prompt(
             runtime_context=snapshot,
-            relevant_domains={"todoist"},
+            included_domains={"todoist"},
         )
         assert "Todoist-only guidance." in todoist_prompt
         assert "Calendar-only guidance." not in todoist_prompt
@@ -258,7 +258,7 @@ class TestRuntimeContextPrompt:
                 unavailable={"google_calendar": "not_connected"},
                 preferences=preferences,
             ),
-            relevant_domains={"google_calendar"},
+            included_domains={"google_calendar"},
         )
         assert "## User domain-specific comments" not in inactive_prompt
         assert "Calendar-only guidance." not in inactive_prompt
@@ -266,7 +266,7 @@ class TestRuntimeContextPrompt:
     def test_domain_comment_section_is_omitted_when_no_comments_apply(self):
         prompt = get_orchestrator_prompt(
             runtime_context=make_snapshot(),
-            relevant_domains={"todoist"},
+            included_domains={"todoist"},
         )
 
         assert "## User domain-specific comments" not in prompt
@@ -332,8 +332,8 @@ class TestPassthrough:
         assert "Zachary's personal assistant" in messages[0]["content"]
 
 
-class TestRelevantDomainsSlimming:
-    """The router's relevant_domains narrows only the heavy per-domain fragments."""
+class TestIncludedDomainsSlimming:
+    """The router's included_domains narrows only the heavy per-domain fragments."""
 
     # Distinct substrings from each domain's grounding note (see tools.py), used to
     # assert a domain's block is present/absent independently of its tool-tips header.
@@ -344,7 +344,7 @@ class TestRelevantDomainsSlimming:
         return make_snapshot(active=("todoist", "google_calendar"))
 
     def test_none_keeps_all_fragments(self):
-        """Regression: omitting relevant_domains == today's behavior (all active)."""
+        """Regression: omitting included_domains == today's behavior (all active)."""
         prompt = get_orchestrator_prompt(runtime_context=self._both_active())
         assert "## Todoist tool tips" in prompt
         assert "## Google Calendar tool tips" in prompt
@@ -354,7 +354,7 @@ class TestRelevantDomainsSlimming:
     def test_subset_narrows_to_that_domain(self):
         prompt = get_orchestrator_prompt(
             runtime_context=self._both_active(),
-            relevant_domains={"todoist"},
+            included_domains={"todoist"},
         )
         assert "## Todoist tool tips" in prompt
         assert self._TODOIST_GROUNDING in prompt
@@ -366,7 +366,7 @@ class TestRelevantDomainsSlimming:
         """Slimming fragments must NOT hide that a domain exists but wasn't routed."""
         prompt = get_orchestrator_prompt(
             runtime_context=self._both_active(),
-            relevant_domains={"todoist"},
+            included_domains={"todoist"},
         )
         # The lightweight availability summary still lists Calendar as registered.
         assert "- Google Calendar: registered" in prompt
@@ -377,7 +377,7 @@ class TestRelevantDomainsSlimming:
         and the routing preferences section."""
         prompt = get_orchestrator_prompt(
             runtime_context=self._both_active(),
-            relevant_domains=set(),
+            included_domains=set(),
         )
         assert "## Todoist tool tips" not in prompt
         assert "## Google Calendar tool tips" not in prompt
@@ -393,10 +393,10 @@ class TestRelevantDomainsSlimming:
         assert "## Domain availability" in prompt
 
     def test_none_keeps_routing_preferences(self):
-        """No slimming (relevant_domains=None) keeps routing preferences."""
+        """No slimming (included_domains=None) keeps routing preferences."""
         prompt = get_orchestrator_prompt(
             runtime_context=self._both_active(),
-            relevant_domains=None,
+            included_domains=None,
         )
         assert "## User routing preferences" in prompt
         assert "Task provider:" in prompt
@@ -405,7 +405,7 @@ class TestRelevantDomainsSlimming:
         """When domains are routed, routing preferences are present."""
         prompt = get_orchestrator_prompt(
             runtime_context=self._both_active(),
-            relevant_domains={"todoist"},
+            included_domains={"todoist"},
         )
         assert "## User routing preferences" in prompt
         assert "Task provider:" in prompt
@@ -419,14 +419,14 @@ class TestRelevantDomainsSlimming:
         avail_pos = prompt.rfind("## Domain availability")
         assert tools_pos > avail_pos
 
-    def test_relevant_domains_only_intersects_active(self):
+    def test_included_domains_only_intersects_active(self):
         """Requesting an inactive domain adds nothing (intersection with active)."""
         snapshot = make_snapshot(
             active=("todoist",), unavailable={"google_calendar": "not_connected"}
         )
         prompt = get_orchestrator_prompt(
             runtime_context=snapshot,
-            relevant_domains={"todoist", "google_calendar"},
+            included_domains={"todoist", "google_calendar"},
         )
         assert "## Todoist tool tips" in prompt
         assert "## Google Calendar tool tips" not in prompt
@@ -434,7 +434,7 @@ class TestRelevantDomainsSlimming:
     def test_threads_through_get_system_prompt(self):
         prompt = get_system_prompt(
             runtime_context=self._both_active(),
-            relevant_domains={"todoist"},
+            included_domains={"todoist"},
         )
         assert "## Todoist tool tips" in prompt
         assert "## Google Calendar tool tips" not in prompt
@@ -443,7 +443,7 @@ class TestRelevantDomainsSlimming:
         messages = build_initial_messages(
             "hello",
             runtime_context=self._both_active(),
-            relevant_domains={"google_calendar"},
+            included_domains={"google_calendar"},
         )
         system = messages[0]["content"]
         assert "## Google Calendar tool tips" in system

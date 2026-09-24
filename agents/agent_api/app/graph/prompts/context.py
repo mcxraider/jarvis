@@ -330,12 +330,12 @@ def build_initial_messages(
     user_name: Optional[str] = None,
     runtime_context: Optional[RuntimeContextSnapshot] = None,
     registered_tools: Optional[List[str]] = None,
-    relevant_domains: Optional[Set[str]] = None,
+    included_domains: Optional[Set[str]] = None,
     reply_context: Optional[dict] = None,
 ) -> List[Dict[str, Any]]:
     """Create the canonical message list used by the selected LLM provider.
 
-    ``relevant_domains`` (from the query router) is forwarded to the system
+    ``included_domains`` (from the query router) is forwarded to the system
     prompt to slim the per-domain fragments; ``None`` keeps every active domain
     (today's behavior).
     """
@@ -348,7 +348,7 @@ def build_initial_messages(
                 user_name=user_name,
                 runtime_context=runtime_context,
                 registered_tools=registered_tools,
-                relevant_domains=relevant_domains,
+                included_domains=included_domains,
             ),
         },
         {

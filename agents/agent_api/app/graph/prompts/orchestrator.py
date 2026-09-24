@@ -154,7 +154,7 @@ def get_system_prompt(
     user_name: Optional[str] = None,
     runtime_context: Optional[RuntimeContextSnapshot] = None,
     registered_tools: Optional[List[str]] = None,
-    relevant_domains: Optional[Set[str]] = None,
+    included_domains: Optional[Set[str]] = None,
 ) -> str:
     """Return the Jarvis system prompt used by the LangGraph agent node."""
 
@@ -163,7 +163,7 @@ def get_system_prompt(
         user_name=user_name,
         runtime_context=runtime_context,
         registered_tools=registered_tools,
-        relevant_domains=relevant_domains,
+        included_domains=included_domains,
     )
 
 
@@ -206,11 +206,11 @@ def _current_user_datetime(timezone_name: str) -> datetime:
 
 def _active_domain_blocks(
     runtime_context: RuntimeContextSnapshot,
-    relevant_domains: Optional[Set[str]] = None,
+    included_domains: Optional[Set[str]] = None,
 ) -> List[str]:
     """One grounding-note + tool-tips block per active domain, in adapter order.
 
-    ``relevant_domains`` (from the query router) narrows the heavy per-domain
+    ``included_domains`` (from the query router) narrows the heavy per-domain
     fragments to just the domains a query needs: when provided, only active
     domains that are also in the set contribute blocks. ``None`` — the default —
     means every active domain contributes, i.e. today's behavior. An empty set
@@ -220,8 +220,8 @@ def _active_domain_blocks(
     """
 
     active = runtime_context.active_providers()
-    if relevant_domains is not None:
-        active = active & relevant_domains
+    if included_domains is not None:
+        active = active & included_domains
     blocks: List[str] = []
     for provider, adapter in DOMAIN_ADAPTERS.items():
         if provider not in active:
@@ -358,13 +358,13 @@ def _domain_availability_block(runtime_context: RuntimeContextSnapshot) -> str:
 
 def _domain_specific_comments_block(
     runtime_context: RuntimeContextSnapshot,
-    relevant_domains: Optional[Set[str]] = None,
+    included_domains: Optional[Set[str]] = None,
 ) -> str:
     """Render execution guidance only for active domains used by this turn."""
 
     applicable_domains = runtime_context.active_providers()
-    if relevant_domains is not None:
-        applicable_domains &= relevant_domains
+    if included_domains is not None:
+        applicable_domains &= included_domains
 
     lines: List[str] = []
     for provider, adapter in DOMAIN_ADAPTERS.items():
@@ -409,7 +409,7 @@ def get_orchestrator_prompt(
     user_name: Optional[str] = None,
     runtime_context: Optional[RuntimeContextSnapshot] = None,
     registered_tools: Optional[List[str]] = None,
-    relevant_domains: Optional[Set[str]] = None,
+    included_domains: Optional[Set[str]] = None,
 ) -> str:
     """Return the orchestrator prompt composed for this run.
 
@@ -419,7 +419,7 @@ def get_orchestrator_prompt(
     snapshot. Without one (offline/DI runs) it falls back to the neutral policy
     plus a registry-accurate tools line and an optional ``user_name``.
 
-    ``relevant_domains`` (from the query router) narrows only the per-domain
+    ``included_domains`` (from the query router) narrows only the per-domain
     tool-tips fragments to the domains a query needs; ``None`` keeps every active
     domain's fragment (today's behavior). It has no effect on the offline path.
     """
@@ -429,15 +429,15 @@ def get_orchestrator_prompt(
         blocks = [
             role,
             _POLICY_BODY,
-            *_active_domain_blocks(runtime_context, relevant_domains),
+            *_active_domain_blocks(runtime_context, included_domains),
         ]
         prompt_body = "\n\n".join(blocks)
         response_block = _response_preferences_block(runtime_context)
-        show_routing = relevant_domains is None or bool(relevant_domains)
+        show_routing = included_domains is None or bool(included_domains)
         routing_block = _routing_preferences_block(runtime_context) if show_routing else ""
         domain_comments_block = _domain_specific_comments_block(
             runtime_context,
-            relevant_domains,
+            included_domains,
         )
         domain_avail_block = _domain_availability_block(runtime_context)
         resolved_tz = _user_timezone(runtime_context.timezone)
