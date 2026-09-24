@@ -209,15 +209,12 @@ class TestPromptTimezoneThreading:
         assert "User timezone: Asia/Taipei" in prompt
 
     def test_build_initial_messages_threads_timezone(self):
-        from agents.agent_api.app.graph.prompts.context import build_initial_messages
-
-        messages = build_initial_messages("hello", timezone="Europe/Berlin")
-        system_content = messages[0]["content"]
-        assert "User timezone: Europe/Berlin" in system_content
+        # build_initial_messages returns only the user message; the system
+        # prompt is built by the orchestrator node. Verify via get_system_prompt.
+        assert "User timezone: Europe/Berlin" in get_system_prompt("Europe/Berlin")
 
     def test_build_initial_state_threads_timezone(self):
-        from agents.agent_api.app.graph.builder import build_initial_state
-
-        state = build_initial_state("test prompt", timezone="US/Pacific")
-        system_content = state["messages"][0]["content"]
-        assert "User timezone: US/Pacific" in system_content
+        # build_initial_state no longer places a system message in messages;
+        # the orchestrator node builds it at run time. Verify timezone threading
+        # via get_system_prompt directly.
+        assert "User timezone: US/Pacific" in get_system_prompt("US/Pacific")

@@ -299,7 +299,7 @@ class TestTurnSystemPromptBuild:
 
 
 def _state_turn0(snapshot, user_prompt="add buy milk", reply_context=None):
-    """A fresh turn-0 state: exactly [system, user], no tool history yet."""
+    """A fresh turn-0 state: exactly [user], no tool history yet."""
     return {
         "messages": build_initial_messages(
             user_prompt,
@@ -486,12 +486,10 @@ class TestNoSlimming:
     def test_selector_without_decision_leaves_prompt_intact(self):
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_with_history(snapshot)
-        original_system = state["messages"][0]["content"]
 
         client, _result = _run_node(state, StaticToolSelector())
 
-        assert client.seen_messages[0]["content"] == original_system
-        # Both domains' fragments intact (today's behavior).
+        # Both domains' fragments intact (no slimming when selector has no decision).
         assert "## Todoist tool tips" in client.seen_messages[0]["content"]
         assert "## Google Calendar tool tips" in client.seen_messages[0]["content"]
 
@@ -499,14 +497,14 @@ class TestNoSlimming:
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_with_history(snapshot)
         state["runtime_context"] = {}  # falsy -> snapshot=None -> neutral prompt
-        original_system = state["messages"][0]["content"]
         selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low"))
 
         client, _result = _run_node(state, selector)
 
         built = client.seen_messages[0]["content"]
-        # Neutral (offline) prompt is built — not the stale snapshot-based render.
-        assert built != original_system
+        # Neutral (offline) prompt has no snapshot-based domain fragments.
+        assert "## Todoist tool tips" not in built
+        assert "## Google Calendar tool tips" not in built
         assert "## Domain availability" not in built
 
 

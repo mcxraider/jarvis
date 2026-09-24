@@ -688,9 +688,9 @@ class JarvisGraphTests(unittest.TestCase):
     def test_initial_user_message_includes_request_datetime(self) -> None:
         messages = build_initial_messages("Show me today's tasks")
 
-        self.assertEqual(messages[1]["role"], "user")
-        self.assertIn("Current datetime:", messages[1]["content"])
-        self.assertIn("Current user message:\nShow me today's tasks", messages[1]["content"])
+        self.assertEqual(messages[0]["role"], "user")
+        self.assertIn("Current datetime:", messages[0]["content"])
+        self.assertIn("Current user message:\nShow me today's tasks", messages[0]["content"])
 
     def run_graph_with_fakes(
         self,

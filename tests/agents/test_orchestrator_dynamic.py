@@ -69,13 +69,12 @@ class TestOfflinePrompt:
             return_value=instant,
         ):
             messages = build_initial_messages(
-                "hello", timezone="America/Chicago", user_name="X"
+                "hello", timezone="America/Chicago"
             )
 
-        assert "Current date:" not in messages[0]["content"]
         assert (
-            "Current datetime: 2026-07-09T11:30:00-05:00" in messages[1]["content"]
-            and "Current day: Thursday" in messages[1]["content"]
+            "Current datetime: 2026-07-09T11:30:00-05:00" in messages[0]["content"]
+            and "Current day: Thursday" in messages[0]["content"]
         )
 
 
@@ -281,10 +280,9 @@ class TestRuntimeContextPrompt:
             messages = build_initial_messages("hello", runtime_context=snapshot)
 
         current_datetime.assert_called_once_with("Asia/Singapore")
-        assert "Current date:" not in messages[0]["content"]
         assert (
-            "Current datetime: 2026-07-10T08:30:00+08:00" in messages[1]["content"]
-            and "Current day: Friday" in messages[1]["content"]
+            "Current datetime: 2026-07-10T08:30:00+08:00" in messages[0]["content"]
+            and "Current day: Friday" in messages[0]["content"]
         )
 
     def test_relative_weekday_semantics_are_deterministic(self):
@@ -328,8 +326,11 @@ class TestPassthrough:
 
     def test_build_initial_messages_threads_runtime_context(self):
         snapshot = make_snapshot(display_name="Zachary")
-        messages = build_initial_messages("hello", runtime_context=snapshot)
-        assert "Zachary's personal assistant" in messages[0]["content"]
+        # build_initial_messages returns only the user message; the system
+        # prompt is built by the orchestrator node. Verify via get_system_prompt.
+        assert "Zachary's personal assistant" in get_system_prompt(
+            runtime_context=snapshot
+        )
 
 
 class TestIncludedDomainsSlimming:
@@ -439,17 +440,6 @@ class TestIncludedDomainsSlimming:
         assert "## Todoist tool tips" in prompt
         assert "## Google Calendar tool tips" not in prompt
 
-    def test_threads_through_build_initial_messages(self):
-        messages = build_initial_messages(
-            "hello",
-            runtime_context=self._both_active(),
-            included_domains={"google_calendar"},
-        )
-        system = messages[0]["content"]
-        assert "## Google Calendar tool tips" in system
-        assert "## Todoist tool tips" not in system
-
-
 class TestRuntimeContextGuards:
     def _resolved_context(self):
         secret = "vault-secret-must-never-leak"
@@ -502,3 +492,11 @@ class TestRuntimeContextGuards:
                 assert domain.tool_names
             else:
                 assert domain.tool_names == []
+
+
+def test_initial_messages_has_no_system_message():
+    snapshot = make_snapshot(active=("todoist", "google_calendar"))
+    msgs = build_initial_messages("add a task", runtime_context=snapshot)
+    assert len(msgs) == 1
+    assert msgs[0]["role"] == "user"
+    assert "add a task" in msgs[0]["content"]
