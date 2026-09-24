@@ -1218,62 +1218,86 @@ async def close_shared_async_agent_client() -> None:
         await client.close()
 
 
-def _apply_router_prompt_slimming(
+def _build_orchestrator_system_prompt_for_turn(
     messages: List[Dict[str, Any]],
     tool_selector: ToolSelector,
     state: JarvisState,
     tracer: TracePrinter,
     selected_tool_names: List[str],
 ) -> None:
-    """Slim the system prompt to the router's routed domains, in place.
+    """Build this turn's orchestrator system prompt from the routing output.
 
-    When the selector exposes a router ``decision`` and this run has a runtime
-    snapshot, rebuild ONLY ``messages[0]`` (the system message) so its per-domain
-    fragments cover just the domains the query needs. Later turns carry
-    accumulated tool history in ``messages[1:]``; touching only index 0 keeps that
-    history intact (rebuilding the whole list would discard it).
+    Sole constructor of ``messages[0]``. Composes the prompt directly for the
+    turn's included domains instead of rendering all domains and narrowing.
+    Inserts ``messages[0]`` on turn 0 (where it is the user message) and replaces
+    it on resume / later turns (where it is the prior system message). Only index
+    0 is touched, so ``messages[1:]`` history is preserved. Runs before the
+    historical-context insertion below.
 
-    Non-critical by contract: a missing decision, an absent/unvalidatable
-    snapshot, or a non-system first message all leave ``messages`` untouched —
-    i.e. today's full-prompt behavior. The decision is stable within a run (the
-    query is constant), so re-slimming each turn is idempotent.
+    Three branches, each byte-identical to today's behavior for its case:
+      * no/invalid snapshot -> neutral offline prompt (runtime_context=None).
+      * router decision      -> derived routed/pinned included set.
+      * no decision          -> every active domain (registered_tools=None so the
+                                tools line matches today's eager render source).
     """
 
-    decision = getattr(tool_selector, "decision", None)
-    if decision is None:
-        return
     raw_context = state.get("runtime_context")
-    if not raw_context:
-        return
-    if not messages or messages[0].get("role") != "system":
-        return
-    try:
-        snapshot = RuntimeContextSnapshot.model_validate(raw_context)
-    except ValidationError:
-        tracer.event(
-            "router.prompt.skipped",
-            "Runtime snapshot did not validate; keeping full prompt.",
-        )
-        return
+    snapshot: Optional[RuntimeContextSnapshot] = None
+    if raw_context:
+        try:
+            snapshot = RuntimeContextSnapshot.model_validate(raw_context)
+        except ValidationError:
+            tracer.event(
+                "orchestrator.prompt.fallback",
+                "Runtime snapshot did not validate; building neutral prompt.",
+            )
+            snapshot = None
 
-    relevant = set(effective_router_domains(decision)) & snapshot.active_providers()
-    # Include pinned domains so the agent retains domain instructions even if
-    # the router narrowed this turn (e.g. HITL resume classified todoist-only).
-    active_domains = state.get("active_domains") or []
-    if active_domains:
-        relevant |= set(active_domains) & snapshot.active_providers()
-    messages[0] = {
-        **messages[0],
-        "content": get_system_prompt(
-            runtime_context=snapshot,
+    if snapshot is None:
+        content = get_system_prompt(
+            runtime_context=None,
             registered_tools=selected_tool_names,
-            included_domains=relevant,
-        ),
-    }
+        )
+        included: Optional[set] = None
+        source = "neutral"
+    else:
+        decision = getattr(tool_selector, "decision", None)
+        if decision is None:
+            # Static/keyword selector or router internal fallback. Reproduce the
+            # prior eager all-domain render exactly: every active domain, tools
+            # line from the snapshot's registered tools.
+            content = get_system_prompt(
+                runtime_context=snapshot,
+                registered_tools=None,
+                included_domains=None,
+            )
+            included = None
+            source = "all_active"
+        else:
+            relevant = set(effective_router_domains(decision)) & snapshot.active_providers()
+            # Include pinned domains so the agent retains domain instructions even if
+            # the router narrowed this turn (e.g. HITL resume classified todoist-only).
+            active_domains = state.get("active_domains") or []
+            if active_domains:
+                relevant |= set(active_domains) & snapshot.active_providers()
+            content = get_system_prompt(
+                runtime_context=snapshot,
+                registered_tools=selected_tool_names,
+                included_domains=relevant,
+            )
+            included = relevant
+            source = "routed"
+
+    if messages and messages[0].get("role") == "system":
+        messages[0] = {**messages[0], "content": content}
+    else:
+        messages.insert(0, {"role": "system", "content": content})
+
     tracer.event(
-        "router.prompt.slimmed",
-        "Rebuilt system prompt for routed domains.",
-        relevant=sorted(relevant) or None,
+        "orchestrator.prompt.built",
+        "Built orchestrator system prompt for this turn.",
+        included_domains=sorted(included) if included else None,
+        source=source,
     )
 
 
@@ -1461,10 +1485,9 @@ def create_agent_node(
             selected=len(tool_schemas),
             tool_names=selected_tool_names,
         )
-        # If a query router chose the tools, slim the system prompt to match — the
-        # model should not read a Calendar block when only Todoist tools are on
-        # offer. Rebuilds messages[0] only (history-safe); no-op without a decision.
-        _apply_router_prompt_slimming(
+        # Build the system prompt for this turn from the routing output.
+        # Inserts or replaces messages[0] only (history-safe).
+        _build_orchestrator_system_prompt_for_turn(
             messages,
             run_tool_selector,
             state,

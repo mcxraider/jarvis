@@ -1,7 +1,7 @@
-"""Agent-node integration of the router decision: prompt slimming + history safety.
+"""Agent-node integration of the router decision: turn system-prompt build + history safety.
 
 These tests drive create_agent_node directly with a fake decision-carrying
-selector and a recording LLM client, so they verify the node's wiring (slim
+selector and a recording LLM client, so they verify the node's wiring (build
 messages[0], preserve tool history) without any real DeepSeek or LangGraph run.
 """
 
@@ -9,6 +9,8 @@ import asyncio
 import os
 from typing import Any, Dict, List
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from agents.agent_api.app.llm.provider import OpenAIResponsesProfile
 
@@ -20,17 +22,20 @@ with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c, **_: c):
     from agents.agent_api.app.graph.nodes.orchestrator import (
         DeepSeekAgentClient,
         UsageSummary,
+        _build_orchestrator_system_prompt_for_turn,
         _looks_like_question,
         create_agent_node,
     )
 
 from agents.agent_api.app.graph.prompts.context import build_initial_messages
+from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
 from agents.agent_api.app.graph.run_deps import CONFIGURABLE_DEPS_KEY, RunDeps
 from agents.agent_api.app.router.model_router import create_default_model_router
-from agents.agent_api.app.router.prompt import RouterDecision
+from agents.agent_api.app.router.prompt import RouterDecision, effective_router_domains
 from agents.agent_api.app.tools.base import ToolRegistry, ToolSpec
 from agents.agent_api.app.tools.selectors.router import RouterToolSelector
 from agents.agent_api.app.tools.selectors.static import StaticToolSelector
+from agents.agent_api.app.tracing import NULL_TRACE
 from tests.agents.runtime_helpers import make_snapshot
 
 
@@ -122,7 +127,100 @@ def _run_node(state, selector):
     return client, result
 
 
-class TestPromptSlimming:
+# ---------------------------------------------------------------------------
+# Lightweight helpers for TestTurnSystemPromptBuild
+# ---------------------------------------------------------------------------
+
+def _routed_decision(domains):
+    return RouterDecision(outcome="routed", domains=domains, uncertain=False, candidate_domains=[], complexity="low")
+
+
+def _selector_with_decision(decision):
+    return FakeDecisionSelector(decision)
+
+
+def _static_selector():
+    return StaticToolSelector()
+
+
+@pytest.fixture
+def snapshot_two_domains():
+    return make_snapshot(active=("todoist", "google_calendar"))
+
+
+def _derived(decision, snapshot, active_domains):
+    relevant = set(effective_router_domains(decision)) & snapshot.active_providers()
+    if active_domains:
+        relevant |= set(active_domains) & snapshot.active_providers()
+    return relevant
+
+
+class TestTurnSystemPromptBuild:
+    def test_routed_build_equals_direct_get_system_prompt(self, snapshot_two_domains):
+        decision = _routed_decision(["todoist"])
+        selector = _selector_with_decision(decision)
+        state = {"runtime_context": snapshot_two_domains.model_dump(mode="json")}
+        messages = [{"role": "user", "content": "hi"}]
+        _build_orchestrator_system_prompt_for_turn(
+            messages, selector, state, NULL_TRACE, ["todoist_get_tasks"]
+        )
+        expected = get_system_prompt(
+            runtime_context=snapshot_two_domains,
+            registered_tools=["todoist_get_tasks"],
+            included_domains=_derived(decision, snapshot_two_domains, []),
+        )
+        assert messages[0] == {"role": "system", "content": expected}
+        assert messages[1] == {"role": "user", "content": "hi"}   # history-safe
+
+    def test_no_decision_builds_all_active_domains_byte_identical(self, snapshot_two_domains):
+        selector = _static_selector()  # .decision is None
+        state = {"runtime_context": snapshot_two_domains.model_dump(mode="json")}
+        messages = [{"role": "user", "content": "hi"}]
+        _build_orchestrator_system_prompt_for_turn(
+            messages, selector, state, NULL_TRACE, ["todoist_get_tasks"]
+        )
+        # Today's no-decision render: registered_tools=None, included_domains=None.
+        expected = get_system_prompt(
+            runtime_context=snapshot_two_domains,
+            registered_tools=None,
+            included_domains=None,
+        )
+        assert messages[0]["content"] == expected
+
+    def test_no_snapshot_builds_neutral_prompt_byte_identical(self):
+        selector = _static_selector()
+        state = {}  # no runtime_context
+        messages = [{"role": "user", "content": "hi"}]
+        _build_orchestrator_system_prompt_for_turn(
+            messages, selector, state, NULL_TRACE, ["todoist_get_tasks"]
+        )
+        expected = get_system_prompt(
+            runtime_context=None, registered_tools=["todoist_get_tasks"]
+        )
+        assert messages[0]["content"] == expected
+
+    def test_resume_replaces_system_message_no_duplicate(self, snapshot_two_domains):
+        selector = _selector_with_decision(_routed_decision(["todoist"]))
+        state = {"runtime_context": snapshot_two_domains.model_dump(mode="json")}
+        messages = [
+            {"role": "system", "content": "STALE"},
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "x"}]},
+        ]
+        _build_orchestrator_system_prompt_for_turn(
+            messages, selector, state, NULL_TRACE, ["todoist_get_tasks"]
+        )
+        assert [m["role"] for m in messages] == ["system", "user", "assistant"]
+        assert messages[0]["content"] != "STALE"
+
+    def test_multi_turn_replaces_not_accumulates(self, snapshot_two_domains):
+        selector = _selector_with_decision(_routed_decision(["todoist"]))
+        state = {"runtime_context": snapshot_two_domains.model_dump(mode="json")}
+        messages = [{"role": "user", "content": "hi"}]
+        _build_orchestrator_system_prompt_for_turn(messages, selector, state, NULL_TRACE, ["t"])
+        _build_orchestrator_system_prompt_for_turn(messages, selector, state, NULL_TRACE, ["t"])
+        assert [m["role"] for m in messages].count("system") == 1
+
     def test_decision_slims_system_prompt_to_routed_domain(self):
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_with_history(snapshot)
@@ -135,7 +233,7 @@ class TestPromptSlimming:
         assert "## Google Calendar tool tips" not in system
 
     def test_tool_history_survives_the_turn(self):
-        """Slimming rebuilds only messages[0]; the tool result must remain."""
+        """Build rebuilds only messages[0]; the tool result must remain."""
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_with_history(snapshot)
         selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low"))
@@ -197,7 +295,7 @@ class TestPromptSlimming:
         assert "## Todoist tool tips" not in system
         assert "## Google Calendar tool tips" not in system
         # Availability summary still present so the model knows what exists.
-        assert "- Todoist: available" in system
+        assert "- Todoist: registered" in system
 
 
 def _state_turn0(snapshot, user_prompt="add buy milk", reply_context=None):
@@ -397,16 +495,19 @@ class TestNoSlimming:
         assert "## Todoist tool tips" in client.seen_messages[0]["content"]
         assert "## Google Calendar tool tips" in client.seen_messages[0]["content"]
 
-    def test_missing_runtime_context_skips_slimming(self):
+    def test_missing_runtime_context_builds_neutral_prompt(self):
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_with_history(snapshot)
-        state["runtime_context"] = {}  # no snapshot -> no slimming
+        state["runtime_context"] = {}  # falsy -> snapshot=None -> neutral prompt
         original_system = state["messages"][0]["content"]
         selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low"))
 
         client, _result = _run_node(state, selector)
 
-        assert client.seen_messages[0]["content"] == original_system
+        built = client.seen_messages[0]["content"]
+        # Neutral (offline) prompt is built — not the stale snapshot-based render.
+        assert built != original_system
+        assert "## Domain availability" not in built
 
 
 class TestComplexityModelRouting:
