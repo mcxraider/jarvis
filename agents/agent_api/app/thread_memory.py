@@ -204,17 +204,6 @@ def _valid_candidate_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, A
     return sorted(candidates, key=lambda item: item["sequence"])
 
 
-def _tool_call_ids(payload: Mapping[str, Any]) -> set[str]:
-    calls = payload.get("tool_calls")
-    if not isinstance(calls, list):
-        return set()
-    return {
-        str(call.get("id"))
-        for call in calls
-        if isinstance(call, Mapping) and isinstance(call.get("id"), str)
-    }
-
-
 def _render_entry(row: Mapping[str, Any]) -> str:
     return json.dumps(row["payload"], sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
@@ -230,51 +219,45 @@ def render_previous_thread_context(
 
     valid = _valid_candidate_rows(rows)
     image_rows = [row for row in valid if row["kind"] == "image"]
-    messages = [row for row in valid if row["kind"] != "image"]
+    # Keep only conversational turns: user/assistant messages whose payload is
+    # exactly {role, content}. This drops tool calls, tool results, and empty
+    # assistant tool-call turns (they carry tool_calls/tool_call_id keys).
+    messages = [
+        row
+        for row in valid
+        if row["kind"] in {"user", "assistant"}
+        and set(row["payload"].keys()) == {"role", "content"}
+    ]
     images_by_user_sequence: dict[int, list[dict[str, Any]]] = {}
     for row in image_rows:
         user_sequence = row["payload"].get("user_message_sequence")
         if isinstance(user_sequence, int):
             images_by_user_sequence.setdefault(user_sequence, []).append(row)
 
+    # Each retained message is its own group. Image-reference lines (the one
+    # exception to the {role, content} rule) are appended so cross-thread image
+    # recall keeps a visible cue.
     groups: list[tuple[set[int], list[str]]] = []
-    index = 0
-    while index < len(messages):
-        row = messages[index]
-        sequences = {row["sequence"]}
+    for row in messages:
+        sequence = row["sequence"]
         entries = [_render_entry(row)]
-        call_ids = _tool_call_ids(row["payload"]) if row["kind"] == "assistant" else set()
-        index += 1
-        while index < len(messages) and call_ids and messages[index]["kind"] == "tool":
-            tool_row = messages[index]
-            if tool_row["payload"].get("tool_call_id") not in call_ids:
-                break
-            sequences.add(tool_row["sequence"])
-            entries.append(_render_entry(tool_row))
-            index += 1
-        for sequence in tuple(sequences):
-            for image_row in images_by_user_sequence.get(sequence, ()):
-                image_payload = image_row["payload"]
-                reference = {
-                    "role": "user",
-                    "image_reference": {
-                        "mime_type": image_payload.get("mime_type"),
-                        "sha256": image_payload.get("sha256"),
-                        "bytes": image_payload.get("bytes"),
-                        "available": bool(image_payload.get("uploaded")),
-                    },
-                }
-                entries.append(
-                    json.dumps(reference, sort_keys=True, separators=(",", ":"))
-                )
-        groups.append((sequences, entries))
+        for image_row in images_by_user_sequence.get(sequence, ()):
+            image_payload = image_row["payload"]
+            reference = {
+                "role": "user",
+                "image_reference": {
+                    "mime_type": image_payload.get("mime_type"),
+                    "sha256": image_payload.get("sha256"),
+                    "bytes": image_payload.get("bytes"),
+                    "available": bool(image_payload.get("uploaded")),
+                },
+            }
+            entries.append(
+                json.dumps(reference, sort_keys=True, separators=(",", ":"))
+            )
+        groups.append(({sequence}, entries))
 
-    metadata = json.dumps(
-        {"thread_id": previous_thread_id, "status": previous_status},
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    prefix = f"{_HISTORY_PREAMBLE}\nPrevious thread: {metadata}\nMessages:\n"
+    prefix = f"{_HISTORY_PREAMBLE}\n"
     retained: list[tuple[set[int], str]] = []
     used = len(prefix)
     omitted = False
@@ -295,8 +278,8 @@ def render_previous_thread_context(
         body_parts.insert(0, _OMISSION_MARKER)
     text = prefix + "\n".join(body_parts)
     if len(text) > limit:
-        # Metadata is bounded by the API/database schema; this only protects a
-        # caller-supplied test limit smaller than the fixed preamble.
+        # Only protects a caller-supplied test limit smaller than the fixed
+        # preamble; real limits far exceed it.
         text = text[:limit]
     retained_sequences = {
         sequence for sequences, _rendered in retained for sequence in sequences

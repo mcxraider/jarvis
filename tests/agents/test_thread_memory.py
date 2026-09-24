@@ -116,7 +116,7 @@ def test_canonical_messages_round_trip_visible_payload_and_strip_secrets() -> No
     assert result[2]["tool_call_id"] == "call-1"
 
 
-def test_context_limit_never_splits_assistant_tool_group() -> None:
+def test_context_drops_tool_calls_and_results() -> None:
     rows = [
         {"sequence": 0, "kind": "user", "payload": {"role": "user", "content": "old"}},
         {
@@ -137,21 +137,50 @@ def test_context_limit_never_splits_assistant_tool_group() -> None:
                 "content": "x" * 600,
             },
         },
-        {"sequence": 3, "kind": "user", "payload": {"role": "user", "content": "new"}},
+        {
+            "sequence": 3,
+            "kind": "assistant",
+            "payload": {"role": "assistant", "content": "done"},
+        },
+        {"sequence": 4, "kind": "user", "payload": {"role": "user", "content": "new"}},
     ]
 
-    text, retained = render_previous_thread_context(
-        rows,
-        "previous",
-        "failed",
-        limit=430,
-    )
+    text, retained = render_previous_thread_context(rows, "previous", "failed")
 
-    assert len(text) <= 430
+    # Only {role, content} user/assistant turns survive.
     assert "new" in text
+    assert "done" in text
+    assert "old" in text
+    # Tool scaffolding and metadata/label are gone.
     assert "call-1" not in text
-    assert "[older previous-thread content omitted]" in text
-    assert retained == {3}
+    assert "tool_call_id" not in text
+    assert "tool_calls" not in text
+    assert "Previous thread:" not in text
+    assert "Messages:" not in text
+    assert retained == {0, 3, 4}
+
+
+def test_context_keeps_image_reference_for_retained_user() -> None:
+    rows = [
+        {"sequence": 0, "kind": "user", "payload": {"role": "user", "content": "hi"}},
+        {
+            "sequence": 1,
+            "kind": "image",
+            "payload": {
+                "user_message_sequence": 0,
+                "mime_type": "image/jpeg",
+                "sha256": "abc",
+                "bytes": 4,
+                "uploaded": True,
+            },
+        },
+    ]
+
+    text, retained = render_previous_thread_context(rows, "previous", "completed")
+
+    assert "image_reference" in text
+    assert '"sha256":"abc"' in text
+    assert retained == {0}
 
 
 def test_snapshot_is_idempotent_and_never_contains_raw_image_bytes() -> None:
