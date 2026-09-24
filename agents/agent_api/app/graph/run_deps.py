@@ -10,9 +10,14 @@ Node factories still capture optional fallbacks for direct unit tests and
 Studio-style callers that invoke a node without a LangGraph config.
 """
 
+from __future__ import annotations
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from agents.agent_api.app.thread_memory import RecallImageReference
 
 CONFIGURABLE_DEPS_KEY = "deps"
 
@@ -44,7 +49,7 @@ class RunDeps:
     )
     # recall id (image sha256) -> reference dict; fetched on demand by the tools
     # node when the model calls recall_previous_image.
-    recallable_images: dict[str, dict[str, Any]] = field(
+    recallable_images: dict[str, RecallImageReference] = field(
         default_factory=dict, repr=False, compare=False
     )
 

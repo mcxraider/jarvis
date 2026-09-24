@@ -545,7 +545,9 @@ class RouterToolSelector:
         )
 
     def _allowed_tool_names(self, relevant: Set[str]) -> Set[str]:
-        """Union of the relevant domains' registered tool names, plus ask_user."""
+        """Union of the relevant domains' registered tool names, plus ask_user
+        and recall_previous_image (both intersected against the registry by the
+        caller's ``spec.name in allowed`` filter, so unregistered ones drop out)."""
 
         allowed: Set[str] = {ASK_USER_TOOL_NAME, RECALL_IMAGE_TOOL_NAME}
         tool_names_by_provider = {

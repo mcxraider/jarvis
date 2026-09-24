@@ -242,7 +242,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 - `errors.py` — API key validation, shared exception types
 - `async_offload.py` — bounded `asyncio.to_thread` with per-loop semaphore and cancellation safety
 - `post_run.py` — bounded FIFO queue for non-critical post-run DB writes
-- `thread_memory.py` — awaited canonical transcript persistence, bounded predecessor loading/rendering, and private Supabase Storage image IO
+- `thread_memory.py` — awaited canonical transcript persistence, bounded predecessor loading/rendering, and private Supabase Storage image IO; `RecallImageReference` TypedDict, `decoded_jpeg_bytes()` helper, lazy `fetch_previous_image_by_reference()` (previous-thread images are metadata-only references at load time, fetched on demand when the model calls `recall_previous_image`)
 - `tracing.py` — `TracePrinter`, `UserProgressTracePrinter`, `name_current_run()`, `ProgressCallback` protocol
 - `runner.py` — local CLI runner (terminal prompts, HITL via input())
 - `studio.py` — LangGraph Studio graph entrypoint
@@ -268,12 +268,12 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 - `extractors.py` — shared extractors: `extract_task_items`, `extract_event_items`
 - `resilience.py` — `BatchThrottle` and `BatchCircuitBreaker`
 - `run_control.py` — thread-safe `RunControl` state machine (cancellation vs concurrent mutation dispatch)
-- `run_deps.py` — `RunDeps` dataclass: per-invocation DI container via LangGraph config
+- `run_deps.py` — `RunDeps` dataclass: per-invocation DI container via LangGraph config; `recallable_images` dict (sha256 → `RecallImageReference`) populated at graph entry, consumed by the tools node on demand
 
 #### `graph/nodes/`
 
 - `orchestrator.py` — LLM agent node (`LLMAgentClient`, `create_agent_node`)
-- `tools.py` — tool execution node (delegates to `ToolDispatcher`)
+- `tools.py` — tool execution node; delegates to `ToolDispatcher` for registry tools and handles `recall_previous_image` in-node (fetches + attaches the image to `RunDeps.images` so the next orchestrator turn sees it; out-of-route calls are also short-circuited here)
 - `hitl.py` — human-in-the-loop clarification interrupt (registered as node `graph.clarify`)
 - `confirm.py` — confirmation interrupt node (pauses run, awaits approve/decline)
 - `prepare_confirm.py` — freezes risky calls into `held_calls`, enriches with context
@@ -293,7 +293,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 #### `tools/`
 
 - `base.py` — `ToolSpec`, `ToolRegistry` (schema + handler + mutating flag)
-- `control.py` — `ask_user` pseudo-tool (graph control)
+- `control.py` — pseudo-tools: `ask_user` (graph control / clarification interrupt) and `recall_previous_image` (lazy image fetch; handled in the tools node, not the registry)
 - `dispatcher.py` — `ToolDispatcher`: mutation guard, idempotency, classified errors, concurrent independent-resource dispatch
 - `domain_adapters.py` — `DOMAIN_ADAPTERS` registry (pluggable credential-aware client factories), `Prewarmable` protocol
 - `errors.py` — `ClassifiedApiError` base class
@@ -370,6 +370,7 @@ Durable thread images use the private Supabase Storage bucket `thread-images`.
 Cross-thread reads use a rolling 48-hour cutoff and are scoped by canonical
 user, hashed Telegram conversation, and `/new` lineage. Stored snapshots exclude
 Base64 image data, system prompts, hidden reasoning, and injected predecessors.
+Previous-thread images are loaded as lightweight metadata references (`RecallImageReference`) at graph entry — no Storage IO until the model calls `recall_previous_image` to fetch one on demand.
 
 Migrations live in `supabase/migrations/`. Use `npm run db:*` scripts for local Supabase management.
 

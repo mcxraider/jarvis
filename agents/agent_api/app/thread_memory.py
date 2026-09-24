@@ -11,7 +11,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, TypedDict
 from urllib.parse import quote
 
 import httpx
@@ -54,6 +54,21 @@ _HIDDEN_KEYS = frozenset(
 _STORAGE_SEGMENT = re.compile(r"^[A-Za-z0-9_.:-]+$")
 
 
+class RecallImageReference(TypedDict, total=False):
+    """A stored image payload used as a lazy-recall reference (sha256 is the id).
+
+    Mirrors a loosely-typed DB payload row, hence ``total=False``; consumers read
+    it via ``.get()``. See ``_build_image_references`` and ``_download_image``.
+    """
+
+    object_path: str
+    sha256: str
+    bytes: int
+    mime_type: str
+    detail: str
+    uploaded: bool
+
+
 @dataclass(frozen=True)
 class PreviousThreadMemory:
     canonical_user_id: str | None = None
@@ -62,7 +77,7 @@ class PreviousThreadMemory:
     previous_status: str | None = None
     text: str = ""
     images: tuple[dict[str, str], ...] = ()
-    image_references: tuple[dict[str, Any], ...] = ()
+    image_references: tuple[RecallImageReference, ...] = ()
     row_count: int = 0
     outcome: str = "empty"
     duration_ms: float = 0.0
@@ -335,7 +350,7 @@ def _build_image_references(
     retained_sequences: set[int],
     *,
     limit: int = MAX_IMAGE_COUNT,
-) -> tuple[dict[str, Any], ...]:
+) -> tuple[RecallImageReference, ...]:
     """Lightweight recall references (metadata only, no storage IO).
 
     The payload already carries everything ``_download_image`` needs
@@ -357,7 +372,7 @@ def _build_image_references(
 
 
 async def fetch_previous_image_by_reference(
-    reference: Mapping[str, Any],
+    reference: RecallImageReference,
 ) -> dict[str, str] | None:
     """Fetch+validate one previous-thread image on demand (lazy recall).
 
@@ -514,16 +529,24 @@ def canonical_memory_messages(messages: Sequence[Mapping[str, Any]]) -> list[dic
     return result
 
 
+def decoded_jpeg_bytes(image: Mapping[str, str]) -> bytes | None:
+    """Decode a JPEG data-URL to raw bytes, or None if absent/invalid Base64."""
+    url = image.get("image_url", "")
+    if not url.startswith(JPEG_DATA_URL_PREFIX):
+        return None
+    try:
+        return base64.b64decode(url[len(JPEG_DATA_URL_PREFIX) :], validate=True)
+    except (binascii.Error, ValueError):
+        return None
+
+
 def _decode_image(image: Mapping[str, str]) -> bytes:
     image_url = image.get("image_url", "")
     if not image_url.startswith(JPEG_DATA_URL_PREFIX):
         raise ValueError("Only JPEG data URLs can be persisted.")
-    try:
-        data = base64.b64decode(
-            image_url[len(JPEG_DATA_URL_PREFIX) :], validate=True
-        )
-    except (binascii.Error, ValueError) as error:
-        raise ValueError("Image data URL contains invalid Base64.") from error
+    data = decoded_jpeg_bytes(image)
+    if data is None:
+        raise ValueError("Image data URL contains invalid Base64.")
     if (
         len(data) > MAX_IMAGE_BYTES
         or not data.startswith(b"\xff\xd8")

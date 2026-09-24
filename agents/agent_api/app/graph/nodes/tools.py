@@ -1,19 +1,19 @@
 """Tool execution graph node."""
 
-import base64
-import binascii
 from typing import Any, Dict, Optional, Sequence
 
 from langchain_core.runnables import RunnableConfig
 
 from agents.agent_api.app.api.schemas import (
-    JPEG_DATA_URL_PREFIX,
     MAX_IMAGE_BYTES,
     MAX_IMAGE_COUNT,
 )
 from agents.agent_api.app.graph.run_deps import RunDeps, deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
-from agents.agent_api.app.thread_memory import fetch_previous_image_by_reference
+from agents.agent_api.app.thread_memory import (
+    decoded_jpeg_bytes,
+    fetch_previous_image_by_reference,
+)
 from agents.agent_api.app.tools.base import parse_tool_call_arguments, tool_call_name
 from agents.agent_api.app.tools.control import RECALL_IMAGE_TOOL_NAME
 from agents.agent_api.app.tools.dispatcher import (
@@ -49,17 +49,7 @@ def _progress_domain(tool_name: str) -> Optional[str]:
 def _accumulated_image_bytes(images: Sequence[Dict[str, Any]]) -> int:
     """Total decoded bytes of the JPEG data-URL images already in the batch."""
 
-    total = 0
-    for image in images:
-        url = image.get("image_url", "")
-        if isinstance(url, str) and url.startswith(JPEG_DATA_URL_PREFIX):
-            try:
-                total += len(
-                    base64.b64decode(url[len(JPEG_DATA_URL_PREFIX):], validate=True)
-                )
-            except (binascii.Error, ValueError):
-                continue
-    return total
+    return sum(len(data) for image in images if (data := decoded_jpeg_bytes(image)))
 
 
 async def _resolve_recall_call(
