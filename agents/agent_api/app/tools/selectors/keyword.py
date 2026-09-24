@@ -81,8 +81,10 @@ KEYWORD_ROUTES: Dict[str, List[str]] = {
     "availability": ["get_freebusy"],
 }
 
-# Tools that must always be available regardless of selection.
-ALWAYS_INCLUDE: Set[str] = {"ask_user"}
+# Tools that must always be available regardless of selection. recall_previous_image
+# is intersected with the registry in _always_include_from, so it is only forced when
+# actually registered (the vision-capable provider).
+ALWAYS_INCLUDE: Set[str] = {"ask_user", "recall_previous_image"}
 
 # Pre-sorted keywords by length (longest first) for greedy matching.
 _SORTED_KEYWORDS: List[str] = sorted(KEYWORD_ROUTES.keys(), key=len, reverse=True)

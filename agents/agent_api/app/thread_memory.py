@@ -30,8 +30,6 @@ from agents.agent_api.app.user_context.identity import TelegramIdentity
 
 THREAD_IMAGE_BUCKET = "thread-images"
 PREVIOUS_THREAD_DB_TIMEOUT_SECONDS = 0.5
-PREVIOUS_THREAD_IMAGE_TIMEOUT_SECONDS = 1.5
-PREVIOUS_THREAD_IMAGE_CONCURRENCY = 4
 PREVIOUS_THREAD_TEXT_LIMIT = 40_000
 IMAGE_UPLOAD_TIMEOUT_SECONDS = 5.0
 
@@ -64,6 +62,7 @@ class PreviousThreadMemory:
     previous_status: str | None = None
     text: str = ""
     images: tuple[dict[str, str], ...] = ()
+    image_references: tuple[dict[str, Any], ...] = ()
     row_count: int = 0
     outcome: str = "empty"
     duration_ms: float = 0.0
@@ -331,62 +330,42 @@ async def _download_image(payload: Mapping[str, Any]) -> dict[str, str] | None:
     }
 
 
-async def _load_historical_images(
+def _build_image_references(
     rows: Sequence[Mapping[str, Any]],
     retained_sequences: set[int],
     *,
-    current_image_count: int,
-    current_image_bytes: int,
-) -> tuple[dict[str, str], ...]:
-    remaining_count = max(0, MAX_IMAGE_COUNT - current_image_count)
-    remaining_bytes = max(0, MAX_IMAGE_BYTES - current_image_bytes)
-    if not remaining_count or not remaining_bytes:
-        return ()
+    limit: int = MAX_IMAGE_COUNT,
+) -> tuple[dict[str, Any], ...]:
+    """Lightweight recall references (metadata only, no storage IO).
+
+    The payload already carries everything ``_download_image`` needs
+    (object_path/sha256/bytes/mime_type/detail/uploaded), so a reference is just
+    the payload. The model recalls one on demand via ``recall_previous_image``;
+    the sha256 is the recall id. Newest-first, capped so the model never sees
+    more recall ids than a turn could attach.
+    """
+
     eligible = [
-        row
+        dict(row["payload"])
         for row in _valid_candidate_rows(rows)
         if row["kind"] == "image"
         and row["payload"].get("user_message_sequence") in retained_sequences
         and row["payload"].get("uploaded") is True
+        and isinstance(row["payload"].get("sha256"), str)
     ]
-    selected: list[dict[str, Any]] = []
-    for row in reversed(eligible):
-        size = row["payload"].get("bytes")
-        if not isinstance(size, int) or size <= 0 or size > remaining_bytes:
-            continue
-        selected.append(row)
-        remaining_bytes -= size
-        if len(selected) >= remaining_count:
-            break
-    selected.reverse()
-    if not selected:
-        return ()
+    return tuple(eligible[-limit:])
 
-    semaphore = asyncio.Semaphore(PREVIOUS_THREAD_IMAGE_CONCURRENCY)
 
-    async def bounded(row: Mapping[str, Any]) -> dict[str, str] | None:
-        async with semaphore:
-            try:
-                return await _download_image(row["payload"])
-            except Exception:
-                return None
+async def fetch_previous_image_by_reference(
+    reference: Mapping[str, Any],
+) -> dict[str, str] | None:
+    """Fetch+validate one previous-thread image on demand (lazy recall).
 
-    tasks = [asyncio.create_task(bounded(row)) for row in selected]
-    try:
-        async with asyncio.timeout(PREVIOUS_THREAD_IMAGE_TIMEOUT_SECONDS):
-            results = await asyncio.gather(*tasks)
-    except TimeoutError:
-        for task in tasks:
-            if not task.done():
-                task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        results = [
-            task.result()
-            if not task.cancelled() and task.exception() is None
-            else None
-            for task in tasks
-        ]
-    return tuple(result for result in results if result is not None)
+    Reuses ``_download_image``'s mime/size/hash validation; returns the
+    ``{"image_url", "detail"}`` attachment dict or ``None`` on any failure.
+    """
+
+    return await _download_image(reference)
 
 
 async def prepare_previous_thread_memory_async(
@@ -396,7 +375,6 @@ async def prepare_previous_thread_memory_async(
     current_thread_id: str,
     user_prompt: str,
     reset_memory: bool = False,
-    current_images: Sequence[Mapping[str, str]] = (),
 ) -> PreviousThreadMemory:
     """Register a fresh thread and load its predecessor within fixed deadlines."""
 
@@ -445,32 +423,14 @@ async def prepare_previous_thread_memory_async(
             previous_thread_id,
             previous_status,
         )
-        current_image_bytes = 0
-        for image in current_images:
-            image_url = image.get("image_url")
-            if not isinstance(image_url, str) or not image_url.startswith(
-                JPEG_DATA_URL_PREFIX
-            ):
-                continue
-            try:
-                current_image_bytes += len(
-                    base64.b64decode(image_url[len(JPEG_DATA_URL_PREFIX) :], validate=True)
-                )
-            except (binascii.Error, ValueError):
-                continue
-        images = await _load_historical_images(
-            rows,
-            retained_sequences,
-            current_image_count=len(current_images),
-            current_image_bytes=current_image_bytes,
-        )
+        image_references = _build_image_references(rows, retained_sequences)
         return PreviousThreadMemory(
             canonical_user_id=canonical_user_id,
             lineage_id=lineage_id,
             previous_thread_id=previous_thread_id,
             previous_status=previous_status,
             text=text,
-            images=images,
+            image_references=image_references,
             row_count=len(rows),
             outcome="loaded",
             duration_ms=round((time.monotonic() - started) * 1000, 1),
@@ -791,14 +751,13 @@ async def persist_thread_memory_async(
 
 __all__ = [
     "PREVIOUS_THREAD_DB_TIMEOUT_SECONDS",
-    "PREVIOUS_THREAD_IMAGE_CONCURRENCY",
-    "PREVIOUS_THREAD_IMAGE_TIMEOUT_SECONDS",
     "PREVIOUS_THREAD_TEXT_LIMIT",
     "PreviousThreadMemory",
     "THREAD_IMAGE_BUCKET",
     "build_memory_snapshot",
     "canonical_memory_messages",
     "close_thread_memory_storage_client",
+    "fetch_previous_image_by_reference",
     "get_thread_memory_storage_client",
     "persist_thread_memory_async",
     "prepare_previous_thread_memory_async",

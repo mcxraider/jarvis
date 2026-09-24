@@ -15,7 +15,6 @@ from agents.agent_api.app.graph import builder as builder_module
 from agents.agent_api.app.thread_memory import (
     PREVIOUS_THREAD_TEXT_LIMIT,
     _download_image,
-    _load_historical_images,
     build_memory_snapshot,
     canonical_memory_messages,
     persist_thread_memory_async,
@@ -382,75 +381,59 @@ async def test_builder_does_not_start_predecessor_lookup_for_resume(monkeypatch)
 
 
 @async_test
-async def test_historical_image_timeout_keeps_completed_downloads(monkeypatch) -> None:
-    slow_cancelled = asyncio.Event()
-
-    async def download(payload):
-        if payload["sha256"] == "fast":
-            return {"image_url": "fast", "detail": "high"}
-        try:
-            await asyncio.sleep(60)
-        finally:
-            slow_cancelled.set()
-
-    monkeypatch.setattr(
-        "agents.agent_api.app.thread_memory._download_image", download
-    )
-    monkeypatch.setattr(
-        "agents.agent_api.app.thread_memory.PREVIOUS_THREAD_IMAGE_TIMEOUT_SECONDS",
-        0.01,
-    )
-    rows = [
-        {
-            "sequence": index,
-            "kind": "image",
-            "payload": {
-                "uploaded": True,
-                "user_message_sequence": 0,
-                "bytes": 1,
-                "sha256": digest,
-            },
-        }
-        for index, digest in enumerate(("fast", "slow"), start=1)
-    ]
-
-    images = await _load_historical_images(
-        rows,
-        {0},
-        current_image_count=0,
-        current_image_bytes=0,
-    )
-
-    assert images == ({"image_url": "fast", "detail": "high"},)
-    assert slow_cancelled.is_set()
-
-
-@async_test
-async def test_current_images_exhaust_capacity_before_history(monkeypatch) -> None:
-    async def unexpected_download(_payload):
-        raise AssertionError("historical image should not be downloaded")
-
-    monkeypatch.setattr(
-        "agents.agent_api.app.thread_memory._download_image", unexpected_download
-    )
-    images = await _load_historical_images(
-        [
+async def test_prepare_builds_references_without_storage_io(monkeypatch) -> None:
+    async def rows_with_image(*_args, **_kwargs):
+        return [
             {
+                "user_id": "user",
+                "lineage_id": "lineage",
+                "previous_thread_id": "previous",
+                "previous_status": "completed",
+                "sequence": 0,
+                "kind": "user",
+                "payload": {"role": "user", "content": "look at this"},
+            },
+            {
+                "user_id": "user",
+                "lineage_id": "lineage",
+                "previous_thread_id": "previous",
+                "previous_status": "completed",
                 "sequence": 1,
                 "kind": "image",
                 "payload": {
                     "uploaded": True,
                     "user_message_sequence": 0,
-                    "bytes": 1,
-                    "sha256": "unused",
+                    "object_path": "user/previous/abc.jpg",
+                    "mime_type": "image/jpeg",
+                    "bytes": 4,
+                    "sha256": "abc",
+                    "detail": "auto",
                 },
-            }
-        ],
-        {0},
-        current_image_count=10,
-        current_image_bytes=1,
+            },
+        ]
+
+    def no_storage():
+        raise AssertionError("prepare must not touch storage; references are metadata only")
+
+    monkeypatch.setattr(
+        "agents.agent_api.app.thread_memory._prepare_rows", rows_with_image
     )
-    assert images == ()
+    monkeypatch.setattr(
+        "agents.agent_api.app.thread_memory.get_thread_memory_storage_client",
+        no_storage,
+    )
+
+    memory = await prepare_previous_thread_memory_async(
+        identity=IDENTITY,
+        conversation_key=CONVERSATION_KEY,
+        current_thread_id="thread",
+        user_prompt="hello",
+    )
+
+    assert memory.outcome == "loaded"
+    assert memory.images == ()
+    assert len(memory.image_references) == 1
+    assert memory.image_references[0]["sha256"] == "abc"
 
 
 @async_test
