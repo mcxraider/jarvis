@@ -1452,8 +1452,8 @@ def create_agent_node(
                 "intent": intent,
             })
 
-        # Determine hosted tools (web_search) before prompt slimming so the
-        # rebuilt system prompt includes them in the Available tools line.
+        # Determine hosted tools (web_search) before building the system prompt
+        # so the built prompt includes them in the Available tools line.
         effective_domains = set(effective_router_domains(selector_decision)) if selector_decision else set()
         selector_selected = getattr(run_tool_selector, "selected_domains", None)
         attached_domains = frozenset(
