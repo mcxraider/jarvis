@@ -87,7 +87,7 @@ The handler watchdog must outlast the worst audio turn, and the gate TTL must ou
 
 **run_jarvis** builds the graph and injects clients, then hands control to the **Orchestrator**.
 
-Before the orchestrator sees tools, the default **RouterToolSelector** uses the configured lightweight classifier to pick the relevant connected service domains and expose only those tools plus `ask_user`. The router can also provide a faithful query rewrite and slim the runtime prompt to the chosen domains. Router failures are non-fatal: the run falls back to the static all-tools selector.
+Before the orchestrator sees tools, the default **RouterToolSelector** uses the configured lightweight classifier to pick the relevant connected service domains and expose only those tools plus `ask_user`. The router can also provide a faithful query rewrite and build the runtime prompt for the chosen domains. Router failures are non-fatal: the run falls back to the static all-tools selector.
 
 The **Orchestrator** is the only graph node that calls the main LLM. It routes every turn to one of:
 
@@ -123,7 +123,7 @@ Every graph node is stateless. Persistence and external IO live in shared single
 | **Idempotency** | Claim/complete to prevent duplicate Todoist mutations |
 | **Request gate** | API auth, source resolution, ownership checks, request idempotency, and thread quota |
 | **Tool system** | Registry and dispatch for Todoist and Google Calendar tools |
-| **Query router** | Domain classification, tool narrowing, prompt slimming, and safe fallback |
+| **Query router** | Domain classification, tool narrowing, per-turn prompt build, and safe fallback |
 | **DB pool** | Connection threads and usage tracking |
 | **Observability** | LangSmith tracing and structured logs |
 | **External APIs** | DeepSeek or OpenAI (LLM), Todoist (task CRUD), Google Calendar (event CRUD) |

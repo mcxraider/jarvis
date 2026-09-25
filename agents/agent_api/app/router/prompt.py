@@ -96,7 +96,7 @@ class RouterDecision(BaseModel):
 
 
 def effective_router_domains(decision: RouterDecision) -> List[str]:
-    """Return the domain set that should drive tools and prompt slimming."""
+    """Return the domain set that should drive tools and prompt composition."""
 
     domains = (
         decision.candidate_domains

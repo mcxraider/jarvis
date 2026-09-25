@@ -7,12 +7,11 @@ offline/DI runs), so the prompt's capability claims always match the live
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 from agents.agent_api.app.graph.prompts.orchestrator import (
     _current_user_datetime,
     _user_timezone,
-    get_system_prompt,
 )
 from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
 
@@ -327,35 +326,24 @@ def build_user_prompt_with_request_datetime(
 def build_initial_messages(
     user_prompt: str,
     timezone: Optional[str] = None,
-    user_name: Optional[str] = None,
     runtime_context: Optional[RuntimeContextSnapshot] = None,
-    registered_tools: Optional[List[str]] = None,
-    relevant_domains: Optional[Set[str]] = None,
     reply_context: Optional[dict] = None,
 ) -> List[Dict[str, Any]]:
-    """Create the canonical message list used by the selected LLM provider.
+    """Create the initial message list: only the user message.
 
-    ``relevant_domains`` (from the query router) is forwarded to the system
-    prompt to slim the per-domain fragments; ``None`` keeps every active domain
-    (today's behavior).
+    The orchestrator node is the sole constructor of the system prompt
+    (messages[0]); it builds it from the turn's routing output before the first
+    LLM call, inserting it ahead of this user message. See
+    graph/nodes/orchestrator.py::_build_orchestrator_system_prompt_for_turn.
     """
-
     return [
-        {
-            "role": "system",
-            "content": get_system_prompt(
-                timezone,
-                user_name=user_name,
-                runtime_context=runtime_context,
-                registered_tools=registered_tools,
-                relevant_domains=relevant_domains,
-            ),
-        },
         {
             "role": "user",
             "content": build_user_prompt_with_request_datetime(
                 user_prompt,
-                timezone=(runtime_context.timezone if runtime_context is not None else timezone),
+                timezone=(
+                    runtime_context.timezone if runtime_context is not None else timezone
+                ),
                 reply_context=reply_context,
             ),
         },

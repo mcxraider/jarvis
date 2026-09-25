@@ -493,10 +493,8 @@ def build_initial_state(
     thread_id: Optional[str] = None,
     request_source: str = "api",
     timezone: Optional[str] = None,
-    user_name: Optional[str] = None,
     runtime_context: Optional[RuntimeContextSnapshot] = None,
     reply_context: Optional[dict] = None,
-    registered_tools: Optional[list] = None,
 ) -> JarvisState:
     """Create a fresh state object for one Jarvis run."""
 
@@ -505,9 +503,7 @@ def build_initial_state(
         "messages": build_initial_messages(
             user_prompt,
             timezone=timezone,
-            user_name=user_name,
             runtime_context=runtime_context,
-            registered_tools=registered_tools,
             reply_context=reply_context,
         ),
         "user_prompt": user_prompt,
@@ -888,7 +884,6 @@ async def _run_jarvis_async_impl(
     else:
         agent_client = _retarget_tracer(agent_client, tracer)
     run_usage = UsageSummary()
-    offline_tool_names: Optional[list] = None
     access_policy = (
         ResourceAccessPolicy.from_preferences(runtime_context.snapshot.preferences.access)
         if runtime_context is not None
@@ -920,7 +915,6 @@ async def _run_jarvis_async_impl(
         todoist_client = _retarget_tracer(todoist_client, tracer)
         registry = build_registry_from_clients(todoist_client=todoist_client)
         run_clients = [todoist_client]
-        offline_tool_names = [spec.name for spec in registry.specs]
     dispatcher = ToolDispatcher(
         registry,
         allow_mutations=allow_mutations,
@@ -1048,15 +1042,9 @@ async def _run_jarvis_async_impl(
                 if runtime_context is not None
                 else None
             ),
-            user_name=(
-                runtime_context.snapshot.display_name
-                if runtime_context is not None
-                else None
-            ),
             runtime_context=(
                 runtime_context.snapshot if runtime_context is not None else None
             ),
-            registered_tools=offline_tool_names,
             reply_context=reply_context,
         )
     canonical_user_id = (

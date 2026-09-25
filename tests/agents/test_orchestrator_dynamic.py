@@ -69,13 +69,12 @@ class TestOfflinePrompt:
             return_value=instant,
         ):
             messages = build_initial_messages(
-                "hello", timezone="America/Chicago", user_name="X"
+                "hello", timezone="America/Chicago"
             )
 
-        assert "Current date:" not in messages[0]["content"]
         assert (
-            "Current datetime: 2026-07-09T11:30:00-05:00" in messages[1]["content"]
-            and "Current day: Thursday" in messages[1]["content"]
+            "Current datetime: 2026-07-09T11:30:00-05:00" in messages[0]["content"]
+            and "Current day: Thursday" in messages[0]["content"]
         )
 
 
@@ -247,7 +246,7 @@ class TestRuntimeContextPrompt:
 
         todoist_prompt = get_orchestrator_prompt(
             runtime_context=snapshot,
-            relevant_domains={"todoist"},
+            included_domains={"todoist"},
         )
         assert "Todoist-only guidance." in todoist_prompt
         assert "Calendar-only guidance." not in todoist_prompt
@@ -258,7 +257,7 @@ class TestRuntimeContextPrompt:
                 unavailable={"google_calendar": "not_connected"},
                 preferences=preferences,
             ),
-            relevant_domains={"google_calendar"},
+            included_domains={"google_calendar"},
         )
         assert "## User domain-specific comments" not in inactive_prompt
         assert "Calendar-only guidance." not in inactive_prompt
@@ -266,7 +265,7 @@ class TestRuntimeContextPrompt:
     def test_domain_comment_section_is_omitted_when_no_comments_apply(self):
         prompt = get_orchestrator_prompt(
             runtime_context=make_snapshot(),
-            relevant_domains={"todoist"},
+            included_domains={"todoist"},
         )
 
         assert "## User domain-specific comments" not in prompt
@@ -281,10 +280,9 @@ class TestRuntimeContextPrompt:
             messages = build_initial_messages("hello", runtime_context=snapshot)
 
         current_datetime.assert_called_once_with("Asia/Singapore")
-        assert "Current date:" not in messages[0]["content"]
         assert (
-            "Current datetime: 2026-07-10T08:30:00+08:00" in messages[1]["content"]
-            and "Current day: Friday" in messages[1]["content"]
+            "Current datetime: 2026-07-10T08:30:00+08:00" in messages[0]["content"]
+            and "Current day: Friday" in messages[0]["content"]
         )
 
     def test_relative_weekday_semantics_are_deterministic(self):
@@ -328,12 +326,15 @@ class TestPassthrough:
 
     def test_build_initial_messages_threads_runtime_context(self):
         snapshot = make_snapshot(display_name="Zachary")
-        messages = build_initial_messages("hello", runtime_context=snapshot)
-        assert "Zachary's personal assistant" in messages[0]["content"]
+        # build_initial_messages returns only the user message; the system
+        # prompt is built by the orchestrator node. Verify via get_system_prompt.
+        assert "Zachary's personal assistant" in get_system_prompt(
+            runtime_context=snapshot
+        )
 
 
-class TestRelevantDomainsSlimming:
-    """The router's relevant_domains narrows only the heavy per-domain fragments."""
+class TestIncludedDomainsSlimming:
+    """The router's included_domains narrows only the heavy per-domain fragments."""
 
     # Distinct substrings from each domain's grounding note (see tools.py), used to
     # assert a domain's block is present/absent independently of its tool-tips header.
@@ -344,7 +345,7 @@ class TestRelevantDomainsSlimming:
         return make_snapshot(active=("todoist", "google_calendar"))
 
     def test_none_keeps_all_fragments(self):
-        """Regression: omitting relevant_domains == today's behavior (all active)."""
+        """Regression: omitting included_domains == today's behavior (all active)."""
         prompt = get_orchestrator_prompt(runtime_context=self._both_active())
         assert "## Todoist tool tips" in prompt
         assert "## Google Calendar tool tips" in prompt
@@ -354,7 +355,7 @@ class TestRelevantDomainsSlimming:
     def test_subset_narrows_to_that_domain(self):
         prompt = get_orchestrator_prompt(
             runtime_context=self._both_active(),
-            relevant_domains={"todoist"},
+            included_domains={"todoist"},
         )
         assert "## Todoist tool tips" in prompt
         assert self._TODOIST_GROUNDING in prompt
@@ -366,7 +367,7 @@ class TestRelevantDomainsSlimming:
         """Slimming fragments must NOT hide that a domain exists but wasn't routed."""
         prompt = get_orchestrator_prompt(
             runtime_context=self._both_active(),
-            relevant_domains={"todoist"},
+            included_domains={"todoist"},
         )
         # The lightweight availability summary still lists Calendar as registered.
         assert "- Google Calendar: registered" in prompt
@@ -377,7 +378,7 @@ class TestRelevantDomainsSlimming:
         and the routing preferences section."""
         prompt = get_orchestrator_prompt(
             runtime_context=self._both_active(),
-            relevant_domains=set(),
+            included_domains=set(),
         )
         assert "## Todoist tool tips" not in prompt
         assert "## Google Calendar tool tips" not in prompt
@@ -393,10 +394,10 @@ class TestRelevantDomainsSlimming:
         assert "## Domain availability" in prompt
 
     def test_none_keeps_routing_preferences(self):
-        """No slimming (relevant_domains=None) keeps routing preferences."""
+        """No slimming (included_domains=None) keeps routing preferences."""
         prompt = get_orchestrator_prompt(
             runtime_context=self._both_active(),
-            relevant_domains=None,
+            included_domains=None,
         )
         assert "## User routing preferences" in prompt
         assert "Task provider:" in prompt
@@ -405,7 +406,7 @@ class TestRelevantDomainsSlimming:
         """When domains are routed, routing preferences are present."""
         prompt = get_orchestrator_prompt(
             runtime_context=self._both_active(),
-            relevant_domains={"todoist"},
+            included_domains={"todoist"},
         )
         assert "## User routing preferences" in prompt
         assert "Task provider:" in prompt
@@ -419,14 +420,14 @@ class TestRelevantDomainsSlimming:
         avail_pos = prompt.rfind("## Domain availability")
         assert tools_pos > avail_pos
 
-    def test_relevant_domains_only_intersects_active(self):
+    def test_included_domains_only_intersects_active(self):
         """Requesting an inactive domain adds nothing (intersection with active)."""
         snapshot = make_snapshot(
             active=("todoist",), unavailable={"google_calendar": "not_connected"}
         )
         prompt = get_orchestrator_prompt(
             runtime_context=snapshot,
-            relevant_domains={"todoist", "google_calendar"},
+            included_domains={"todoist", "google_calendar"},
         )
         assert "## Todoist tool tips" in prompt
         assert "## Google Calendar tool tips" not in prompt
@@ -434,21 +435,10 @@ class TestRelevantDomainsSlimming:
     def test_threads_through_get_system_prompt(self):
         prompt = get_system_prompt(
             runtime_context=self._both_active(),
-            relevant_domains={"todoist"},
+            included_domains={"todoist"},
         )
         assert "## Todoist tool tips" in prompt
         assert "## Google Calendar tool tips" not in prompt
-
-    def test_threads_through_build_initial_messages(self):
-        messages = build_initial_messages(
-            "hello",
-            runtime_context=self._both_active(),
-            relevant_domains={"google_calendar"},
-        )
-        system = messages[0]["content"]
-        assert "## Google Calendar tool tips" in system
-        assert "## Todoist tool tips" not in system
-
 
 class TestRuntimeContextGuards:
     def _resolved_context(self):
@@ -502,3 +492,11 @@ class TestRuntimeContextGuards:
                 assert domain.tool_names
             else:
                 assert domain.tool_names == []
+
+
+def test_initial_messages_has_no_system_message():
+    snapshot = make_snapshot(active=("todoist", "google_calendar"))
+    msgs = build_initial_messages("add a task", runtime_context=snapshot)
+    assert len(msgs) == 1
+    assert msgs[0]["role"] == "user"
+    assert "add a task" in msgs[0]["content"]
