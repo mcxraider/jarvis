@@ -199,14 +199,19 @@ def create_user(args: argparse.Namespace) -> Dict[str, Any]:
     user_id, created = _execute_one(
         """
         select user_id, created
-        from private.admin_upsert_user(%s, %s, %s, %s, %s, %s)
+        from private.onboard_user(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             args.telegram_user_id,
-            args.username,
             args.display_name,
+            args.task_provider,
+            args.event_provider,
+            args.username,
             args.timezone,
             args.locale,
+            args.tone,
+            args.verbosity,
+            args.calendar_usage,
             args.actor,
         ),
     )
@@ -219,25 +224,6 @@ def disable_user(args: argparse.Namespace) -> Dict[str, Any]:
         (args.telegram_user_id, args.actor),
     )
     return {"user_id": str(user_id), "status": "suspended"}
-
-
-def attach_telegram_identity(args: argparse.Namespace) -> Dict[str, Any]:
-    (user_id,) = _execute_one(
-        "select private.admin_attach_telegram_identity(%s, %s, %s, %s, %s, %s)",
-        (
-            args.owner_telegram_user_id,
-            args.telegram_user_id,
-            args.username,
-            args.display_name,
-            args.primary,
-            args.actor,
-        ),
-    )
-    return {
-        "user_id": str(user_id),
-        "telegram_user_id": str(args.telegram_user_id),
-        "primary": args.primary,
-    }
 
 
 def set_preferences(args: argparse.Namespace, stdin: TextIO) -> Dict[str, Any]:
@@ -564,23 +550,29 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     _add_user_target(create)
     create.add_argument("--username", default="")
     create.add_argument("--display-name", required=True)
-    create.add_argument("--timezone", required=True)
+    create.add_argument("--task-provider", choices=SUPPORTED_PROVIDERS, required=True)
+    create.add_argument("--event-provider", choices=SUPPORTED_PROVIDERS, required=True)
+    create.add_argument("--timezone", default="Asia/Singapore")
     create.add_argument("--locale", default="en")
+    create.add_argument(
+        "--tone",
+        choices=("casual", "neutral", "professional"),
+        default="neutral",
+    )
+    create.add_argument(
+        "--verbosity",
+        choices=("concise", "balanced", "detailed"),
+        default="balanced",
+    )
+    create.add_argument(
+        "--calendar-usage",
+        choices=("default", "explicit_only"),
+        default="default",
+    )
     _add_actor(create)
     disable = users.add_parser("disable")
     _add_user_target(disable)
     _add_actor(disable)
-
-    identities = groups.add_parser("identity").add_subparsers(
-        dest="command", required=True
-    )
-    attach = identities.add_parser("attach-telegram")
-    attach.add_argument("--owner-telegram-user-id", type=int, required=True)
-    _add_user_target(attach)
-    attach.add_argument("--username", default="")
-    attach.add_argument("--display-name", default="")
-    attach.add_argument("--primary", action="store_true")
-    _add_actor(attach)
 
     preferences = groups.add_parser("preferences").add_subparsers(
         dest="command", required=True
@@ -636,8 +628,6 @@ def _dispatch(args: argparse.Namespace, stdin: TextIO) -> Dict[str, Any]:
         return create_user(args)
     if handler == ("user", "disable"):
         return disable_user(args)
-    if handler == ("identity", "attach-telegram"):
-        return attach_telegram_identity(args)
     if handler == ("preferences", "set"):
         return set_preferences(args, stdin)
     if args.group == "credential" and args.command in ("import", "rotate", "reconnect"):

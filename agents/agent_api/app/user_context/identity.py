@@ -69,13 +69,11 @@ def refresh_identity_profile(
 
     cursor.execute(
         """
-        UPDATE public.telegram_identities AS identity
-        SET username = COALESCE(%s::text, identity.username),
-            last_seen_at = NOW()
-        FROM public.users AS app_user
-        WHERE identity.user_id = app_user.id
-          AND identity.telegram_id = %s
-          AND identity.verified_at IS NOT NULL
+        UPDATE public.users AS app_user
+        SET telegram_username = COALESCE(%s::text, app_user.telegram_username),
+            telegram_last_seen_at = NOW()
+        WHERE app_user.telegram_id = %s
+          AND app_user.telegram_verified_at IS NOT NULL
           AND app_user.status = 'active'
         RETURNING app_user.id
         """,
@@ -107,21 +105,17 @@ def resolve_active_identity(
         SELECT app_user.id,
                COALESCE(
                    app_user.display_name,
-                   identity.username,
+                   app_user.telegram_username,
                    'the user'
                ),
                app_user.timezone,
                app_user.locale,
-               preferences.schema_version,
-               preferences.revision,
-               preferences.preferences
-        FROM public.telegram_identities identity
-        JOIN public.users app_user
-          ON app_user.id = identity.user_id
-        JOIN public.user_preferences preferences
-          ON preferences.user_id = app_user.id
-        WHERE identity.telegram_id = %s
-          AND identity.verified_at IS NOT NULL
+               app_user.preference_schema_version,
+               app_user.preference_revision,
+               app_user.preferences
+        FROM public.users app_user
+        WHERE app_user.telegram_id = %s
+          AND app_user.telegram_verified_at IS NOT NULL
           AND app_user.status = 'active'
         """,
         (inbound_identity.telegram_id,),

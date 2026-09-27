@@ -82,11 +82,9 @@ def test_runtime_snapshot_serializes_and_rehydrates_comments():
 
 
 def test_migration_extends_both_domain_paths_without_bumping_schema_version():
-    migration = (
-        Path(__file__).parents[2]
-        / "supabase"
-        / "migrations"
-        / "20260727122414_add_user_domain_specific_comments.sql"
+    migrations = Path(__file__).parents[2] / "supabase" / "migrations"
+    migration = next(
+        migrations.glob("*_add_user_domain_specific_comments.sql")
     ).read_text(encoding="utf-8")
 
     assert "create or replace function private.is_valid_user_preferences_v1" in migration

@@ -14,6 +14,7 @@ class ReadinessCursor:
         self,
         *,
         missing_tables=(),
+        missing_profile_columns=(),
         missing_columns=(),
         missing_privileges=(),
         missing_memory_contract=(),
@@ -22,6 +23,7 @@ class ReadinessCursor:
             [
                 [("jarvis_app", True)],
                 [(value,) for value in missing_tables],
+                [(value,) for value in missing_profile_columns],
                 [(value,) for value in missing_columns],
                 [(value,) for value in missing_privileges],
                 [(value,) for value in missing_memory_contract],
@@ -92,6 +94,7 @@ def test_readiness_accepts_complete_least_privilege_schema():
     "cursor_options",
     [
         {"missing_tables": ("idempotency_results",)},
+        {"missing_profile_columns": ("telegram_id",)},
         {"missing_columns": ("lease_expires_at",)},
         {"missing_privileges": ("DELETE",)},
         {"missing_memory_contract": ("function:prepare_thread_memory:EXECUTE",)},

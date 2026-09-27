@@ -23,8 +23,6 @@ _async_pool_state_lock = threading.Lock()
 
 _REQUIRED_RUNTIME_TABLES = (
     "users",
-    "telegram_identities",
-    "user_preferences",
     "telegram_pending_clarifications",
     "telegram_conversation_gates",
     "rate_limits",
@@ -32,6 +30,21 @@ _REQUIRED_RUNTIME_TABLES = (
     "threads",
     "thread_memory_heads",
     "thread_messages",
+)
+
+_REQUIRED_USER_PROFILE_COLUMNS = (
+    "telegram_id",
+    "telegram_username",
+    "telegram_verified_at",
+    "telegram_last_seen_at",
+    "telegram_profile",
+    "onboarding_first_seen_at",
+    "preferences",
+    "preference_schema_version",
+    "preference_revision",
+    "preferences_created_at",
+    "preferences_updated_at",
+    "preferences_updated_by",
 )
 
 _REQUIRED_IDEMPOTENCY_COLUMNS = (
@@ -131,6 +144,24 @@ def verify_database_runtime() -> None:
                         "Database migrations are incomplete; missing: "
                         + ", ".join(f"public.{name}" for name in missing_tables)
                     )
+
+                cursor.execute(
+                    """
+                    SELECT required.column_name
+                    FROM unnest(%s::text[]) AS required(column_name)
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns actual
+                        WHERE actual.table_schema = 'public'
+                          AND actual.table_name = 'users'
+                          AND actual.column_name = required.column_name
+                    )
+                    """,
+                    (list(_REQUIRED_USER_PROFILE_COLUMNS),),
+                )
+                missing_profile_columns = [row[0] for row in cursor.fetchall()]
+                if missing_profile_columns:
+                    raise RuntimeError("User profile schema is incomplete")
 
                 cursor.execute(
                     """

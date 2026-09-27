@@ -24,46 +24,99 @@ passwords, or generated production identifiers. Production schema changes must
 be represented by a reviewed migration and verified against a fresh database
 before rollout.
 
-## Administrative onboarding order
+## Administrative onboarding
 
 Use the admin-only `JARVIS_ADMIN_POSTGRES_DSN`. The bot runtime must never receive
 this connection string.
 
-1. Create the user with `scripts/manage_integrations.py user create`.
-2. Import each requested provider credential with `credential import`.
+Create a complete active, verified user without any integration rows:
 
-   For a new Google Calendar connection, pass the authorized-user JSON file to
-   the parameterized admin CLI:
+```bash
+python scripts/manage_integrations.py user create \
+  --telegram-user-id 123456789 \
+  --display-name "Alex" \
+  --task-provider todoist \
+  --event-provider google_calendar
+```
 
-   ```bash
-   python scripts/manage_integrations.py credential import \
-     --telegram-user-id 123456789 \
-     --provider google_calendar \
-     --secret-file /secure/path/token.json
-   ```
+The command defaults to timezone `Asia/Singapore`, locale `en`, tone
+`neutral`, verbosity `balanced`, and calendar usage `default`. Repeating it is
+idempotent: it returns the existing UUID without changing that user's profile,
+status, verification, preferences, or connections.
 
-   Do not paste OAuth JSON into a generated SQL file. The CLI validates the
-   credential with Google before calling the audited Vault-backed database
-   function. `supabase/google_cal_token_refresher.sql` is only for manual
-   rotation of an existing connection; it cannot create the initial connection.
-3. Discover canonical resource IDs:
+The equivalent admin SQL call is:
 
-   ```bash
-   python scripts/manage_integrations.py --json resources list \
-     --telegram-user-id 123456789 \
-     --provider todoist
+```sql
+select * from private.onboard_user(
+  p_telegram_id => 123456789,
+  p_display_name => 'Alex',
+  p_task_provider => 'todoist',
+  p_event_provider => 'google_calendar'
+);
+```
 
-   python scripts/manage_integrations.py --json resources list \
-     --telegram-user-id 123456789 \
-     --provider google_calendar
-   ```
+Inspect or make a simple preference edit directly on the consolidated row:
 
-4. Manually translate `reports/user-onboarding.md` into preferences JSON. Do not
-   put credentials in this file.
-5. Store the profile with `preferences set`. Restricted resource IDs are checked
-   against the connected account before the database write.
-6. Run `capabilities show` and `audit check`.
-7. Ask the user to execute the review examples in the questionnaire.
+```sql
+select id, display_name, telegram_id, telegram_username, status,
+       timezone, locale, preferences, preference_revision
+from public.users
+where telegram_id = 123456789;
+
+update public.users
+set preferences = jsonb_set(preferences, '{communication,tone}', '"casual"'),
+    preferences_updated_by = 'admin:sql'
+where telegram_id = 123456789;
+```
+
+Provider connections are optional and may be added later. Import each requested
+credential with `credential import`.
+
+For a new Google Calendar connection, pass the authorized-user JSON file to
+the parameterized admin CLI:
+
+```bash
+python scripts/manage_integrations.py credential import \
+  --telegram-user-id 123456789 \
+  --provider google_calendar \
+  --secret-file /secure/path/token.json
+```
+
+Do not paste OAuth JSON into a generated SQL file. The CLI validates the
+credential with Google before calling the audited Vault-backed database
+function. `supabase/google_cal_token_refresher.sql` is only for manual
+rotation of an existing connection; it cannot create the initial connection.
+
+Then discover canonical resource IDs when configuring resource restrictions:
+
+```bash
+python scripts/manage_integrations.py --json resources list \
+  --telegram-user-id 123456789 \
+  --provider todoist
+
+python scripts/manage_integrations.py --json resources list \
+  --telegram-user-id 123456789 \
+  --provider google_calendar
+```
+
+Manually translate `reports/user-onboarding.md` into preferences JSON. Do not
+put credentials in this file. Store advanced profile edits with `preferences
+set`. Restricted resource IDs are checked against the connected account before
+the database write.
+
+Run `capabilities show` and `audit check`, then ask the user to execute the
+review examples in the questionnaire.
+
+The removed `identity attach-telegram` command is intentionally not replaced.
+To replace a Telegram account while preserving the canonical UUID, use an
+explicit reviewed admin transaction: lock the `users` row, set the new positive
+unique `telegram_id`, clear `telegram_username`, `telegram_last_seen_at`, and
+`telegram_profile`, and set `telegram_verified_at` only after deliberately
+verifying the replacement account. Never use the username as an authorization
+key.
+
+See [two-table-user-onboarding-runbook.md](two-table-user-onboarding-runbook.md)
+for the staged deployment, validation, backup, and rollback procedure.
 
 The Markdown questionnaire is deliberately not parsed automatically.
 

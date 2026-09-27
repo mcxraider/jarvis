@@ -256,6 +256,54 @@ def test_sync_adapter_reuses_one_loop_across_sequential_calls() -> None:
     assert agent.loops[0] is agent.loops[1]
 
 
+def test_sync_adapter_owns_async_db_pool_when_postgres_is_configured() -> None:
+    events: list[tuple[str, asyncio.AbstractEventLoop]] = []
+    close_sync_pool = MagicMock()
+    configured = replace(builder.settings, postgres_dsn="postgresql://test")
+
+    async def open_pool() -> object:
+        events.append(("open", asyncio.get_running_loop()))
+        return object()
+
+    async def close_pool() -> None:
+        events.append(("close", asyncio.get_running_loop()))
+
+    async def invoke(**_kwargs) -> dict[str, Any]:
+        current_loop = asyncio.get_running_loop()
+        assert events == [("open", current_loop)]
+        return {"final_response": "done", "error": "", "interrupted": False}
+
+    with patch.object(builder, "settings", configured), patch.object(
+        builder,
+        "run_jarvis_async",
+        new=invoke,
+    ), patch(
+        "agents.agent_api.app.db.open_async_pool",
+        new=open_pool,
+    ), patch(
+        "agents.agent_api.app.db.close_async_pool",
+        new=close_pool,
+    ), patch(
+        "agents.agent_api.app.db.close_pool",
+        new=close_sync_pool,
+    ):
+        try:
+            result = builder.run_jarvis(
+                user_prompt="persist memory",
+                tracer=NULL_TRACE,
+                telegram_user_id=123,
+                checkpointer=builder.get_default_checkpointer(),
+            )
+            assert result["final_response"] == "done"
+            assert [event for event, _loop in events] == ["open"]
+        finally:
+            builder.shutdown_sync_runner()
+
+    assert [event for event, _loop in events] == ["open", "close"]
+    assert events[0][1] is events[1][1]
+    close_sync_pool.assert_called_once_with()
+
+
 def test_async_runner_persists_fresh_context_before_graph_entry() -> None:
     events: list[str] = []
     context = ResolvedRuntimeContext(snapshot=make_snapshot(), credentials={})

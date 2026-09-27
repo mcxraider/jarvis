@@ -49,7 +49,8 @@ class TestRefreshIdentityProfile:
 
         assert result == "user-id"
         sql, params = cursor.statements[0]
-        assert "UPDATE public.telegram_identities" in sql
+        assert "UPDATE public.users" in sql
+        assert "telegram_last_seen_at = NOW()" in sql
         assert "app_user.status = 'active'" in sql
         assert params == ("tester", 42)
 
@@ -70,6 +71,14 @@ class TestRefreshIdentityProfile:
         assert sql.count("%s::text") == 1
         assert params == (None, 42)
 
+    def test_last_seen_update_does_not_touch_preferences(self):
+        cursor = FakeCursor(row=("user-id",))
+        refresh_identity_profile(cursor, IDENTITY)
+
+        sql, _params = cursor.statements[0]
+        assert "preferences" not in sql
+        assert "preference_revision" not in sql
+
 
 class TestResolveActiveIdentity:
     def test_reads_profile_and_validated_preferences(self):
@@ -83,6 +92,9 @@ class TestResolveActiveIdentity:
         assert identity.timezone == "Asia/Singapore"
         assert identity.preferences.revision == 3
         assert identity.preferences.preferences.routing.event_provider == "google_calendar"
+        sql, _params = cursor.statements[0]
+        assert "FROM public.users app_user" in sql
+        assert "user_preferences" not in sql
 
     def test_no_active_user_fails_closed(self):
         cursor = FakeCursor(row=None)

@@ -1,41 +1,39 @@
-"""Contracts for the expand/contract Telegram identity migration pair."""
+"""Contracts for the executed two-table onboarding migration sequence."""
 
 from pathlib import Path
 
 
 MIGRATIONS = Path(__file__).resolve().parents[2] / "supabase" / "migrations"
-EXPAND = (
-    MIGRATIONS / "20260706024802_expand_telegram_identities.sql"
-).read_text().lower()
-FINALIZE = (
-    MIGRATIONS / "20260706024803_finalize_telegram_identities.sql"
-).read_text().lower()
+PREPARE = next(MIGRATIONS.glob("*_prepare_two_table_user_onboarding.sql")).read_text().lower()
+CUTOVER = next(MIGRATIONS.glob("*_cutover_two_table_user_onboarding.sql")).read_text().lower()
+CLEANUP = next(MIGRATIONS.glob("*_cleanup_legacy_user_profiles.sql")).read_text().lower()
 
 
-def test_expand_keeps_old_and_new_identity_shapes_in_sync():
-    assert "add column telegram_id bigint" in EXPAND
-    assert "create trigger user_identities_sync_telegram_columns" in EXPAND
-    assert "create view public.telegram_identities" in EXPAND
-    assert "security_invoker = true" in EXPAND
-    assert "only telegram identities are supported" in EXPAND
+def test_prepare_is_additive_and_withholds_onboarding_execution():
+    assert "add column telegram_id bigint" in PREPARE
+    assert "add column preferences jsonb" in PREPARE
+    assert "create or replace function private.onboard_user" in PREPARE
+    assert "from public.user_identities" in PREPARE
+    assert "from public.user_preferences" in PREPARE
+    assert "drop table public.user_identities" not in PREPARE
+    assert "jarvis_admin_runtime;" in PREPARE
 
 
-def test_finalize_removes_generic_and_duplicate_profile_columns():
-    for column in (
-        "identity_provider",
-        "external_subject",
-        "display_name",
-        "metadata",
-        "is_primary",
-        "id",
-    ):
-        assert f"drop column {column}" in FINALIZE
-    assert "rename to telegram_identities" in FINALIZE
-    assert "telegram_identities_pkey primary key (user_id)" in FINALIZE
-    assert "drop function public.resolve_user_id(text, text)" in FINALIZE
+def test_cutover_recopies_and_switches_all_shared_functions():
+    assert "final authoritative recopy" in CUTOVER
+    assert "create or replace function public.resolve_user_id" in CUTOVER
+    assert "create or replace function private.admin_user_id_for_telegram" in CUTOVER
+    assert "create or replace function private.admin_set_preferences" in CUTOVER
+    assert "create or replace function private.admin_capability_summary" in CUTOVER
+    assert "drop function private.admin_attach_telegram_identity" in CUTOVER
+    assert "grant execute on function private.onboard_user" in CUTOVER
+    assert "configured_provider_unavailable" not in CUTOVER
 
 
-def test_finalize_preserves_users_as_display_name_authority():
-    assert "alter column display_name set not null" in FINALIZE
-    assert "users_display_name_not_blank" in FINALIZE
-    assert "identity.display_name" not in FINALIZE
+def test_cleanup_is_restrictive_and_preserves_unmatched_first_seen_rows():
+    assert "private.telegram_onboarding_seen_archive" in CLEANUP
+    assert "drop view public.telegram_identities;" in CLEANUP
+    assert "drop table public.user_preferences;" in CLEANUP
+    assert "drop table public.user_identities;" in CLEANUP
+    assert "drop table public.telegram_onboarding_seen;" in CLEANUP
+    assert "cascade" not in CLEANUP

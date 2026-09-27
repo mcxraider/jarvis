@@ -1342,31 +1342,40 @@ def run_jarvis(
         ensure_default_checkpointer_setup()
     checkpointer = as_async_checkpointer(checkpointer)
     global _SYNC_RUNNER
-    invocation = run_jarvis_async(
-        user_prompt=user_prompt,
-        user_id=user_id,
-        request_source=request_source,
-        allow_mutations=allow_mutations,
-        agent_client=agent_client,
-        todoist_client=todoist_client,
-        max_agent_turns=max_agent_turns,
-        tracer=tracer,
-        thread_id=thread_id,
-        identity=identity,
-        telegram_user_id=telegram_user_id,
-        telegram_username=telegram_username,
-        telegram_first_name=telegram_first_name,
-        clarification_reply=clarification_reply,
-        checkpointer=checkpointer,
-        request_id=request_id,
-        tool_selector=tool_selector,
-        idempotency_store=idempotency_store,
-        run_control=run_control,
-        images=images,
-        prior_image_batches=prior_image_batches,
-        conversation_key=conversation_key,
-        reset_memory=reset_memory,
-    )
+    async def invoke() -> JarvisState:
+        if settings.postgres_dsn and (
+            identity is not None or telegram_user_id is not None
+        ):
+            from agents.agent_api.app.db import open_async_pool
+
+            await open_async_pool()
+        return await run_jarvis_async(
+            user_prompt=user_prompt,
+            user_id=user_id,
+            request_source=request_source,
+            allow_mutations=allow_mutations,
+            agent_client=agent_client,
+            todoist_client=todoist_client,
+            max_agent_turns=max_agent_turns,
+            tracer=tracer,
+            thread_id=thread_id,
+            identity=identity,
+            telegram_user_id=telegram_user_id,
+            telegram_username=telegram_username,
+            telegram_first_name=telegram_first_name,
+            clarification_reply=clarification_reply,
+            checkpointer=checkpointer,
+            request_id=request_id,
+            tool_selector=tool_selector,
+            idempotency_store=idempotency_store,
+            run_control=run_control,
+            images=images,
+            prior_image_batches=prior_image_batches,
+            conversation_key=conversation_key,
+            reset_memory=reset_memory,
+        )
+
+    invocation = invoke()
     with _SYNC_RUNNER_LOCK:
         if _SYNC_RUNNER is None:
             _SYNC_RUNNER = asyncio.Runner()
@@ -1388,6 +1397,7 @@ def shutdown_sync_runner() -> None:
 
         async def close_resources() -> None:
             from agents.agent_api.app.async_offload import drain_offloads
+            from agents.agent_api.app.db import close_async_pool, close_pool
             from agents.agent_api.app.graph.nodes.orchestrator import (
                 close_shared_async_agent_client,
             )
@@ -1410,6 +1420,8 @@ def shutdown_sync_runner() -> None:
                 raise TimeoutError("Post-run metadata did not drain before CLI shutdown.")
             if not await drain_offloads(5.0):
                 raise TimeoutError("Blocking compatibility work did not drain before CLI shutdown.")
+            await close_async_pool()
+            await asyncio.to_thread(close_pool)
             await close_shared_async_agent_client()
             await close_shared_async_router_openai_client()
             await close_shared_async_summarizer_client()

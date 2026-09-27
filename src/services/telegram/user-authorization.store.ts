@@ -42,12 +42,10 @@ export class PostgresUserAuthorizationStore implements UserAuthorizationStore {
     try {
       const result = await this.database.query(
         `
-          UPDATE public.telegram_identities AS identity
-          SET last_seen_at = NOW()
-          FROM public.users AS app_user
-          WHERE identity.user_id = app_user.id
-            AND identity.telegram_id = $1
-            AND identity.verified_at IS NOT NULL
+          UPDATE public.users AS app_user
+          SET telegram_last_seen_at = NOW()
+          WHERE app_user.telegram_id = $1
+            AND app_user.telegram_verified_at IS NOT NULL
             AND app_user.status = 'active'
           RETURNING app_user.id
         `,

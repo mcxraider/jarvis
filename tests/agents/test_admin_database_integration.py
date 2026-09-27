@@ -2,6 +2,8 @@
 
 import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 
@@ -13,28 +15,48 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def _onboard(cursor, telegram_id: int, name: str):
+    cursor.execute(
+        """
+        select user_id, created
+        from private.onboard_user(
+          %s, %s, 'todoist', 'todoist', %s,
+          'Asia/Singapore', 'en', 'neutral', 'balanced',
+          'explicit_only', 'admin:test'
+        )
+        """,
+        (telegram_id, name, f"test_{telegram_id}"),
+    )
+    return cursor.fetchone()
+
+
 def test_user_identity_preferences_and_audits_are_atomic():
     import psycopg
 
     telegram_id = int(f"8{uuid.uuid4().int % 10**12:012d}")
     with psycopg.connect(TEST_DSN) as connection:
         with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                select user_id, created
-                from private.admin_upsert_user(%s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    telegram_id,
-                    "admin_test",
-                    "Admin Test",
-                    "Asia/Singapore",
-                    "en",
-                    "admin:test",
-                ),
-            )
-            user_id, created = cursor.fetchone()
+            user_id, created = _onboard(cursor, telegram_id, "Admin Test")
             assert created is True
+            cursor.execute(
+                "select status, telegram_verified_at, preferences from public.users where id = %s",
+                (user_id,),
+            )
+            original_status, original_verified_at, original_preferences = cursor.fetchone()
+            duplicate_user_id, duplicate_created = _onboard(
+                cursor, telegram_id, "Ignored Duplicate Name"
+            )
+            assert (duplicate_user_id, duplicate_created) == (user_id, False)
+            cursor.execute(
+                "select status, telegram_verified_at, preferences, display_name from public.users where id = %s",
+                (user_id,),
+            )
+            assert cursor.fetchone() == (
+                original_status,
+                original_verified_at,
+                original_preferences,
+                "Admin Test",
+            )
             cursor.execute(
                 """
                 select finding_type
@@ -43,7 +65,12 @@ def test_user_identity_preferences_and_audits_are_atomic():
                 """,
                 (str(user_id),),
             )
-            assert ("incomplete_profile",) in cursor.fetchall()
+            assert cursor.fetchall() == []
+            cursor.execute(
+                "select count(*) from public.integration_connections where user_id = %s",
+                (user_id,),
+            )
+            assert cursor.fetchone() == (0,)
 
             cursor.execute(
                 """
@@ -74,14 +101,14 @@ def test_user_identity_preferences_and_audits_are_atomic():
                     "admin:test",
                 ),
             )
-            assert cursor.fetchone() == (user_id, 1)
+            assert cursor.fetchone() == (user_id, 2)
             cursor.execute(
                 """
                 select
                   preferences #> '{domains,todoist,user_domain_specific_comments}',
                   preferences #> '{domains,google_calendar,user_domain_specific_comments}'
-                from public.user_preferences
-                where user_id = %s
+                from public.users
+                where id = %s
                 """,
                 (user_id,),
             )
@@ -130,21 +157,7 @@ def test_credential_versions_revocation_and_reconnect_are_atomic():
             )
             assert cursor.fetchone() == ("orphaned_vault_secret",)
 
-            cursor.execute(
-                """
-                select user_id
-                from private.admin_upsert_user(%s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    telegram_id,
-                    "credential_test",
-                    "Credential Test",
-                    "Asia/Singapore",
-                    "en",
-                    "admin:test",
-                ),
-            )
-            user_id = cursor.fetchone()[0]
+            user_id = _onboard(cursor, telegram_id, "Credential Test")[0]
 
             def store(secret, mode):
                 cursor.execute(
@@ -209,21 +222,7 @@ def test_thread_quota_function_allows_100_denies_101st_and_resets():
     telegram_id = int(f"8{uuid.uuid4().int % 10**12:012d}")
     with psycopg.connect(TEST_DSN) as connection:
         with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                select user_id
-                from private.admin_upsert_user(%s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    telegram_id,
-                    "quota_test",
-                    "Quota Test",
-                    "Asia/Singapore",
-                    "en",
-                    "admin:test",
-                ),
-            )
-            user_id = cursor.fetchone()[0]
+            user_id = _onboard(cursor, telegram_id, "Quota Test")[0]
 
             allowed_count = 0
             for _ in range(100):
@@ -276,3 +275,51 @@ def test_thread_quota_function_allows_100_denies_101st_and_resets():
             )
             assert cursor.fetchone() == (True,)
         connection.rollback()
+
+
+def test_concurrent_onboarding_creates_one_user_and_one_audit_event():
+    import psycopg
+
+    telegram_id = int(f"8{uuid.uuid4().int % 10**12:012d}")
+    barrier = Barrier(2)
+
+    def onboard_once(_index):
+        with psycopg.connect(TEST_DSN) as connection:
+            with connection.cursor() as cursor:
+                barrier.wait(timeout=10)
+                return _onboard(cursor, telegram_id, "Concurrent Test")
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(onboard_once, range(2)))
+
+        assert results[0][0] == results[1][0]
+        assert sorted(result[1] for result in results) == [False, True]
+
+        with psycopg.connect(TEST_DSN) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "select id from public.users where telegram_id = %s",
+                    (telegram_id,),
+                )
+                assert cursor.fetchall() == [(results[0][0],)]
+                cursor.execute(
+                    """
+                    select count(*)
+                    from public.integration_events
+                    where user_id = %s and event_type = 'user_created'
+                    """,
+                    (results[0][0],),
+                )
+                assert cursor.fetchone() == (1,)
+    finally:
+        with psycopg.connect(TEST_DSN) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "delete from public.integration_events where user_id = (select id from public.users where telegram_id = %s)",
+                    (telegram_id,),
+                )
+                cursor.execute(
+                    "delete from public.users where telegram_id = %s",
+                    (telegram_id,),
+                )

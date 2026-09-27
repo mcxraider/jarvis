@@ -35,10 +35,10 @@ target as (
     p.secret_name,
     p.token_expires_at
   from payload p
-  join public.telegram_identities t
-    on t.telegram_id = p.telegram_id
+  join public.users app_user
+    on app_user.telegram_id = p.telegram_id
   join public.integration_connections c
-    on c.user_id = t.user_id
+    on c.user_id = app_user.id
    and c.provider = p.provider
   where c.vault_secret_id is not null
   for update
