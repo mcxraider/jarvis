@@ -35,12 +35,11 @@ const pool = new Pool({ connectionString });
 (async () => {
   try {
     const result = await pool.query(`
-      SELECT identity.telegram_id
-      FROM public.telegram_identities AS identity
-      JOIN public.users AS app_user ON app_user.id = identity.user_id
-      WHERE identity.verified_at IS NOT NULL
+      SELECT app_user.telegram_id
+      FROM public.users AS app_user
+      WHERE app_user.telegram_verified_at IS NOT NULL
         AND app_user.status = 'active'
-      ORDER BY identity.telegram_id
+      ORDER BY app_user.telegram_id
     `);
 
     const recipients = result.rows.map(({ telegram_id }) => String(telegram_id));

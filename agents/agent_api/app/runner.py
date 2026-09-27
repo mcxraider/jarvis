@@ -367,7 +367,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         help=(
             "Run as this Telegram user ID so integrations resolve from "
-            "Supabase telegram_identities and integration_connections."
+            "Supabase users and integration_connections."
         ),
     )
     parser.add_argument(

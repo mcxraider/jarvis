@@ -188,7 +188,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 - `conversation-gate.store.ts` — per-conversation serialization (idle/running/waiting); Postgres-backed
 - `pending-clarification.store.ts` — HITL interrupt state persistence incl. queued `imageBatches`; Postgres-backed
 - `terminal-reply.store.ts` — in-memory deduplication ledger (prevents double-reply on Telegraf watchdog)
-- `user-authorization.store.ts` — DB-backed auth (`telegram_identities` + `users`), emergency deny, `last_seen_at`
+- `user-authorization.store.ts` — DB-backed auth on consolidated `users`, emergency deny, Telegram last-seen refresh
 - `conversation-key.ts` — SHA-256 conversation keys, `mapTelegramUserId()`
 - `reply-context.ts` — extracts/formats quoted context from replied-to messages
 - `onboarding-message.ts` — static welcome message for `/start`
@@ -364,7 +364,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 
 The project uses **Supabase/PostgreSQL** for user identity, preferences, checkpointing, idempotency, and rate limiting.
 
-Key tables: `public.users`, `public.telegram_identities`, `public.user_preferences`, `public.telegram_pending_clarifications`, `public.telegram_conversation_gates`, `public.rate_limits`, `public.threads`, `public.thread_memory_heads`, `public.thread_messages`.
+Key tables: `public.users` (canonical Telegram identity + preferences), `public.integration_connections`, `public.telegram_pending_clarifications`, `public.telegram_conversation_gates`, `public.rate_limits`, `public.threads`, `public.thread_memory_heads`, `public.thread_messages`.
 
 Durable thread images use the private Supabase Storage bucket `thread-images`.
 Cross-thread reads use a rolling 48-hour cutoff and are scoped by canonical

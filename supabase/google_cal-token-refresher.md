@@ -47,10 +47,10 @@ select
   encode(extensions.digest(ds.decrypted_secret, 'sha256'), 'hex') as decrypted_secret_sha256,
   ds.decrypted_secret::jsonb ->> 'expiry' as decrypted_secret_expiry
 from public.integration_connections c
-join public.telegram_identities t on t.user_id = c.user_id
+join public.users u on u.id = c.user_id
 join vault.secrets s on s.id = c.vault_secret_id
 join vault.decrypted_secrets ds on ds.id = c.vault_secret_id
-where t.telegram_id = 701122767
+where u.telegram_id = 701122767
   and c.provider = 'google_calendar';
 ```
 

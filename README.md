@@ -204,7 +204,7 @@ Complexity is assessed independently of query length, mutation risk, and the num
 - **Todoist tasks** — list, filter, create, update, complete, uncomplete, delete, inspect completed tasks, manage comments, labels, and projects.
 - **Google Calendar** — list calendars/events, create/update/delete events, and check free/busy availability when the user's Calendar integration is connected.
 - **Scheduling help** — reason over dates, due times, availability, task load, and calendar conflicts before taking action.
-- **Per-user integrations** — Telegram identity resolves the user's connected services and preferences from Supabase at runtime.
+- **Per-user integrations** — the consolidated `users` profile resolves Telegram access and preferences; optional `integration_connections` rows expose connected services at runtime.
 - **Safe mutations** — entity IDs must be grounded by prior reads before updates/deletes, and idempotency prevents duplicate external mutations on retries.
 - **Web search** — when the router attaches no tool domain, the orchestrator gains OpenAI's hosted web search for answering general-knowledge questions with cited sources.
 - **Router-aware context** — the query router narrows tools and prompt context to the domains a request actually needs.

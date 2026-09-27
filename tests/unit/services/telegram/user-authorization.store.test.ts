@@ -27,9 +27,10 @@ describe('Telegram user authorization stores', () => {
 
     await expect(store.isAuthorized(telegramIdentity(701122767))).resolves.toBe(true);
     expect(database.query).toHaveBeenCalledWith(
-      expect.stringContaining('identity.telegram_id = $1'),
+      expect.stringContaining('app_user.telegram_id = $1'),
       [701122767],
     );
+    expect(database.query.mock.calls[0][0]).toContain('telegram_last_seen_at');
   });
 
   it('denies identities absent from Postgres', async () => {

@@ -64,26 +64,22 @@ psql -X "$DATABASE_URL" \
   -A -t -F '|' \
   -c "
     SELECT
-      identity.user_id,
-      identity.telegram_id,
-      identity.username
-    FROM public.telegram_identities AS identity
-    JOIN public.users AS app_user
-      ON app_user.id = identity.user_id
-    JOIN public.user_preferences AS preference
-      ON preference.user_id = app_user.id
-    WHERE identity.telegram_id BETWEEN 900000001 AND 900000012
-      AND identity.verified_at IS NOT NULL
+      app_user.id,
+      app_user.telegram_id,
+      app_user.telegram_username
+    FROM public.users AS app_user
+    WHERE app_user.telegram_id BETWEEN 900000001 AND 900000012
+      AND app_user.telegram_verified_at IS NOT NULL
       AND app_user.status = 'active'
       AND app_user.display_name =
         'Jarvis Load Test ' ||
-        lpad((identity.telegram_id - 900000000)::text, 2, '0')
-      AND identity.username =
+        lpad((app_user.telegram_id - 900000000)::text, 2, '0')
+      AND app_user.telegram_username =
         'jarvis_loadtest_' ||
-        lpad((identity.telegram_id - 900000000)::text, 2, '0')
-      AND preference.schema_version = 1
-      AND preference.updated_by = 'seed:jarvis-loadtest'
-    ORDER BY identity.telegram_id;
+        lpad((app_user.telegram_id - 900000000)::text, 2, '0')
+      AND app_user.preference_schema_version = 1
+      AND app_user.preferences_updated_by = 'seed:jarvis-loadtest'
+    ORDER BY app_user.telegram_id;
   " > "$USERS_FILE"
 
 user_count=$(awk 'NF { count += 1 } END { print count + 0 }' "$USERS_FILE")

@@ -17,16 +17,29 @@ pytestmark = pytest.mark.skipif(
 
 def _identity(cursor, telegram_id: int, user_id: uuid.UUID) -> None:
     cursor.execute(
-        "insert into public.users (id, display_name) values (%s, 'Thread memory test')",
-        (user_id,),
-    )
-    cursor.execute(
         """
-        insert into public.user_identities (
-          user_id, identity_provider, external_subject, telegram_id, verified_at
-        ) values (%s, 'telegram', %s, %s, now())
+        insert into public.users (
+          id, display_name, telegram_id, telegram_verified_at, preferences,
+          preference_schema_version, preference_revision,
+          preferences_created_at, preferences_updated_at, preferences_updated_by
+        ) values (
+          %s, 'Thread memory test', %s, now(),
+          '{
+            "communication":{"tone":"neutral","verbosity":"balanced"},
+            "routing":{
+              "task_provider":"todoist",
+              "event_provider":"todoist",
+              "calendar_usage":"explicit_only"
+            },
+            "domains":{
+              "todoist":{},
+              "google_calendar":{"event_category_defaults":{}}
+            }
+          }'::jsonb,
+          1, 1, now(), now(), 'test:thread-memory'
+        )
         """,
-        (user_id, str(telegram_id), telegram_id),
+        (user_id, telegram_id),
     )
 
 

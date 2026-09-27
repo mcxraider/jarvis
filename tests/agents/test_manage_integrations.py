@@ -29,12 +29,16 @@ def test_parser_exposes_all_command_groups():
     cases = [
         ["user", "disable", "--telegram-user-id", "1"],
         [
-            "identity",
-            "attach-telegram",
-            "--owner-telegram-user-id",
-            "1",
+            "user",
+            "create",
             "--telegram-user-id",
-            "2",
+            "1",
+            "--display-name",
+            "Test",
+            "--task-provider",
+            "todoist",
+            "--event-provider",
+            "google_calendar",
         ],
         ["preferences", "set", "--telegram-user-id", "1", "--file", "-"],
         ["credential", "validate", "--telegram-user-id", "1", "--provider", "todoist"],
@@ -126,6 +130,11 @@ def test_user_creation_rejects_non_iana_timezone(monkeypatch):
         display_name="Tester",
         timezone="Singapore-ish",
         locale="en",
+        task_provider="todoist",
+        event_provider="google_calendar",
+        tone="neutral",
+        verbosity="balanced",
+        calendar_usage="default",
         actor="admin:test",
     )
     monkeypatch.setattr(
@@ -233,6 +242,38 @@ def test_capability_summary_is_sanitized(monkeypatch):
     assert "secret" not in json.dumps(result).lower()
 
 
+def test_capability_summary_accepts_user_with_zero_connections(monkeypatch):
+    monkeypatch.setattr(
+        admin,
+        "_execute_all",
+        lambda statement, params: [
+            (
+                "user-id",
+                "Tester",
+                "Asia/Singapore",
+                "en",
+                "active",
+                "123",
+                1,
+                1,
+                VALID_PREFERENCES,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        ],
+    )
+
+    result = admin.capability_summary(Namespace(telegram_user_id=123))
+
+    assert result["user"]["user_id"] == "user-id"
+    assert all(provider["status"] == "not_connected" for provider in result["providers"])
+    assert all(provider["active"] is False for provider in result["providers"])
+
+
 def test_audit_findings_return_exit_two(monkeypatch):
     monkeypatch.setattr(
         admin,
@@ -308,21 +349,51 @@ def test_database_exception_chain_is_sanitized(monkeypatch):
     assert sentinel not in str(exc.value)
 
 
-def test_migration_defines_restricted_atomic_entrypoints():
-    migration = (
-        Path(__file__).parents[2]
-        / "supabase"
-        / "migrations"
-        / "20260705120000_add_admin_onboarding_cli_functions.sql"
-    ).read_text(encoding="utf-8")
+def test_cutover_migration_defines_restricted_atomic_entrypoints():
+    migrations = Path(__file__).parents[2] / "supabase" / "migrations"
+    prepare = next(migrations.glob("*_prepare_two_table_user_onboarding.sql")).read_text(
+        encoding="utf-8"
+    )
+    cutover = next(migrations.glob("*_cutover_two_table_user_onboarding.sql")).read_text(
+        encoding="utf-8"
+    )
     for function in (
-        "private.admin_upsert_user",
+        "private.onboard_user",
         "private.admin_set_preferences",
-        "private.admin_store_integration",
         "private.admin_integrity_findings",
         "private.admin_preference_profiles",
     ):
-        assert function in migration
-    assert "grant execute" in migration
-    assert "jarvis_admin_runtime" in migration
-    assert "vault.decrypted_secrets" in migration
+        assert function in prepare + cutover
+    assert "grant execute on function private.onboard_user" in cutover
+    assert "jarvis_admin_runtime" in cutover
+    assert "drop function private.admin_attach_telegram_identity" in cutover
+
+
+def test_user_creation_calls_single_onboarding_function(monkeypatch):
+    captured = {}
+
+    def fake_execute(statement, params):
+        captured["statement"] = statement
+        captured["params"] = params
+        return ("user-id", True)
+
+    monkeypatch.setattr(admin, "_execute_one", fake_execute)
+    args = admin._parse_args(
+        [
+            "user",
+            "create",
+            "--telegram-user-id",
+            "123",
+            "--display-name",
+            "Tester",
+            "--task-provider",
+            "todoist",
+            "--event-provider",
+            "google_calendar",
+        ]
+    )
+
+    assert admin.create_user(args) == {"user_id": "user-id", "created": True}
+    assert "private.onboard_user" in captured["statement"]
+    assert captured["params"][0:4] == (123, "Tester", "todoist", "google_calendar")
+    assert len(captured["params"]) == 11

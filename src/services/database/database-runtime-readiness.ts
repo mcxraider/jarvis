@@ -2,8 +2,6 @@ import { Pool } from 'pg';
 
 const REQUIRED_TABLES = [
   'public.users',
-  'public.telegram_identities',
-  'public.user_preferences',
   'public.telegram_pending_clarifications',
   'public.telegram_conversation_gates',
   'public.rate_limits',
@@ -56,10 +54,13 @@ export async function verifyDatabaseRuntime(
     }
 
     await pool.query(`
-      SELECT 1
+      SELECT telegram_id, telegram_username, telegram_verified_at,
+             telegram_last_seen_at, telegram_profile,
+             onboarding_first_seen_at, preferences,
+             preference_schema_version, preference_revision,
+             preferences_created_at, preferences_updated_at,
+             preferences_updated_by
       FROM public.users
-      JOIN public.telegram_identities ON public.telegram_identities.user_id = public.users.id
-      LEFT JOIN public.user_preferences ON public.user_preferences.user_id = public.users.id
       LIMIT 0
     `);
     // Select every migration-gated runtime column explicitly. A bare SELECT 1 only

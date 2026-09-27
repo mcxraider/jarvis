@@ -5,8 +5,6 @@ jest.mock('pg', () => ({ Pool: jest.fn() }));
 
 const requiredTables = [
   'public.users',
-  'public.telegram_identities',
-  'public.user_preferences',
   'public.telegram_pending_clarifications',
   'public.telegram_conversation_gates',
   'public.rate_limits',
@@ -46,6 +44,8 @@ describe('verifyDatabaseRuntime', () => {
     expect(sql).toContain('active_request_id');
     expect(sql).toContain('clarification_message_id');
     expect(sql).toContain('prompt_message_id');
+    expect(sql).toContain('telegram_verified_at');
+    expect(sql).toContain('preference_revision');
     expect(end).toHaveBeenCalledTimes(1);
   });
 
