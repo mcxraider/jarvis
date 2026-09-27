@@ -1,37 +1,49 @@
-# Jarvis
+# Jarvis 🤖
 
-Jarvis is a multi-user AI assistant that turns Telegram into a natural-language command center for tasks, calendars, planning, and everyday research.
+> **Talk to your tools. Forward the mess. Let Jarvis sort it out.**
 
-Send a message, voice note, photo, poll, or forwarded conversation. Jarvis understands the context, works across Todoist and Google Calendar, and keeps you in control before making sensitive changes.
-
-## What Jarvis can do
-
-- **Manage tasks conversationally** — create, find, update, complete, reschedule, and organize Todoist tasks, projects, labels, and comments.
-- **Coordinate your calendar** — find availability, review upcoming events, create or move meetings, and reason about scheduling conflicts in Google Calendar.
-- **Turn voice into action** — send a quick voice note or a longer recording and let Jarvis transcribe it, understand it, and carry out the request.
-- **Understand photos and albums** — share a whiteboard, handwritten list, screenshot, or group of images and ask Jarvis to extract actions or use the visual context.
-- **Work with forwarded context** — forward messages, photos, or polls, then tell Jarvis what you want done with them.
-- **Research the web** — ask general questions and get concise answers with cited sources when no connected-service action is needed.
-- **Carry context across conversations** — continue naturally from earlier messages, reply to specific messages, or start with a clean slate whenever you choose.
-
-## Example use cases
-
-- “Plan my day around my existing meetings and highest-priority Todoist tasks.”
-- “Find a free hour with no conflicts this week and move my deep-work task there.”
-- “Turn this voice note into tasks, grouped by project and due date.”
-- “Read this whiteboard photo and add the action items to Todoist.”
-- “Forward this event announcement and add it to my calendar.”
-- “Show me what I completed last week and what is still overdue.”
-- “Research this topic, summarize the useful findings, and create follow-up tasks.”
-
-## Built for real conversations
-
-Jarvis does more than map a sentence to a single command. It can ask a focused follow-up when details are missing, combine task and calendar context for planning, and keep multi-step requests moving while showing live progress in Telegram.
-
-Potentially destructive or high-impact actions are paused for explicit approval. Updates and deletes are grounded against real items first, while retry protection prevents the same external action from being applied twice.
-
-Each user gets an independent assistant experience with their own connected services, preferences, conversation history, and access controls.
+Jarvis turns Telegram into a natural-language command center for tasks, calendars, planning, and everyday research. Type it, say it, photograph it, or forward it—Jarvis turns the conversation into action.
 
 ## Architecture
 
 ![Jarvis architecture overview](assets/jarvis-architecture.png)
+
+## One chat. Many ways to work.
+
+| | Send Jarvis | What happens next |
+|---|---|---|
+| 💬 | A natural-language message | Jarvis understands the intent and gets to work. |
+| 🎙️ | A voice note or longer recording | It is transcribed, understood, and turned into actions. |
+| 📸 | A photo, screenshot, or album | Jarvis reads the visual context and extracts what matters. |
+| ↪️ | Forwarded messages, photos, or polls | Your next message tells Jarvis what to do with them. |
+| 🔎 | A question that needs fresh information | Jarvis researches the web and answers with cited sources. |
+
+## Everyday superpowers
+
+- **🎯 Run Todoist by conversation** — create, find, update, complete, reschedule, and organize tasks without digging through menus.
+- **📅 Make your calendar work around you** — review events, find free time, move meetings, and catch scheduling conflicts.
+- **🧩 Plan across tasks and time** — combine priorities, deadlines, workload, and real calendar availability into a realistic plan.
+- **🧠 Keep the thread** — continue from earlier conversations, reply to a specific message, or deliberately start fresh.
+- **⚡ Watch the work happen** — live Telegram updates show what Jarvis is doing during longer requests.
+- **🛡️ Stay in control** — sensitive changes pause for approval, while safeguards prevent ungrounded or duplicate actions.
+- **👥 Support multiple users** — everyone gets their own integrations, preferences, history, and access controls.
+
+## Try saying…
+
+> **Start the day** — “Plan my day around my meetings and highest-priority Todoist tasks.”
+
+> **Protect focus time** — “Find a free hour this week and move my deep-work task there.”
+
+> **Empty your head** — “Turn this voice note into tasks, grouped by project and due date.”
+
+> **Capture the room** — “Read this whiteboard photo and add the action items to Todoist.”
+
+> **Handle the handoff** — “Add this forwarded event to my calendar and create a reminder to prepare.”
+
+> **Close the loop** — “Show me what I completed last week and what is still overdue.”
+
+## More assistant, less command line
+
+Jarvis can ask a focused follow-up when a request is ambiguous, reason through multi-step work, and move between Todoist, Google Calendar, visual context, and the web without making you translate your goal into rigid commands.
+
+When an action could delete, overwrite, or significantly change something, Jarvis stops and asks first. You get the convenience of automation without giving up the final say.
