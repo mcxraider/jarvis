@@ -41,6 +41,7 @@ def test_parser_exposes_all_command_groups():
             "google_calendar",
         ],
         ["preferences", "set", "--telegram-user-id", "1", "--file", "-"],
+        ["instructions", "set", "--telegram-user-id", "1", "--file", "-"],
         ["credential", "validate", "--telegram-user-id", "1", "--provider", "todoist"],
         ["credential", "disable", "--telegram-user-id", "1", "--provider", "todoist"],
         ["credential", "revoke", "--telegram-user-id", "1", "--provider", "todoist"],
@@ -121,6 +122,56 @@ def test_load_preferences_rejects_invalid_llm_section():
         document = {**VALID_PREFERENCES, "llm": bad_llm}
         with pytest.raises(admin.IntegrationAdminError, match="supported schema"):
             admin._load_preferences(Path("-"), io.StringIO(json.dumps(document)))
+
+
+def test_load_custom_instructions_preserves_internal_formatting_and_allows_clear():
+    value = "  Keep replies concise.\n\nUse my preferred naming.  \n"
+    assert admin._load_custom_instructions(Path("-"), io.StringIO(value)) == (
+        "Keep replies concise.\n\nUse my preferred naming."
+    )
+    assert admin._load_custom_instructions(Path("-"), io.StringIO(" \n\t ")) == ""
+
+
+def test_load_custom_instructions_enforces_character_limit():
+    valid = "é" * admin.MAX_CUSTOM_INSTRUCTIONS_CHARS
+    assert len(admin._load_custom_instructions(Path("-"), io.StringIO(valid))) == 10_000
+    with pytest.raises(admin.IntegrationAdminError, match="at most 10000"):
+        admin._load_custom_instructions(Path("-"), io.StringIO(valid + "x"))
+
+
+def test_set_custom_instructions_uses_sql_parameters_and_sanitized_output(monkeypatch):
+    captured = {}
+
+    def fake_execute(statement, params):
+        captured["statement"] = statement
+        captured["params"] = params
+        return ("user-id", True, 24)
+
+    monkeypatch.setattr(admin, "_execute_one", fake_execute)
+    args = admin._parse_args(
+        [
+            "instructions",
+            "set",
+            "--telegram-user-id",
+            "123",
+            "--file",
+            "-",
+            "--actor",
+            "admin:test",
+        ]
+    )
+    sentinel = "private instruction text"
+
+    result = admin.set_custom_instructions(args, io.StringIO(sentinel))
+
+    assert sentinel not in captured["statement"]
+    assert captured["params"] == (123, sentinel, "admin:test")
+    assert result == {
+        "user_id": "user-id",
+        "updated": True,
+        "instruction_length": 24,
+    }
+    assert sentinel not in json.dumps(result)
 
 
 def test_user_creation_rejects_non_iana_timezone(monkeypatch):
@@ -367,6 +418,22 @@ def test_cutover_migration_defines_restricted_atomic_entrypoints():
     assert "grant execute on function private.onboard_user" in cutover
     assert "jarvis_admin_runtime" in cutover
     assert "drop function private.admin_attach_telegram_identity" in cutover
+
+
+def test_custom_instructions_expand_migration_is_additive_and_restricted():
+    migrations = Path(__file__).parents[2] / "supabase" / "migrations"
+    expand = next(migrations.glob("*_add_custom_instructions_expand.sql")).read_text(
+        encoding="utf-8"
+    ).lower()
+
+    assert "add column custom_instructions text not null default ''" in expand
+    assert "char_length(custom_instructions) <= 10000" in expand
+    assert "private.admin_set_custom_instructions" in expand
+    assert "security definer" in expand
+    assert "set search_path = ''" in expand
+    assert "from public, anon, authenticated, service_role, jarvis_runtime" in expand
+    assert "to jarvis_admin_runtime" in expand
+    assert "drop column preferences" not in expand
 
 
 def test_user_creation_calls_single_onboarding_function(monkeypatch):

@@ -89,3 +89,6 @@ next-env.d.ts
 
 # local scratch/debug dir
 work/
+
+# Supabase project files are managed outside this repository
+/supabase/

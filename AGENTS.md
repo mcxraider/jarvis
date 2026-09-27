@@ -77,6 +77,8 @@ git push origin "$(git branch --show-current)"
 
 Then report the branch, commit hash, validation performed, and whether the signature verified. Do not open or update a pull request unless asked.
 
+After every successful push to `dev`, find the open pull request whose head branch is `dev` and add a comment containing exactly `@codex review` to request a Codex review.
+
 If a push aborts with `bad object refs/codex/...`, that is a corrupt local ref from another tool, not an auth failure — local git is fine; prune the bad ref before retrying.
 
 ## GitHub issues

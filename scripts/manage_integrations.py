@@ -28,6 +28,7 @@ from agents.agent_api.app.user_context.preferences import (  # noqa: E402
 
 SUPPORTED_PROVIDERS = tuple(DOMAIN_ADAPTERS)
 DEFAULT_ACTOR = "admin:cli"
+MAX_CUSTOM_INSTRUCTIONS_CHARS = 10_000
 
 
 class IntegrationAdminError(RuntimeError):
@@ -63,6 +64,22 @@ def _load_preferences(path: Path, stdin: TextIO) -> Dict[str, Any]:
             "Preferences do not match the supported schema."
         ) from exc
     return validated.model_dump(mode="json", exclude_unset=True)
+
+
+def _load_custom_instructions(path: Path, stdin: TextIO) -> str:
+    try:
+        value = stdin.read() if str(path) == "-" else path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise IntegrationAdminError(
+            "Custom instructions file could not be read."
+        ) from exc
+    normalized = value.strip()
+    if len(normalized) > MAX_CUSTOM_INSTRUCTIONS_CHARS:
+        raise IntegrationAdminError(
+            "Custom instructions must contain at most "
+            f"{MAX_CUSTOM_INSTRUCTIONS_CHARS} characters."
+        )
+    return normalized
 
 
 def _validate_todoist(secret: str) -> Dict[str, Any]:
@@ -234,6 +251,23 @@ def set_preferences(args: argparse.Namespace, stdin: TextIO) -> Dict[str, Any]:
         (args.telegram_user_id, json.dumps(preferences), args.actor),
     )
     return {"user_id": str(user_id), "schema_version": 1, "revision": revision}
+
+
+def set_custom_instructions(
+    args: argparse.Namespace,
+    stdin: TextIO,
+) -> Dict[str, Any]:
+    instructions = _load_custom_instructions(args.file, stdin)
+    user_id, updated, instruction_length = _execute_one(
+        "select user_id, updated, instruction_length "
+        "from private.admin_set_custom_instructions(%s, %s, %s)",
+        (args.telegram_user_id, instructions, args.actor),
+    )
+    return {
+        "user_id": str(user_id),
+        "updated": bool(updated),
+        "instruction_length": instruction_length,
+    }
 
 
 def _stored_credential(telegram_user_id: int, provider: str) -> str:
@@ -582,6 +616,14 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     set_parser.add_argument("--file", type=Path, required=True)
     _add_actor(set_parser)
 
+    instructions = groups.add_parser("instructions").add_subparsers(
+        dest="command", required=True
+    )
+    instructions_set = instructions.add_parser("set")
+    _add_user_target(instructions_set)
+    instructions_set.add_argument("--file", type=Path, required=True)
+    _add_actor(instructions_set)
+
     credentials = groups.add_parser("credential").add_subparsers(
         dest="command", required=True
     )
@@ -630,6 +672,8 @@ def _dispatch(args: argparse.Namespace, stdin: TextIO) -> Dict[str, Any]:
         return disable_user(args)
     if handler == ("preferences", "set"):
         return set_preferences(args, stdin)
+    if handler == ("instructions", "set"):
+        return set_custom_instructions(args, stdin)
     if args.group == "credential" and args.command in ("import", "rotate", "reconnect"):
         return store_credential(args, stdin)
     if handler == ("credential", "validate"):
