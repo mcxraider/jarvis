@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from agents.agent_api.app import thread_memory as thread_memory_module
 from agents.agent_api.app.api.schemas import InvokeRequest, MemoryResetRequest
 from agents.agent_api.app.graph import builder as builder_module
 from agents.agent_api.app.thread_memory import (
@@ -192,7 +193,7 @@ def test_context_keeps_image_reference_for_retained_user() -> None:
     assert retained == {("previous", 0)}
 
 
-def test_context_renders_two_threads_newest_first_with_one_global_budget() -> None:
+def test_context_renders_two_threads_oldest_first_with_one_global_budget() -> None:
     rows = [
         *_history_rows(
             [
@@ -225,11 +226,55 @@ def test_context_renders_two_threads_newest_first_with_one_global_budget() -> No
 
     text, retained = render_previous_thread_context(rows)
 
-    assert text.index("Previous thread 1") < text.index("Previous thread 2")
+    assert text.index("Previous thread 2") < text.index("Previous thread 1")
     assert "newest answer" in text
     assert "older old" in text
     assert retained == {("thread-b", 0), ("thread-b", 1), ("thread-a", 0)}
     assert len(text) <= PREVIOUS_THREAD_TEXT_LIMIT
+
+
+def test_context_renders_three_threads_from_one_count_change(monkeypatch) -> None:
+    monkeypatch.setattr(thread_memory_module, "PREVIOUS_THREAD_COUNT", 3)
+    rows = [
+        *_history_rows(
+            [
+                {
+                    "sequence": 0,
+                    "kind": "user",
+                    "payload": {"role": "user", "content": "newest"},
+                }
+            ],
+            "thread-c",
+            1,
+        ),
+        *_history_rows(
+            [
+                {
+                    "sequence": 0,
+                    "kind": "user",
+                    "payload": {"role": "user", "content": "middle"},
+                }
+            ],
+            "thread-b",
+            2,
+        ),
+        *_history_rows(
+            [
+                {
+                    "sequence": 0,
+                    "kind": "user",
+                    "payload": {"role": "user", "content": "oldest"},
+                }
+            ],
+            "thread-a",
+            3,
+        ),
+    ]
+
+    text, _retained = render_previous_thread_context(rows)
+
+    assert text.index("Previous thread 3") < text.index("Previous thread 2")
+    assert text.index("Previous thread 2") < text.index("Previous thread 1")
 
 
 def test_context_budget_prioritizes_newest_thread_and_marks_omission() -> None:

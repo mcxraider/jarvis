@@ -261,14 +261,15 @@ def render_previous_thread_context(
     *,
     limit: int = PREVIOUS_THREAD_TEXT_LIMIT,
 ) -> tuple[str, set[tuple[str, int]]]:
-    """Render newest complete protocol groups without exceeding ``limit``."""
+    """Prioritize newest history, then render retained threads oldest-first."""
 
     valid = _valid_candidate_rows(rows)
     refs = _thread_refs(rows)
-    text = _HISTORY_PREAMBLE
+    blocks: list[str] = []
+    used_chars = len(_HISTORY_PREAMBLE)
     retained_keys: set[tuple[str, int]] = set()
-    if len(text) >= limit:
-        return text[:limit], retained_keys
+    if used_chars >= limit:
+        return _HISTORY_PREAMBLE[:limit], retained_keys
 
     for ref in refs:
         thread_rows = [
@@ -314,10 +315,10 @@ def render_previous_thread_context(
             else f"[Previous thread {ref.history_rank}]"
         )
         separator = "\n\n"
-        if len(text) + len(separator) + len(label) > limit:
+        if used_chars + len(separator) + len(label) > limit:
             break
         block_prefix = separator + label + "\n"
-        used = len(text) + len(block_prefix)
+        used = used_chars + len(block_prefix)
         retained: list[tuple[tuple[str, int], str]] = []
         for key, rendered in reversed(groups):
             extra = len(rendered) + (1 if retained else 0)
@@ -338,12 +339,12 @@ def render_previous_thread_context(
         body = [rendered for _key, rendered in retained]
         if omitted:
             body.insert(0, _OMISSION_MARKER)
-        text += block_prefix + "\n".join(body)
+        block = block_prefix + "\n".join(body)
+        blocks.append(block)
+        used_chars += len(block)
         retained_keys.update(key for key, _rendered in retained)
 
-    if len(text) > limit:
-        text = text[:limit]
-    return text, retained_keys
+    return _HISTORY_PREAMBLE + "".join(reversed(blocks)), retained_keys
 
 
 async def _download_image(payload: Mapping[str, Any]) -> dict[str, str] | None:
