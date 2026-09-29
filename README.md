@@ -139,18 +139,18 @@ Every graph node is stateless. Persistence and external IO live in shared single
 
 ### Durable thread memory
 
-Fresh Telegram threads can reference the immediately previous thread from the
-same canonical user, conversation, and lineage. The Python runtime overlaps one
-bounded predecessor lookup with normal request setup, injects at most 40,000
-characters as untrusted model-only context, and gives current-request images
-priority under the existing 10-image/10-MiB limit.
+Fresh Telegram threads can reference the two immediately previous threads from
+the same canonical user, conversation, and lineage. The Python runtime overlaps
+one bounded predecessor lookup with normal request setup, injects at most 40,000
+characters of combined history as untrusted model-only context, and gives
+current-request images priority under the existing 10-image/10-MiB limit.
 
-Canonical user, assistant, and tool messages are retained for 48 hours.
-User-supplied JPEGs live in the private `thread-images` Supabase Storage bucket;
-system prompts, hidden reasoning, credentials, and copied historical context are
-never stored. `/new` rotates the durable lineage, including bare `/new`, so a
-blank-slate boundary survives process restarts. Nightly cleanup removes expired
-Storage objects before their database references.
+Canonical user, assistant, and tool messages are retained without an age cutoff.
+User-supplied JPEGs live for 48 hours in the private `thread-images` Supabase
+Storage bucket; system prompts, hidden reasoning, credentials, and copied
+historical context are never stored. `/new` rotates the durable lineage,
+including bare `/new`, so a blank-slate boundary survives process restarts.
+Nightly cleanup removes expired Storage objects before their image-row references.
 
 ## Router configuration
 

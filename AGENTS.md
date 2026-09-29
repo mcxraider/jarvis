@@ -39,7 +39,7 @@ npm run db:lint
 npm run db:migrations
 ```
 
-Minimum bar: TS changes need `npm run build` plus the affected Jest suites; Python changes need the affected `tests/agents/` files; migrations need `npm run db:lint`.
+Minimum bar: TS changes need `npm run build` plus the affected Jest suites; Python changes need the affected `tests/agents/` files. Migrations need their affected static/contract tests, `npm run db:lint`, and `npm run db:migrations`. When a migration changes a live RPC or database contract and `JARVIS_ADMIN_TEST_POSTGRES_DSN` is available, run the affected database integration test against the migrated local database.
 
 If `pytest` fails at *collection* with a Starlette version error, the venv has drifted from the pinned version — that is environmental, not your diff.
 

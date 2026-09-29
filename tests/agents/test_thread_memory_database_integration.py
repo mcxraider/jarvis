@@ -59,9 +59,9 @@ def _prepare(
     cursor.execute(
         """
         select *
-        from public.prepare_thread_memory(%s, %s, %s, %s, %s)
+        from public.prepare_thread_memory(%s, %s, %s, %s, %s, %s)
         """,
-        (telegram_id, conversation_key, thread_id, title, reset),
+        (telegram_id, conversation_key, thread_id, title, reset, 2),
     )
     rows = cursor.fetchall()
     cursor.execute("reset role")
@@ -94,7 +94,7 @@ def test_thread_memory_database_contract() -> None:
                 "first",
             )
             first_lineage = first[0]["lineage_id"]
-            assert first[0]["previous_thread_id"] is None
+            assert first[0]["source_thread_id"] is None
             cursor.execute(
                 """
                 update public.threads
@@ -121,11 +121,11 @@ def test_thread_memory_database_contract() -> None:
                 "memory-contract-b",
                 "second",
             )
-            assert {row["previous_thread_id"] for row in second} == {
+            assert {row["source_thread_id"] for row in second} == {
                 "memory-contract-a"
             }
+            assert {row["history_rank"] for row in second} == {1}
             assert [row["sequence"] for row in second] == [0, 1]
-            assert second[0]["previous_status"] == "completed"
 
             repeated = _prepare(
                 cursor,
@@ -144,6 +144,23 @@ def test_thread_memory_database_contract() -> None:
             )
             assert cursor.fetchone()["count"] == 1
 
+            third = _prepare(
+                cursor,
+                telegram_id,
+                conversation_key,
+                "memory-contract-c",
+                "third",
+            )
+            assert {
+                (row["source_thread_id"], row["history_rank"])
+                for row in third
+            } == {("memory-contract-b", 1), ("memory-contract-a", 2)}
+            assert [
+                row["sequence"]
+                for row in third
+                if row["source_thread_id"] == "memory-contract-a"
+            ] == [0, 1]
+
             owner_isolated = _prepare(
                 cursor,
                 other_telegram_id,
@@ -151,7 +168,7 @@ def test_thread_memory_database_contract() -> None:
                 "memory-owner-isolated",
                 "owner",
             )
-            assert owner_isolated[0]["previous_thread_id"] is None
+            assert owner_isolated[0]["source_thread_id"] is None
             conversation_isolated = _prepare(
                 cursor,
                 telegram_id,
@@ -159,7 +176,7 @@ def test_thread_memory_database_contract() -> None:
                 "memory-conversation-isolated",
                 "conversation",
             )
-            assert conversation_isolated[0]["previous_thread_id"] is None
+            assert conversation_isolated[0]["source_thread_id"] is None
 
             reset_with_message = _prepare(
                 cursor,
@@ -169,7 +186,7 @@ def test_thread_memory_database_contract() -> None:
                 "new lineage",
                 reset=True,
             )
-            assert reset_with_message[0]["previous_thread_id"] is None
+            assert reset_with_message[0]["source_thread_id"] is None
             assert reset_with_message[0]["lineage_id"] != first_lineage
             reset_only = _prepare(
                 cursor,
@@ -179,7 +196,7 @@ def test_thread_memory_database_contract() -> None:
                 None,
                 reset=True,
             )
-            assert reset_only[0]["previous_thread_id"] is None
+            assert reset_only[0]["source_thread_id"] is None
             assert reset_only[0]["lineage_id"] != reset_with_message[0]["lineage_id"]
             after_reset = _prepare(
                 cursor,
@@ -188,7 +205,7 @@ def test_thread_memory_database_contract() -> None:
                 "memory-after-reset",
                 "blank slate",
             )
-            assert after_reset[0]["previous_thread_id"] is None
+            assert after_reset[0]["source_thread_id"] is None
             assert after_reset[0]["lineage_id"] == reset_only[0]["lineage_id"]
 
             for status in ("completed", "failed", "cancelled", "interrupted"):
@@ -214,7 +231,8 @@ def test_thread_memory_database_contract() -> None:
                     f"memory-{status}-new",
                     "next",
                 )
-                assert rows[0]["previous_status"] == status
+                assert rows[0]["source_thread_id"] == old_thread
+                assert rows[0]["history_rank"] == 1
                 assert [row["sequence"] for row in rows] == [0]
 
             boundary_key = f"internal:boundary_{uuid.uuid4().hex}"
@@ -253,7 +271,7 @@ def test_thread_memory_database_contract() -> None:
                 "memory-boundary-new",
                 "next",
             )
-            assert [row["sequence"] for row in boundary_rows] == [1]
+            assert [row["sequence"] for row in boundary_rows] == [0, 1]
 
             bounded_key = f"internal:bounded_{uuid.uuid4().hex}"
             _prepare(
@@ -361,7 +379,8 @@ def test_thread_memory_database_contract() -> None:
                 """
                 select count(*) as count
                 from public.thread_messages
-                where created_at < now() - interval '48 hours'
+                where kind = 'image'
+                  and created_at < now() - interval '48 hours'
                 """
             )
             expired_count = cursor.fetchone()["count"]
@@ -407,7 +426,7 @@ def test_concurrent_head_claims_form_one_predecessor_chain() -> None:
                 cursor.execute(
                     """
                     select *
-                    from public.prepare_thread_memory(%s, %s, %s, %s, false)
+                    from public.prepare_thread_memory(%s, %s, %s, %s, false, 2)
                     """,
                     (telegram_id, conversation_key, thread_id, thread_id),
                 )
@@ -416,7 +435,7 @@ def test_concurrent_head_claims_form_one_predecessor_chain() -> None:
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:
             results = list(executor.map(claim, thread_ids))
-        assert sum(rows[0]["previous_thread_id"] is None for rows in results) == 1
+        assert sum(rows[0]["source_thread_id"] is None for rows in results) == 1
 
         with psycopg.connect(TEST_DSN, row_factory=dict_row) as connection:
             with connection.cursor() as cursor:

@@ -311,7 +311,7 @@ def verify_database_runtime() -> None:
                     SELECT 'function:prepare_thread_memory:EXECUTE'
                     WHERE NOT has_function_privilege(
                         current_user,
-                        'public.prepare_thread_memory(bigint,text,text,text,boolean)',
+                        'public.prepare_thread_memory(bigint,text,text,text,boolean,integer)',
                         'EXECUTE'
                     )
                     """

@@ -179,12 +179,14 @@ describe('Conversation Gating — Integration', () => {
       };
       const pendingStore = new MemoryPendingClarificationStore();
       const gateStore = new MemoryConversationGateStore();
+      gateStore.tryAcquire = jest.fn().mockResolvedValue(false);
       gateStore.getSnapshot = jest.fn().mockRejectedValue(new Error('store down'));
 
       const textProcessor = new TextProcessorService(agentClient as any, pendingStore, gateStore);
       const result = await textProcessor.processTextMessage('hello', 42, LOG);
       expect(result.blocked).toBe(true);
       expect(result.response).toMatch(/still working/i);
+      expect(gateStore.getSnapshot).toHaveBeenCalledTimes(1);
       expect(agentClient.invoke).not.toHaveBeenCalled();
     });
   });

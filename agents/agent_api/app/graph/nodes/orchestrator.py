@@ -1584,7 +1584,7 @@ def create_agent_node(
             )
             run_tracer.event(
                 "thread_memory.injected",
-                "Attached bounded previous-thread reference context.",
+                "Attached bounded cross-thread reference context.",
                 context_chars=len(historical_context),
                 image_count=len(historical_images),
             )

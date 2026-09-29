@@ -242,7 +242,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 - `errors.py` — API key validation, shared exception types
 - `async_offload.py` — bounded `asyncio.to_thread` with per-loop semaphore and cancellation safety
 - `post_run.py` — bounded FIFO queue for non-critical post-run DB writes
-- `thread_memory.py` — awaited canonical transcript persistence, bounded predecessor loading/rendering, and private Supabase Storage image IO; `RecallImageReference` TypedDict, `decoded_jpeg_bytes()` helper, lazy `fetch_previous_image_by_reference()` (previous-thread images are metadata-only references at load time, fetched on demand when the model calls `recall_previous_image`)
+- `thread_memory.py` — awaited canonical transcript persistence, bounded loading/rendering of the two immediately previous threads, and private Supabase Storage image IO; `PreviousThreadRef` ranks source threads, `RecallImageReference` carries metadata-only image references, and `fetch_previous_image_by_reference()` fetches an image only when the model calls `recall_previous_image`
 - `tracing.py` — `TracePrinter`, `UserProgressTracePrinter`, `name_current_run()`, `ProgressCallback` protocol
 - `runner.py` — local CLI runner (terminal prompts, HITL via input())
 - `studio.py` — LangGraph Studio graph entrypoint
@@ -367,15 +367,22 @@ The project uses **Supabase/PostgreSQL** for user identity, typed runtime policy
 
 Key tables: `public.users` (canonical Telegram identity + custom instructions), `private.user_runtime_policies`, `private.user_resource_restrictions`, `private.user_onboarding_metadata`, `public.integration_connections`, `public.telegram_pending_clarifications`, `public.telegram_conversation_gates`, `public.rate_limits`, `public.threads`, `public.thread_memory_heads`, `public.thread_messages`.
 
-Durable thread images use the private Supabase Storage bucket `thread-images`.
-Cross-thread reads use a rolling 48-hour cutoff and are scoped by canonical
-user, hashed Telegram conversation, and `/new` lineage. Stored snapshots exclude
-Base64 image data, system prompts, hidden reasoning, and injected predecessors.
-Previous-thread images are loaded as lightweight metadata references (`RecallImageReference`) at graph entry — no Storage IO until the model calls `recall_previous_image` to fetch one on demand.
+Cross-thread memory is scoped by canonical user, hashed Telegram conversation,
+and `/new` lineage. A fresh thread can read its two immediate predecessors,
+newest first, within one global 256-row / 64-KiB database bound and a 40,000
+character rendered-context bound. Canonical user and assistant messages have no
+age cutoff. Stored snapshots exclude Base64 image data, system prompts, hidden
+reasoning, and injected predecessor context; rendered cross-thread context also
+excludes tool protocol traffic.
+
+Durable thread images use the private Supabase Storage bucket `thread-images`
+and expire after 48 hours. They enter the graph as lightweight metadata
+references (`RecallImageReference`); Storage IO happens only when the model calls
+`recall_previous_image`.
 
 Migrations live in `supabase/migrations/`. Use `npm run db:*` scripts for local Supabase management.
 
-Notable migrations include: multi-user foundation, integration connections, usage cost tracking, thread quota middleware, daily usage snapshots, daily rate-limit resets, runtime state cleanup, gate active-request tracking, Google Calendar task routing, provider usage call identity, extended reasoning effort for OpenAI Responses, pending-clarification image batches, two-table onboarding, and typed user-policy storage plus legacy preference retirement (`20260928051125`, latest).
+Notable migrations include: multi-user foundation, integration connections, usage cost tracking, thread quota middleware, daily usage snapshots, daily rate-limit resets, runtime state cleanup, gate active-request tracking, Google Calendar task routing, provider usage call identity, extended reasoning effort for OpenAI Responses, pending-clarification image batches, two-table onboarding, typed user-policy storage plus legacy preference retirement, and two-predecessor thread memory with image-only expiry (`20260929120000`, latest).
 
 ## Logging
 

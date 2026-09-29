@@ -17,13 +17,11 @@ EDGE_FUNCTION = (
     / "cleanup-runtime-state-daily"
     / "index.ts"
 ).read_text(encoding="utf-8")
-MEMORY_MIGRATION = next(
-    (ROOT / "supabase" / "migrations").glob("*_thread_memory.sql")
+MEMORY_MIGRATION = (
+    ROOT / "supabase" / "migrations" / "20260917032423_thread_memory.sql"
 ).read_text(encoding="utf-8")
-CLEANUP_GUARD_MIGRATION = next(
-    (ROOT / "supabase" / "migrations").glob(
-        "*_guard_thread_memory_cleanup_storage_order.sql"
-    )
+MULTI_THREAD_MIGRATION = next(
+    (ROOT / "supabase" / "migrations").glob("*_multi_thread_memory.sql")
 ).read_text(encoding="utf-8")
 
 
@@ -124,16 +122,42 @@ def test_thread_memory_migration_locks_down_functions_and_storage():
     assert "from public, anon, authenticated, jarvis_runtime" in sql
 
 
-def test_thread_memory_cleanup_keeps_six_fields_and_rolling_cutoff():
-    sql = normalized_memory_sql()
+def test_multi_thread_memory_has_global_bounds_without_an_age_filter():
+    sql = " ".join(MULTI_THREAD_MIGRATION.lower().split())
+    history_sql = sql[sql.index("create function public.fetch_previous_thread_memory") :]
+    history_sql = history_sql[: history_sql.index("$function$;")]
+    assert "with recursive history_threads" in history_sql
+    assert "history.history_rank < p_previous_thread_count" in history_sql
+    assert "global_row <= 256" in history_sql
+    assert "payload_bytes <= 65536" in history_sql
+    assert "interval '48 hours'" not in history_sql
+
+
+def test_multi_thread_memory_replaces_the_rpc_and_locks_down_the_helper():
+    sql = " ".join(MULTI_THREAD_MIGRATION.lower().split())
+    assert (
+        "drop function public.prepare_thread_memory( bigint, text, text, text, boolean )"
+        in sql
+    )
+    assert "p_previous_thread_count integer" in sql
+    assert (
+        "grant execute on function public.fetch_previous_thread_memory(text, integer) "
+        "to jarvis_runtime"
+    ) in sql
+    assert "from public, anon, authenticated, service_role" in sql
+
+
+def test_thread_memory_cleanup_expires_only_image_rows():
+    sql = " ".join(MULTI_THREAD_MIGRATION.lower().split())
     assert "thread_messages_deleted integer" in sql
     assert "delete from public.thread_messages" in sql
+    assert "message.kind = 'image'" in sql
     assert "now() - interval '48 hours'" in sql
     assert "get diagnostics thread_messages_deleted = row_count" in sql
 
 
 def test_thread_memory_cleanup_keeps_rows_until_storage_objects_are_gone():
-    sql = " ".join(CLEANUP_GUARD_MIGRATION.lower().split())
+    sql = " ".join(MULTI_THREAD_MIGRATION.lower().split())
     assert "delete from public.thread_messages" in sql
     assert "from storage.objects object" in sql
     assert "object.bucket_id = 'thread-images'" in sql

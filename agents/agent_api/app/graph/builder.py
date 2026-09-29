@@ -991,9 +991,10 @@ async def _run_jarvis_async_impl(
         previous_memory = await memory_task
         tracer.event(
             "thread_memory.loaded",
-            "Previous-thread memory lookup settled.",
+            "Cross-thread memory lookup settled.",
             outcome=previous_memory.outcome,
             duration_ms=previous_memory.duration_ms,
+            thread_count=len(previous_memory.previous_threads),
             row_count=previous_memory.row_count,
             image_reference_count=len(previous_memory.image_references),
         )

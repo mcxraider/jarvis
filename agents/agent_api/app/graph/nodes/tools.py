@@ -57,7 +57,7 @@ async def _resolve_recall_call(
     deps: Optional[RunDeps],
     tracer: TracePrinter,
 ) -> Dict[str, Any]:
-    """Fetch a previous-thread image on demand and attach it to the run's image
+    """Fetch a historical image on demand and attach it to the run's image
     batch, so the next orchestrator turn sees it. Fail-open: any miss/error leaves
     ``deps.images`` untouched and reports the image as unavailable to the model."""
 
@@ -95,7 +95,7 @@ async def _resolve_recall_call(
     deps.images = tuple(deps.images) + (fetched,)
     tracer.event(
         "thread_memory.recall",
-        "Recalled a previous-thread image on demand.",
+        "Recalled a historical image on demand.",
         recall_id=recall_id,
     )
     return build_tool_result(
