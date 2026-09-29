@@ -47,7 +47,7 @@ $safety$;
 insert into public.users (
   id, display_name, timezone, locale, status, role,
   telegram_id, telegram_username, telegram_verified_at, telegram_profile,
-  preferences, preference_schema_version, preference_revision,
+  custom_instructions, preference_schema_version, preference_revision,
   preferences_created_at, preferences_updated_at, preferences_updated_by
 )
 select
@@ -61,18 +61,7 @@ select
   target.username,
   statement_timestamp(),
   jsonb_build_object('load_test', true),
-  '{
-    "communication":{"tone":"casual","verbosity":"concise"},
-    "routing":{
-      "task_provider":"todoist",
-      "event_provider":"todoist",
-      "calendar_usage":"explicit_only"
-    },
-    "domains":{
-      "todoist":{},
-      "google_calendar":{"event_category_defaults":{}}
-    }
-  }'::jsonb,
+  'Use Todoist for tasks. Keep responses concise.',
   1,
   1,
   statement_timestamp(),
@@ -92,9 +81,27 @@ set display_name = excluded.display_name,
       excluded.telegram_verified_at
     ),
     telegram_profile = excluded.telegram_profile,
-    preferences = excluded.preferences,
+    custom_instructions = excluded.custom_instructions,
     preference_schema_version = excluded.preference_schema_version,
     preferences_updated_by = excluded.preferences_updated_by;
+
+insert into private.user_runtime_policies(user_id, updated_by)
+select target.user_id, 'seed:jarvis-loadtest'
+from jarvis_loadtest_targets target
+on conflict (user_id) do update
+set forced_model = null,
+    forced_reasoning_effort = null,
+    max_agent_turns = null,
+    allow_mutations = null,
+    updated_by = excluded.updated_by;
+
+insert into private.user_onboarding_metadata(user_id, updated_by)
+select target.user_id, 'seed:jarvis-loadtest'
+from jarvis_loadtest_targets target
+on conflict (user_id) do update
+set future_providers = '{}'::text[],
+    admin_notes = '{}'::text[],
+    updated_by = excluded.updated_by;
 
 do $verify$
 declare
@@ -111,7 +118,8 @@ begin
    and app_user.telegram_verified_at is not null
    and app_user.status = 'active'
    and app_user.preference_schema_version = 1
-   and app_user.preferences_updated_by = 'seed:jarvis-loadtest';
+   and app_user.preferences_updated_by = 'seed:jarvis-loadtest'
+  join private.user_runtime_policies policy on policy.user_id = app_user.id;
 
   if seeded_count <> 12 then
     raise exception 'seed verification failed: expected 12 valid users, found %', seeded_count;

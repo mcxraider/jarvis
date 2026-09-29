@@ -913,7 +913,7 @@ def test_orchestrator_tool_loop_reattaches_images_without_mutating_history():
 
     assert messages[0] == {"role": "user", "content": "Read this"}
     for call in sdk.responses.stream.call_args_list:
-        assert call.kwargs["model"] == "gpt-5.6-luna"
+        assert call.kwargs["model"] == "gpt-6-luna"
         assert call.kwargs["input"][0]["content"][1] == {
             "type": "input_image",
             "image_url": IMAGES[0]["image_url"],
@@ -1108,7 +1108,7 @@ def test_async_image_run_pins_vision_model_and_attaches_image():
 
     assert result == {"role": "assistant", "content": "A cat."}
     kwargs = async_sdk.responses.stream.call_args.kwargs
-    assert kwargs["model"] == "gpt-5.6-luna"
+    assert kwargs["model"] == "gpt-6-luna"
     assert kwargs["input"][-1]["content"] == [
         {"type": "input_text", "text": "Image 1:"},
         {"type": "input_image", "image_url": IMAGES[0]["image_url"], "detail": "auto"},
@@ -1152,7 +1152,7 @@ def test_async_tool_loop_reattaches_images_without_mutating_history():
     assert final == {"role": "assistant", "content": "Seen."}
     assert messages[0] == {"role": "user", "content": "Read this"}
     for call in async_sdk.responses.stream.call_args_list:
-        assert call.kwargs["model"] == "gpt-5.6-luna"
+        assert call.kwargs["model"] == "gpt-6-luna"
         assert [part["type"] for part in call.kwargs["input"][0]["content"]] == [
             "input_text",
             "input_image",

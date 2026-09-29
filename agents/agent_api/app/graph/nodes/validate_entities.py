@@ -31,7 +31,7 @@ from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.tools.base import tool_call_name
 from agents.agent_api.app.tools.dispatcher import build_tool_result, tool_result_to_message
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
-from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
+from agents.agent_api.app.user_context.runtime import parse_runtime_context_snapshot
 
 
 def _unverified_message(
@@ -127,7 +127,7 @@ def create_validate_entities_node(tracer: Optional[TracePrinter] = None):
                     snapshot = None
                     if raw_context:
                         try:
-                            snapshot = RuntimeContextSnapshot.model_validate(raw_context)
+                            snapshot = parse_runtime_context_snapshot(raw_context)
                         except ValidationError:
                             pass
                     if snapshot:

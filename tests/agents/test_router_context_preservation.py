@@ -254,8 +254,6 @@ class TestOrchestratorActiveDomains:
         selector = RouterToolSelector(
             router_client=router_client,
             snapshot=snapshot,
-            use_fast_path=False,
-            use_lru_cache=False,
         )
         client = _RecordingClient()
         node = create_agent_node(client, _registry(), max_agent_turns=30, tool_selector=selector)

@@ -2,10 +2,9 @@
 """Benchmark the TypeSafe (Jev) router over the same grid as ``eval_router.py``.
 
 This is the sibling of ``scripts/eval_router.py``. It reads the same persona
-fixtures and the same ``ROUTER_QUERIES`` list, applies the same deterministic
-fast-path and guardrail layers, and writes the same three artifacts into the
-same directory — only with a ``.typesafe`` infix so the two engines never
-collide:
+fixtures and the same ``ROUTER_QUERIES`` list and writes the same three artifacts
+into the same directory — only with a ``.typesafe`` infix so the two engines
+never collide:
 
 - ``<ts>.typesafe.jsonl``         — one row per (persona, query)
 - ``<ts>.typesafe.summary.json``  — run metadata plus latency/token/cost aggregates
@@ -61,7 +60,6 @@ from scripts.eval_router import (  # noqa: E402
     Persona,
     _json_block,
     _utc_now,
-    apply_guardrails,
     load_personas,
     load_queries,
 )
@@ -71,7 +69,6 @@ from agents.agent_api.app.pricing import (  # noqa: E402
     calculate_usage_record_cost_usd,
 )
 from agents.agent_api.app.router.client import RouterClientError  # noqa: E402
-from agents.agent_api.app.router.fast_path import fast_path_classify  # noqa: E402
 from agents.agent_api.app.router.prompt import RouterDecision  # noqa: E402
 from agents.agent_api.app.router.typesafe import (  # noqa: E402
     TYPESAFE_MODEL,
@@ -99,8 +96,7 @@ class TypeSafeEvalResult:
     raw_answers: Optional[Dict[str, Any]]
     elapsed_ms: float
     error: bool = False
-    # Production skips the classifier entirely when the deterministic fast path
-    # answers, so these rows must be excludable from latency/cost aggregates.
+    # Retained as always-empty compatibility fields for historical result files.
     fast_path_hit: bool = False
     fast_path_decision: Optional[Dict[str, Any]] = None
     returned_model: Optional[str] = None
@@ -141,17 +137,14 @@ def evaluate_pair(
     router_client: Any,
 ) -> TypeSafeEvalResult:
     request = build_typesafe_request(query, persona.snapshot)
-    fast_path = fast_path_classify(query, persona.snapshot)
     common = {
         "persona": persona,
         "query_index": query_index,
         "query": query,
         "request_state": request["state"],
         "request_questions": request["questions"],
-        "fast_path_hit": fast_path is not None,
-        "fast_path_decision": (
-            _model_payload(fast_path) if fast_path is not None else None
-        ),
+        "fast_path_hit": False,
+        "fast_path_decision": None,
     }
     ledger = UsageLedger()
     started = time.perf_counter()
@@ -162,16 +155,12 @@ def evaluate_pair(
             usage_accumulator=ledger,
         )
         elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
-        adjusted = apply_guardrails(query, persona.snapshot, result.decision)
         raw_payload = _model_payload(result.decision)
-        adjusted_payload = _model_payload(adjusted)
         returned_model, usage, cost_usd = _usage_payload(ledger)
         return TypeSafeEvalResult(
             **common,
             raw_response=raw_payload,
-            adjusted_response=(
-                adjusted_payload if adjusted_payload != raw_payload else None
-            ),
+            adjusted_response=None,
             raw_answers=result.answers,
             elapsed_ms=elapsed_ms,
             returned_model=returned_model,

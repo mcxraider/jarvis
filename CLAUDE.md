@@ -341,7 +341,8 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 
 - `identity.py` — `TelegramIdentity` model, `telegram_identity()` factory
 - `domains.py` — domain availability resolution from DB
-- `preferences.py` — `AssistantPreferencesV1` Pydantic model
+- `policy.py` — typed runtime policy, normalized resource restrictions, and onboarding metadata
+- `preferences.py` — legacy `AssistantPreferencesV1` reader retained only for v1 snapshot resume compatibility
 - `resolver.py` — `resolve_runtime_context_async`, `load_thread_runtime_context_async`
 - `runtime.py` — `RuntimeContextSnapshot`, `ResolvedRuntimeContext`, `DomainAvailability`
 - `secrets.py` — secret/credential fetching for user integrations
@@ -362,9 +363,9 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 
 ## Database
 
-The project uses **Supabase/PostgreSQL** for user identity, preferences, checkpointing, idempotency, and rate limiting.
+The project uses **Supabase/PostgreSQL** for user identity, typed runtime policy, checkpointing, idempotency, and rate limiting.
 
-Key tables: `public.users` (canonical Telegram identity + preferences), `public.integration_connections`, `public.telegram_pending_clarifications`, `public.telegram_conversation_gates`, `public.rate_limits`, `public.threads`, `public.thread_memory_heads`, `public.thread_messages`.
+Key tables: `public.users` (canonical Telegram identity + custom instructions), `private.user_runtime_policies`, `private.user_resource_restrictions`, `private.user_onboarding_metadata`, `public.integration_connections`, `public.telegram_pending_clarifications`, `public.telegram_conversation_gates`, `public.rate_limits`, `public.threads`, `public.thread_memory_heads`, `public.thread_messages`.
 
 Durable thread images use the private Supabase Storage bucket `thread-images`.
 Cross-thread reads use a rolling 48-hour cutoff and are scoped by canonical
@@ -374,7 +375,7 @@ Previous-thread images are loaded as lightweight metadata references (`RecallIma
 
 Migrations live in `supabase/migrations/`. Use `npm run db:*` scripts for local Supabase management.
 
-Notable migrations include: multi-user foundation, integration connections, user preferences versioning, usage cost tracking, thread quota middleware, daily usage snapshots, daily rate-limit resets, runtime state cleanup, gate active-request tracking, preferences v1 extension, user domain-specific comments, Google Calendar task routing, provider usage call identity, extended reasoning effort for OpenAI Responses, and pending-clarification image batches (`20260827090000`, latest).
+Notable migrations include: multi-user foundation, integration connections, usage cost tracking, thread quota middleware, daily usage snapshots, daily rate-limit resets, runtime state cleanup, gate active-request tracking, Google Calendar task routing, provider usage call identity, extended reasoning effort for OpenAI Responses, pending-clarification image batches, two-table onboarding, and typed user-policy storage plus legacy preference retirement (`20260928051125`, latest).
 
 ## Logging
 

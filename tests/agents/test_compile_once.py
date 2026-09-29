@@ -44,6 +44,7 @@ _TODOIST_METHODS = (
     "get_labels",
     "get_projects",
     "create_project",
+    "create_section",
 )
 
 

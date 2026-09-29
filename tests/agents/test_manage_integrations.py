@@ -11,17 +11,11 @@ import pytest
 from scripts import manage_integrations as admin
 
 
-VALID_PREFERENCES = {
-    "communication": {"tone": "casual", "verbosity": "concise"},
-    "routing": {
-        "task_provider": "todoist",
-        "event_provider": "google_calendar",
-        "calendar_usage": "default",
-    },
-    "domains": {
-        "todoist": {},
-        "google_calendar": {"event_category_defaults": {"work": "Work"}},
-    },
+VALID_POLICY = {
+    "forced_model": "gpt-test",
+    "forced_reasoning_effort": "high",
+    "max_agent_turns": 20,
+    "allow_mutations": False,
 }
 
 
@@ -40,7 +34,9 @@ def test_parser_exposes_all_command_groups():
             "--event-provider",
             "google_calendar",
         ],
-        ["preferences", "set", "--telegram-user-id", "1", "--file", "-"],
+        ["policy", "set", "--telegram-user-id", "1", "--file", "-"],
+        ["onboarding", "set", "--telegram-user-id", "1", "--file", "-"],
+        ["resources", "set", "--telegram-user-id", "1", "--provider", "todoist", "--file", "-"],
         ["instructions", "set", "--telegram-user-id", "1", "--file", "-"],
         ["credential", "validate", "--telegram-user-id", "1", "--provider", "todoist"],
         ["credential", "disable", "--telegram-user-id", "1", "--provider", "todoist"],
@@ -70,58 +66,44 @@ def test_credential_writes_require_file_or_stdin(command):
     assert args.credential_action == command
 
 
-def test_preferences_are_strictly_validated():
-    # The routing before-validator materializes reminder/time_related/explicit
-    # calendar providers from task/event_provider, so exclude_unset serialization
-    # returns those derived keys too. That normalization is the correct stored form.
-    expected = {
-        **VALID_PREFERENCES,
-        "routing": {
-            **VALID_PREFERENCES["routing"],
-            "reminder_provider": "todoist",
-            "time_related_provider": "google_calendar",
-            "explicit_calendar_provider": "google_calendar",
-        },
-    }
-    assert admin._load_preferences(
-        Path("-"), io.StringIO(json.dumps(VALID_PREFERENCES))
-    ) == expected
-    invalid = {**VALID_PREFERENCES, "unexpected": True}
+def test_runtime_policy_is_strictly_validated():
+    assert admin._load_runtime_policy(
+        Path("-"), io.StringIO(json.dumps(VALID_POLICY))
+    ) == VALID_POLICY
+    invalid = {**VALID_POLICY, "unexpected": True}
     with pytest.raises(admin.IntegrationAdminError, match="supported schema"):
-        admin._load_preferences(Path("-"), io.StringIO(json.dumps(invalid)))
+        admin._load_runtime_policy(Path("-"), io.StringIO(json.dumps(invalid)))
 
 
-def test_load_preferences_serializes_llm_and_execution_sections():
-    document = {
-        **VALID_PREFERENCES,
-        "llm": {"model": "deepseek-v4-pro", "reasoning_effort": "max"},
-        "execution": {"max_agent_turns": 30, "allow_mutations": False},
+def test_runtime_policy_serializes_nullable_overrides():
+    serialized = admin._load_runtime_policy(Path("-"), io.StringIO("{}"))
+    assert serialized == {
+        "forced_model": None,
+        "forced_reasoning_effort": None,
+        "max_agent_turns": None,
+        "allow_mutations": None,
     }
-    serialized = admin._load_preferences(Path("-"), io.StringIO(json.dumps(document)))
-    assert serialized["llm"] == {"model": "deepseek-v4-pro", "reasoning_effort": "max"}
-    assert serialized["execution"] == {"max_agent_turns": 30, "allow_mutations": False}
 
 
-def test_load_preferences_clearing_section_omits_it():
-    # There is no field-level clear: "clearing" means submitting a full document
-    # without the section. Omitted sections are absent from the serialized payload,
-    # and admin_set_preferences replaces the whole document (see set_preferences).
-    serialized = admin._load_preferences(
-        Path("-"), io.StringIO(json.dumps(VALID_PREFERENCES))
-    )
-    assert "llm" not in serialized
-    assert "execution" not in serialized
+def test_resource_restrictions_are_strictly_validated():
+    payload = [{"id": "project-1", "label": "Private", "is_primary": False}]
+    assert admin._load_resource_restrictions(
+        Path("-"), io.StringIO(json.dumps(payload)), "todoist"
+    ) == payload
+    with pytest.raises(admin.IntegrationAdminError, match="supported schema"):
+        admin._load_resource_restrictions(
+            Path("-"), io.StringIO('[{"id":"duplicate","label":"A"},{"id":"duplicate","label":"B"}]'), "todoist"
+        )
 
 
-def test_load_preferences_rejects_invalid_llm_section():
-    for bad_llm in (
-        {"reasoning_effort": "disabled"},
-        {"model": "x" * 101},  # exceeds max_length
-        {"unexpected": True},  # extra key
+def test_load_runtime_policy_rejects_invalid_values():
+    for bad_policy in (
+        {"forced_reasoning_effort": "disabled"},
+        {"forced_model": "x" * 101},
+        {"max_agent_turns": 51},
     ):
-        document = {**VALID_PREFERENCES, "llm": bad_llm}
         with pytest.raises(admin.IntegrationAdminError, match="supported schema"):
-            admin._load_preferences(Path("-"), io.StringIO(json.dumps(document)))
+            admin._load_runtime_policy(Path("-"), io.StringIO(json.dumps(bad_policy)))
 
 
 def test_load_custom_instructions_preserves_internal_formatting_and_allows_clear():
@@ -275,9 +257,11 @@ def test_capability_summary_is_sanitized(monkeypatch):
                 "en",
                 "active",
                 "123",
-                1,
                 4,
-                VALID_PREFERENCES,
+                "gpt-test",
+                "high",
+                20,
+                False,
                 "todoist",
                 "connected",
                 True,
@@ -306,8 +290,10 @@ def test_capability_summary_accepts_user_with_zero_connections(monkeypatch):
                 "active",
                 "123",
                 1,
-                1,
-                VALID_PREFERENCES,
+                None,
+                None,
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -342,18 +328,15 @@ def test_audit_findings_return_exit_two(monkeypatch):
     assert "Integrity findings: 1" in stdout.getvalue()
 
 
-def test_audit_check_detects_preferences_rejected_by_runtime_model(monkeypatch):
-    invalid = {**VALID_PREFERENCES, "unexpected": True}
-    calls = iter(
-        [
-            [],
-            [("user-id", 1, invalid)],
-        ]
+def test_audit_check_returns_typed_policy_findings(monkeypatch):
+    monkeypatch.setattr(
+        admin,
+        "_execute_all",
+        lambda statement, params=(): [("missing_runtime_policy", "user-id", {})],
     )
-    monkeypatch.setattr(admin, "_execute_all", lambda statement, params=(): next(calls))
     result = admin.audit_check(Namespace())
     assert result["ok"] is False
-    assert result["findings"][0]["type"] == "invalid_preferences"
+    assert result["findings"][0]["type"] == "missing_runtime_policy"
 
 
 def test_json_success_output_contains_no_secret(monkeypatch):
@@ -408,15 +391,19 @@ def test_cutover_migration_defines_restricted_atomic_entrypoints():
     cutover = next(migrations.glob("*_cutover_two_table_user_onboarding.sql")).read_text(
         encoding="utf-8"
     )
-    for function in (
-        "private.onboard_user",
-        "private.admin_set_preferences",
-        "private.admin_integrity_findings",
-        "private.admin_preference_profiles",
-    ):
-        assert function in prepare + cutover
-    assert "grant execute on function private.onboard_user" in cutover
-    assert "jarvis_admin_runtime" in cutover
+    retirement = next(migrations.glob("*_retire_legacy_user_preferences.sql")).read_text(
+        encoding="utf-8"
+    )
+    assert "private.onboard_user" in retirement
+    assert "private.admin_set_runtime_policy" in (
+        next(migrations.glob("*_expand_typed_user_policy_storage.sql")).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert "private.admin_integrity_findings" in retirement
+    assert "drop function private.admin_set_preferences" in retirement
+    assert "grant execute on function private.onboard_user" in retirement
+    assert "jarvis_admin_runtime" in retirement
     assert "drop function private.admin_attach_telegram_identity" in cutover
 
 

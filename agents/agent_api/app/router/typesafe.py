@@ -63,7 +63,7 @@ from agents.agent_api.app.router.prompt import (
 )
 from agents.agent_api.app.tools.domain_adapters import DOMAIN_ADAPTERS
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
-from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
+from agents.agent_api.app.user_context.runtime import LegacyRuntimeContextSnapshot
 
 TYPESAFE_BASE_URL = "https://api.typesafe.ai/v1"
 TYPESAFE_MODEL = "jev-latest"
@@ -145,7 +145,7 @@ if {member.value for member in RouterDomain} != set(DOMAIN_ADAPTERS):
 # ---------------------------------------------------------------------------
 
 
-def build_state(query: str, snapshot: RuntimeContextSnapshot) -> Dict[str, Any]:
+def build_state(query: str, snapshot: LegacyRuntimeContextSnapshot) -> Dict[str, Any]:
     """Render the facts a routing judgment needs, as one JSON object.
 
     This carries the same material as the production system prompt — domain
@@ -207,7 +207,7 @@ def build_state(query: str, snapshot: RuntimeContextSnapshot) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _domain_noul(domain_key: str, snapshot: RuntimeContextSnapshot) -> Dict[str, Any]:
+def _domain_noul(domain_key: str, snapshot: LegacyRuntimeContextSnapshot) -> Dict[str, Any]:
     """Build one domain's Noul, with criteria rendered from this user's policy.
 
     The policy differs per user — one routes events to Todoist with Google
@@ -448,7 +448,7 @@ def _complexity_score() -> Dict[str, Any]:
     }
 
 
-def build_questions(snapshot: RuntimeContextSnapshot) -> Dict[str, Any]:
+def build_questions(snapshot: LegacyRuntimeContextSnapshot) -> Dict[str, Any]:
     """All four questions for one classification, keyed by question id."""
 
     questions: Dict[str, Any] = {
@@ -462,7 +462,7 @@ def build_questions(snapshot: RuntimeContextSnapshot) -> Dict[str, Any]:
 
 def build_typesafe_request(
     query: str,
-    snapshot: RuntimeContextSnapshot,
+    snapshot: LegacyRuntimeContextSnapshot,
     *,
     model: str = TYPESAFE_MODEL,
 ) -> Dict[str, Any]:
@@ -659,7 +659,7 @@ class TypeSafeRouterClient:
     def classify(
         self,
         query: str,
-        snapshot: RuntimeContextSnapshot,
+        snapshot: LegacyRuntimeContextSnapshot,
         *,
         usage_accumulator: Optional[Any] = None,
         tracer: Optional[TracePrinter] = None,
@@ -677,7 +677,7 @@ class TypeSafeRouterClient:
     def classify_detailed(
         self,
         query: str,
-        snapshot: RuntimeContextSnapshot,
+        snapshot: LegacyRuntimeContextSnapshot,
         *,
         usage_accumulator: Optional[Any] = None,
         tracer: Optional[TracePrinter] = None,

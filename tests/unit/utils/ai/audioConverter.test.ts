@@ -380,8 +380,10 @@ describe('AudioConverter', () => {
 
       const result = await AudioConverter.prepare({ inputPath: INPUT_PATH, workDir: WORK_DIR });
 
-      expect(result.durationSeconds).toBe(1200);
-      expect(result.chunks).toHaveLength(40);
+      expect(result.durationSeconds).toBe(AUDIO_LIMITS.MAX_DURATION_SECONDS);
+      expect(result.chunks).toHaveLength(
+        Math.ceil(AUDIO_LIMITS.MAX_DURATION_SECONDS / AUDIO_LIMITS.CORE_SECONDS),
+      );
     });
   });
 
@@ -418,23 +420,23 @@ describe('AudioConverter', () => {
 
       const plan = planAudioChunks(60);
       expect(plan.map((p) => [p.startSeconds, p.endSeconds])).toEqual([
-        [0, 32.5],
-        [27.5, 60],
+        [0, 30],
+        [30, 60],
       ]);
 
       expect(calls).toHaveLength(3);
 
       const first = argsOf(1);
       expect(hasPair(first, '-ss', '0')).toBe(true);
-      expect(hasPair(first, '-t', '32.5')).toBe(true);
+      expect(hasPair(first, '-t', '30')).toBe(true);
       expect(hasPair(first, '-i', NORMALIZED)).toBe(true);
       expect(first.indexOf('-ss')).toBeLessThan(first.indexOf('-i'));
       expect(first.indexOf('-t')).toBeLessThan(first.indexOf('-i'));
       expect(first[first.length - 1]).toBe(join(WORK_DIR, 'chunk-000.flac'));
 
       const second = argsOf(2);
-      expect(hasPair(second, '-ss', '27.5')).toBe(true);
-      expect(hasPair(second, '-t', '32.5')).toBe(true);
+      expect(hasPair(second, '-ss', '30')).toBe(true);
+      expect(hasPair(second, '-t', '30')).toBe(true);
       expect(second.indexOf('-ss')).toBeLessThan(second.indexOf('-i'));
       expect(second[second.length - 1]).toBe(join(WORK_DIR, 'chunk-001.flac'));
 
@@ -464,24 +466,36 @@ describe('AudioConverter', () => {
       }
     });
 
-    it('produces 40 zero-padded chunks in order for 20-minute audio', async () => {
-      scripts = [{ progress: progressForSeconds(1200) }];
+    it('produces 27 zero-padded chunks in order for 20-minute audio', async () => {
+      scripts = [{ progress: progressForSeconds(AUDIO_LIMITS.MAX_DURATION_SECONDS) }];
 
       const result = await AudioConverter.prepare({ inputPath: INPUT_PATH, workDir: WORK_DIR });
+      const expectedChunkCount = Math.ceil(
+        AUDIO_LIMITS.MAX_DURATION_SECONDS / AUDIO_LIMITS.CORE_SECONDS,
+      );
 
-      expect(calls).toHaveLength(41);
-      expect(result.chunks).toHaveLength(40);
-      expect(result.chunks.map((c) => c.index)).toEqual(Array.from({ length: 40 }, (_, i) => i));
+      expect(calls).toHaveLength(expectedChunkCount + 1);
+      expect(result.chunks).toHaveLength(expectedChunkCount);
+      expect(result.chunks.map((c) => c.index)).toEqual(
+        Array.from({ length: expectedChunkCount }, (_, i) => i),
+      );
       expect(result.chunks.map((c) => basename(c.path))).toEqual(
-        Array.from({ length: 40 }, (_, i) => `chunk-${String(i).padStart(3, '0')}.flac`),
+        Array.from(
+          { length: expectedChunkCount },
+          (_, i) => `chunk-${String(i).padStart(3, '0')}.flac`,
+        ),
       );
       expect(basename(result.chunks[0].path)).toBe('chunk-000.flac');
-      expect(basename(result.chunks[39].path)).toBe('chunk-039.flac');
-      expect(result.chunks[39].coreEndSeconds).toBe(1200);
+      expect(basename(result.chunks[expectedChunkCount - 1].path)).toBe(
+        `chunk-${String(expectedChunkCount - 1).padStart(3, '0')}.flac`,
+      );
+      expect(result.chunks[expectedChunkCount - 1].coreEndSeconds).toBe(
+        AUDIO_LIMITS.MAX_DURATION_SECONDS,
+      );
       // Strict ordering: every spawn is preceded by the previous child's close.
-      expect(timeline).toHaveLength(82);
+      expect(timeline).toHaveLength((expectedChunkCount + 1) * 2);
       expect(timeline.filter((_, i) => i % 2 === 0)).toEqual(
-        Array.from({ length: 41 }, (_, i) => `spawn:${i}`),
+        Array.from({ length: expectedChunkCount + 1 }, (_, i) => `spawn:${i}`),
       );
     });
 
@@ -720,7 +734,7 @@ describe('AudioConverter', () => {
         expect(result.durationSeconds).toBeGreaterThan(25);
         expect(result.durationSeconds).toBeLessThan(30);
         expect(result.normalizedSizeBytes).toBeGreaterThan(0);
-        // 27.6s < CORE_SECONDS (30s) → no split
+        // 27.6s < the production core duration → no split.
         expect(result.chunks).toHaveLength(1);
         expect(result.chunks[0].startSeconds).toBe(0);
         expect(result.chunks[0].coreStartSeconds).toBe(0);
@@ -734,7 +748,7 @@ describe('AudioConverter', () => {
       }
     }, 30_000);
 
-    it('processes the real assets/MWINIWIO-30-Aug.m4a.mp4 file (3m50s → 8 chunks)', async () => {
+    it('processes the real assets/MWINIWIO-30-Aug.m4a.mp4 file (3m50s → 6 chunks)', async () => {
       const available = await AudioConverter.isFFmpegAvailable();
       expect(typeof available).toBe('boolean');
       if (!available) return;
@@ -757,14 +771,15 @@ describe('AudioConverter', () => {
         expect(result.durationSeconds).toBeGreaterThan(229);
         expect(result.durationSeconds).toBeLessThan(232);
         expect(result.normalizedSizeBytes).toBeGreaterThan(0);
-        // 230.5s / 30s core = ceil(7.68) = 8 chunks
-        expect(result.chunks).toHaveLength(8);
+        // 230.5s / 45s core = ceil(5.12) = 6 chunks.
+        expect(result.chunks).toHaveLength(6);
         // First chunk starts at 0
         expect(result.chunks[0].startSeconds).toBe(0);
         // Last chunk ends at the file duration
-        expect(result.chunks[7].coreEndSeconds).toBeCloseTo(result.durationSeconds, 1);
-        // Internal chunks have an overlap window wider than their core
-        expect(result.chunks[1].startSeconds).toBeLessThan(result.chunks[1].coreStartSeconds);
+        expect(result.chunks[5].coreEndSeconds).toBeCloseTo(result.durationSeconds, 1);
+        // Production overlap is zero, so every upload is identical to its ownership core.
+        expect(result.chunks[1].startSeconds).toBe(result.chunks[1].coreStartSeconds);
+        expect(result.chunks[1].endSeconds).toBe(result.chunks[1].coreEndSeconds);
 
         const info = await probe(result.normalizedPath);
         expect(info).toMatch(/Audio:\s*flac/);
@@ -775,7 +790,7 @@ describe('AudioConverter', () => {
       }
     }, 120_000);
 
-    it('normalizes 35s of synthesized audio to 16 kHz mono FLAC and splits it in two', async () => {
+    it('normalizes 50s of synthesized audio to 16 kHz mono FLAC and splits it in two', async () => {
       const available = await AudioConverter.isFFmpegAvailable();
       expect(typeof available).toBe('boolean');
       if (!available) return;
@@ -783,12 +798,12 @@ describe('AudioConverter', () => {
       const workDir = await realFs.mkdtemp(join(tmpdir(), 'jarvis-audio-real-'));
       try {
         const inputPath = join(workDir, 'source.wav');
-        expect(await synthesize(inputPath, 35)).toBe(0);
+        expect(await synthesize(inputPath, 50)).toBe(0);
 
         const result = await AudioConverter.prepare({ inputPath, workDir });
 
-        expect(result.durationSeconds).toBeGreaterThan(34.5);
-        expect(result.durationSeconds).toBeLessThan(35.5);
+        expect(result.durationSeconds).toBeGreaterThan(49.5);
+        expect(result.durationSeconds).toBeLessThan(50.5);
         expect(result.normalizedSizeBytes).toBeGreaterThan(0);
         expect(result.chunks).toHaveLength(2);
         expect(result.chunks[0].path).not.toBe(result.normalizedPath);

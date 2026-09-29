@@ -30,7 +30,7 @@ def _onboard(cursor, telegram_id: int, name: str):
     return cursor.fetchone()
 
 
-def test_user_identity_preferences_and_audits_are_atomic():
+def test_user_identity_policy_and_audits_are_atomic():
     import psycopg
 
     telegram_id = int(f"8{uuid.uuid4().int % 10**12:012d}")
@@ -39,22 +39,22 @@ def test_user_identity_preferences_and_audits_are_atomic():
             user_id, created = _onboard(cursor, telegram_id, "Admin Test")
             assert created is True
             cursor.execute(
-                "select status, telegram_verified_at, preferences from public.users where id = %s",
+                "select status, telegram_verified_at, custom_instructions from public.users where id = %s",
                 (user_id,),
             )
-            original_status, original_verified_at, original_preferences = cursor.fetchone()
+            original_status, original_verified_at, original_instructions = cursor.fetchone()
             duplicate_user_id, duplicate_created = _onboard(
                 cursor, telegram_id, "Ignored Duplicate Name"
             )
             assert (duplicate_user_id, duplicate_created) == (user_id, False)
             cursor.execute(
-                "select status, telegram_verified_at, preferences, display_name from public.users where id = %s",
+                "select status, telegram_verified_at, custom_instructions, display_name from public.users where id = %s",
                 (user_id,),
             )
             assert cursor.fetchone() == (
                 original_status,
                 original_verified_at,
-                original_preferences,
+                original_instructions,
                 "Admin Test",
             )
             cursor.execute(
@@ -74,47 +74,48 @@ def test_user_identity_preferences_and_audits_are_atomic():
 
             cursor.execute(
                 """
-                select user_id, revision
-                from private.admin_set_preferences(%s, 1, %s::jsonb, %s)
+                select user_id, policy_revision
+                from private.admin_set_runtime_policy(%s, %s, %s, %s, %s, %s)
                 """,
                 (
                     telegram_id,
-                    """{
-                      "communication":{"tone":"neutral","verbosity":"balanced"},
-                      "routing":{
-                        "task_provider":"todoist",
-                        "event_provider":"todoist",
-                        "calendar_usage":"explicit_only"
-                      },
-                      "domains":{
-                        "todoist":{
-                          "user_domain_specific_comments":[
-                            "Apply the task or event label according to item type."
-                          ]
-                        },
-                        "google_calendar":{
-                          "event_category_defaults":{},
-                          "user_domain_specific_comments":[]
-                        }
-                      }
-                    }""",
+                    "gpt-test",
+                    "high",
+                    9,
+                    False,
                     "admin:test",
                 ),
             )
             assert cursor.fetchone() == (user_id, 2)
             cursor.execute(
                 """
-                select
-                  preferences #> '{domains,todoist,user_domain_specific_comments}',
-                  preferences #> '{domains,google_calendar,user_domain_specific_comments}'
-                from public.users
-                where id = %s
+                select user_id, updated, instruction_length
+                from private.admin_set_custom_instructions(%s, %s, %s)
+                """,
+                (
+                    telegram_id,
+                    "Apply the task or event label according to item type.",
+                    "admin:test",
+                ),
+            )
+            assert cursor.fetchone() == (user_id, True, 53)
+            cursor.execute(
+                """
+                select policy.forced_model, policy.forced_reasoning_effort,
+                       policy.max_agent_turns, policy.allow_mutations,
+                       app_user.custom_instructions
+                from public.users app_user
+                join private.user_runtime_policies policy on policy.user_id = app_user.id
+                where app_user.id = %s
                 """,
                 (user_id,),
             )
             assert cursor.fetchone() == (
-                ["Apply the task or event label according to item type."],
-                [],
+                "gpt-test",
+                "high",
+                9,
+                False,
+                "Apply the task or event label according to item type.",
             )
             cursor.execute(
                 """
@@ -127,7 +128,8 @@ def test_user_identity_preferences_and_audits_are_atomic():
             )
             assert cursor.fetchall() == [
                 ("user_created", "admin:test"),
-                ("preferences_updated", "admin:test"),
+                ("runtime_policy_updated", "admin:test"),
+                ("custom_instructions_updated", "admin:test"),
             ]
         connection.rollback()
 

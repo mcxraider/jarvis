@@ -22,8 +22,10 @@ from agents.agent_api.app.tools.google_calendar.client import (  # noqa: E402
     GoogleCalendarClient,
 )
 from agents.agent_api.app.tools.todoist.client import TodoistApiClient  # noqa: E402
-from agents.agent_api.app.user_context.preferences import (  # noqa: E402
-    AssistantPreferencesV1,
+from agents.agent_api.app.user_context.policy import (  # noqa: E402
+    OnboardingMetadata,
+    ResourceRestrictions,
+    RuntimePolicy,
 )
 
 SUPPORTED_PROVIDERS = tuple(DOMAIN_ADAPTERS)
@@ -54,16 +56,49 @@ def _read_input(path: Path, stdin: TextIO, *, description: str) -> str:
     return value
 
 
-def _load_preferences(path: Path, stdin: TextIO) -> Dict[str, Any]:
-    raw = _read_input(path, stdin, description="Preference")
+def _load_runtime_policy(path: Path, stdin: TextIO) -> Dict[str, Any]:
+    raw = _read_input(path, stdin, description="Runtime policy")
     try:
         payload = json.loads(raw)
-        validated = AssistantPreferencesV1.model_validate(payload)
+        validated = RuntimePolicy.model_validate(payload)
     except (ValueError, TypeError) as exc:
         raise IntegrationAdminError(
-            "Preferences do not match the supported schema."
+            "Runtime policy does not match the supported schema."
         ) from exc
-    return validated.model_dump(mode="json", exclude_unset=True)
+    return validated.model_dump(mode="json")
+
+
+def _load_resource_restrictions(
+    path: Path,
+    stdin: TextIO,
+    provider: str,
+) -> list[Dict[str, Any]]:
+    raw = _read_input(path, stdin, description="Resource restriction")
+    field = (
+        "restricted_todoist_projects"
+        if provider == "todoist"
+        else "restricted_google_calendars"
+    )
+    try:
+        payload = json.loads(raw)
+        validated = ResourceRestrictions.model_validate({field: payload})
+    except (ValueError, TypeError) as exc:
+        raise IntegrationAdminError(
+            "Resource restrictions do not match the supported schema."
+        ) from exc
+    return [item.model_dump(mode="json") for item in getattr(validated, field)]
+
+
+def _load_onboarding_metadata(path: Path, stdin: TextIO) -> Dict[str, Any]:
+    raw = _read_input(path, stdin, description="Onboarding metadata")
+    try:
+        payload = json.loads(raw)
+        validated = OnboardingMetadata.model_validate(payload)
+    except (ValueError, TypeError) as exc:
+        raise IntegrationAdminError(
+            "Onboarding metadata does not match the supported schema."
+        ) from exc
+    return validated.model_dump(mode="json")
 
 
 def _load_custom_instructions(path: Path, stdin: TextIO) -> str:
@@ -243,14 +278,57 @@ def disable_user(args: argparse.Namespace) -> Dict[str, Any]:
     return {"user_id": str(user_id), "status": "suspended"}
 
 
-def set_preferences(args: argparse.Namespace, stdin: TextIO) -> Dict[str, Any]:
-    preferences = _load_preferences(args.file, stdin)
-    _validate_restricted_resources(args.telegram_user_id, preferences)
+def set_runtime_policy(args: argparse.Namespace, stdin: TextIO) -> Dict[str, Any]:
+    policy = _load_runtime_policy(args.file, stdin)
     user_id, revision = _execute_one(
-        "select user_id, revision from private.admin_set_preferences(%s, 1, %s::jsonb, %s)",
-        (args.telegram_user_id, json.dumps(preferences), args.actor),
+        "select user_id, policy_revision "
+        "from private.admin_set_runtime_policy(%s, %s, %s, %s, %s, %s)",
+        (
+            args.telegram_user_id,
+            policy["forced_model"],
+            policy["forced_reasoning_effort"],
+            policy["max_agent_turns"],
+            policy["allow_mutations"],
+            args.actor,
+        ),
     )
-    return {"user_id": str(user_id), "schema_version": 1, "revision": revision}
+    return {"user_id": str(user_id), "policy_revision": revision}
+
+
+def set_resource_restrictions(
+    args: argparse.Namespace,
+    stdin: TextIO,
+) -> Dict[str, Any]:
+    resources = _load_resource_restrictions(args.file, stdin, args.provider)
+    _validate_restricted_resources(args.telegram_user_id, args.provider, resources)
+    user_id, resource_count = _execute_one(
+        "select user_id, resource_count "
+        "from private.admin_replace_resource_restrictions(%s, %s, %s::jsonb, %s)",
+        (args.telegram_user_id, args.provider, json.dumps(resources), args.actor),
+    )
+    return {
+        "user_id": str(user_id),
+        "provider": args.provider,
+        "resource_count": resource_count,
+    }
+
+
+def set_onboarding_metadata(
+    args: argparse.Namespace,
+    stdin: TextIO,
+) -> Dict[str, Any]:
+    metadata = _load_onboarding_metadata(args.file, stdin)
+    user_id, updated = _execute_one(
+        "select user_id, updated "
+        "from private.admin_set_onboarding_metadata(%s, %s, %s, %s)",
+        (
+            args.telegram_user_id,
+            metadata["future_providers"],
+            metadata["admin_notes"],
+            args.actor,
+        ),
+    )
+    return {"user_id": str(user_id), "updated": bool(updated)}
 
 
 def set_custom_instructions(
@@ -344,30 +422,25 @@ def list_resources(args: argparse.Namespace) -> Dict[str, Any]:
 
 def _validate_restricted_resources(
     telegram_user_id: int,
-    preferences: Dict[str, Any],
+    provider: str,
+    restrictions: list[Dict[str, Any]],
 ) -> None:
-    access = preferences.get("access") or {}
-    configured = {
-        "todoist": access.get("restricted_todoist_projects") or [],
-        "google_calendar": access.get("restricted_google_calendars") or [],
+    if not restrictions:
+        return
+    discovered = {
+        resource["id"]: resource
+        for resource in _provider_resources(telegram_user_id, provider)
     }
-    for provider, restrictions in configured.items():
-        if not restrictions:
-            continue
-        discovered = {
-            resource["id"]: resource
-            for resource in _provider_resources(telegram_user_id, provider)
-        }
-        for restriction in restrictions:
-            resource = discovered.get(str(restriction["id"]))
-            if resource is None:
-                raise IntegrationAdminError(
-                    f"A restricted {provider} resource could not be resolved."
-                )
-            if bool(restriction.get("is_primary")) != bool(resource["is_primary"]):
-                raise IntegrationAdminError(
-                    f"A restricted {provider} resource has incorrect primary metadata."
-                )
+    for restriction in restrictions:
+        resource = discovered.get(str(restriction["id"]))
+        if resource is None:
+            raise IntegrationAdminError(
+                f"A restricted {provider} resource could not be resolved."
+            )
+        if bool(restriction.get("is_primary")) != bool(resource["is_primary"]):
+            raise IntegrationAdminError(
+                f"A restricted {provider} resource has incorrect primary metadata."
+            )
 
 
 def store_credential(
@@ -459,29 +532,34 @@ def capability_summary(args: argparse.Namespace) -> Dict[str, Any]:
         "locale": first[3],
         "status": first[4],
         "telegram_user_id": first[5],
-        "preference_schema_version": first[6],
-        "preference_revision": first[7],
+        "policy_revision": first[6],
+        "runtime_policy": {
+            "forced_model": first[7],
+            "forced_reasoning_effort": first[8],
+            "max_agent_turns": first[9],
+            "allow_mutations": first[10],
+        },
     }
-    by_provider = {row[9]: row for row in rows if row[9]}
+    by_provider = {row[11]: row for row in rows if row[11]}
     capabilities = []
     for provider, adapter in DOMAIN_ADAPTERS.items():
         row = by_provider.get(provider)
         active = bool(
             row
             and user["status"] == "active"
-            and row[10] == "connected"
-            and row[11]
+            and row[12] == "connected"
+            and row[13]
         )
         capabilities.append(
             {
                 "provider": provider,
                 "display_name": adapter.display_name,
-                "status": row[10] if row else "not_connected",
-                "enabled": bool(row[11]) if row else False,
+                "status": row[12] if row else "not_connected",
+                "enabled": bool(row[13]) if row else False,
                 "active": active,
-                "account_label": row[12] if row else None,
-                "last_validated_at": _json_value(row[13]) if row else None,
-                "credential_version": row[14] if row else None,
+                "account_label": row[14] if row else None,
+                "last_validated_at": _json_value(row[15]) if row else None,
+                "credential_version": row[16] if row else None,
                 "capabilities": adapter.capabilities if active else [],
             }
         )
@@ -493,27 +571,6 @@ def audit_check(_args: argparse.Namespace) -> Dict[str, Any]:
     findings = [
         {"type": row[0], "subject_id": row[1], "details": row[2]} for row in rows
     ]
-    preference_rows = _execute_all("select * from private.admin_preference_profiles()")
-    already_invalid = {
-        finding["subject_id"]
-        for finding in findings
-        if finding["type"] == "invalid_preferences"
-    }
-    for user_id, schema_version, preferences in preference_rows:
-        try:
-            if schema_version != 1:
-                raise ValueError("unsupported schema")
-            AssistantPreferencesV1.model_validate(preferences)
-        except (ValueError, TypeError):
-            subject_id = str(user_id)
-            if subject_id not in already_invalid:
-                findings.append(
-                    {
-                        "type": "invalid_preferences",
-                        "subject_id": subject_id,
-                        "details": {"schema_version": schema_version},
-                    }
-                )
     return {"ok": not findings, "finding_count": len(findings), "findings": findings}
 
 
@@ -608,13 +665,21 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     _add_user_target(disable)
     _add_actor(disable)
 
-    preferences = groups.add_parser("preferences").add_subparsers(
+    policies = groups.add_parser("policy").add_subparsers(
         dest="command", required=True
     )
-    set_parser = preferences.add_parser("set")
-    _add_user_target(set_parser)
-    set_parser.add_argument("--file", type=Path, required=True)
-    _add_actor(set_parser)
+    policy_set = policies.add_parser("set")
+    _add_user_target(policy_set)
+    policy_set.add_argument("--file", type=Path, required=True)
+    _add_actor(policy_set)
+
+    onboarding = groups.add_parser("onboarding").add_subparsers(
+        dest="command", required=True
+    )
+    onboarding_set = onboarding.add_parser("set")
+    _add_user_target(onboarding_set)
+    onboarding_set.add_argument("--file", type=Path, required=True)
+    _add_actor(onboarding_set)
 
     instructions = groups.add_parser("instructions").add_subparsers(
         dest="command", required=True
@@ -642,6 +707,11 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     list_parser = resources.add_parser("list")
     _add_user_target(list_parser)
     _add_provider(list_parser)
+    restrictions_set = resources.add_parser("set")
+    _add_user_target(restrictions_set)
+    _add_provider(restrictions_set)
+    restrictions_set.add_argument("--file", type=Path, required=True)
+    _add_actor(restrictions_set)
     validate = credentials.add_parser("validate")
     _add_user_target(validate)
     _add_provider(validate)
@@ -670,8 +740,10 @@ def _dispatch(args: argparse.Namespace, stdin: TextIO) -> Dict[str, Any]:
         return create_user(args)
     if handler == ("user", "disable"):
         return disable_user(args)
-    if handler == ("preferences", "set"):
-        return set_preferences(args, stdin)
+    if handler == ("policy", "set"):
+        return set_runtime_policy(args, stdin)
+    if handler == ("onboarding", "set"):
+        return set_onboarding_metadata(args, stdin)
     if handler == ("instructions", "set"):
         return set_custom_instructions(args, stdin)
     if args.group == "credential" and args.command in ("import", "rotate", "reconnect"):
@@ -682,6 +754,8 @@ def _dispatch(args: argparse.Namespace, stdin: TextIO) -> Dict[str, Any]:
         return set_credential_state(args)
     if handler == ("resources", "list"):
         return list_resources(args)
+    if handler == ("resources", "set"):
+        return set_resource_restrictions(args, stdin)
     if handler == ("capabilities", "show"):
         return capability_summary(args)
     if handler == ("audit", "check"):

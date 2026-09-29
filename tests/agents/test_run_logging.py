@@ -8,6 +8,8 @@ from unittest import TestCase, mock
 from agents.agent_api.app import run_logging
 from agents.agent_api.app.graph import builder
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
+from agents.agent_api.app.user_context.identity import TelegramIdentity
+from agents.agent_api.app.user_context.runtime import PolicyShadowMismatchError
 
 
 class BuildRunLogPathTests(TestCase):
@@ -335,6 +337,7 @@ _TODOIST_METHODS = (
     "get_labels",
     "get_projects",
     "create_project",
+    "create_section",
 )
 
 
@@ -390,6 +393,43 @@ class RunJarvisFileLoggingTests(TestCase):
             files, result = self._run(tmp, enabled=False)
             self.assertEqual(files, [])
             self.assertNotIn("run_log_path", result)
+
+    def test_policy_shadow_mismatch_logs_only_bounded_match_flags(self) -> None:
+        import tempfile
+
+        mismatch = PolicyShadowMismatchError(
+            runtime_matches=True,
+            access_matches=False,
+        )
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            run_logging, "run_file_log_enabled", return_value=True
+        ), mock.patch.object(
+            run_logging, "LOG_DIR", run_logging.Path(tmp)
+        ), mock.patch.object(
+            builder, "settings", mock.Mock(postgres_dsn="postgresql://test")
+        ), mock.patch.object(
+            builder,
+            "resolve_runtime_context_async",
+            new=mock.AsyncMock(side_effect=mismatch),
+        ):
+            with self.assertRaises(PolicyShadowMismatchError):
+                builder.run_jarvis(
+                    user_prompt="hello",
+                    identity=TelegramIdentity(telegram_id=42, username="tester"),
+                    tracer=NULL_TRACE,
+                    thread_id="shadow-00001",
+                    request_id="shadow-log",
+                )
+            run_logging.flush_run_logs()
+
+            files = sorted(run_logging.Path(tmp).glob("*/*.log"))
+            self.assertEqual(len(files), 1)
+            content = files[0].read_text(encoding="utf-8")
+
+        self.assertIn("Policy shadow comparison failed.", content)
+        self.assertIn("runtime_matches=true", content)
+        self.assertIn("access_matches=false", content)
+        self.assertNotIn("preferences", content)
 
 
 class _ImageCapturingClient:

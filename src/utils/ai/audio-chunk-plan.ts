@@ -1,15 +1,15 @@
 // src/utils/ai/audio-chunk-plan.ts — Pure chunk geometry for long-form transcription.
 //
-// Whisper large-v3 is optimised for 30-second segments, so audio longer than one core
-// duration is split into `ceil(D / core)` equal, non-overlapping *core* regions. Each
-// upload is that core widened by half the overlap at every internal boundary, clamped
-// to the file. Cores decide ownership at merge time; the overlap only exists so the
-// model has context either side of a boundary.
+// Audio longer than one configured core duration is split into `ceil(D / core)` equal,
+// non-overlapping *core* regions. Each upload is that core widened by half the configured
+// overlap at every internal boundary, clamped to the file. Cores decide ownership at merge
+// time; overlap, when enabled, only exists so the model has context around a boundary.
 //
-//   35s → cores 0–17.5, 17.5–35   uploads 0–20,   15–35
-//   60s → cores 0–30,   30–60     uploads 0–32.5, 27.5–60
+// Production defaults use 45-second cores with no overlap:
+//   35s → one core/upload 0–35
+//   60s → cores/uploads 0–30, 30–60
 //
-// Equal cores (rather than fixed 30s cores plus a remainder) avoid a tiny final chunk;
+// Equal cores (rather than fixed-width cores plus a remainder) avoid a tiny final chunk;
 // for any accepted duration the core stays above the model's 10-second minimum.
 
 import { AUDIO_LIMITS } from './audio-limits';

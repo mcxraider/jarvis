@@ -13,7 +13,7 @@ from agents.agent_api.app.graph.prompts.orchestrator import (
     _current_user_datetime,
     _user_timezone,
 )
-from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
+from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshotLike
 
 USER_PROMPTS: List[str] = [
     "check my calendar and the fact that i have 14 days of leave, figure out the maximum amount of time that i can go overseas for, including weekends, optimise for public holidays."
@@ -326,7 +326,7 @@ def build_user_prompt_with_request_datetime(
 def build_initial_messages(
     user_prompt: str,
     timezone: Optional[str] = None,
-    runtime_context: Optional[RuntimeContextSnapshot] = None,
+    runtime_context: Optional[RuntimeContextSnapshotLike] = None,
     reply_context: Optional[dict] = None,
 ) -> List[Dict[str, Any]]:
     """Create the initial message list: only the user message.

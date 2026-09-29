@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from agents.agent_api.app.user_context.preferences import AssistantPreferencesV1
-from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
+from agents.agent_api.app.user_context.runtime import LegacyRuntimeContextSnapshot
 from tests.agents.runtime_helpers import make_preferences, make_snapshot
 
 
@@ -72,7 +72,7 @@ def test_runtime_snapshot_serializes_and_rehydrates_comments():
     )
 
     serialized = snapshot.model_dump_json()
-    restored = RuntimeContextSnapshot.model_validate(json.loads(serialized))
+    restored = LegacyRuntimeContextSnapshot.model_validate(json.loads(serialized))
 
     assert restored == snapshot
     assert (

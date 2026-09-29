@@ -255,6 +255,11 @@ Supply those values only for that command; do not save the privileged DSN in
 `.env`. Stop the administrative launch afterward, restore the runtime DSN, and
 start the services normally.
 
+Text turns are classified by the OpenAI GPT-6 Luna router using each user's
+custom instructions, then sent to the orchestrator with only the connected
+Todoist and/or Google Calendar tools they need. Image-bearing turns skip text
+routing and give the vision orchestrator every connected tool.
+
 ## One chat. Many ways to work.
 
 | | Send Jarvis | What happens next |

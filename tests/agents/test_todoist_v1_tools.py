@@ -68,7 +68,7 @@ class TestSchemaRegistration:
         assert "1 normal, 2 low" not in desc
 
     def test_priority_prompt_matches_add_and_update_schema(self):
-        expected = "4 = urgent/P1, 3 = high/P2, 2 = medium/P3, 1 = normal/P4 (default)"
+        expected = "4 = urgent/P1 (default), 3 = high/P2, 2 = medium/P3, 1 = normal/P4"
 
         assert expected in TODOIST_PROMPT_FRAGMENT
         for tool_name in ("add_todoist_task", "update_todoist_task"):
@@ -76,7 +76,12 @@ class TestSchemaRegistration:
                 "priority"
             ]["description"]
             assert "4 = highest urgency" in description
-            assert "3 = P2, 2 = P3, 1 = normal/default (P4)" in description
+            assert "3 = P2, 2 = P3" in description
+            assert "1 = normal" in description
+        add_description = _schema("add_todoist_task")["function"]["parameters"][
+            "properties"
+        ]["priority"]["description"]
+        assert "Defaults to 4 (P1)" in add_description
 
     @pytest.mark.parametrize(
         ("tool_name", "expected_default"),

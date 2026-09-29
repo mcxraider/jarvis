@@ -35,7 +35,7 @@ from agents.agent_api.app.router.prompt import RouterDecision, effective_router_
 from agents.agent_api.app.tools.base import ToolRegistry, ToolSpec
 from agents.agent_api.app.tools.selectors.router import RouterToolSelector
 from agents.agent_api.app.tools.selectors.static import StaticToolSelector
-from agents.agent_api.app.tracing import NULL_TRACE
+from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
 from tests.agents.runtime_helpers import make_snapshot
 
 
@@ -76,6 +76,15 @@ class RecordingClient:
         self.seen_tools = list(tools)
         self.seen_kwargs = dict(kwargs)
         return {"role": "assistant", "content": "done"}
+
+
+class RecordingTracer(TracePrinter):
+    def __init__(self):
+        super().__init__(enabled=False)
+        self.events = []
+
+    def event(self, stage, message, **fields):
+        self.events.append((stage, message, fields))
 
 
 class FakeDecisionSelector:
@@ -162,7 +171,7 @@ class TestTurnSystemPromptBuild:
         state = {"runtime_context": snapshot_two_domains.model_dump(mode="json")}
         messages = [{"role": "user", "content": "hi"}]
         _build_orchestrator_system_prompt_for_turn(
-            messages, selector, state, NULL_TRACE, ["todoist_get_tasks"]
+            messages, decision, state, NULL_TRACE, ["todoist_get_tasks"]
         )
         expected = get_system_prompt(
             runtime_context=snapshot_two_domains,
@@ -177,7 +186,7 @@ class TestTurnSystemPromptBuild:
         state = {"runtime_context": snapshot_two_domains.model_dump(mode="json")}
         messages = [{"role": "user", "content": "hi"}]
         _build_orchestrator_system_prompt_for_turn(
-            messages, selector, state, NULL_TRACE, ["todoist_get_tasks"]
+            messages, None, state, NULL_TRACE, ["todoist_get_tasks"]
         )
         # Today's no-decision render: registered_tools=None, included_domains=None.
         expected = get_system_prompt(
@@ -192,7 +201,7 @@ class TestTurnSystemPromptBuild:
         state = {}  # no runtime_context
         messages = [{"role": "user", "content": "hi"}]
         _build_orchestrator_system_prompt_for_turn(
-            messages, selector, state, NULL_TRACE, ["todoist_get_tasks"]
+            messages, None, state, NULL_TRACE, ["todoist_get_tasks"]
         )
         expected = get_system_prompt(
             runtime_context=None, registered_tools=["todoist_get_tasks"]
@@ -208,7 +217,7 @@ class TestTurnSystemPromptBuild:
             {"role": "assistant", "content": "", "tool_calls": [{"id": "x"}]},
         ]
         _build_orchestrator_system_prompt_for_turn(
-            messages, selector, state, NULL_TRACE, ["todoist_get_tasks"]
+            messages, selector.decision, state, NULL_TRACE, ["todoist_get_tasks"]
         )
         assert [m["role"] for m in messages] == ["system", "user", "assistant"]
         assert messages[0]["content"] != "STALE"
@@ -217,8 +226,8 @@ class TestTurnSystemPromptBuild:
         selector = _selector_with_decision(_routed_decision(["todoist"]))
         state = {"runtime_context": snapshot_two_domains.model_dump(mode="json")}
         messages = [{"role": "user", "content": "hi"}]
-        _build_orchestrator_system_prompt_for_turn(messages, selector, state, NULL_TRACE, ["t"])
-        _build_orchestrator_system_prompt_for_turn(messages, selector, state, NULL_TRACE, ["t"])
+        _build_orchestrator_system_prompt_for_turn(messages, selector.decision, state, NULL_TRACE, ["t"])
+        _build_orchestrator_system_prompt_for_turn(messages, selector.decision, state, NULL_TRACE, ["t"])
         assert [m["role"] for m in messages].count("system") == 1
 
     def test_decision_slims_system_prompt_to_routed_domain(self):
@@ -384,8 +393,6 @@ class TestEndToEndThroughRealSelector:
         selector = RouterToolSelector(
             router_client=router_client,
             snapshot=snapshot,
-            use_fast_path=False,
-            use_lru_cache=False,
         )
 
         client, _result = _run_node(state, selector)
@@ -433,9 +440,9 @@ class TestEndToEndThroughRealSelector:
         client, _result = _run_node(state, selector)
 
         tool_names = {t["function"]["name"] for t in client.seen_tools}
-        assert tool_names == {"ask_user", "add_todoist_task", "get_tasks"}
+        assert tool_names == {"ask_user"}
         system = client.seen_messages[0]["content"]
-        assert "## Todoist tool tips" in system
+        assert "## Todoist tool tips" not in system
         assert "## Google Calendar tool tips" not in system
         assert "list_calendar_events" not in system
 
@@ -480,6 +487,48 @@ class TestEndToEndThroughRealSelector:
 
         assert result["selected_tool_names"] == ["ask_user", "add_todoist_task", "get_tasks"]
         assert result["router_outcome"] == "routed"
+
+    @pytest.mark.parametrize(
+        ("images", "prior_batches"),
+        [
+            (({"image_url": "current", "detail": "high"},), None),
+            ((), (({"image_url": "replayed", "detail": "high"},),)),
+        ],
+    )
+    def test_image_turn_bypasses_router_and_exposes_all_connected_tools(
+        self, images, prior_batches
+    ):
+        snapshot = make_snapshot(active=("todoist", "google_calendar"))
+        state = _state_turn0(snapshot, user_prompt="read this image")
+        router_client = _CannedRouterClient(_routed_decision(["todoist"]))
+        selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
+        tracer = RecordingTracer()
+        client = RecordingClient()
+        node = create_agent_node(
+            client,
+            _registry(),
+            max_agent_turns=30,
+            tracer=tracer,
+            tool_selector=selector,
+        )
+        deps = RunDeps(images=images, prior_image_batches=prior_batches)
+
+        result = asyncio.run(
+            node(state, {"configurable": {CONFIGURABLE_DEPS_KEY: deps}})
+        )
+
+        assert router_client.seen_queries == []
+        assert {tool["function"]["name"] for tool in client.seen_tools} == {
+            "ask_user",
+            "add_todoist_task",
+            "get_tasks",
+            "list_calendar_events",
+        }
+        assert "## Todoist tool tips" in client.seen_messages[0]["content"]
+        assert "## Google Calendar tool tips" in client.seen_messages[0]["content"]
+        assert result["router_outcome"] is None
+        bypass = next(event for event in tracer.events if event[0] == "router.bypassed")
+        assert bypass[2]["reason"] == "images"
 
 
 class TestNoSlimming:

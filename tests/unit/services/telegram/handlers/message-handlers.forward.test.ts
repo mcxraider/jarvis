@@ -43,6 +43,7 @@ describe('MessageHandlers forward buffering', () => {
         return { response: 'processed photo' };
       }),
       abandonConversation: jest.fn().mockResolvedValue('abandoned'),
+      resetConversationMemory: jest.fn().mockResolvedValue(undefined),
     };
     const forwardBuffer = options.forwardBuffer ?? new MemoryForwardBufferStore();
     // JPEG SOI + padding + EOI markers for a valid-looking buffer
@@ -334,7 +335,9 @@ describe('MessageHandlers forward buffering', () => {
 
       expect(messageProcessor.processTextMessage).toHaveBeenCalledTimes(1);
       const combined = messageProcessor.processTextMessage.mock.calls[0][0] as string;
-      expect(combined).toContain('Forwarded messages: 1');
+      expect(combined).toContain('Forwarded context (1 message');
+      expect(combined).toContain('<<<FORWARDED>>>');
+      expect(combined).toContain('<<<END FORWARDED>>>');
       expect(combined).toContain('From: Alice');
       expect(combined).toContain('meeting moved');
       expect(combined.trimEnd().endsWith('summarize these')).toBe(true);

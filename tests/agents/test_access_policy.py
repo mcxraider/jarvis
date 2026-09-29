@@ -17,12 +17,12 @@ from agents.agent_api.app.tools.todoist.client import (
     _todoist_trace_outputs,
 )
 from agents.agent_api.app.tracing import TracePrinter
-from agents.agent_api.app.user_context.preferences import AccessPreferences
+from agents.agent_api.app.user_context.policy import ResourceRestrictions
 
 
 def _policy() -> ResourceAccessPolicy:
     return ResourceAccessPolicy(
-        AccessPreferences.model_validate(
+        ResourceRestrictions.model_validate(
             {
                 "restricted_todoist_projects": [
                     {"id": "private-project", "label": "Private"}

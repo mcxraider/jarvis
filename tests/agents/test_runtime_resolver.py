@@ -18,9 +18,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 
 from agents.agent_api.app.user_context import resolver as resolver_module
 from agents.agent_api.app.user_context.preferences import AssistantPreferencesV1
+from agents.agent_api.app.user_context.policy import ResourceRestrictions, RuntimePolicy
 from agents.agent_api.app.user_context.identity import TelegramIdentity
 from agents.agent_api.app.user_context.resolver import (
     load_thread_runtime_context,
@@ -29,8 +31,10 @@ from agents.agent_api.app.user_context.resolver import (
 )
 from agents.agent_api.app.user_context.runtime import (
     DomainAvailability,
+    LegacyRuntimeContextSnapshot,
     RuntimeContextError,
     RuntimeContextSnapshot,
+    parse_runtime_context_snapshot,
 )
 
 USER_ID = "11111111-1111-1111-1111-111111111111"
@@ -113,7 +117,7 @@ def _patch_pool(cursor):
 
 
 def _snapshot(*, domains, prefs=None):
-    return RuntimeContextSnapshot(
+    return LegacyRuntimeContextSnapshot(
         user_id=USER_ID,
         display_name="Tester",
         timezone="Asia/Singapore",
@@ -140,9 +144,16 @@ class TestResolveRuntimeContext:
             "Tester",
             "Asia/Singapore",
             "en",
-            1,  # schema_version
             2,  # revision
-            _VALID_PREFERENCES,
+            None,  # forced_model
+            None,  # forced_reasoning_effort
+            None,  # max_agent_turns
+            None,  # allow_mutations
+            "Keep answers compact.\nUse Todoist for todos.",
+            [],  # Todoist restrictions
+            [],  # Google Calendar restrictions
+            True,  # runtime shadow matches legacy during compatibility window
+            True,  # access shadow matches legacy during compatibility window
         )
         connection_rows = [
             ("todoist-conn", "todoist", "connected", True),
@@ -160,8 +171,14 @@ class TestResolveRuntimeContext:
             resolved = resolve_runtime_context(IDENTITY)
 
         snapshot = resolved.snapshot
+        assert isinstance(snapshot, RuntimeContextSnapshot)
+        assert snapshot.schema_version == 2
+        assert not hasattr(snapshot, "preferences")
         assert snapshot.user_id == USER_ID
         assert snapshot.active_providers() == {"todoist"}
+        assert snapshot.custom_instructions == (
+            "Keep answers compact.\nUse Todoist for todos."
+        )
         # Disabled calendar connection is surfaced as unavailable, not dropped.
         calendar = {d.provider: d for d in snapshot.domains}["google_calendar"]
         assert (calendar.status, calendar.reason) == ("unavailable", "disabled")
@@ -209,7 +226,41 @@ def _active_todoist_snapshot(connection_id="todoist-conn"):
     )
 
 
+def _active_todoist_snapshot_v2(connection_id="todoist-conn"):
+    return RuntimeContextSnapshot(
+        user_id=USER_ID,
+        display_name="Tester",
+        timezone="Asia/Singapore",
+        locale="en",
+        custom_instructions="Keep answers compact.",
+        runtime_policy=RuntimePolicy(
+            forced_model="gpt-test",
+            forced_reasoning_effort="high",
+            max_agent_turns=12,
+            allow_mutations=False,
+        ),
+        resource_restrictions=ResourceRestrictions(),
+        policy_revision=3,
+        domains=[
+            DomainAvailability(
+                provider="todoist",
+                status="active",
+                connection_id=connection_id,
+                capabilities=["tasks"],
+            )
+        ],
+        resolved_at=datetime(2026, 7, 5, tzinfo=timezone.utc),
+    )
+
+
 class TestLoadThreadRuntimeContext:
+    def test_old_snapshot_without_custom_instructions_defaults_to_empty(self):
+        stored = _active_todoist_snapshot()
+        payload = stored.model_dump(mode="json")
+        payload.pop("custom_instructions")
+        restored = parse_runtime_context_snapshot(payload)
+        assert restored.custom_instructions == ""
+
     def test_reuses_stored_snapshot_verbatim_and_rehydrates_secret(self):
         stored = _active_todoist_snapshot()
         cursor = ScriptedCursor(
@@ -228,6 +279,24 @@ class TestLoadThreadRuntimeContext:
         # current profile/preferences: the returned snapshot equals what was stored.
         assert resolved.snapshot == stored
         assert set(resolved.credentials) == {"todoist"}
+        assert resolved.credentials["todoist"].secret == TODOIST_SECRET
+
+    def test_reuses_v2_snapshot_verbatim_and_rehydrates_secret(self):
+        stored = _active_todoist_snapshot_v2()
+        cursor = ScriptedCursor(
+            fetchone_rows=[
+                (USER_ID,),
+                (stored.model_dump(mode="json"),),
+                (USER_ID, "todoist", "connected", True),
+                (TODOIST_SECRET,),
+            ]
+        )
+        patcher, _pool = _patch_pool(cursor)
+        with patcher:
+            resolved = load_thread_runtime_context("thread-v2", IDENTITY)
+
+        assert resolved.snapshot == stored
+        assert resolved.snapshot.runtime_policy.max_agent_turns == 12
         assert resolved.credentials["todoist"].secret == TODOIST_SECRET
 
     def test_pinned_runtime_config_survives_resume(self):
@@ -380,5 +449,16 @@ class TestStoreThreadContext:
         serialized = params[3]
         assert TODOIST_SECRET not in serialized
         assert '"schema_version"' in serialized
+        assert '"custom_instructions"' in serialized
         assert params[1] == snapshot.user_id
         assert params[5] == snapshot.preference_revision
+
+
+def test_custom_instructions_are_bounded_to_10_000_characters():
+    payload = _active_todoist_snapshot().model_dump(mode="json")
+    payload["custom_instructions"] = "x" * 10_000
+    assert len(parse_runtime_context_snapshot(payload).custom_instructions) == 10_000
+
+    payload["custom_instructions"] += "x"
+    with pytest.raises(ValidationError):
+        parse_runtime_context_snapshot(payload)

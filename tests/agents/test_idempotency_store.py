@@ -387,6 +387,8 @@ class TestIdempotencyConfiguration:
             {
                 "LLM_PROVIDER": "deepseek",
                 "DEEPSEEK_API_KEY": "test-key",
+                "OPENAI_API_KEY": "test-openai-key",
+                "LLM_SAFETY_IDENTIFIER_SECRET": "test-safety-secret",
             },
             clear=True,
         ):

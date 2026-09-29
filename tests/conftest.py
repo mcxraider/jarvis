@@ -34,7 +34,6 @@ def _reset_shared_runtime_resources():
     from agents.agent_api.app.graph import builder
     from agents.agent_api.app.graph.nodes import orchestrator, summarize
     from agents.agent_api.app.router import client as router_client
-    from agents.agent_api.app.router.cache import reset_router_cache
     from agents.agent_api.app import db
 
     def reset() -> None:
@@ -42,7 +41,6 @@ def _reset_shared_runtime_resources():
         asyncio.run(orchestrator.close_shared_async_agent_client())
         router_client.close_shared_router_client()
         asyncio.run(router_client.close_shared_async_router_openai_client())
-        reset_router_cache()
         summarize.close_shared_summarizer_client()
         asyncio.run(summarize.close_shared_async_summarizer_client())
         summarize.reset_summarizer_limiters()

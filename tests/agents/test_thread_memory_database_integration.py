@@ -19,27 +19,30 @@ def _identity(cursor, telegram_id: int, user_id: uuid.UUID) -> None:
     cursor.execute(
         """
         insert into public.users (
-          id, display_name, telegram_id, telegram_verified_at, preferences,
+          id, display_name, telegram_id, telegram_verified_at, custom_instructions,
           preference_schema_version, preference_revision,
           preferences_created_at, preferences_updated_at, preferences_updated_by
         ) values (
           %s, 'Thread memory test', %s, now(),
-          '{
-            "communication":{"tone":"neutral","verbosity":"balanced"},
-            "routing":{
-              "task_provider":"todoist",
-              "event_provider":"todoist",
-              "calendar_usage":"explicit_only"
-            },
-            "domains":{
-              "todoist":{},
-              "google_calendar":{"event_category_defaults":{}}
-            }
-          }'::jsonb,
+          'Keep thread-memory test responses concise.',
           1, 1, now(), now(), 'test:thread-memory'
         )
         """,
         (user_id, telegram_id),
+    )
+    cursor.execute(
+        """
+        insert into private.user_runtime_policies(user_id, updated_by)
+        values (%s, 'test:thread-memory')
+        """,
+        (user_id,),
+    )
+    cursor.execute(
+        """
+        insert into private.user_onboarding_metadata(user_id, updated_by)
+        values (%s, 'test:thread-memory')
+        """,
+        (user_id,),
     )
 
 

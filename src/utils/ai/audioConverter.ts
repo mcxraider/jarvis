@@ -3,9 +3,9 @@
 // Every accepted audio file goes through exactly one path: normalize to 16 kHz mono
 // FLAC (Groq's documented optimum), measure the authoritative decoded duration from
 // FFmpeg's machine-readable progress stream, then split anything longer than one core
-// region into overlapping chunks. There is no direct-format pass-through and no MP3
-// fallback: a single predictable output shape is what makes chunking and merging
-// deterministic.
+// region into configured chunks (45-second cores with no overlap by default). There is no
+// direct-format pass-through or MP3 fallback: a single predictable output shape is what makes
+// chunking and merging deterministic.
 //
 // Lifecycle: the caller owns `workDir` (an mkdtemp directory). AudioConverter writes
 // into it and never creates or removes it, so a failure mid-prepare leaves partial

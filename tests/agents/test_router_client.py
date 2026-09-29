@@ -549,7 +549,7 @@ class TestSuccessfulDecision:
         assert decision.domains == ["todoist"]
         kwargs = sdk_client.chat.completions.create.call_args.kwargs
         assert kwargs["model"] == "gpt-5.6-luna"
-        assert kwargs["max_completion_tokens"] == 400
+        assert kwargs["max_completion_tokens"] == 150
         assert kwargs["reasoning_effort"] == "none"
         assert len(kwargs["safety_identifier"]) == 64
         assert "max_tokens" not in kwargs

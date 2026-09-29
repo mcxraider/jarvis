@@ -12,8 +12,8 @@ from agents.agent_api.app.tracing import NULL_TRACE
 from agents.agent_api.app.user_context.preferences import AssistantPreferencesV1
 from agents.agent_api.app.user_context.runtime import (
     DomainAvailability,
+    LegacyRuntimeContextSnapshot,
     ResolvedRuntimeContext,
-    RuntimeContextSnapshot,
 )
 
 
@@ -71,7 +71,7 @@ def _context(
             provider="google_calendar",
             secret='{"token": "calendar-secret"}',
         )
-    snapshot = RuntimeContextSnapshot(
+    snapshot = LegacyRuntimeContextSnapshot(
         user_id="user-id",
         display_name=name,
         timezone="Asia/Singapore",
@@ -122,8 +122,8 @@ def test_prompt_reports_unavailable_domain_without_calendar_instructions():
 
     assert "- Google Calendar is unavailable because it is not connected" in prompt
     assert "## Google Calendar tool tips" not in prompt
-    assert "Event provider: todoist" in prompt
-    assert "Calendar usage: explicit_only" in prompt
+    assert "Event provider:" not in prompt
+    assert "Calendar usage:" not in prompt
 
 
 def test_zachary_calendar_mapping_is_rendered_from_preferences():
@@ -141,9 +141,9 @@ def test_zachary_calendar_mapping_is_rendered_from_preferences():
     prompt = get_orchestrator_prompt(runtime_context=context.snapshot)
 
     assert "Zachary's personal assistant" in prompt
-    assert "Event provider: google_calendar" in prompt
-    assert "social → Personal (Zac Kam)" in prompt
-    assert "classes → NUS Schedule" in prompt
+    assert "Event provider:" not in prompt
+    assert "social → Personal (Zac Kam)" not in prompt
+    assert "classes → NUS Schedule" not in prompt
 
 
 def test_runtime_snapshot_never_serializes_credentials():

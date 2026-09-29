@@ -170,18 +170,18 @@ def _run_traced(body) -> list:
 def test_event_adds_span_event_with_stage_message_and_fields() -> None:
     """event() under a live span reaches the wire carrying stage, message and fields."""
     tracer = TracePrinter(enabled=True)
-    events = _run_traced(lambda: tracer.event("router.fast_path", "matched", domain="todoist"))
+    events = _run_traced(lambda: tracer.event("router.bypassed", "matched", reason="images"))
 
-    matching = [e for e in events if e.get("name") == "router.fast_path"]
-    assert matching, f"Expected a router.fast_path span event, got: {events}"
+    matching = [e for e in events if e.get("name") == "router.bypassed"]
+    assert matching, f"Expected a router.bypassed span event, got: {events}"
     assert matching[0]["message"] == "matched"
-    assert matching[0]["domain"] == "todoist"
+    assert matching[0]["reason"] == "images"
     assert "time" in matching[0]
 
 
 def test_event_without_run_tree_does_not_raise() -> None:
     """Outside any span (NULL_TRACE path) event() is a silent no-op."""
-    NULL_TRACE.event("router.fast_path", "matched", domain="todoist")  # must not raise
+    NULL_TRACE.event("router.bypassed", "matched", reason="images")  # must not raise
 
 
 def test_event_keeps_scalars_truncates_strings_and_drops_none() -> None:

@@ -9,7 +9,7 @@ from agents.agent_api.app.tools.errors import ClassifiedApiError
 from agents.agent_api.app.tracing import TracePrinter
 
 if TYPE_CHECKING:
-    from agents.agent_api.app.user_context.preferences import AccessPreferences
+    from agents.agent_api.app.user_context.policy import ResourceRestrictions
 
 _DROP = object()
 
@@ -75,12 +75,12 @@ class _ProviderTrace(TracePrinter):
 class ResourceAccessPolicy:
     """Guard targeted calls and sanitize mixed provider results."""
 
-    def __init__(self, preferences: Optional["AccessPreferences"] = None):
+    def __init__(self, restrictions: Optional["ResourceRestrictions"] = None):
         todoist_resources = (
-            preferences.restricted_todoist_projects if preferences is not None else ()
+            restrictions.restricted_todoist_projects if restrictions is not None else ()
         )
         calendar_resources = (
-            preferences.restricted_google_calendars if preferences is not None else ()
+            restrictions.restricted_google_calendars if restrictions is not None else ()
         )
         self._todoist_projects = {
             resource.id for resource in todoist_resources
@@ -94,11 +94,11 @@ class ResourceAccessPolicy:
         self._restricted_task_ids: set[str] = set()
 
     @classmethod
-    def from_preferences(
+    def from_restrictions(
         cls,
-        preferences: "AccessPreferences",
+        restrictions: "ResourceRestrictions",
     ) -> "ResourceAccessPolicy":
-        return cls(preferences)
+        return cls(restrictions)
 
     @property
     def has_restrictions(self) -> bool:

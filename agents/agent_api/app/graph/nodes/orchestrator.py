@@ -55,7 +55,10 @@ from agents.agent_api.app.tools.base import ToolRegistry
 from agents.agent_api.app.tools.control import is_ask_user_tool_call
 from agents.agent_api.app.tools.selection import DEFAULT_TOOL_SELECTOR, ToolSelector
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
-from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
+from agents.agent_api.app.user_context.runtime import (
+    RuntimeContextSnapshotLike,
+    parse_runtime_context_snapshot,
+)
 from agents.agent_api.app.llm.chat import (
     UsageRecord,
     build_chat_completion_call,
@@ -1220,7 +1223,7 @@ async def close_shared_async_agent_client() -> None:
 
 def _build_orchestrator_system_prompt_for_turn(
     messages: List[Dict[str, Any]],
-    tool_selector: ToolSelector,
+    routing_decision: Any,
     state: JarvisState,
     tracer: TracePrinter,
     selected_tool_names: List[str],
@@ -1234,7 +1237,7 @@ def _build_orchestrator_system_prompt_for_turn(
     0 is touched, so ``messages[1:]`` history is preserved. Runs before the
     historical-context insertion below.
 
-    Three branches, each byte-identical to today's behavior for its case:
+    Three branches cover the runtime prompt sources:
       * no/invalid snapshot -> neutral offline prompt (runtime_context=None).
       * router decision      -> derived routed/pinned included set.
       * no decision          -> every active domain (registered_tools=None so the
@@ -1242,10 +1245,10 @@ def _build_orchestrator_system_prompt_for_turn(
     """
 
     raw_context = state.get("runtime_context")
-    snapshot: Optional[RuntimeContextSnapshot] = None
+    snapshot: Optional[RuntimeContextSnapshotLike] = None
     if raw_context:
         try:
-            snapshot = RuntimeContextSnapshot.model_validate(raw_context)
+            snapshot = parse_runtime_context_snapshot(raw_context)
         except ValidationError:
             tracer.event(
                 "orchestrator.prompt.fallback",
@@ -1261,11 +1264,9 @@ def _build_orchestrator_system_prompt_for_turn(
         included: Optional[set] = None
         source = "neutral"
     else:
-        decision = getattr(tool_selector, "decision", None)
-        if decision is None:
-            # Static/keyword selector or router internal fallback. Reproduce the
-            # prior eager all-domain render exactly: every active domain, tools
-            # line from the snapshot's registered tools.
+        if routing_decision is None:
+            # Static/keyword selector, router fallback, or image bypass: render
+            # every active domain and use the snapshot's registered tools line.
             content = get_system_prompt(
                 runtime_context=snapshot,
                 registered_tools=None,
@@ -1274,7 +1275,9 @@ def _build_orchestrator_system_prompt_for_turn(
             included = None
             source = "all_active"
         else:
-            relevant = set(effective_router_domains(decision)) & snapshot.active_providers()
+            relevant = set(
+                effective_router_domains(routing_decision)
+            ) & snapshot.active_providers()
             # Include pinned domains so the agent retains domain instructions even if
             # the router narrowed this turn (e.g. HITL resume classified todoist-only).
             active_domains = state.get("active_domains") or []
@@ -1414,26 +1417,52 @@ def create_agent_node(
             )
         # Pass active_domains so the selector can merge pinned domains on resumes.
         active_domains = state.get("active_domains") or []
-        async_select_schemas = getattr(run_tool_selector, "async_select_schemas", None)
-        if inspect.iscoroutinefunction(async_select_schemas):
-            tool_schemas = await async_select_schemas(
-                routing_query,
-                run_registry,
-                active_domains=active_domains or None,
+        run_images = deps.images if deps is not None else ()
+        run_prior_image_batches = (
+            deps.prior_image_batches if deps is not None else None
+        )
+        image_bearing_turn = bool(run_images) or any(run_prior_image_batches or ())
+        runtime_snapshot: Optional[RuntimeContextSnapshotLike] = None
+        raw_runtime_context = state.get("runtime_context")
+        if raw_runtime_context:
+            try:
+                runtime_snapshot = parse_runtime_context_snapshot(raw_runtime_context)
+            except ValidationError:
+                runtime_snapshot = None
+
+        if image_bearing_turn:
+            tool_schemas = run_registry.openai_schemas()
+            selector_decision = None
+            if runtime_snapshot is not None:
+                active_domains = sorted(runtime_snapshot.active_providers())
+            run_tracer.event(
+                "router.bypassed",
+                "Bypassed text routing for an image-bearing turn.",
+                reason="images",
             )
         else:
-            tool_schemas = await bounded_to_thread(
-                run_tool_selector.select_schemas,
-                routing_query,
-                run_registry,
-                active_domains=active_domains or None,
+            async_select_schemas = getattr(
+                run_tool_selector, "async_select_schemas", None
             )
+            if inspect.iscoroutinefunction(async_select_schemas):
+                tool_schemas = await async_select_schemas(
+                    routing_query,
+                    run_registry,
+                    active_domains=active_domains or None,
+                )
+            else:
+                tool_schemas = await bounded_to_thread(
+                    run_tool_selector.select_schemas,
+                    routing_query,
+                    run_registry,
+                    active_domains=active_domains or None,
+                )
+            selector_decision = getattr(run_tool_selector, "decision", None)
         selected_tool_names = _tool_schema_names(tool_schemas)
 
         # Persist the initial routing domains for context preservation across
         # HITL resumes. Only set on the first turn (no clarification history yet,
         # no prior active_domains); subsequent turns within the same run reuse it.
-        selector_decision = getattr(run_tool_selector, "decision", None)
         if not clarification_history and not active_domains and selector_decision:
             active_domains = list(effective_router_domains(selector_decision))
 
@@ -1454,10 +1483,23 @@ def create_agent_node(
 
         # Determine hosted tools (web_search) before building the system prompt
         # so the built prompt includes them in the Available tools line.
-        effective_domains = set(effective_router_domains(selector_decision)) if selector_decision else set()
-        selector_selected = getattr(run_tool_selector, "selected_domains", None)
+        effective_domains = (
+            set(effective_router_domains(selector_decision))
+            if selector_decision
+            else set()
+        )
+        selector_selected = (
+            frozenset(runtime_snapshot.active_providers())
+            if image_bearing_turn and runtime_snapshot is not None
+            else getattr(run_tool_selector, "selected_domains", None)
+        )
         attached_domains = frozenset(
-            effective_domains | (selector_selected if isinstance(selector_selected, frozenset) else set())
+            effective_domains
+            | (
+                selector_selected
+                if isinstance(selector_selected, frozenset)
+                else set()
+            )
         )
         client_profile = getattr(run_agent_client, "profile", None)
         request_tools = _compose_orchestrator_tools(
@@ -1489,7 +1531,7 @@ def create_agent_node(
         # Inserts or replaces messages[0] only (history-safe).
         _build_orchestrator_system_prompt_for_turn(
             messages,
-            run_tool_selector,
+            selector_decision,
             state,
             run_tracer,
             selected_tool_names,
@@ -1546,10 +1588,6 @@ def create_agent_node(
                 context_chars=len(historical_context),
                 image_count=len(historical_images),
             )
-        run_images = deps.images if deps is not None else ()
-        run_prior_image_batches = (
-            deps.prior_image_batches if deps is not None else None
-        )
         if historical_context:
             run_prior_image_batches = (
                 (historical_images,)

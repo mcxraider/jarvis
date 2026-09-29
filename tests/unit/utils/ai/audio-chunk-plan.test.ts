@@ -1,5 +1,6 @@
 import { planAudioChunks } from '../../../../src/utils/ai/audio-chunk-plan';
 import type { AudioChunkPlan } from '../../../../src/utils/ai/audio-chunk-plan';
+import { AUDIO_LIMITS } from '../../../../src/utils/ai/audio-limits';
 
 /** Cores must tile [0, duration] with no gap and no overlap. */
 function expectContiguousCores(chunks: AudioChunkPlan[], duration: number): void {
@@ -27,21 +28,21 @@ function expectAscendingIndices(chunks: AudioChunkPlan[]): void {
 
 describe('planAudioChunks', () => {
   it('makes a single chunk with no overlap at exactly the core duration', () => {
-    const chunks = planAudioChunks(30);
+    const chunks = planAudioChunks(AUDIO_LIMITS.CORE_SECONDS);
 
     expect(chunks).toEqual([
       {
         index: 0,
         startSeconds: 0,
-        endSeconds: 30,
+        endSeconds: AUDIO_LIMITS.CORE_SECONDS,
         coreStartSeconds: 0,
-        coreEndSeconds: 30,
+        coreEndSeconds: AUDIO_LIMITS.CORE_SECONDS,
       },
     ]);
   });
 
   it('splits one millisecond over the core duration into two viable uploads', () => {
-    const duration = 30.001;
+    const duration = AUDIO_LIMITS.CORE_SECONDS + 0.001;
     const chunks = planAudioChunks(duration);
 
     expect(chunks).toHaveLength(2);
@@ -59,44 +60,43 @@ describe('planAudioChunks', () => {
     }
   });
 
-  it('produces the documented geometry for 35 seconds', () => {
+  it('keeps a 35-second recording in one production-default chunk', () => {
     expect(planAudioChunks(35)).toEqual([
-      { index: 0, startSeconds: 0, endSeconds: 20, coreStartSeconds: 0, coreEndSeconds: 17.5 },
-      { index: 1, startSeconds: 15, endSeconds: 35, coreStartSeconds: 17.5, coreEndSeconds: 35 },
+      { index: 0, startSeconds: 0, endSeconds: 35, coreStartSeconds: 0, coreEndSeconds: 35 },
     ]);
   });
 
-  it('produces the documented geometry for 60 seconds', () => {
+  it('produces zero-overlap production-default geometry for 60 seconds', () => {
     expect(planAudioChunks(60)).toEqual([
-      { index: 0, startSeconds: 0, endSeconds: 32.5, coreStartSeconds: 0, coreEndSeconds: 30 },
-      { index: 1, startSeconds: 27.5, endSeconds: 60, coreStartSeconds: 30, coreEndSeconds: 60 },
+      { index: 0, startSeconds: 0, endSeconds: 30, coreStartSeconds: 0, coreEndSeconds: 30 },
+      { index: 1, startSeconds: 30, endSeconds: 60, coreStartSeconds: 30, coreEndSeconds: 60 },
     ]);
   });
 
-  it('produces 40 equal cores with exactly five seconds of internal overlap at 20 minutes', () => {
-    const duration = 1_200;
+  it('produces 27 equal cores with no internal overlap at 20 minutes', () => {
+    const duration = AUDIO_LIMITS.MAX_DURATION_SECONDS;
     const chunks = planAudioChunks(duration);
 
-    expect(chunks).toHaveLength(40);
+    expect(chunks).toHaveLength(27);
     expectAscendingIndices(chunks);
     expectContiguousCores(chunks, duration);
     expectClamped(chunks, duration);
 
     for (const chunk of chunks) {
-      expect(chunk.coreEndSeconds - chunk.coreStartSeconds).toBe(30);
+      expect(chunk.coreEndSeconds - chunk.coreStartSeconds).toBeCloseTo(duration / 27, 2);
     }
     expect(chunks[0].startSeconds).toBe(0);
-    expect(chunks[39].endSeconds).toBe(1_200);
+    expect(chunks[26].endSeconds).toBe(duration);
 
     for (let i = 0; i < chunks.length - 1; i += 1) {
-      expect(chunks[i].endSeconds - chunks[i + 1].startSeconds).toBe(5);
+      expect(chunks[i].endSeconds).toBe(chunks[i + 1].startSeconds);
     }
   });
 
   it.each([1_199.9, 600.5])('keeps cores contiguous for fractional duration %p', (duration) => {
     const chunks = planAudioChunks(duration);
 
-    expect(chunks).toHaveLength(Math.ceil(duration / 30));
+    expect(chunks).toHaveLength(Math.ceil(duration / AUDIO_LIMITS.CORE_SECONDS));
     expectAscendingIndices(chunks);
     expectContiguousCores(chunks, duration);
     expectClamped(chunks, duration);
@@ -143,13 +143,15 @@ describe('planAudioChunks', () => {
   it('holds its invariants across the whole accepted duration range', () => {
     const durations: number[] = [];
     for (let duration = 1; duration <= 1_200; duration += 7) durations.push(duration);
-    durations.push(30.5, 31.25, 44.75, 89.999, 300.125, 1_199.75);
+    durations.push(45.5, 46.25, 67.25, 89.999, 300.125, 1_199.75);
 
     for (const duration of durations) {
       const chunks = planAudioChunks(duration);
 
-      expect(chunks).toHaveLength(Math.ceil(duration / 30));
-      expect(chunks.length).toBeLessThanOrEqual(40);
+      expect(chunks).toHaveLength(Math.ceil(duration / AUDIO_LIMITS.CORE_SECONDS));
+      expect(chunks.length).toBeLessThanOrEqual(
+        Math.ceil(AUDIO_LIMITS.MAX_DURATION_SECONDS / AUDIO_LIMITS.CORE_SECONDS),
+      );
       expectAscendingIndices(chunks);
       expectContiguousCores(chunks, duration);
       expectClamped(chunks, duration);
@@ -160,10 +162,12 @@ describe('planAudioChunks', () => {
       );
       expect(coreTotal).toBeCloseTo(duration, 2);
 
-      if (duration > 30) {
+      if (duration > AUDIO_LIMITS.CORE_SECONDS) {
         for (const chunk of chunks) {
-          // 15s is the floor for balanced cores; allow the documented millisecond rounding.
-          expect(chunk.coreEndSeconds - chunk.coreStartSeconds).toBeGreaterThanOrEqual(14.999);
+          // Half a configured core is the floor for balanced cores; allow millisecond rounding.
+          expect(chunk.coreEndSeconds - chunk.coreStartSeconds).toBeGreaterThanOrEqual(
+            AUDIO_LIMITS.CORE_SECONDS / 2 - 0.001,
+          );
           expect(chunk.endSeconds - chunk.startSeconds).toBeGreaterThanOrEqual(10);
         }
       }

@@ -1,4 +1,4 @@
-"""Typed user identity, preference, integration, and runtime context models.
+"""Typed user identity, policy, integration, and runtime context models.
 
 Public surface for the unified context resolver. Callers should import from here
 rather than reaching into submodules.
@@ -14,13 +14,10 @@ from agents.agent_api.app.user_context.identity import (
     refresh_identity_profile,
     resolve_active_identity,
 )
-from agents.agent_api.app.user_context.preferences import (
-    AssistantPreferencesV1,
-    ExecutionPreferences,
-    LlmPreferences,
-    PreferenceConfigurationError,
-    ResolvedUserPreferences,
+from agents.agent_api.app.user_context.policy import (
+    ResourceRestrictions,
     ResolvedUserRuntimeConfig,
+    RuntimePolicy,
     resolve_user_runtime_config,
 )
 from agents.agent_api.app.user_context.resolver import (
@@ -30,9 +27,15 @@ from agents.agent_api.app.user_context.resolver import (
 )
 from agents.agent_api.app.user_context.runtime import (
     DomainAvailability,
+    LegacyRuntimeContextSnapshot,
     ResolvedRuntimeContext,
     RuntimeContextError,
     RuntimeContextSnapshot,
+    RuntimeContextSnapshotLike,
+    parse_runtime_context_snapshot,
+    policy_revision_from_snapshot,
+    resource_restrictions_from_snapshot,
+    runtime_policy_from_snapshot,
 )
 from agents.agent_api.app.user_context.secrets import (
     resolve_connection_secret,
@@ -40,21 +43,24 @@ from agents.agent_api.app.user_context.secrets import (
 )
 
 __all__ = [
-    "AssistantPreferencesV1",
     "ConnectionRow",
     "DomainAvailability",
-    "ExecutionPreferences",
-    "LlmPreferences",
-    "PreferenceConfigurationError",
+    "LegacyRuntimeContextSnapshot",
     "ResolvedIdentity",
     "ResolvedRuntimeContext",
-    "ResolvedUserPreferences",
     "ResolvedUserRuntimeConfig",
+    "ResourceRestrictions",
+    "RuntimePolicy",
     "RuntimeContextError",
     "RuntimeContextSnapshot",
+    "RuntimeContextSnapshotLike",
     "TelegramIdentity",
     "classify_domains",
     "resolve_user_runtime_config",
+    "parse_runtime_context_snapshot",
+    "policy_revision_from_snapshot",
+    "resource_restrictions_from_snapshot",
+    "runtime_policy_from_snapshot",
     "load_thread_runtime_context",
     "refresh_identity_profile",
     "resolve_active_identity",
