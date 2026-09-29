@@ -426,7 +426,7 @@ def test_custom_instructions_expand_migration_is_additive_and_restricted():
         encoding="utf-8"
     ).lower()
 
-    assert "add column custom_instructions text not null default ''" in expand
+    assert "add column if not exists custom_instructions text not null default ''" in expand
     assert "char_length(custom_instructions) <= 10000" in expand
     assert "private.admin_set_custom_instructions" in expand
     assert "security definer" in expand
