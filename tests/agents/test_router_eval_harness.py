@@ -103,7 +103,7 @@ def test_router_eval_loads_fixtures_and_formats_markdown_without_api_call(tmp_pa
     assert personas[0].snapshot.active_providers() == {"todoist", "google_calendar"}
     assert results[0].raw_response["domains"] == ["google_calendar"]
     assert "reasoning" not in results[0].raw_response
-    assert results[0].adjusted_response["domains"] == ["todoist"]
+    assert results[0].adjusted_response is None
     assert "# Router evaluation - 2026-07-07T14:33:12Z" in markdown
     assert "Reminder provider: todoist" in markdown
     assert "Time-related provider: todoist" in markdown
@@ -115,18 +115,17 @@ def test_router_eval_loads_fixtures_and_formats_markdown_without_api_call(tmp_pa
     assert "**Prompt (system):**" in markdown
     assert "**Prompt (user):**" in markdown
     assert "**Response (raw RouterDecision):**" in markdown
-    assert "**Response (after guardrails):**" in markdown
+    assert "**Response (after guardrails):**" not in markdown
     assert "put in my cal" in markdown
     assert report_paths == [tmp_path / "router_evals" / "jerry" / "20260707T143312Z.md"]
     assert report_paths[0].read_text(encoding="utf-8") == markdown
 
 
-def test_router_eval_records_latency_cost_and_excludes_fast_path_from_summary(tmp_path):
+def test_router_eval_records_latency_and_cost_for_every_live_classification(tmp_path):
     run_at = datetime(2026, 7, 7, 14, 33, 12, tzinfo=timezone.utc)
     personas = load_personas(DEFAULT_USERS_DIR, user_filters=["user-1"])
-    # A filled-in PROMPTS list is numbered and filtered the same way the fixture
-    # file is; "hello" is answered by the deterministic fast path, so production
-    # never sends it to the LLM, while "put in my cal" is a real classification.
+    # Every query is sent through the live router; the evaluator preserves the old
+    # fast-path fields as always-false output-schema compatibility fields.
     queries = select_queries(["put in my cal", "hello"])
     assert queries == [(1, "put in my cal"), (2, "hello")]
     assert select_queries(["a", "b", "c"], query_filters=["2"]) == [(2, "b")]
@@ -155,11 +154,9 @@ def test_router_eval_records_latency_cost_and_excludes_fast_path_from_summary(tm
     later = datetime(2026, 7, 7, 15, 0, 0, tzinfo=timezone.utc)
     results_path = append_results(results, out_dir, run_at=later)
 
-    # The eval always calls the LLM so every row carries real I/O; the fast-path
-    # flag is what keeps production-skipped queries out of the aggregates.
     assert client.calls == 2
-    assert [row["fast_path_hit"] for row in rows] == [False, True]
-    assert rows[1]["fast_path_decision"]["outcome"] == "conversation"
+    assert [row["fast_path_hit"] for row in rows] == [False, False]
+    assert rows[1]["fast_path_decision"] is None
 
     row = rows[0]
     # The prompt itself is intentionally not recorded, only its hash.
@@ -168,7 +165,7 @@ def test_router_eval_records_latency_cost_and_excludes_fast_path_from_summary(tm
     assert len(row["system_prompt_sha256"]) == 64
     assert row["run_at"] == "2026-07-07T14:33:12Z"
     assert row["decision"]["domains"] == ["google_calendar"]
-    assert row["decision_adjusted"]["domains"] == ["todoist"]
+    assert row["decision_adjusted"] is None
     assert row["latency_ms"] >= 0.0
     assert row["prompt_tokens"] == 1000
     assert row["completion_tokens"] == 40
@@ -176,19 +173,19 @@ def test_router_eval_records_latency_cost_and_excludes_fast_path_from_summary(tm
     assert row["error"] is None
 
     assert summary["pairs"] == 2
-    assert summary["fast_path_hits"] == 1
-    assert summary["llm_calls"] == 1
+    assert summary["fast_path_hits"] == 0
+    assert summary["llm_calls"] == 2
     assert summary["errors"] == 0
     assert summary["requested_model"] == "deepseek-v4-flash"
     assert summary["provider"] is None  # the fake exposes no provider profile
     assert summary["tokens"] == {
-        "prompt": 1000,
+        "prompt": 2000,
         "cached_read": 0,
-        "completion": 40,
+        "completion": 80,
         "reasoning": 0,
     }
-    assert Decimal(summary["total_cost_usd"]) == Decimal(row["cost_usd"])
-    assert summary["latency_ms"]["p50"] == row["latency_ms"]
+    assert Decimal(summary["total_cost_usd"]) == Decimal(row["cost_usd"]) * 2
+    assert summary["latency_ms"]["p50"] >= 0
 
     # Both runs live in one array; the second append must not clobber the first.
     written = json.loads(results_path.read_text(encoding="utf-8"))

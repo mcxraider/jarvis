@@ -57,6 +57,10 @@ const LONG_TRANSCRIPT = 'alpha '.repeat(1500).trim(); // 8999 chars
 const LONG_RESPONSE = 'bravo '.repeat(1500).trim(); // 8999 chars
 const SHORT_TRANSCRIPT = 'alpha one alpha two alpha three';
 
+function productionChunkCount(durationSeconds: number): number {
+  return Math.ceil(durationSeconds / AUDIO_LIMITS.CORE_SECONDS);
+}
+
 function transcription(
   text: string,
   overrides: Partial<TranscriptionResult> = {},
@@ -166,7 +170,10 @@ describe('Long-audio transcription flow: voice → Whisper → agent → split r
   it('invokes the agent exactly once with the full transcript and splits the long reply', async () => {
     const { handlers, whisper, agentClient, gateStore, gateKey } = createHarness();
     whisper.transcribeAudio.mockResolvedValue(
-      transcription(LONG_TRANSCRIPT, { durationSeconds: 600, chunkCount: 20 }),
+      transcription(LONG_TRANSCRIPT, {
+        durationSeconds: 600,
+        chunkCount: productionChunkCount(600),
+      }),
     );
     agentClient.invoke.mockResolvedValue(
       completedResponse({ threadId: THREAD_ID, message: LONG_RESPONSE }),
@@ -340,11 +347,14 @@ describe('Long-audio transcription flow: voice → Whisper → agent → split r
     expect((await gateStore.getSnapshot(gateKey)).status).toBe('idle');
   });
 
-  it('completes a 20-minute, 40-chunk job end to end', async () => {
+  it('completes a 20-minute, 27-chunk job end to end', async () => {
     const info = jest.spyOn(logger, 'info');
     const { handlers, whisper, agentClient, gateStore, gateKey } = createHarness();
     whisper.transcribeAudio.mockResolvedValue(
-      transcription(LONG_TRANSCRIPT, { durationSeconds: 1200, chunkCount: 40 }),
+      transcription(LONG_TRANSCRIPT, {
+        durationSeconds: AUDIO_LIMITS.MAX_DURATION_SECONDS,
+        chunkCount: productionChunkCount(AUDIO_LIMITS.MAX_DURATION_SECONDS),
+      }),
     );
     agentClient.invoke.mockResolvedValue(
       completedResponse({ threadId: THREAD_ID, message: LONG_RESPONSE }),
@@ -369,7 +379,10 @@ describe('Long-audio transcription flow: voice → Whisper → agent → split r
     const info = jest.spyOn(logger, 'info');
     const { handlers, whisper, agentClient } = createHarness();
     whisper.transcribeAudio.mockResolvedValue(
-      transcription(LONG_TRANSCRIPT, { durationSeconds: 1200, chunkCount: 40 }),
+      transcription(LONG_TRANSCRIPT, {
+        durationSeconds: AUDIO_LIMITS.MAX_DURATION_SECONDS,
+        chunkCount: productionChunkCount(AUDIO_LIMITS.MAX_DURATION_SECONDS),
+      }),
     );
     agentClient.invoke.mockResolvedValue(
       completedResponse({ threadId: THREAD_ID, message: LONG_RESPONSE }),
@@ -381,7 +394,10 @@ describe('Long-audio transcription flow: voice → Whisper → agent → split r
 
     expect(info).toHaveBeenCalledWith(
       'audio_processor.completed',
-      expect.objectContaining({ chunkCount: 40, audioDurationSeconds: 1200 }),
+      expect.objectContaining({
+        chunkCount: productionChunkCount(AUDIO_LIMITS.MAX_DURATION_SECONDS),
+        audioDurationSeconds: AUDIO_LIMITS.MAX_DURATION_SECONDS,
+      }),
     );
   });
 

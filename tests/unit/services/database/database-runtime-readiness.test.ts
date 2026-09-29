@@ -8,6 +8,9 @@ const requiredTables = [
   'public.telegram_pending_clarifications',
   'public.telegram_conversation_gates',
   'public.rate_limits',
+  'private.user_runtime_policies',
+  'private.user_resource_restrictions',
+  'private.user_onboarding_metadata',
 ];
 
 function installPool(query: jest.Mock): jest.Mock {
@@ -46,6 +49,7 @@ describe('verifyDatabaseRuntime', () => {
     expect(sql).toContain('prompt_message_id');
     expect(sql).toContain('telegram_verified_at');
     expect(sql).toContain('preference_revision');
+    expect(sql).toContain('private.user_runtime_policies');
     expect(end).toHaveBeenCalledTimes(1);
   });
 

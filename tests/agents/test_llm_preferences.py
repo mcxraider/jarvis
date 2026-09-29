@@ -6,6 +6,9 @@ from pydantic import ValidationError
 from agents.agent_api.app.user_context.preferences import (
     ExecutionPreferences,
     LlmPreferences,
+)
+from agents.agent_api.app.user_context.policy import (
+    RuntimePolicy,
     resolve_user_runtime_config,
 )
 from tests.agents.runtime_helpers import make_preferences
@@ -157,4 +160,20 @@ class TestResolveUserRuntimeConfig:
         assert resolved.forced_model == "deepseek-v4-pro"
         assert resolved.forced_reasoning_effort == "max"
         assert resolved.max_agent_turns == 8  # min(30, 12, 8)
+        assert resolved.allow_mutations is False
+
+    def test_typed_policy_is_authoritative_for_fresh_runs(self):
+        resolved = _resolve(
+            policy=RuntimePolicy(
+                forced_model="gpt-test",
+                forced_reasoning_effort="high",
+                max_agent_turns=9,
+                allow_mutations=False,
+            ),
+            request_max_turns=12,
+            request_allow_mutations=True,
+        )
+        assert resolved.forced_model == "gpt-test"
+        assert resolved.forced_reasoning_effort == "high"
+        assert resolved.max_agent_turns == 9
         assert resolved.allow_mutations is False

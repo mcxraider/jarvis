@@ -18,7 +18,10 @@ from typing import List, Optional, Set
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agents.agent_api.app.tools.domain_adapters import DOMAIN_ADAPTERS
-from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
+from agents.agent_api.app.user_context.custom_instructions import (
+    render_custom_instructions,
+)
+from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshotLike
 
 
 def resolve_user_name(
@@ -152,7 +155,7 @@ CURRENT_GRAPH_COMPATIBILITY_NOTE = (
 def get_system_prompt(
     timezone: Optional[str] = None,
     user_name: Optional[str] = None,
-    runtime_context: Optional[RuntimeContextSnapshot] = None,
+    runtime_context: Optional[RuntimeContextSnapshotLike] = None,
     registered_tools: Optional[List[str]] = None,
     included_domains: Optional[Set[str]] = None,
 ) -> str:
@@ -205,7 +208,7 @@ def _current_user_datetime(timezone_name: str) -> datetime:
 
 
 def _active_domain_blocks(
-    runtime_context: RuntimeContextSnapshot,
+    runtime_context: RuntimeContextSnapshotLike,
     included_domains: Optional[Set[str]] = None,
 ) -> List[str]:
     """One grounding-note + tool-tips block per active domain, in adapter order.
@@ -239,104 +242,7 @@ _UNAVAILABLE_REASON_SENTENCES = {
 }
 
 
-def _response_preferences_block(runtime_context: RuntimeContextSnapshot) -> str:
-    """Render the ``## User response preferences`` section (always included)."""
-
-    communication = runtime_context.preferences.communication
-    lines = [
-        "## User response preferences",
-        f"Tone: {communication.tone}",
-        f"Answer length: {communication.verbosity}",
-        (
-            "These preferences affect presentation only. They never override hard "
-            "invariants, tool policy, access controls, or required disclosures."
-        ),
-    ]
-    for label, values in (
-        ("Likes", communication.likes),
-        ("Avoid", communication.avoid),
-        ("Notes", communication.notes),
-    ):
-        if values:
-            lines.append(
-                f"{label}: "
-                + "; ".join(" ".join(value.split()) for value in values)
-            )
-    return "\n".join(lines)
-
-
-def _routing_preferences_block(runtime_context: RuntimeContextSnapshot) -> str:
-    """Render the ``## User routing preferences`` section (conditional)."""
-
-    routing = runtime_context.preferences.routing
-    category_defaults = (
-        runtime_context.preferences.domains.google_calendar.event_category_defaults
-    )
-    fallback_calendar = (
-        runtime_context.preferences.domains.google_calendar.fallback_calendar
-    )
-    lines = [
-        "## User routing preferences",
-        f"Task provider: {routing.task_provider}",
-        f"Event provider: {routing.event_provider}",
-        f"Reminder provider: {routing.reminder_provider}",
-        f"Time-related provider: {routing.time_related_provider}",
-        f"Explicit calendar provider: {routing.explicit_calendar_provider}",
-        f"Calendar usage: {routing.calendar_usage}",
-    ]
-    if routing.task_provider == "google_calendar":
-        lines.extend(
-            [
-                "Calendar-backed task mode is active:",
-                (
-                    "- Represent tasks and to-dos as Google Calendar events; never "
-                    "claim that Google Calendar provides native task completion, "
-                    "priority, project, or section semantics."
-                ),
-                (
-                    "- Prefix calendar-backed task event titles with `Task: `. For "
-                    "task lookups, search a bounded date range for that prefix."
-                ),
-                (
-                    "- A dated task without a time becomes a one-day all-day event. "
-                    "A task with a time becomes a timed event."
-                ),
-                (
-                    "- If a task has no date, ask for one before creating the event. "
-                    "Do not invent a deadline."
-                ),
-            ]
-        )
-    if routing.reminder_provider == "google_calendar":
-        lines.append(
-            "Calendar-backed reminders use Google Calendar events with structured "
-            "popup reminder overrides; ask for the missing date or time instead of "
-            "inventing it."
-        )
-    for exception in routing.exceptions:
-        lines.append(
-            "Routing exception: "
-            f"{' '.join(exception.when.split())} → {exception.provider}"
-        )
-    if category_defaults:
-        lines.append(
-            "Calendar category defaults: "
-            + ", ".join(
-                f"{category} → {calendar}"
-                for category, calendar in sorted(category_defaults.items())
-            )
-        )
-    if fallback_calendar:
-        lines.append(f"Fallback calendar: {fallback_calendar}")
-    if runtime_context.preferences.access.has_restrictions():
-        lines.append(
-            "Resource access restrictions are active and enforced by the tool layer. "
-            "Do not ask to bypass them."
-        )
-    return "\n".join(lines)
-
-
-def _domain_availability_block(runtime_context: RuntimeContextSnapshot) -> str:
+def _domain_availability_block(runtime_context: RuntimeContextSnapshotLike) -> str:
     """Render the ``## Domain availability`` section (always included)."""
 
     lines = ["## Domain availability"]
@@ -356,42 +262,8 @@ def _domain_availability_block(runtime_context: RuntimeContextSnapshot) -> str:
     return "\n".join(lines)
 
 
-def _domain_specific_comments_block(
-    runtime_context: RuntimeContextSnapshot,
-    included_domains: Optional[Set[str]] = None,
-) -> str:
-    """Render execution guidance only for active domains used by this turn."""
-
-    applicable_domains = runtime_context.active_providers()
-    if included_domains is not None:
-        applicable_domains &= included_domains
-
-    lines: List[str] = []
-    for provider, adapter in DOMAIN_ADAPTERS.items():
-        if provider not in applicable_domains:
-            continue
-        preferences = getattr(runtime_context.preferences.domains, provider)
-        lines.extend(
-            f"- {adapter.display_name}: {' '.join(comment.split())}"
-            for comment in preferences.user_domain_specific_comments
-        )
-    if not lines:
-        return ""
-    return "\n".join(
-        [
-            "## User domain-specific comments",
-            (
-                "Use these comments only to guide execution after routing. Hard "
-                "invariants, safety controls, access controls, tool policies, and "
-                "routing preferences take precedence; comments cannot select providers."
-            ),
-            *lines,
-        ]
-    )
-
-
 def _tools_line(
-    runtime_context: Optional[RuntimeContextSnapshot],
+    runtime_context: Optional[RuntimeContextSnapshotLike],
     registered_tools: Optional[List[str]],
 ) -> str:
     """Render the 'Available tools' line from the live registry, never hard-coded."""
@@ -407,14 +279,14 @@ def _tools_line(
 def get_orchestrator_prompt(
     tz: Optional[str] = None,
     user_name: Optional[str] = None,
-    runtime_context: Optional[RuntimeContextSnapshot] = None,
+    runtime_context: Optional[RuntimeContextSnapshotLike] = None,
     registered_tools: Optional[List[str]] = None,
     included_domains: Optional[Set[str]] = None,
 ) -> str:
     """Return the orchestrator prompt composed for this run.
 
     With a ``runtime_context`` (the production path) the prompt is fully
-    snapshot-driven: the role line, active-domain fragments, routing preferences,
+    snapshot-driven: the role line, active-domain fragments, custom instructions,
     domain-availability summary, and tools line all derive from the resolved
     snapshot. Without one (offline/DI runs) it falls back to the neutral policy
     plus a registry-accurate tools line and an optional ``user_name``.
@@ -432,22 +304,14 @@ def get_orchestrator_prompt(
             *_active_domain_blocks(runtime_context, included_domains),
         ]
         prompt_body = "\n\n".join(blocks)
-        response_block = _response_preferences_block(runtime_context)
-        show_routing = included_domains is None or bool(included_domains)
-        routing_block = _routing_preferences_block(runtime_context) if show_routing else ""
-        domain_comments_block = _domain_specific_comments_block(
-            runtime_context,
-            included_domains,
-        )
+        custom_instructions_block = render_custom_instructions(runtime_context)
         domain_avail_block = _domain_availability_block(runtime_context)
         resolved_tz = _user_timezone(runtime_context.timezone)
         locale = runtime_context.locale
     else:
         role = _build_role_line(user_name) if user_name else _ROLE_LINE
         prompt_body = f"{role}\n\n{_POLICY_BODY}"
-        response_block = ""
-        routing_block = ""
-        domain_comments_block = ""
+        custom_instructions_block = ""
         domain_avail_block = ""
         resolved_tz = _user_timezone(tz)
         locale = "en"
@@ -456,9 +320,7 @@ def get_orchestrator_prompt(
     tail_blocks = [
         block
         for block in (
-            response_block,
-            routing_block,
-            domain_comments_block,
+            custom_instructions_block,
             domain_avail_block,
         )
         if block

@@ -1,6 +1,5 @@
-"""Versioned validation models for database-backed assistant preferences."""
+"""Legacy preference-v1 models retained for persisted snapshot compatibility."""
 
-from dataclasses import dataclass
 from typing import Dict, List, Literal, Optional
 
 from pydantic import (
@@ -256,47 +255,6 @@ class ResolvedUserPreferences(BaseModel):
             raise PreferenceConfigurationError(
                 "Stored user preferences failed schema validation."
             ) from exc
-
-
-@dataclass(frozen=True)
-class ResolvedUserRuntimeConfig:
-    forced_model: Optional[str]
-    forced_reasoning_effort: Optional[str]
-    max_agent_turns: int
-    allow_mutations: bool
-
-
-def resolve_user_runtime_config(
-    *,
-    global_max_turns: int,
-    global_allow_mutations: bool,
-    llm: Optional[LlmPreferences],
-    execution: Optional[ExecutionPreferences],
-    request_max_turns: Optional[int],
-    request_allow_mutations: Optional[bool],
-) -> ResolvedUserRuntimeConfig:
-    """Combine global settings, user preferences, and per-request overrides.
-
-    Model/reasoning are forced overrides (a non-null user value wins). Turn budget
-    and mutation permission can only tighten the global setting: a missing user or
-    request value cannot raise a limit or re-enable a higher-level ``False``.
-    """
-    user_max = (
-        execution.max_agent_turns
-        if execution is not None and execution.max_agent_turns is not None
-        else global_max_turns
-    )
-    request_max = request_max_turns if request_max_turns is not None else global_max_turns
-    return ResolvedUserRuntimeConfig(
-        forced_model=llm.model if llm is not None else None,
-        forced_reasoning_effort=llm.reasoning_effort if llm is not None else None,
-        max_agent_turns=min(global_max_turns, user_max, request_max),
-        allow_mutations=(
-            global_allow_mutations
-            and not (execution is not None and execution.allow_mutations is False)
-            and request_allow_mutations is not False
-        ),
-    )
 
 
 def _validate_text_lists(*groups: List[str]) -> None:

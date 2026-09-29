@@ -128,6 +128,9 @@ class FakeTodoistClient:
     def create_project(self, arguments: Dict[str, Any]) -> Any:
         return self._record("create_project", arguments)
 
+    def create_section(self, arguments: Dict[str, Any]) -> Any:
+        return self._record("create_section", arguments)
+
 
 class SeededTodoistClient(FakeTodoistClient):
     """Fake client whose reads return tasks with real ids.

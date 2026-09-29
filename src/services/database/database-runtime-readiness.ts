@@ -5,6 +5,9 @@ const REQUIRED_TABLES = [
   'public.telegram_pending_clarifications',
   'public.telegram_conversation_gates',
   'public.rate_limits',
+  'private.user_runtime_policies',
+  'private.user_resource_restrictions',
+  'private.user_onboarding_metadata',
 ] as const;
 
 export interface DatabaseRuntimeReadiness {
@@ -56,11 +59,22 @@ export async function verifyDatabaseRuntime(
     await pool.query(`
       SELECT telegram_id, telegram_username, telegram_verified_at,
              telegram_last_seen_at, telegram_profile,
-             onboarding_first_seen_at, preferences,
+             onboarding_first_seen_at, custom_instructions,
              preference_schema_version, preference_revision,
              preferences_created_at, preferences_updated_at,
              preferences_updated_by
       FROM public.users
+      LIMIT 0
+    `);
+    await pool.query(`
+      SELECT user_id, forced_model, forced_reasoning_effort, max_agent_turns,
+             allow_mutations, policy_revision, created_at, updated_at, updated_by
+      FROM private.user_runtime_policies
+      LIMIT 0
+    `);
+    await pool.query(`
+      SELECT user_id, provider, resource_id, label, is_primary
+      FROM private.user_resource_restrictions
       LIMIT 0
     `);
     // Select every migration-gated runtime column explicitly. A bare SELECT 1 only

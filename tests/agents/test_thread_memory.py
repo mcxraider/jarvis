@@ -10,10 +10,13 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from agents.agent_api.app import thread_memory as thread_memory_module
 from agents.agent_api.app.api.schemas import InvokeRequest, MemoryResetRequest
 from agents.agent_api.app.graph import builder as builder_module
 from agents.agent_api.app.thread_memory import (
+    PREVIOUS_THREAD_COUNT,
     PREVIOUS_THREAD_TEXT_LIMIT,
+    _build_image_references,
     _download_image,
     build_memory_snapshot,
     canonical_memory_messages,
@@ -26,6 +29,13 @@ from agents.agent_api.app.user_context.identity import TelegramIdentity
 
 IDENTITY = TelegramIdentity(telegram_id=123456, username="tester")
 CONVERSATION_KEY = "telegram-chat:" + "a" * 32
+
+
+def _history_rows(rows, thread_id="previous", rank=1):
+    return [
+        {**row, "source_thread_id": thread_id, "history_rank": rank}
+        for row in rows
+    ]
 
 
 def async_test(function):
@@ -145,7 +155,7 @@ def test_context_drops_tool_calls_and_results() -> None:
         {"sequence": 4, "kind": "user", "payload": {"role": "user", "content": "new"}},
     ]
 
-    text, retained = render_previous_thread_context(rows, "previous", "failed")
+    text, retained = render_previous_thread_context(_history_rows(rows))
 
     # Only {role, content} user/assistant turns survive.
     assert "new" in text
@@ -157,7 +167,7 @@ def test_context_drops_tool_calls_and_results() -> None:
     assert "tool_calls" not in text
     assert "Previous thread:" not in text
     assert "Messages:" not in text
-    assert retained == {0, 3, 4}
+    assert retained == {("previous", 0), ("previous", 3), ("previous", 4)}
 
 
 def test_context_keeps_image_reference_for_retained_user() -> None:
@@ -176,11 +186,174 @@ def test_context_keeps_image_reference_for_retained_user() -> None:
         },
     ]
 
-    text, retained = render_previous_thread_context(rows, "previous", "completed")
+    text, retained = render_previous_thread_context(_history_rows(rows))
 
     assert "image_reference" in text
     assert '"sha256":"abc"' in text
-    assert retained == {0}
+    assert retained == {("previous", 0)}
+
+
+def test_context_renders_two_threads_oldest_first_with_one_global_budget() -> None:
+    rows = [
+        *_history_rows(
+            [
+                {
+                    "sequence": 0,
+                    "kind": "user",
+                    "payload": {"role": "user", "content": "newest old"},
+                },
+                {
+                    "sequence": 1,
+                    "kind": "assistant",
+                    "payload": {"role": "assistant", "content": "newest answer"},
+                },
+            ],
+            "thread-b",
+            1,
+        ),
+        *_history_rows(
+            [
+                {
+                    "sequence": 0,
+                    "kind": "user",
+                    "payload": {"role": "user", "content": "older old"},
+                }
+            ],
+            "thread-a",
+            2,
+        ),
+    ]
+
+    text, retained = render_previous_thread_context(rows)
+
+    assert text.index("Previous thread 2") < text.index("Previous thread 1")
+    assert "newest answer" in text
+    assert "older old" in text
+    assert retained == {("thread-b", 0), ("thread-b", 1), ("thread-a", 0)}
+    assert len(text) <= PREVIOUS_THREAD_TEXT_LIMIT
+
+
+def test_context_renders_three_threads_from_one_count_change(monkeypatch) -> None:
+    monkeypatch.setattr(thread_memory_module, "PREVIOUS_THREAD_COUNT", 3)
+    rows = [
+        *_history_rows(
+            [
+                {
+                    "sequence": 0,
+                    "kind": "user",
+                    "payload": {"role": "user", "content": "newest"},
+                }
+            ],
+            "thread-c",
+            1,
+        ),
+        *_history_rows(
+            [
+                {
+                    "sequence": 0,
+                    "kind": "user",
+                    "payload": {"role": "user", "content": "middle"},
+                }
+            ],
+            "thread-b",
+            2,
+        ),
+        *_history_rows(
+            [
+                {
+                    "sequence": 0,
+                    "kind": "user",
+                    "payload": {"role": "user", "content": "oldest"},
+                }
+            ],
+            "thread-a",
+            3,
+        ),
+    ]
+
+    text, _retained = render_previous_thread_context(rows)
+
+    assert text.index("Previous thread 3") < text.index("Previous thread 2")
+    assert text.index("Previous thread 2") < text.index("Previous thread 1")
+
+
+def test_context_budget_prioritizes_newest_thread_and_marks_omission() -> None:
+    rows = [
+        *_history_rows(
+            [
+                {
+                    "sequence": sequence,
+                    "kind": "user",
+                    "payload": {"role": "user", "content": f"new-{sequence}-" + "x" * 80},
+                }
+                for sequence in range(4)
+            ],
+            "thread-b",
+            1,
+        ),
+        *_history_rows(
+            [
+                {
+                    "sequence": 0,
+                    "kind": "user",
+                    "payload": {"role": "user", "content": "older-thread"},
+                }
+            ],
+            "thread-a",
+            2,
+        ),
+    ]
+
+    text, retained = render_previous_thread_context(rows, limit=420)
+
+    assert len(text) <= 420
+    assert "older content from this thread omitted" in text
+    assert ("thread-b", 3) in retained
+    assert not any(thread_id == "thread-a" for thread_id, _sequence in retained)
+
+
+def test_image_references_do_not_collide_on_cross_thread_sequence() -> None:
+    rows = [
+        *_history_rows(
+            [
+                {
+                    "sequence": 0,
+                    "kind": "user",
+                    "payload": {"role": "user", "content": "retained"},
+                },
+                {
+                    "sequence": 1,
+                    "kind": "image",
+                    "payload": {
+                        "user_message_sequence": 0,
+                        "uploaded": True,
+                        "sha256": "new-image",
+                    },
+                },
+            ],
+            "thread-b",
+            1,
+        ),
+        *_history_rows(
+            [
+                {
+                    "sequence": 1,
+                    "kind": "image",
+                    "payload": {
+                        "user_message_sequence": 0,
+                        "uploaded": True,
+                        "sha256": "old-image",
+                    },
+                }
+            ],
+            "thread-a",
+            2,
+        ),
+    ]
+
+    references = _build_image_references(rows, {("thread-b", 0)})
+
+    assert [reference["sha256"] for reference in references] == ["new-image"]
 
 
 def test_snapshot_is_idempotent_and_never_contains_raw_image_bytes() -> None:
@@ -257,8 +430,8 @@ async def test_prepare_uses_one_database_call(monkeypatch) -> None:
             for name in (
                 "user_id",
                 "lineage_id",
-                "previous_thread_id",
-                "previous_status",
+                "source_thread_id",
+                "history_rank",
                 "sequence",
                 "kind",
                 "payload",
@@ -310,6 +483,7 @@ async def test_prepare_uses_one_database_call(monkeypatch) -> None:
 
     assert cursor.calls == 1
     assert "prepare_thread_memory" in cursor.query
+    assert cursor.params[-1] == PREVIOUS_THREAD_COUNT
     assert memory.canonical_user_id == "user"
     assert memory.outcome == "no_predecessor"
 
@@ -321,8 +495,8 @@ async def test_malformed_history_fails_open(monkeypatch) -> None:
             {
                 "user_id": "user",
                 "lineage_id": "lineage",
-                "previous_thread_id": "previous",
-                "previous_status": "completed",
+                "source_thread_id": "previous",
+                "history_rank": 1,
                 "sequence": 0,
                 "kind": "user",
                 "payload": {"role": "user", "content": object()},
@@ -340,6 +514,37 @@ async def test_malformed_history_fails_open(monkeypatch) -> None:
     )
     assert memory.outcome == "memory_error"
     assert memory.text == ""
+
+
+@async_test
+async def test_non_contiguous_history_ranks_fail_open(monkeypatch) -> None:
+    async def malformed_rows(*_args, **_kwargs):
+        return _history_rows(
+            [
+                {
+                    "user_id": "user",
+                    "lineage_id": "lineage",
+                    "sequence": 0,
+                    "kind": "user",
+                    "payload": {"role": "user", "content": "old"},
+                }
+            ],
+            "previous",
+            2,
+        )
+
+    monkeypatch.setattr(
+        "agents.agent_api.app.thread_memory._prepare_rows", malformed_rows
+    )
+
+    memory = await prepare_previous_thread_memory_async(
+        identity=IDENTITY,
+        conversation_key=CONVERSATION_KEY,
+        current_thread_id="thread",
+        user_prompt="hello",
+    )
+
+    assert memory.outcome == "memory_error"
 
 
 @async_test
@@ -416,8 +621,8 @@ async def test_prepare_builds_references_without_storage_io(monkeypatch) -> None
             {
                 "user_id": "user",
                 "lineage_id": "lineage",
-                "previous_thread_id": "previous",
-                "previous_status": "completed",
+                "source_thread_id": "previous",
+                "history_rank": 1,
                 "sequence": 0,
                 "kind": "user",
                 "payload": {"role": "user", "content": "look at this"},
@@ -425,8 +630,8 @@ async def test_prepare_builds_references_without_storage_io(monkeypatch) -> None
             {
                 "user_id": "user",
                 "lineage_id": "lineage",
-                "previous_thread_id": "previous",
-                "previous_status": "completed",
+                "source_thread_id": "previous",
+                "history_rank": 1,
                 "sequence": 1,
                 "kind": "image",
                 "payload": {
@@ -584,4 +789,5 @@ async def test_repeated_persistence_replaces_rows_and_marks_complete(monkeypatch
 
 
 def test_default_context_budget_is_fixed() -> None:
+    assert PREVIOUS_THREAD_COUNT == 2
     assert PREVIOUS_THREAD_TEXT_LIMIT == 40_000

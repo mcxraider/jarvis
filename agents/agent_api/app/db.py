@@ -32,6 +32,17 @@ _REQUIRED_RUNTIME_TABLES = (
     "thread_messages",
 )
 
+_REQUIRED_PRIVATE_TABLES = (
+    "user_runtime_policies",
+    "user_resource_restrictions",
+    "user_onboarding_metadata",
+)
+
+_RUNTIME_READABLE_PRIVATE_TABLES = (
+    "user_runtime_policies",
+    "user_resource_restrictions",
+)
+
 _REQUIRED_USER_PROFILE_COLUMNS = (
     "telegram_id",
     "telegram_username",
@@ -39,12 +50,12 @@ _REQUIRED_USER_PROFILE_COLUMNS = (
     "telegram_last_seen_at",
     "telegram_profile",
     "onboarding_first_seen_at",
-    "preferences",
     "preference_schema_version",
     "preference_revision",
     "preferences_created_at",
     "preferences_updated_at",
     "preferences_updated_by",
+    "custom_instructions",
 )
 
 _REQUIRED_IDEMPOTENCY_COLUMNS = (
@@ -143,6 +154,23 @@ def verify_database_runtime() -> None:
                     raise RuntimeError(
                         "Database migrations are incomplete; missing: "
                         + ", ".join(f"public.{name}" for name in missing_tables)
+                    )
+
+                cursor.execute(
+                    """
+                    SELECT required.table_name
+                    FROM unnest(%s::text[]) AS required(table_name)
+                    WHERE to_regclass('private.' || required.table_name) IS NULL
+                    """,
+                    (list(_REQUIRED_PRIVATE_TABLES),),
+                )
+                missing_private_tables = [row[0] for row in cursor.fetchall()]
+                if missing_private_tables:
+                    raise RuntimeError(
+                        "Database migrations are incomplete; missing: "
+                        + ", ".join(
+                            f"private.{name}" for name in missing_private_tables
+                        )
                     )
 
                 cursor.execute(
@@ -283,7 +311,7 @@ def verify_database_runtime() -> None:
                     SELECT 'function:prepare_thread_memory:EXECUTE'
                     WHERE NOT has_function_privilege(
                         current_user,
-                        'public.prepare_thread_memory(bigint,text,text,text,boolean)',
+                        'public.prepare_thread_memory(bigint,text,text,text,boolean,integer)',
                         'EXECUTE'
                     )
                     """
@@ -294,6 +322,8 @@ def verify_database_runtime() -> None:
 
                 for table_name in _REQUIRED_RUNTIME_TABLES:
                     cursor.execute(f"SELECT 1 FROM public.{table_name} LIMIT 0")
+                for table_name in _RUNTIME_READABLE_PRIVATE_TABLES:
+                    cursor.execute(f"SELECT 1 FROM private.{table_name} LIMIT 0")
     except Exception as error:
         raise RuntimeError(
             "Database runtime readiness failed. Apply Supabase migrations and "
@@ -306,6 +336,7 @@ def verify_database_runtime() -> None:
             "database_role": "jarvis_app",
             "inherited_role": "jarvis_runtime",
             "required_table_count": len(_REQUIRED_RUNTIME_TABLES),
+            "required_private_table_count": len(_REQUIRED_PRIVATE_TABLES),
         },
     )
 

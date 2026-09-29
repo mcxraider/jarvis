@@ -8,9 +8,15 @@ from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional
 
 from agents.agent_api.app.user_context.preferences import AssistantPreferencesV1
+from agents.agent_api.app.user_context.policy import (
+    ResourceRestrictions,
+    RuntimePolicy,
+)
 from agents.agent_api.app.user_context.runtime import (
     DomainAvailability,
+    LegacyRuntimeContextSnapshot,
     RuntimeContextSnapshot,
+    RuntimeContextSnapshotLike,
 )
 
 _CAPABILITIES: Dict[str, List[str]] = {
@@ -98,7 +104,10 @@ def make_snapshot(
     preferences: Optional[AssistantPreferencesV1] = None,
     timezone_name: str = "Asia/Singapore",
     locale: str = "en",
-) -> RuntimeContextSnapshot:
+    custom_instructions: str = "",
+    runtime_policy: Optional[RuntimePolicy] = None,
+    resource_restrictions: Optional[ResourceRestrictions] = None,
+) -> RuntimeContextSnapshotLike:
     active = set(active)
     unavailable = unavailable or {}
     domains: List[DomainAvailability] = []
@@ -130,15 +139,26 @@ def make_snapshot(
             if provider in active
             for name in _TOOL_NAMES[provider]
         ]
+    common = {
+        "user_id": "user-id",
+        "display_name": display_name,
+        "timezone": timezone_name,
+        "locale": locale,
+        "custom_instructions": custom_instructions,
+        "domains": domains,
+        "registered_tools": registered_tools,
+        "resolved_at": datetime.now(timezone.utc),
+    }
+    if preferences is not None:
+        return LegacyRuntimeContextSnapshot(
+            **common,
+            preference_schema_version=1,
+            preference_revision=1,
+            preferences=preferences,
+        )
     return RuntimeContextSnapshot(
-        user_id="user-id",
-        display_name=display_name,
-        timezone=timezone_name,
-        locale=locale,
-        preference_schema_version=1,
-        preference_revision=1,
-        preferences=preferences or make_preferences(),
-        domains=domains,
-        registered_tools=registered_tools,
-        resolved_at=datetime.now(timezone.utc),
+        **common,
+        runtime_policy=runtime_policy or RuntimePolicy(),
+        resource_restrictions=resource_restrictions or ResourceRestrictions(),
+        policy_revision=1,
     )

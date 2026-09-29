@@ -25,6 +25,21 @@ function linesContaining(filename: string, marker: string): string[] {
   return fs.readFileSync(filepath, 'utf8').trim().split('\n').filter((l) => l.includes(marker));
 }
 
+async function waitForLinesContaining(
+  filename: string,
+  marker: string,
+  minimumCount = 1,
+  timeoutMs = 2_000,
+): Promise<string[]> {
+  const deadline = Date.now() + timeoutMs;
+  let lines = linesContaining(filename, marker);
+  while (lines.length < minimumCount && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    lines = linesContaining(filename, marker);
+  }
+  return lines;
+}
+
 function jsonLinesContaining(filename: string, marker: string): Record<string, unknown>[] {
   return linesContaining(filename, marker)
     .map((line) => {
@@ -91,9 +106,8 @@ describe('circular object handling', () => {
 
     expect(() => mod.logger.error(MARKER, circular)).not.toThrow();
     await mod.flushLogger(8000);
-    await new Promise((resolve) => setTimeout(resolve, 200));
 
-    const lines = linesContaining('error.log', MARKER);
+    const lines = await waitForLinesContaining('error.log', MARKER);
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.some((l) => l.includes('[Circular]'))).toBe(true);
   }, 10_000);
@@ -120,7 +134,7 @@ describe('error normalization', () => {
 
     mod.logger.error(MARKER, { err: outer });
     await mod.flushLogger(8000);
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await waitForLinesContaining('error.log', MARKER);
 
     const entries = jsonLinesContaining('error.log', MARKER);
     expect(entries.length).toBeGreaterThan(0);
@@ -158,9 +172,7 @@ describe('unsupported value types', () => {
 
     expect(() => mod.logger.error(MARKER, meta)).not.toThrow();
     await mod.flushLogger(8000);
-
-    // Allow a brief window for OS-level flush after fdatasync
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await waitForLinesContaining('error.log', MARKER);
 
     const entries = jsonLinesContaining('error.log', MARKER);
     expect(entries.length).toBeGreaterThan(0);
@@ -211,7 +223,7 @@ describe('worker crash + restart', () => {
     const stats = mod.getLoggerStats();
     expect(stats.worker_alive).toBe(true);
 
-    const lines = linesContaining('error.log', MARKER);
+    const lines = await waitForLinesContaining('error.log', MARKER);
     expect(lines.length).toBeGreaterThan(0);
   }, 15_000);
 });
@@ -323,6 +335,7 @@ describe('concurrent burst ordering', () => {
     }
 
     await mod.flushLogger(10_000);
+    await waitForLinesContaining('error.log', MARKER, 100);
 
     const entries = jsonLinesContaining('error.log', MARKER);
     const seqs = entries.map((e) => e.seq as number).filter((s) => typeof s === 'number');

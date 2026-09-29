@@ -14,6 +14,7 @@ class ReadinessCursor:
         self,
         *,
         missing_tables=(),
+        missing_private_tables=(),
         missing_profile_columns=(),
         missing_columns=(),
         missing_privileges=(),
@@ -23,6 +24,7 @@ class ReadinessCursor:
             [
                 [("jarvis_app", True)],
                 [(value,) for value in missing_tables],
+                [(value,) for value in missing_private_tables],
                 [(value,) for value in missing_profile_columns],
                 [(value,) for value in missing_columns],
                 [(value,) for value in missing_privileges],
@@ -38,13 +40,13 @@ class ReadinessCursor:
         return False
 
     def execute(self, statement, params=None):
-        if statement.lstrip().startswith("SELECT 1 FROM public."):
+        if statement.lstrip().startswith(("SELECT 1 FROM public.", "SELECT 1 FROM private.")):
             self.rows = []
         else:
             self.rows = next(self.results)
 
     def fetchone(self):
-        return self.rows[0]
+        return self.rows[0] if self.rows else None
 
     def fetchall(self):
         return self.rows
@@ -88,6 +90,19 @@ def run_readiness(**cursor_options):
 
 def test_readiness_accepts_complete_least_privilege_schema():
     run_readiness()
+
+
+def test_readiness_requires_custom_instructions_column():
+    assert "custom_instructions" in db._REQUIRED_USER_PROFILE_COLUMNS
+    with pytest.raises(RuntimeError, match="Database runtime readiness failed"):
+        run_readiness(missing_profile_columns=("custom_instructions",))
+
+
+def test_readiness_requires_typed_policy_tables_but_not_legacy_preferences():
+    assert "user_runtime_policies" in db._REQUIRED_PRIVATE_TABLES
+    assert "preferences" not in db._REQUIRED_USER_PROFILE_COLUMNS
+    with pytest.raises(RuntimeError, match="Database runtime readiness failed"):
+        run_readiness(missing_private_tables=("user_runtime_policies",))
 
 
 @pytest.mark.parametrize(

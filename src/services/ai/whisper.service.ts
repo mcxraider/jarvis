@@ -3,7 +3,7 @@
 //
 // Lifecycle: stream the audio into a per-job temp directory → normalize to 16 kHz mono
 // FLAC with FFmpeg (which also yields the authoritative duration) → split anything over
-// one core duration into overlapping chunks → transcribe chunks concurrently under a
+// one core duration into configured chunks → transcribe chunks concurrently under a
 // process-global five-slot limiter → merge deterministically by chunk index → evaluate
 // quality → return one complete transcript.
 //
@@ -58,8 +58,8 @@ const WHISPER_CONSTANTS = {
   MAX_LOG_TEXT_LENGTH: 100,
   DEFAULT_DOWNLOAD_TIMEOUT_MS: 30_000,
   DEFAULT_REQUEST_TIMEOUT_MS: 12_000,
-  // Long-form chunks carry ~32.5s of audio, so they get a more generous per-request budget
-  // than a short voice note.
+  // Long-form chunks carry up to the configured core plus any overlap (45s with none by
+  // default), so they get a more generous per-request budget than a short voice note.
   DEFAULT_CHUNK_REQUEST_TIMEOUT_MS: 60_000,
   DEFAULT_MAX_RETRY_ATTEMPTS: 2,
   DEFAULT_RETRY_MAX_DELAY_MS: 2_000,

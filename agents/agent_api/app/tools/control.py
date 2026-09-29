@@ -66,7 +66,7 @@ def get_recall_image_schema() -> Dict[str, Any]:
         "function": {
             "name": RECALL_IMAGE_TOOL_NAME,
             "description": (
-                "Fetch one image from the user's previous thread into view. Pass the "
+                "Fetch one image from the user's previous threads into view. Pass the "
                 "sha256 shown in that image's image_reference block. Only call this "
                 "when you actually need to see a past image; it is fetched on demand, "
                 "not attached by default."

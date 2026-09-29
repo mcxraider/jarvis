@@ -140,7 +140,6 @@ async def lifespan(_app: FastAPI):
             close_shared_async_router_openai_client,
             close_shared_router_client,
         )
-        from agents.agent_api.app.router.cache import reset_router_cache
         from agents.agent_api.app.run_logging import shutdown_run_logs
         from agents.agent_api.app.tools.todoist.client import (
             close_todoist_async_http_client,
@@ -277,10 +276,6 @@ async def lifespan(_app: FastAPI):
         # before closing a lifespan-owned Postgres pool.
         try:
             reset_compiled_graphs()
-        except BaseException as error:
-            cleanup_errors.append(error)
-        try:
-            reset_router_cache()
         except BaseException as error:
             cleanup_errors.append(error)
         if async_checkpointer is not None:

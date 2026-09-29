@@ -12,6 +12,8 @@ describe('AgentImagesSchema', () => {
 
   it('accepts one to ten strict JPEG Base64 image records', () => {
     expect(AgentImagesSchema.safeParse([image()]).success).toBe(true);
+    expect(AgentImagesSchema.safeParse([{ ...image(), detail: 'high' }]).success).toBe(true);
+    expect(AgentImagesSchema.safeParse([{ ...image(), detail: 'original' }]).success).toBe(true);
     expect(AgentImagesSchema.safeParse(Array.from({ length: 10 }, () => image())).success).toBe(
       true,
     );
@@ -23,7 +25,7 @@ describe('AgentImagesSchema', () => {
       Array.from({ length: 11 }, () => image()),
       [{ image_url: 'data:image/png;base64,/9j/2Q==', detail: 'auto' }],
       [image('not-base64')],
-      [{ ...image(), detail: 'original' }],
+      [{ ...image(), detail: 'low' }],
       [{ ...image(), extra: true }],
     ];
     expect(invalid.every((value) => !AgentImagesSchema.safeParse(value).success)).toBe(true);

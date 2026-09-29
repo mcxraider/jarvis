@@ -2,7 +2,7 @@
 
 Identity logic lives here in one place: the security gate (only an active user with
 a verified identity may run) and the authoritative read of the user's profile and
-validated preferences. Both are cursor-based so the resolver performs them inside a
+typed runtime policy. Both are cursor-based so the resolver performs them inside a
 single connection.
 """
 
@@ -12,8 +12,16 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from agents.agent_api.app.user_context.preferences import ResolvedUserPreferences
-from agents.agent_api.app.user_context.runtime import RuntimeContextError
+from pydantic import ValidationError
+
+from agents.agent_api.app.user_context.policy import (
+    ResourceRestrictions,
+    RuntimePolicy,
+)
+from agents.agent_api.app.user_context.runtime import (
+    PolicyShadowMismatchError,
+    RuntimeContextError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +60,10 @@ class ResolvedIdentity:
     display_name: str
     timezone: str
     locale: str
-    preferences: ResolvedUserPreferences
+    runtime_policy: RuntimePolicy
+    resource_restrictions: ResourceRestrictions
+    policy_revision: int
+    custom_instructions: str
 
 
 def refresh_identity_profile(
@@ -93,11 +104,10 @@ def refresh_identity_profile(
 def resolve_active_identity(
     cursor: Any, inbound_identity: TelegramIdentity
 ) -> ResolvedIdentity:
-    """Read the active user's profile and validated preferences in one query.
+    """Read the active user's profile and typed policy in one query.
 
-    Raises ``RuntimeContextError`` if no active user with configured preferences is
-    found, and ``PreferenceConfigurationError`` if the stored preferences fail
-    versioned validation (fail closed).
+    Raises ``RuntimeContextError`` if the active user or required typed policy is
+    missing, or if stored policy rows fail validation (fail closed).
     """
 
     cursor.execute(
@@ -110,10 +120,41 @@ def resolve_active_identity(
                ),
                app_user.timezone,
                app_user.locale,
-               app_user.preference_schema_version,
-               app_user.preference_revision,
-               app_user.preferences
+               policy.policy_revision,
+               policy.forced_model,
+               policy.forced_reasoning_effort,
+               policy.max_agent_turns,
+               policy.allow_mutations,
+               COALESCE(app_user.custom_instructions, ''),
+               COALESCE((
+                   SELECT jsonb_agg(
+                       jsonb_build_object(
+                           'id', restriction.resource_id,
+                           'label', restriction.label,
+                           'is_primary', restriction.is_primary
+                       ) ORDER BY restriction.resource_id
+                   )
+                   FROM private.user_resource_restrictions restriction
+                   WHERE restriction.user_id = app_user.id
+                     AND restriction.provider = 'todoist'
+               ), '[]'::jsonb),
+               COALESCE((
+                   SELECT jsonb_agg(
+                       jsonb_build_object(
+                           'id', restriction.resource_id,
+                           'label', restriction.label,
+                           'is_primary', restriction.is_primary
+                       ) ORDER BY restriction.resource_id
+                   )
+                   FROM private.user_resource_restrictions restriction
+                   WHERE restriction.user_id = app_user.id
+                     AND restriction.provider = 'google_calendar'
+               ), '[]'::jsonb),
+               shadow.runtime_matches,
+               shadow.access_matches
         FROM public.users app_user
+        JOIN private.user_runtime_policies policy ON policy.user_id = app_user.id
+        CROSS JOIN LATERAL private.runtime_policy_shadow_status(app_user.id) shadow
         WHERE app_user.telegram_id = %s
           AND app_user.telegram_verified_at IS NOT NULL
           AND app_user.status = 'active'
@@ -123,19 +164,56 @@ def resolve_active_identity(
     row = cursor.fetchone()
     if not row:
         raise RuntimeContextError(
-            "No active user with configured preferences was found."
+            "No active user with a configured runtime policy was found."
         )
 
-    user_id, display_name, user_timezone, locale, schema_version, revision, raw_prefs = row
-    resolved_preferences = ResolvedUserPreferences.from_database_row(
-        (user_id, schema_version, revision, raw_prefs)
-    )
+    (
+        user_id,
+        display_name,
+        user_timezone,
+        locale,
+        policy_revision,
+        forced_model,
+        forced_reasoning_effort,
+        max_agent_turns,
+        allow_mutations,
+        custom_instructions,
+        todoist_restrictions,
+        calendar_restrictions,
+        runtime_shadow_matches,
+        access_shadow_matches,
+    ) = row
+    if not runtime_shadow_matches or not access_shadow_matches:
+        raise PolicyShadowMismatchError(
+            runtime_matches=bool(runtime_shadow_matches),
+            access_matches=bool(access_shadow_matches),
+        )
+    try:
+        runtime_policy = RuntimePolicy.model_validate(
+            {
+                "forced_model": forced_model,
+                "forced_reasoning_effort": forced_reasoning_effort,
+                "max_agent_turns": max_agent_turns,
+                "allow_mutations": allow_mutations,
+            }
+        )
+        resource_restrictions = ResourceRestrictions.model_validate(
+            {
+                "restricted_todoist_projects": todoist_restrictions,
+                "restricted_google_calendars": calendar_restrictions,
+            }
+        )
+    except ValidationError as exc:
+        raise RuntimeContextError("Stored user policy failed validation.") from exc
     return ResolvedIdentity(
         user_id=str(user_id),
         display_name=display_name,
         timezone=user_timezone,
         locale=locale,
-        preferences=resolved_preferences,
+        runtime_policy=runtime_policy,
+        resource_restrictions=resource_restrictions,
+        policy_revision=policy_revision,
+        custom_instructions=custom_instructions,
     )
 
 

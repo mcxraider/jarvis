@@ -93,10 +93,14 @@ from agents.agent_api.app.user_context.resolver import (
     store_thread_context_async,
 )
 from agents.agent_api.app.user_context.identity import TelegramIdentity, telegram_identity
-from agents.agent_api.app.user_context.preferences import resolve_user_runtime_config
+from agents.agent_api.app.user_context.policy import resolve_user_runtime_config
 from agents.agent_api.app.user_context.runtime import (
+    PolicyShadowMismatchError,
     ResolvedRuntimeContext,
-    RuntimeContextSnapshot,
+    RuntimeContextSnapshotLike,
+    policy_revision_from_snapshot,
+    resource_restrictions_from_snapshot,
+    runtime_policy_from_snapshot,
 )
 
 
@@ -493,7 +497,7 @@ def build_initial_state(
     thread_id: Optional[str] = None,
     request_source: str = "api",
     timezone: Optional[str] = None,
-    runtime_context: Optional[RuntimeContextSnapshot] = None,
+    runtime_context: Optional[RuntimeContextSnapshotLike] = None,
     reply_context: Optional[dict] = None,
 ) -> JarvisState:
     """Create a fresh state object for one Jarvis run."""
@@ -548,7 +552,7 @@ def _build_runtime_metadata(
     snapshot = runtime_context.snapshot
     return {
         "runtime_context_schema": snapshot.schema_version,
-        "preference_revision": snapshot.preference_revision,
+        "preference_revision": policy_revision_from_snapshot(snapshot),
         "active_domains": sorted(snapshot.active_providers()),
         "registered_tools": list(snapshot.registered_tools),
     }
@@ -798,33 +802,6 @@ async def _run_jarvis_async_impl(
     name_current_run(run_name)
     started_at = datetime.now()
 
-    runtime_context = None
-    if identity is not None and settings.postgres_dsn:
-        runtime_context = (
-            await load_thread_runtime_context_async(thread_id, identity)
-            if resuming
-            else await resolve_runtime_context_async(identity)
-        )
-
-    # Resolve the effective per-run config once: user preferences + global
-    # settings + optional request overrides. Turns/mutations can only tighten the
-    # global; model/reasoning are forced pins applied in the orchestrator node.
-    llm_prefs = execution_prefs = None
-    if runtime_context is not None:
-        prefs = runtime_context.snapshot.preferences
-        llm_prefs, execution_prefs = prefs.llm, prefs.execution
-    resolved_config = resolve_user_runtime_config(
-        global_max_turns=MAX_AGENT_TURNS,
-        global_allow_mutations=ALLOW_MUTATIONS,
-        llm=llm_prefs,
-        execution=execution_prefs,
-        request_max_turns=max_agent_turns,
-        request_allow_mutations=allow_mutations,
-    )
-    allow_mutations = resolved_config.allow_mutations
-    max_agent_turns = resolved_config.max_agent_turns
-
-    base_tracer = tracer if tracer is not None else TracePrinter()
     run_log_identity = RunLogIdentity(
         request_source=request_source,
         identity=identity,
@@ -833,6 +810,61 @@ async def _run_jarvis_async_impl(
         telegram_first_name=telegram_first_name,
     )
     run_log = await bounded_to_thread(open_run_log, thread_id, run_log_identity)
+
+    runtime_context = None
+    try:
+        if identity is not None and settings.postgres_dsn:
+            runtime_context = (
+                await load_thread_runtime_context_async(thread_id, identity)
+                if resuming
+                else await resolve_runtime_context_async(identity)
+            )
+    except PolicyShadowMismatchError as exc:
+        if run_log is not None:
+            run_log.write_header(
+                started_at=format_singapore_log_iso(started_at),
+                request_id=request_id,
+                thread_id=thread_id,
+                user_id=user_id,
+                telegram_id=identity.telegram_id if identity else None,
+                identity_username=identity.username if identity else None,
+                request_source=request_source,
+                invocation_type=invocation_type,
+            )
+            run_log.write_line(
+                "runtime.policy",
+                "Policy shadow comparison failed.",
+                extra=(
+                    f" runtime_matches={str(exc.runtime_matches).lower()}"
+                    f" access_matches={str(exc.access_matches).lower()}"
+                ),
+            )
+            run_log.write_footer(
+                finished_at=format_singapore_log_iso(datetime.now()),
+                request_id=request_id,
+                has_error=True,
+            )
+        raise
+
+    # Resolve the effective per-run config once: typed user policy + global
+    # settings + optional request overrides. Turns/mutations can only tighten the
+    # global; model/reasoning are forced pins applied in the orchestrator node.
+    runtime_policy = (
+        runtime_policy_from_snapshot(runtime_context.snapshot)
+        if runtime_context is not None
+        else None
+    )
+    resolved_config = resolve_user_runtime_config(
+        global_max_turns=MAX_AGENT_TURNS,
+        global_allow_mutations=ALLOW_MUTATIONS,
+        policy=runtime_policy,
+        request_max_turns=max_agent_turns,
+        request_allow_mutations=allow_mutations,
+    )
+    allow_mutations = resolved_config.allow_mutations
+    max_agent_turns = resolved_config.max_agent_turns
+
+    base_tracer = tracer if tracer is not None else TracePrinter()
     if run_log is not None:
         run_log.write_header(
             started_at=format_singapore_log_iso(started_at),
@@ -885,7 +917,9 @@ async def _run_jarvis_async_impl(
         agent_client = _retarget_tracer(agent_client, tracer)
     run_usage = UsageSummary()
     access_policy = (
-        ResourceAccessPolicy.from_preferences(runtime_context.snapshot.preferences.access)
+        ResourceAccessPolicy.from_restrictions(
+            resource_restrictions_from_snapshot(runtime_context.snapshot)
+        )
         if runtime_context is not None
         else ResourceAccessPolicy()
     )
@@ -957,9 +991,10 @@ async def _run_jarvis_async_impl(
         previous_memory = await memory_task
         tracer.event(
             "thread_memory.loaded",
-            "Previous-thread memory lookup settled.",
+            "Cross-thread memory lookup settled.",
             outcome=previous_memory.outcome,
             duration_ms=previous_memory.duration_ms,
+            thread_count=len(previous_memory.previous_threads),
             row_count=previous_memory.row_count,
             image_reference_count=len(previous_memory.image_references),
         )

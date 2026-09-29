@@ -71,7 +71,7 @@ from agents.agent_api.app.llm.provider import (
 )
 from agents.agent_api.app.router.prompt import RouterDecision, build_router_messages
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
-from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshot
+from agents.agent_api.app.user_context.runtime import RuntimeContextSnapshotLike
 
 # Cap the classifier's output. It only ever returns a small JSON object
 # (outcome, domains, uncertainty, and complexity), so a tight
@@ -354,7 +354,7 @@ class RouterClient:
         self,
         messages: List[Dict[str, str]],
         *,
-        snapshot: RuntimeContextSnapshot,
+        snapshot: RuntimeContextSnapshotLike,
         model: str,
         reasoning_effort: str,
     ) -> Dict[str, Any]:
@@ -454,7 +454,7 @@ class RouterClient:
     def classify(
         self,
         query: str,
-        snapshot: RuntimeContextSnapshot,
+        snapshot: RuntimeContextSnapshotLike,
         *,
         tracer: Optional[TracePrinter] = None,
         model: Optional[str] = None,
@@ -608,7 +608,7 @@ class RouterClient:
     async def async_classify(
         self,
         query: str,
-        snapshot: RuntimeContextSnapshot,
+        snapshot: RuntimeContextSnapshotLike,
         *,
         tracer: Optional[TracePrinter] = None,
         model: Optional[str] = None,

@@ -34,6 +34,7 @@ import {
   NormalizedAudio,
 } from '../../../../src/utils/ai/audioConverter';
 import { planAudioChunks } from '../../../../src/utils/ai/audio-chunk-plan';
+import { AUDIO_LIMITS } from '../../../../src/utils/ai/audio-limits';
 import {
   resolveAudioPrepareTimeoutMs,
   resolveAudioTranscriptionTimeoutMs,
@@ -90,7 +91,7 @@ function verboseJson(overrides: Partial<VerboseJson> = {}): VerboseJson {
   };
 }
 
-// Script for a 60-second, two-chunk run: cores 0–30 / 30–60, uploads 0–32.5 / 27.5–60.
+// Script for a production-default 60-second, two-chunk run: cores/uploads 0–30 / 30–60.
 // Each segment's chunk-local timing rebases into its own core, so both survive the merge and
 // the merged text is 'first half second half'.
 function twoChunkScript(index: number): VerboseJson {
@@ -229,8 +230,8 @@ describe('WhisperService', () => {
       apiKey: 'groq-test-key',
       maxInputBytes: 4_096,
       maxDurationSeconds: 1_200,
-      coreSeconds: 45,
-      overlapSeconds: 0,
+      coreSeconds: AUDIO_LIMITS.CORE_SECONDS,
+      overlapSeconds: AUDIO_LIMITS.OVERLAP_SECONDS,
       maxConcurrentRequests: 5,
       retrySleep,
       retryRandom: () => 1,
@@ -566,7 +567,7 @@ describe('WhisperService', () => {
 
   describe('long-form concurrency', () => {
     it('never exceeds the concurrency limit for one job of twelve chunks', async () => {
-      preparedDurationSeconds = 360; // 12 chunks at 30s cores
+      preparedDurationSeconds = AUDIO_LIMITS.CORE_SECONDS * 12;
       const gates = new Map<number, Deferred<VerboseJson>>();
       respond = (index) => {
         const gate = deferred<VerboseJson>();
@@ -599,7 +600,7 @@ describe('WhisperService', () => {
     // The point of the shared limiter: two jobs on the same instance field ten pool workers
     // between them (5 each), yet only five Groq requests may be in flight at any moment.
     it('shares the concurrency limit across two simultaneous jobs on one instance', async () => {
-      preparedDurationSeconds = 180; // 6 chunks per job -> 5 workers each
+      preparedDurationSeconds = AUDIO_LIMITS.CORE_SECONDS * 6; // 6 chunks per job -> 5 workers each
       const gates: Array<Deferred<VerboseJson>> = [];
       respond = () => {
         const gate = deferred<VerboseJson>();
@@ -638,7 +639,7 @@ describe('WhisperService', () => {
     });
 
     it('starts transcribing before all chunks are extracted (overlap verification)', async () => {
-      preparedDurationSeconds = 120; // 4 chunks
+      preparedDurationSeconds = AUDIO_LIMITS.CORE_SECONDS * 4;
       const extractionOrder: number[] = [];
       const transcriptionOrder: number[] = [];
 
@@ -675,7 +676,7 @@ describe('WhisperService', () => {
     });
 
     it('merges out-of-order completions in timeline order', async () => {
-      preparedDurationSeconds = 90; // cores 0-30, 30-60, 60-90
+      preparedDurationSeconds = AUDIO_LIMITS.CORE_SECONDS * 3;
       const gates = new Map<number, Deferred<VerboseJson>>();
       respond = (index) => {
         const gate = deferred<VerboseJson>();
@@ -708,7 +709,7 @@ describe('WhisperService', () => {
 
   describe('retry ladder', () => {
     it('honours a short Retry-After, applies a shared cooldown, and parks other workers', async () => {
-      preparedDurationSeconds = 90; // 3 chunks
+      preparedDurationSeconds = AUDIO_LIMITS.CORE_SECONDS * 3;
       sleepGate = [];
       const gate = sleepGate;
       const chunkOne = deferred<VerboseJson>();
@@ -926,7 +927,8 @@ describe('WhisperService', () => {
   // -------------------------------------------------------------------------
 
   describe('result, quality and logging', () => {
-    // 60s -> cores 0-30 / 30-60, uploads 0-32.5 / 27.5-60.
+    // This fixture explicitly enables the legacy 30s/5s overlap geometry so it can verify
+    // that discarded overlap segments do not pollute quality metrics.
     function segmentScript(index: number): VerboseJson {
       if (index === 0) {
         return {
@@ -975,7 +977,11 @@ describe('WhisperService', () => {
       preparedDurationSeconds = 60;
       respond = async (index) => segmentScript(index);
 
-      const result = await makeService().transcribeAudio(FILE_URL, 7, { requestId: 'tg_quality' });
+      const result = await makeService({ coreSeconds: 30, overlapSeconds: 5 }).transcribeAudio(
+        FILE_URL,
+        7,
+        { requestId: 'tg_quality' },
+      );
 
       expect(loggedEvent('whisper.transcription.merged')).toMatchObject({ strategy: 'segments' });
       expect(result.quality).toBeDefined();
@@ -994,9 +1000,11 @@ describe('WhisperService', () => {
       preparedDurationSeconds = 60;
       respond = async (index) => segmentScript(index);
 
-      const result = await makeService({ qualityMonitoringEnabled: false }).transcribeAudio(
-        FILE_URL,
-      );
+      const result = await makeService({
+        coreSeconds: 30,
+        overlapSeconds: 5,
+        qualityMonitoringEnabled: false,
+      }).transcribeAudio(FILE_URL);
 
       expect(result.quality).toBeUndefined();
       expect(loggerMock.warn).not.toHaveBeenCalledWith(

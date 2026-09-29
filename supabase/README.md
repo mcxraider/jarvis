@@ -42,7 +42,7 @@ python scripts/manage_integrations.py user create \
 The command defaults to timezone `Asia/Singapore`, locale `en`, tone
 `neutral`, verbosity `balanced`, and calendar usage `default`. Repeating it is
 idempotent: it returns the existing UUID without changing that user's profile,
-status, verification, preferences, or connections.
+status, verification, runtime policy, custom instructions, or connections.
 
 The equivalent admin SQL call is:
 
@@ -55,18 +55,15 @@ select * from private.onboard_user(
 );
 ```
 
-Inspect or make a simple preference edit directly on the consolidated row:
+Inspect the user's typed runtime policy and custom instructions:
 
 ```sql
-select id, display_name, telegram_id, telegram_username, status,
-       timezone, locale, preferences, preference_revision
-from public.users
-where telegram_id = 123456789;
-
-update public.users
-set preferences = jsonb_set(preferences, '{communication,tone}', '"casual"'),
-    preferences_updated_by = 'admin:sql'
-where telegram_id = 123456789;
+select app_user.id, app_user.display_name, app_user.telegram_id,
+       app_user.status, app_user.timezone, app_user.locale,
+       app_user.custom_instructions, policy.*
+from public.users app_user
+join private.user_runtime_policies policy on policy.user_id = app_user.id
+where app_user.telegram_id = 123456789;
 ```
 
 Provider connections are optional and may be added later. Import each requested
@@ -99,10 +96,45 @@ python scripts/manage_integrations.py --json resources list \
   --provider google_calendar
 ```
 
-Manually translate `reports/user-onboarding.md` into preferences JSON. Do not
-put credentials in this file. Store advanced profile edits with `preferences
-set`. Restricted resource IDs are checked against the connected account before
-the database write.
+Manually translate the soft behavior in `reports/user-onboarding.md` into a
+reviewed custom-instructions text file. Do not put credentials, secrets, or
+machine-enforced policy in this file. Store it with:
+
+```bash
+python scripts/manage_integrations.py instructions set \
+  --telegram-user-id 123456789 \
+  --file /secure/path/custom-instructions.txt
+```
+
+Machine-enforced settings use separate typed inputs. A runtime-policy file is a
+JSON object with any of `forced_model`, `forced_reasoning_effort`,
+`max_agent_turns`, and `allow_mutations`:
+
+```bash
+python scripts/manage_integrations.py policy set \
+  --telegram-user-id 123456789 \
+  --file /secure/path/runtime-policy.json
+```
+
+Resource restriction files contain a JSON array of `{id, label, is_primary}`
+objects. IDs are checked against the connected provider account before the
+database write:
+
+```bash
+python scripts/manage_integrations.py resources set \
+  --telegram-user-id 123456789 \
+  --provider todoist \
+  --file /secure/path/restricted-todoist-projects.json
+```
+
+Future-provider requests and private admin notes use a JSON object with
+`future_providers` and `admin_notes` arrays:
+
+```bash
+python scripts/manage_integrations.py onboarding set \
+  --telegram-user-id 123456789 \
+  --file /secure/path/onboarding-metadata.json
+```
 
 Run `capabilities show` and `audit check`, then ask the user to execute the
 review examples in the questionnaire.
@@ -117,81 +149,38 @@ key.
 
 See [two-table-user-onboarding-runbook.md](two-table-user-onboarding-runbook.md)
 for the staged deployment, validation, backup, and rollback procedure.
+See [preferences-retirement-runbook.md](preferences-retirement-runbook.md) for
+the staged migration, verification matrix, archive, and rollback procedure for
+the retired `public.users.preferences` column.
 
-The Markdown questionnaire is deliberately not parsed automatically.
+### Per-user runtime policy
 
-Preserve the questionnaire's domain profile fields during translation and later
-administrative writes:
-
-- `domains.todoist.usage`
-- `domains.todoist.default_for`
-- `domains.google_calendar.usage`
-
-These fields remain part of preference schema V1; do not strip them when adding
-or changing domain comments.
-
-### Translating domain comments
-
-Administrators manually copy each answered comment into the matching JSON array:
-
-- Todoist:
-  `domains.todoist.user_domain_specific_comments`
-- Google Calendar:
-  `domains.google_calendar.user_domain_specific_comments`
-
-Keep each comment short (1–200 non-whitespace characters) and use at most 10 per
-domain. Unanswered sections may be omitted or represented as empty arrays. For
-example:
+Typed policy fields let an administrator pin a model or tighten safety limits
+for one user. All fields are nullable; null means global system behavior.
 
 ```json
 {
-  "domains": {
-    "todoist": {
-      "usage": "tasks_and_scheduling",
-      "default_for": ["tasks", "events"],
-      "user_domain_specific_comments": [
-        "When adding Todoist items, apply the `task` or `event` label according to the item type."
-      ]
-    },
-    "google_calendar": {
-      "usage": "events_meetings_time_related_items",
-      "user_domain_specific_comments": []
-    }
-  }
+  "forced_model": "deepseek-v4-pro",
+  "forced_reasoning_effort": "max",
+  "max_agent_turns": 20,
+  "allow_mutations": false
 }
 ```
 
-This questionnaire-to-JSON step remains intentionally manual so an administrator
-can review free text for secrets, resource IDs, and attempts to override safety,
-access, tool, or routing controls before storing it.
-
-### Per-user runtime overrides (`llm` / `execution`)
-
-Two optional preference sections let an administrator pin a model or tighten
-safety limits for a single user. Both are omitted by default, in which case the
-user keeps global system behavior.
-
-```json
-{
-  "llm": { "model": "deepseek-v4-pro", "reasoning_effort": "max" },
-  "execution": { "max_agent_turns": 20, "allow_mutations": false }
-}
-```
-
-- `llm.model` / `llm.reasoning_effort` are **forced pins**: a non-null value
+- `forced_model` / `forced_reasoning_effort` are **forced pins**: a non-null value
   overrides the model router for that user. `reasoning_effort` is one of
   `off`, `none`, `low`, `medium`, `high`, `xhigh`, `max`; `model` is a
   1–100 character identifier. Provider validation rejects incompatible pins.
-- `execution.max_agent_turns` (1–50) and `execution.allow_mutations` can only
+- `max_agent_turns` (1–50) and `allow_mutations` can only
   **tighten** global limits — they never raise the global turn ceiling or
   re-enable mutations that a higher level disabled.
 
-**Setting and clearing.** `preferences set` replaces the entire preference
-document, so there is no field-level unset. To clear a runtime override, submit
-a new full preferences document that omits the field (or sets it to `null`).
-Omitted `llm`/`execution` sections restore global defaults.
+**Setting and clearing.** `policy set` replaces all four typed override fields.
+Omit a field or set it to `null` to restore the global default.
 
 **Paused threads.** A resumed thread uses the runtime configuration captured in
-its snapshot, even after the database preferences change. Live global and
-per-request restrictions still apply, but to force a database-only change onto a
-paused thread, cancel or expire that thread first.
+its snapshot, even after the database policy changes. Snapshot v1 remains
+readable through the compatibility adapter; fresh snapshots use v2 and contain
+no legacy preference document. Live global and per-request restrictions still
+apply, but to force a database-only change onto a paused thread, cancel or
+expire that thread first.

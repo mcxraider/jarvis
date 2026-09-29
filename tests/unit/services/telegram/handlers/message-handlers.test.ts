@@ -661,7 +661,7 @@ describe('MessageHandlers', () => {
     expect(fileService.downloadFile).toHaveBeenCalledWith('large', 10 * 1024 * 1024);
     expect(messageProcessor.processPhotoMessage).toHaveBeenCalledWith(
       'Whiteboard photo',
-      [{ image_url: `data:image/jpeg;base64,${jpeg.toString('base64')}`, detail: 'high' }],
+      [{ image_url: `data:image/jpeg;base64,${jpeg.toString('base64')}`, detail: 'original' }],
       123,
       expect.objectContaining({ messageType: 'photo' }),
       expect.any(Function),

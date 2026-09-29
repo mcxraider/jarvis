@@ -17,7 +17,7 @@ from agents.agent_api.app.tools.dispatcher import (
     async_execute_tool_calls,
     tool_idempotency_context,
 )
-from agents.agent_api.app.user_context.preferences import AccessPreferences
+from agents.agent_api.app.user_context.policy import ResourceRestrictions
 
 
 def _call(name: str, call_id: str, arguments: dict | None = None) -> dict:
@@ -80,7 +80,7 @@ def test_native_async_result_is_filtered_before_dispatch_result() -> None:
         ]
     )
     policy = ResourceAccessPolicy(
-        AccessPreferences.model_validate(
+        ResourceRestrictions.model_validate(
             {
                 "restricted_todoist_projects": [
                     {"id": "private", "label": "Private"}

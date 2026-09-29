@@ -7,6 +7,12 @@ import type {
   TranscriptWord,
 } from '../../../../src/utils/ai/transcript-merge';
 
+const OVERLAPPED_CHUNK_OPTIONS = { coreSeconds: 30, overlapSeconds: 5 } as const;
+
+function planOverlappedAudio(durationSeconds: number): AudioChunkPlan[] {
+  return planAudioChunks(durationSeconds, OVERLAPPED_CHUNK_OPTIONS);
+}
+
 /**
  * Builds the words a chunk would come back with, assuming one word per second on the original
  * timeline: word `n` occupies global `[n, n + 1)`. Only words fully inside the chunk's *upload*
@@ -23,7 +29,7 @@ function secondlyWords(plan: AudioChunkPlan, durationSeconds: number): Transcrip
 }
 
 function secondlyInputs(durationSeconds: number): ChunkMergeInput[] {
-  return planAudioChunks(durationSeconds).map((plan) => {
+  return planOverlappedAudio(durationSeconds).map((plan) => {
     const words = secondlyWords(plan, durationSeconds);
     return {
       plan,
@@ -44,7 +50,7 @@ function expectTidy(text: string): void {
 }
 
 function textOnlyInputs(texts: string[]): ChunkMergeInput[] {
-  return planAudioChunks(30 * texts.length).map((plan, i) => ({
+  return planOverlappedAudio(30 * texts.length).map((plan, i) => ({
     plan,
     transcription: { text: texts[i] },
   }));
@@ -61,7 +67,7 @@ function straddleInputs(
   secondMid: number,
   spoken: { first?: string; second?: string } = {},
 ): ChunkMergeInput[] {
-  const [first, last] = planAudioChunks(35);
+  const [first, last] = planOverlappedAudio(35);
   const heard = (word: string, mid: number, plan: AudioChunkPlan): TranscriptWord => ({
     word,
     start: mid - 0.5 - plan.startSeconds,
@@ -180,7 +186,7 @@ describe('mergeChunkTranscriptions — words strategy', () => {
   });
 
   it('retains a word whose midpoint sits exactly on the file duration', () => {
-    const [first, last] = planAudioChunks(60);
+    const [first, last] = planOverlappedAudio(60);
     const result = mergeChunkTranscriptions([
       {
         plan: first,
@@ -200,7 +206,7 @@ describe('mergeChunkTranscriptions — words strategy', () => {
   });
 
   it('never inserts a space before closing punctuation or after an opening bracket', () => {
-    const [first, last] = planAudioChunks(60);
+    const [first, last] = planOverlappedAudio(60);
     const result = mergeChunkTranscriptions([
       {
         plan: first,
@@ -235,7 +241,7 @@ describe('mergeChunkTranscriptions — words strategy', () => {
   });
 
   it('emits owned segments alongside the word text', () => {
-    const [first, last] = planAudioChunks(60);
+    const [first, last] = planOverlappedAudio(60);
     const result = mergeChunkTranscriptions([
       {
         plan: first,
@@ -268,7 +274,7 @@ describe('mergeChunkTranscriptions — words strategy', () => {
   });
 
   it('contributes nothing for a chunk whose retained set is empty', () => {
-    const [first, last] = planAudioChunks(60);
+    const [first, last] = planOverlappedAudio(60);
     const result = mergeChunkTranscriptions([
       {
         plan: first,
@@ -331,7 +337,7 @@ describe('mergeChunkTranscriptions — disagreeing boundary timestamps', () => {
   });
 
   it('emits a boundary segment once when the two chunks time it either side of the core', () => {
-    const [first, last] = planAudioChunks(35);
+    const [first, last] = planOverlappedAudio(35);
     const result = mergeChunkTranscriptions([
       {
         plan: first,
@@ -367,7 +373,7 @@ describe('mergeChunkTranscriptions — segments strategy', () => {
   const quality = { avg_logprob: -0.31, no_speech_prob: 0.04, compression_ratio: 1.7 };
 
   function segmentInputs(): ChunkMergeInput[] {
-    const [first, last] = planAudioChunks(60);
+    const [first, last] = planOverlappedAudio(60);
     return [
       {
         plan: first,
@@ -536,7 +542,7 @@ describe('mergeChunkTranscriptions — invalid input', () => {
   });
 
   it('throws on duplicate chunk indices', () => {
-    const [plan] = planAudioChunks(60);
+    const [plan] = planOverlappedAudio(60);
     expect(() =>
       mergeChunkTranscriptions([
         { plan, transcription: { text: 'a' } },
@@ -548,7 +554,7 @@ describe('mergeChunkTranscriptions — invalid input', () => {
 
 describe('mergeChunkTranscriptions — malformed provider data', () => {
   it('tolerates null entries, missing words and NaN timestamps', () => {
-    const [first, last] = planAudioChunks(60);
+    const [first, last] = planOverlappedAudio(60);
     const junkWords = [
       null,
       undefined,
@@ -578,7 +584,7 @@ describe('mergeChunkTranscriptions — malformed provider data', () => {
   });
 
   it('drops untimestamped words on later chunks so they are never duplicated', () => {
-    const [first, last] = planAudioChunks(60);
+    const [first, last] = planOverlappedAudio(60);
     const result = mergeChunkTranscriptions([
       {
         plan: first,
@@ -601,7 +607,7 @@ describe('mergeChunkTranscriptions — malformed provider data', () => {
   });
 
   it('degrades to text when segments and words arrays are present but empty', () => {
-    const inputs = planAudioChunks(60).map((plan, i) => ({
+    const inputs = planOverlappedAudio(60).map((plan, i) => ({
       plan,
       transcription: { text: i === 0 ? 'only text here' : 'text here and more', words: [] },
     }));
@@ -615,7 +621,7 @@ describe('mergeChunkTranscriptions — malformed provider data', () => {
   });
 
   it('never throws and never returns undefined text for a missing transcription', () => {
-    const inputs = planAudioChunks(60).map((plan) => ({
+    const inputs = planOverlappedAudio(60).map((plan) => ({
       plan,
       transcription: undefined as unknown as { text: string },
     }));

@@ -81,7 +81,9 @@ def test_deepseek_remains_an_explicit_rollback(monkeypatch):
 
     assert configured.llm_provider is LLMProvider.DEEPSEEK
     assert configured.orchestrator_llm.model == "deepseek-v4-flash"
-    assert configured.router_llm.provider is LLMProvider.DEEPSEEK
+    assert configured.router_llm.provider is LLMProvider.OPENAI
+    assert configured.router_llm.model == "gpt-6-luna"
+    assert configured.router_llm.reasoning_effort == "none"
     assert configured.summarizer_llm.provider is LLMProvider.DEEPSEEK
 
 
@@ -167,7 +169,7 @@ def test_role_provider_inheritance_matrix(
     configured = load_settings()
 
     assert configured.orchestrator_llm.provider.value == global_provider
-    assert configured.router_llm.provider.value == (router_override or global_provider)
+    assert configured.router_llm.provider.value == (router_override or "openai")
     assert configured.summarizer_llm.provider.value == (
         summarizer_override or global_provider
     )

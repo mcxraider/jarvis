@@ -13,11 +13,10 @@ Each run writes to ``--out-dir``:
 
 - ``router_results.json`` — the cumulative benchmark record. Every run *appends*
   one row per (persona, query) to this single JSON array: the user prompt, the
-  router's decision, the guardrail-adjusted decision, latency, token counts, and
-  exact USD cost. The system prompt itself is not stored, only its SHA-256.
+  router's decision, latency, token counts, and exact USD cost. The system prompt
+  itself is not stored, only its SHA-256.
 - ``<ts>.summary.json`` — run metadata (provider, model, reasoning, timeouts) plus
-  latency percentiles, token totals, and total cost over the calls production
-  would really have issued (successes that the deterministic fast path missed).
+  latency percentiles, token totals, and total cost over the live classifications.
 - ``<persona>/<ts>.md`` — the human-readable per-persona report, system prompt included.
 """
 
@@ -55,15 +54,13 @@ from agents.agent_api.app.config import settings
 from agents.agent_api.app.llm.chat import UsageLedger
 from agents.agent_api.app.pricing import calculate_usage_record_cost_usd
 from agents.agent_api.app.router.client import RouterClient, RouterClientError
-from agents.agent_api.app.router.fast_path import fast_path_classify
 from agents.agent_api.app.router.prompt import RouterDecision, build_router_messages
 from agents.agent_api.app.tools.control import ASK_USER_TOOL_NAME
-from agents.agent_api.app.tools.selectors.router import RouterToolSelector
 from agents.agent_api.app.tracing import NULL_TRACE
 from agents.agent_api.app.user_context.preferences import AssistantPreferencesV1
 from agents.agent_api.app.user_context.runtime import (
     DomainAvailability,
-    RuntimeContextSnapshot,
+    LegacyRuntimeContextSnapshot,
 )
 from tests.agents.runtime_helpers import _CAPABILITIES, _TOOL_NAMES
 
@@ -93,7 +90,7 @@ PROMPTS: List[str] = [
 class Persona:
     name: str
     path: Path
-    snapshot: RuntimeContextSnapshot
+    snapshot: LegacyRuntimeContextSnapshot
     active_providers: List[str]
 
 
@@ -108,18 +105,12 @@ class EvalResult:
     adjusted_response: Optional[dict[str, Any]]
     elapsed_ms: float
     error: bool = False
-    # Production skips the LLM entirely when the deterministic fast path answers,
-    # so these rows must be excludable from latency/cost aggregates.
+    # Retained as always-empty compatibility fields for historical result files.
     fast_path_hit: bool = False
     fast_path_decision: Optional[dict[str, Any]] = None
     returned_model: Optional[str] = None
     usage: Optional[dict[str, int]] = None
     cost_usd: Optional[str] = None
-
-
-class _GuardrailClient:
-    def classify(self, query: str, snapshot: RuntimeContextSnapshot) -> RouterDecision:
-        raise AssertionError("guardrail-only client should never classify")
 
 
 def _utc_now() -> datetime:
@@ -143,7 +134,9 @@ def _split_filter_values(values: Optional[Sequence[str]]) -> List[str]:
     return filters
 
 
-def build_snapshot_from_fixture(data: dict[str, Any], *, name: str = "fixture") -> RuntimeContextSnapshot:
+def build_snapshot_from_fixture(
+    data: dict[str, Any], *, name: str = "fixture"
+) -> LegacyRuntimeContextSnapshot:
     """Validate fixture JSON and build the exact snapshot consumed by the router."""
 
     preferences = AssistantPreferencesV1.model_validate(data["preferences"])
@@ -176,7 +169,7 @@ def build_snapshot_from_fixture(data: dict[str, Any], *, name: str = "fixture") 
                 )
             )
 
-    return RuntimeContextSnapshot(
+    return LegacyRuntimeContextSnapshot(
         user_id=f"router-eval-{name}",
         display_name=data["display_name"],
         timezone=data.get("timezone", "UTC"),
@@ -184,6 +177,7 @@ def build_snapshot_from_fixture(data: dict[str, Any], *, name: str = "fixture") 
         preference_schema_version=1,
         preference_revision=1,
         preferences=preferences,
+        custom_instructions=data.get("custom_instructions", ""),
         domains=domains,
         registered_tools=registered_tools,
         resolved_at=_utc_now(),
@@ -253,15 +247,6 @@ def load_queries(
     return select_queries(raw_queries, query_filters=query_filters)
 
 
-def apply_guardrails(query: str, snapshot: RuntimeContextSnapshot, decision: RouterDecision) -> RouterDecision:
-    selector = RouterToolSelector(
-        router_client=_GuardrailClient(),
-        snapshot=snapshot,
-        tracer=NULL_TRACE,
-    )
-    return selector._apply_routing_guardrails(query, decision)
-
-
 def _usage_payload(ledger: UsageLedger) -> tuple[Optional[str], Optional[Dict[str, int]], Optional[str]]:
     """Flatten the single router call recorded on the ledger into report fields.
 
@@ -294,15 +279,14 @@ def evaluate_pair(
     router_client: Any,
 ) -> EvalResult:
     messages = build_router_messages(query, persona.snapshot)
-    fast_path = fast_path_classify(query, persona.snapshot)
     common = {
         "persona": persona,
         "query_index": query_index,
         "query": query,
         "system_prompt": messages[0]["content"],
         "user_prompt": messages[1]["content"],
-        "fast_path_hit": fast_path is not None,
-        "fast_path_decision": _model_payload(fast_path) if fast_path is not None else None,
+        "fast_path_hit": False,
+        "fast_path_decision": None,
     }
     ledger = UsageLedger()
     started = time.perf_counter()
@@ -313,14 +297,12 @@ def evaluate_pair(
             usage_accumulator=ledger,
         )
         elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
-        adjusted = apply_guardrails(query, persona.snapshot, decision)
         raw_payload = _model_payload(decision)
-        adjusted_payload = _model_payload(adjusted)
         returned_model, usage, cost_usd = _usage_payload(ledger)
         return EvalResult(
             **common,
             raw_response=raw_payload,
-            adjusted_response=adjusted_payload if adjusted_payload != raw_payload else None,
+            adjusted_response=None,
             elapsed_ms=elapsed_ms,
             returned_model=returned_model,
             usage=usage,
@@ -482,7 +464,7 @@ def result_row(result: EvalResult, *, run_at: datetime) -> Dict[str, Any]:
         "query_index": result.query_index,
         "query": result.query,
         "user_prompt": result.user_prompt,
-        # The prompt is rendered from live preferences and DOMAIN_ADAPTERS, so it
+        # The prompt is rendered from custom instructions and DOMAIN_ADAPTERS, so it
         # can drift between runs. This is what proves two runs compared the same
         # input before their latency/cost numbers are compared.
         "system_prompt_sha256": hashlib.sha256(
@@ -555,8 +537,8 @@ def summarize(
         "guardrail_adjustments": sum(
             1 for result in results if result.adjusted_response is not None
         ),
-        # Aggregates cover successful non-fast-path calls only — the LLM requests
-        # production would really have issued.
+        # Historical fast-path fields remain in the output schema but are always
+        # false/empty after the production fast path was removed.
         "llm_calls": len(billable),
         "latency_ms": {
             "mean": round(statistics.fmean(latencies), 1) if latencies else None,

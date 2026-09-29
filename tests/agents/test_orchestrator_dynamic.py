@@ -160,35 +160,7 @@ class TestRuntimeContextPrompt:
             assert f"- Google Calendar is unavailable {sentence}" in prompt
             assert f"({reason})" not in prompt
 
-    def test_routing_preferences_are_rendered(self):
-        prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
-        assert "Task provider: todoist" in prompt
-        assert "Event provider: todoist" in prompt
-        assert "Reminder provider: todoist" in prompt
-        assert "Time-related provider: todoist" in prompt
-
-    def test_calendar_backed_task_semantics_are_rendered_only_when_selected(self):
-        preferences = make_preferences(
-            task_provider="google_calendar",
-            event_provider="google_calendar",
-            reminder_provider="google_calendar",
-            calendar_usage="default",
-        )
-        prompt = get_orchestrator_prompt(
-            runtime_context=make_snapshot(
-                active=("google_calendar",),
-                preferences=preferences,
-            )
-        )
-        assert "Calendar-backed task mode is active" in prompt
-        assert "Prefix calendar-backed task event titles with `Task: `" in prompt
-        assert "If a task has no date, ask for one" in prompt
-        assert "Calendar-backed reminders use Google Calendar events" in prompt
-
-        default_prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
-        assert "Calendar-backed task mode is active" not in default_prompt
-
-    def test_communication_and_calendar_preferences_are_selectively_rendered(self):
+    def test_structured_prompt_preferences_are_not_rendered(self):
         preferences = make_preferences(
             communication={
                 "tone": "professional",
@@ -206,15 +178,15 @@ class TestRuntimeContextPrompt:
         prompt = get_orchestrator_prompt(
             runtime_context=make_snapshot(preferences=preferences)
         )
-        assert "Tone: professional" in prompt
-        assert "Answer length: detailed" in prompt
-        assert "Likes: tables" in prompt
-        assert "Avoid: filler" in prompt
-        assert "Fallback calendar: Personal" in prompt
+        assert "## User response preferences" not in prompt
+        assert "## User routing preferences" not in prompt
+        assert "Task provider:" not in prompt
+        assert "Tone: professional" not in prompt
+        assert "Fallback calendar: Personal" not in prompt
         assert "gmail" not in prompt
         assert "never render this internal note" not in prompt
 
-    def test_domain_comments_are_normalized_and_rendered_for_active_domains(self):
+    def test_domain_comments_are_not_rendered(self):
         preferences = make_preferences(
             todoist_comments=[
                 "  Apply   the `task` or `event` label\naccording to item type.  "
@@ -225,50 +197,24 @@ class TestRuntimeContextPrompt:
             runtime_context=make_snapshot(preferences=preferences)
         )
 
-        assert "## User domain-specific comments" in prompt
-        assert (
-            "- Todoist: Apply the `task` or `event` label according to item type."
-            in prompt
-        )
-        assert "- Google Calendar: Use the shared family calendar." in prompt
-        assert "comments cannot select providers" in prompt
-        assert "Hard invariants" in prompt
-        assert "access controls" in prompt
-        assert "tool policies" in prompt
-        assert "routing preferences take precedence" in prompt
-
-    def test_domain_comments_follow_relevant_and_active_domains(self):
-        preferences = make_preferences(
-            todoist_comments=["Todoist-only guidance."],
-            google_calendar_comments=["Calendar-only guidance."],
-        )
-        snapshot = make_snapshot(preferences=preferences)
-
-        todoist_prompt = get_orchestrator_prompt(
-            runtime_context=snapshot,
-            included_domains={"todoist"},
-        )
-        assert "Todoist-only guidance." in todoist_prompt
-        assert "Calendar-only guidance." not in todoist_prompt
-
-        inactive_prompt = get_orchestrator_prompt(
-            runtime_context=make_snapshot(
-                active=("todoist",),
-                unavailable={"google_calendar": "not_connected"},
-                preferences=preferences,
-            ),
-            included_domains={"google_calendar"},
-        )
-        assert "## User domain-specific comments" not in inactive_prompt
-        assert "Calendar-only guidance." not in inactive_prompt
-
-    def test_domain_comment_section_is_omitted_when_no_comments_apply(self):
-        prompt = get_orchestrator_prompt(
-            runtime_context=make_snapshot(),
-            included_domains={"todoist"},
-        )
-
         assert "## User domain-specific comments" not in prompt
+        assert "Apply the `task` or `event` label" not in prompt
+        assert "Use the shared family calendar" not in prompt
+
+    def test_custom_instructions_preserve_exact_multiline_text_and_precedence(self):
+        instructions = "Use Todoist for todos.\n\nReply in compact bullets."
+        prompt = get_orchestrator_prompt(
+            runtime_context=make_snapshot(custom_instructions=instructions),
+            included_domains=set(),
+        )
+        assert f"<custom_instructions>\n{instructions}\n</custom_instructions>" in prompt
+        assert "1. System invariants, access controls, authorization" in prompt
+        assert "2. The explicit current request" in prompt
+        assert "3. User custom-instruction defaults" in prompt
+
+    def test_empty_custom_instructions_are_omitted(self):
+        prompt = get_orchestrator_prompt(runtime_context=make_snapshot())
+        assert "## User custom instructions" not in prompt
 
     def test_request_date_and_weekday_come_from_one_executor_datetime(self):
         instant = datetime.fromisoformat("2026-07-10T08:30:00+08:00")
@@ -371,9 +317,9 @@ class TestIncludedDomainsSlimming:
         )
         # The lightweight availability summary still lists Calendar as registered.
         assert "- Google Calendar: registered" in prompt
-        assert "Task provider: todoist" in prompt
+        assert "Task provider:" not in prompt
 
-    def test_empty_set_omits_all_fragments_and_routing_prefs(self):
+    def test_empty_set_omits_all_fragments_but_keeps_custom_instructions(self):
         """A query needing no domain (e.g. a greeting) drops every fragment
         and the routing preferences section."""
         prompt = get_orchestrator_prompt(
@@ -389,27 +335,24 @@ class TestIncludedDomainsSlimming:
         # Role + policy body survive so the agent still behaves.
         assert "personal assistant" in prompt
         assert "## Operating loop" in prompt
-        # Response prefs and domain availability always survive.
-        assert "## User response preferences" in prompt
+        assert "## User response preferences" not in prompt
         assert "## Domain availability" in prompt
 
-    def test_none_keeps_routing_preferences(self):
-        """No slimming (included_domains=None) keeps routing preferences."""
+    def test_none_does_not_restore_structured_routing_preferences(self):
         prompt = get_orchestrator_prompt(
             runtime_context=self._both_active(),
             included_domains=None,
         )
-        assert "## User routing preferences" in prompt
-        assert "Task provider:" in prompt
+        assert "## User routing preferences" not in prompt
+        assert "Task provider:" not in prompt
 
-    def test_nonempty_keeps_routing_preferences(self):
-        """When domains are routed, routing preferences are present."""
+    def test_nonempty_does_not_restore_structured_routing_preferences(self):
         prompt = get_orchestrator_prompt(
             runtime_context=self._both_active(),
             included_domains={"todoist"},
         )
-        assert "## User routing preferences" in prompt
-        assert "Task provider:" in prompt
+        assert "## User routing preferences" not in prompt
+        assert "Task provider:" not in prompt
 
     def test_tools_line_is_last(self):
         """Available tools line appears after all other sections."""

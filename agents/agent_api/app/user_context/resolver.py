@@ -1,10 +1,10 @@
-"""Resolve identity, preferences, connections, and thread snapshots once per run.
+"""Resolve identity, typed policy, connections, and thread snapshots once per run.
 
 Orchestration only. The seven steps the master plan describes are delegated to
-focused modules: ``identity`` (gate + profile/preferences), ``secrets`` (Vault),
+focused modules: ``identity`` (gate + profile/policy), ``secrets`` (Vault),
 ``domains`` (pure availability classification), and ``domain_adapters`` (the
 registered capabilities). A single database connection performs the reads so no
-credential, preference, or user lookup happens independently later in the request.
+credential, policy, or user lookup happens independently later in the request.
 """
 
 from __future__ import annotations
@@ -26,6 +26,9 @@ from agents.agent_api.app.user_context.runtime import (
     ResolvedRuntimeContext,
     RuntimeContextError,
     RuntimeContextSnapshot,
+    RuntimeContextSnapshotLike,
+    parse_runtime_context_snapshot,
+    policy_revision_from_snapshot,
 )
 from agents.agent_api.app.user_context.secrets import resolve_secret_value
 
@@ -88,9 +91,10 @@ def resolve_runtime_context(
                 display_name=identity.display_name,
                 timezone=identity.timezone,
                 locale=identity.locale,
-                preference_schema_version=identity.preferences.schema_version,
-                preference_revision=identity.preferences.revision,
-                preferences=identity.preferences.preferences,
+                custom_instructions=identity.custom_instructions,
+                runtime_policy=identity.runtime_policy,
+                resource_restrictions=identity.resource_restrictions,
+                policy_revision=identity.policy_revision,
                 domains=domains,
                 resolved_at=datetime.now(timezone.utc),
             )
@@ -100,7 +104,7 @@ def resolve_runtime_context(
 def store_thread_context(
     thread_id: str,
     user_prompt: str,
-    snapshot: RuntimeContextSnapshot,
+    snapshot: RuntimeContextSnapshotLike,
 ) -> None:
     """Persist the secret-free snapshot before graph execution."""
 
@@ -136,7 +140,7 @@ def store_thread_context(
                     user_prompt,
                     snapshot.model_dump_json(),
                     snapshot.schema_version,
-                    snapshot.preference_revision,
+                    policy_revision_from_snapshot(snapshot),
                     snapshot.resolved_at,
                 ),
             )
@@ -172,7 +176,7 @@ def load_thread_runtime_context(
                     "The interrupted thread has no reusable runtime snapshot."
                 )
 
-            snapshot = RuntimeContextSnapshot.model_validate(row[0])
+            snapshot = parse_runtime_context_snapshot(row[0])
             credentials: Dict[str, IntegrationCredential] = {}
             for domain in snapshot.domains:
                 if domain.status != "active":
@@ -223,7 +227,7 @@ async def resolve_runtime_context_async(
 async def store_thread_context_async(
     thread_id: str,
     user_prompt: str,
-    snapshot: RuntimeContextSnapshot,
+    snapshot: RuntimeContextSnapshotLike,
 ) -> None:
     """Durably store a thread snapshot off-loop before graph execution."""
 

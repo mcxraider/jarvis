@@ -359,7 +359,7 @@ def _profile_for_role(
 
 def load_settings() -> Settings:
     llm_provider = LLMProvider.parse(os.getenv("LLM_PROVIDER", "openai"))
-    router_provider = _role_provider("ROUTER_PROVIDER", llm_provider)
+    router_provider = _role_provider("ROUTER_PROVIDER", LLMProvider.OPENAI)
     summarizer_provider = _role_provider("SUMMARIZER_PROVIDER", llm_provider)
     router_enabled = _bool_env("ROUTER_ENABLED", True)
     tool_selector = _non_empty_env("TOOL_SELECTOR", "router").lower()
@@ -445,9 +445,12 @@ def load_settings() -> Settings:
         "OPENAI_REASONING_EFFORT", "medium"
     ).lower()
 
-    router_model_override = _optional_non_empty_env("ROUTER_MODEL")
+    router_model_override = _optional_non_empty_env("ROUTER_MODEL") or (
+        "gpt-6-luna" if router_provider is LLMProvider.OPENAI else None
+    )
     router_reasoning_effort = _non_empty_env(
-        "ROUTER_REASONING_EFFORT", "off"
+        "ROUTER_REASONING_EFFORT",
+        "none" if router_provider is LLMProvider.OPENAI else "off",
     ).lower()
     router_request_timeout_seconds = _positive_float_env(
         "ROUTER_REQUEST_TIMEOUT_SECONDS", 5.0
@@ -598,8 +601,8 @@ def load_settings() -> Settings:
         openai_retry_max_delay_seconds=openai_retry_max_delay_seconds,
         openai_sdk_max_retries=openai_sdk_max_retries,
         openai_reasoning_effort=openai_reasoning_effort,
-        # Router defaults: reuse the DeepSeek endpoint/key, reasoning off, and a
-        # modest budget (per-attempt 5s timeout, 2 attempts) — the router is
+        # Router defaults: OpenAI GPT-6 Luna Chat Completions, reasoning none, and
+        # a modest budget (per-attempt 5s timeout, 2 attempts) — the router is
         # non-critical and always degrades to the static selector on failure.
         # Enabled by default (paired with tool_selector="router" below); set
         # ROUTER_ENABLED=false to fall back to loading every domain each turn.
