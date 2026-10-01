@@ -285,7 +285,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 #### `graph/prompts/`
 
 - `__init__.py` — `build_initial_messages`, `get_orchestrator_prompt`, `get_system_prompt`, `get_conversation_prompt`
-- `orchestrator.py` — system prompt for orchestrator agent; `get_conversation_prompt` builds the slim no-domain variant (role line + conversational directive + runtime context + custom instructions, no policy body/domain fragments/availability/tools line) used when the router returns `conversation`
+- `orchestrator.py` — system prompt for orchestrator agent; `get_conversation_prompt` builds the slim no-domain variant (role line + conversational directive + runtime context + custom instructions, no policy body/domain fragments/availability/tools line) used when the router returns `conversation` *and* no active domains are pinned. If a `conversation` turn still has pinned active domains (e.g. HITL resume, where `RouterToolSelector` merges them into the tool schemas), the orchestrator keeps the full `get_system_prompt` scoped to those domains instead
 - `context.py` — runtime context injection into prompts
 - `worker.py` — worker prompt for tool execution context
 - `skills/` — markdown skill files (`google-calendar-skill.md`, `google-calendar-daily-brief-skill.md`, `google-calendar-free-up-time-skill.md`, `google-calendar-group-scheduler-skill.md`)

@@ -318,6 +318,26 @@ class TestTurnSystemPromptBuild:
         # Byte-identical to the dedicated composer.
         assert system == get_conversation_prompt(runtime_context=snapshot)
 
+    def test_conversation_decision_with_pinned_domains_keeps_full_prompt(self):
+        # HITL resume: RouterToolSelector still merges pinned domains into the tool
+        # schemas on a conversation turn, so the prompt must keep their domain
+        # fragments rather than falling back to the slim prompt.
+        snapshot = make_snapshot(active=("todoist", "google_calendar"))
+        state = _state_with_history(snapshot)
+        state["active_domains"] = ["todoist"]
+        selector = FakeDecisionSelector(RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low"))
+
+        client, _result = _run_node(state, selector)
+
+        system = client.seen_messages[0]["content"]
+        # Pinned Todoist domain fragment + policy body are retained...
+        assert "## Todoist tool tips" in system
+        assert "## Hard invariants" in system
+        # ...and the unpinned domain is still omitted.
+        assert "## Google Calendar tool tips" not in system
+        # Not the slim prompt.
+        assert system != get_conversation_prompt(runtime_context=snapshot)
+
     def test_routed_decision_still_builds_full_prompt(self):
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_with_history(snapshot)

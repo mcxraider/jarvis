@@ -1281,10 +1281,23 @@ def _build_orchestrator_system_prompt_for_turn(
             included = None
             source = "all_active"
         elif routing_decision.outcome == RouterOutcome.CONVERSATION:
-            # No-domain conversation turn: slim prompt, no policy/availability/tools.
-            content = get_conversation_prompt(runtime_context=snapshot)
-            included = None
-            source = "conversation"
+            pinned = set(state.get("active_domains") or []) & snapshot.active_providers()
+            if pinned:
+                # Pinned domains are still merged into the tool schemas by
+                # RouterToolSelector on a conversation turn, so the prompt must keep
+                # their grounding/confirmation/clarification/failure-handling fragments.
+                content = get_system_prompt(
+                    runtime_context=snapshot,
+                    registered_tools=selected_tool_names,
+                    included_domains=pinned,
+                )
+                included = pinned
+                source = "conversation_pinned"
+            else:
+                # No-domain conversation turn: slim prompt, no policy/availability/tools.
+                content = get_conversation_prompt(runtime_context=snapshot)
+                included = None
+                source = "conversation"
         else:
             relevant = set(
                 effective_router_domains(routing_decision)
