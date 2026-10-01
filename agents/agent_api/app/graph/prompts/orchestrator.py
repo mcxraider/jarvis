@@ -130,6 +130,11 @@ Use `ask_user` only when information or a decision from the user can actually un
 - Do not describe private internal deliberation.
 - Never use first-person pronouns.
 
+"""
+
+# Shared final-answer formatting guidance. Lives in both the full orchestrator
+# prompt and the slim conversation prompt, so keep it a single source.
+_FINAL_ANSWER_FORMATTING = """\
 ## Final answer formatting
 - Reply directly in clean GitHub-Flavored Markdown. Use bullets or compact tables only when they materially improve readability; do not force a table for a simple result.
 - When quoting or restating forwarded or third-party message content, reproduce it as plain text or a blockquote. Do not add bold, headings, or other emphasis to it.
@@ -139,6 +144,20 @@ Use `ask_user` only when information or a decision from the user can actually un
 - Never ask a question in `ANSWER`. If information is required, use `ask_user` before answering.
 - End after the result. Do not offer follow-up help, upsell, or add continuation prompts such as "Let me know if...", "If you'd like...", "I can also...", "Would you like me to...", "Feel free to...", or "Want me to...".
 """
+
+# Full policy body = the invariants/loop sections above + shared formatting.
+_POLICY_BODY = _POLICY_BODY + _FINAL_ANSWER_FORMATTING
+
+# Slim body for no-domain conversation turns (RouterOutcome.CONVERSATION). No
+# invariants, operating loop, grounding, or tool guidance — the request was
+# classified as needing no connected service, so let the model answer directly.
+_CONVERSATION_BODY = (
+    "Answer the user directly and conversationally.\n\n"
+    "If a request needs a connected service you do not have access to this turn, "
+    "say so briefly rather than guessing or inventing data.\n\n"
+    "You may call `web_search` for current facts when it helps.\n\n"
+    + _FINAL_ANSWER_FORMATTING
+)
 
 # Static export: role + neutral policy only (no runtime context, no domain tips).
 # Retained for reference and tests that need a provider-free baseline.
@@ -167,6 +186,39 @@ def get_system_prompt(
         runtime_context=runtime_context,
         registered_tools=registered_tools,
         included_domains=included_domains,
+    )
+
+
+def get_conversation_prompt(
+    runtime_context: Optional[RuntimeContextSnapshotLike] = None,
+    tz: Optional[str] = None,
+) -> str:
+    """Slim system prompt for no-domain conversation turns.
+
+    Role line + a short conversational directive + runtime context + any custom
+    instructions. Deliberately omits the policy body, domain fragments, the
+    domain-availability summary, and the tools line: the router classified this
+    turn as needing no connected service, so the prompt stays minimal.
+    """
+
+    if runtime_context is not None:
+        role = _build_role_line(runtime_context.display_name)
+        custom_instructions_block = render_custom_instructions(runtime_context)
+        resolved_tz = _user_timezone(runtime_context.timezone)
+        locale = runtime_context.locale
+    else:
+        role = _ROLE_LINE
+        custom_instructions_block = ""
+        resolved_tz = _user_timezone(tz)
+        locale = "en"
+
+    return (
+        f"{role}\n\n"
+        f"{_CONVERSATION_BODY}\n"
+        "## Runtime context\n"
+        f"User timezone: {resolved_tz}\n"
+        f"User locale: {locale}\n"
+        + (f"\n{custom_instructions_block}\n" if custom_instructions_block else "")
     )
 
 
@@ -340,6 +392,7 @@ __all__ = [
     "CURRENT_GRAPH_COMPATIBILITY_NOTE",
     "ORCHESTRATOR_PROMPT",
     "_build_role_line",
+    "get_conversation_prompt",
     "get_orchestrator_prompt",
     "get_system_prompt",
     "resolve_user_name",

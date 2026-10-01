@@ -1,7 +1,9 @@
 // Code-owned timeout ladder for one Telegram agent turn.
 //
 // The Python run deadline is reported by /health/detail and must remain below
-// these outer watchdogs. Environment variables are intentionally supported as
+// these outer watchdogs. Its cancellation is cooperative once mutation dispatch
+// begins, so durable status reconciliation—not the 150s deadline—is the hard
+// correctness boundary. Environment variables are intentionally supported as
 // emergency/test overrides, but the deployment templates do not advertise them
 // as routine tuning knobs.
 //

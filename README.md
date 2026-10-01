@@ -37,7 +37,7 @@ Telegram (voice or text) hits the **FastAPI** service through the invoke and res
 | `health_router` | `GET /health`, `GET /health/detail` |
 | `invoke_router` | `POST /invoke`, `POST /invoke/stream`, `POST /invoke-bulk` |
 | `resume_router` | `POST /resume`, `POST /resume/stream` |
-| `cancel_router` | `POST /runs/cancel` |
+| `cancel_router` | `POST /runs/cancel`, `POST /runs/status` |
 | `memory_router` | `POST /memory/reset` |
 
 Voice input is transcribed before entering the same path as text. Standard invoke and resume routes pass through the request gate before the graph runs:
@@ -47,6 +47,7 @@ API key -> Telegram identity/source -> thread ownership -> request idempotency -
 ```
 
 Request idempotency caches completed or interrupted responses by request ID and returns `409 Retry-After: 1` while an identical request is still running. Fresh-thread quota is charged only for new threads after idempotency has claimed the request, so client retries do not double-charge quota.
+The 150-second Python run deadline requests cooperative cancellation; a mutation already being dispatched may settle after that deadline. Node reconciles ambiguous delivery through the durable request-idempotency result instead of replaying the request.
 
 Inbound accounts cross the Node-to-Python boundary as
 `telegram_identity: { telegram_id, username }`. The previous generic `identity`
@@ -96,7 +97,7 @@ The handler watchdog must outlast the worst audio turn, and the gate TTL must ou
 
 **run_jarvis** builds the graph and injects clients, then hands control to the **Orchestrator**.
 
-Before the orchestrator sees tools, the default **RouterToolSelector** uses the configured lightweight classifier to pick the relevant connected service domains and expose only those tools plus `ask_user`. The router can also provide a faithful query rewrite and build the runtime prompt for the chosen domains. Router failures are non-fatal: the run falls back to the static all-tools selector.
+Before the orchestrator sees tools, the default **RouterToolSelector** uses the configured lightweight classifier to pick the relevant connected service domains and expose only those tools plus `ask_user`. The router can also provide a faithful query rewrite and build the runtime prompt for the chosen domains. When the router classifies a turn as `conversation` (no domain), the orchestrator swaps in a slim conversational system prompt (identity + answer-directly directive, no domain policy body, availability summary, or tools line) so generic requests carry minimal prompt overhead. Router failures are non-fatal: the run falls back to the static all-tools selector.
 
 The **Orchestrator** is the only graph node that calls the main LLM. It routes every turn to one of:
 

@@ -166,7 +166,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 
 #### `src/services/ai/`
 
-- `langgraph-agent-client.service.ts` — HTTP client for Python agent: streaming NDJSON, dual-timer deadline, retry, cancellation, fallback to non-streaming
+- `langgraph-agent-client.service.ts` — HTTP client for Python agent: streaming NDJSON, dual-timer deadline, retry, cancellation, and durable ambiguous-delivery reconciliation through `/runs/status`
 - `agent-contract-readiness.ts` — startup barrier: verifies timeout ladder invariants against agent `/health/detail`
 - `whisper.service.ts` — audio transcription via Groq Whisper large-v3: streamed size-capped download, FFmpeg normalization + chunking (45 s cores, 0 s overlap), overlapped producer-consumer extraction/transcription, deterministic merge, retry, quality metrics
 - `groq-request-limiter.ts` — process-global admission control for Groq calls (shared concurrency cap + shared `429` cooldown, since Groq rate-limits per organization)
@@ -284,8 +284,8 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 
 #### `graph/prompts/`
 
-- `__init__.py` — `build_initial_messages`, `get_orchestrator_prompt`, `get_system_prompt`
-- `orchestrator.py` — system prompt for orchestrator agent
+- `__init__.py` — `build_initial_messages`, `get_orchestrator_prompt`, `get_system_prompt`, `get_conversation_prompt`
+- `orchestrator.py` — system prompt for orchestrator agent; `get_conversation_prompt` builds the slim no-domain variant (role line + conversational directive + runtime context + custom instructions, no policy body/domain fragments/availability/tools line) used when the router returns `conversation`
 - `context.py` — runtime context injection into prompts
 - `worker.py` — worker prompt for tool execution context
 - `skills/` — markdown skill files (`google-calendar-skill.md`, `google-calendar-daily-brief-skill.md`, `google-calendar-free-up-time-skill.md`, `google-calendar-group-scheduler-skill.md`)

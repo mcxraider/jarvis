@@ -117,6 +117,23 @@ export const AgentResponseSchema = z.object({
   error_details: z.record(z.unknown()).nullish(),
 });
 
+export const LangGraphRunStatusSchema = z.discriminatedUnion('state', [
+  z.object({
+    state: z.literal('running'),
+    request_id: z.string(),
+  }),
+  z.object({
+    state: z.literal('unknown'),
+    request_id: z.string(),
+  }),
+  z.object({
+    state: z.literal('completed'),
+    request_id: z.string(),
+    logical_route: z.enum(['invoke', 'resume']),
+    response: AgentResponseSchema,
+  }),
+]);
+
 export const AgentDependencyCheckSchema = z.object({
   ok: z.boolean(),
   detail: z.string(),
@@ -225,6 +242,7 @@ export const StreamEventSchema = z.discriminatedUnion('type', [
 export type LangGraphInterrupt = z.infer<typeof LangGraphInterruptSchema>;
 export type TelegramIdentityPayload = z.infer<typeof TelegramIdentitySchema>;
 export type AgentResponse = z.infer<typeof AgentResponseSchema>;
+export type LangGraphRunStatus = z.infer<typeof LangGraphRunStatusSchema>;
 export type AgentDependencyCheck = z.infer<typeof AgentDependencyCheckSchema>;
 export type AgentRuntimeLimits = z.infer<typeof AgentRuntimeLimitsSchema>;
 export type AgentHealthDetail = z.infer<typeof AgentHealthDetailSchema>;

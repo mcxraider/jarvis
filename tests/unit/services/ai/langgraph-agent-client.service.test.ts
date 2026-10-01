@@ -659,7 +659,7 @@ describe('LangGraphAgentClient', () => {
     );
   });
 
-  it('falls back to non-streaming invoke when stream setup fails', async () => {
+  it('reconciles a stream setup failure without replaying the invoke', async () => {
     const fetchMock = jest
       .fn()
       .mockRejectedValueOnce(new Error('stream unavailable'))
@@ -667,9 +667,14 @@ describe('LangGraphAgentClient', () => {
         ok: true,
         text: jest.fn().mockResolvedValue(
           JSON.stringify({
-            status: 'completed',
-            thread_id: 'thread-fallback',
-            response: 'Fallback done.',
+            state: 'completed',
+            request_id: 'request-fallback',
+            logical_route: 'invoke',
+            response: {
+              status: 'completed',
+              thread_id: 'thread-fallback',
+              response: 'Reconciled.',
+            },
           }),
         ),
       });
@@ -686,7 +691,7 @@ describe('LangGraphAgentClient', () => {
       expect.objectContaining({
         status: 'completed',
         threadId: 'thread-fallback',
-        response: 'Fallback done.',
+        response: 'Reconciled.',
       }),
     );
 
@@ -697,9 +702,156 @@ describe('LangGraphAgentClient', () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      'http://localhost:8000/invoke',
-      expect.any(Object),
+      'http://localhost:8000/runs/status',
+      expect.objectContaining({
+        body: JSON.stringify({
+          user_id: 'local-user',
+          request_id: 'request-fallback',
+          source: 'api',
+          logical_route: 'invoke',
+        }),
+      }),
     );
+  });
+
+  it('polls running status until completion after a stream failure', async () => {
+    jest.useFakeTimers();
+    try {
+      const fetchMock = jest
+        .fn()
+        .mockRejectedValueOnce(new Error('stream disconnected'))
+        .mockResolvedValueOnce({
+          ok: true,
+          text: jest.fn().mockResolvedValue(
+            JSON.stringify({ state: 'running', request_id: 'request-1' }),
+          ),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          text: jest.fn().mockResolvedValue(
+            JSON.stringify({
+              state: 'completed',
+              request_id: 'request-1',
+              logical_route: 'invoke',
+              response: {
+                status: 'completed',
+                thread_id: 'thread-1',
+                response: 'Done.',
+              },
+            }),
+          ),
+        });
+      global.fetch = fetchMock as any;
+      const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+      const promise = client.invoke(
+        { message: 'hello', userId: 'user', source: 'telegram', requestId: 'request-1' },
+        {},
+        jest.fn(),
+      );
+      await jest.advanceTimersByTimeAsync(1_000);
+
+      await expect(promise).resolves.toEqual(
+        expect.objectContaining({ delivery: 'terminal', response: 'Done.' }),
+      );
+      expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+        'http://localhost:8000/invoke/stream',
+        'http://localhost:8000/runs/status',
+        'http://localhost:8000/runs/status',
+      ]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['invoke', (client: LangGraphAgentClient) => client.invoke({
+      message: 'hello', userId: 'user', source: 'telegram', requestId: 'request-1',
+    })],
+    ['resume', (client: LangGraphAgentClient) => client.resume({
+      message: 'yes', userId: 'user', source: 'telegram', requestId: 'request-1', threadId: 'thread-1',
+    })],
+  ] as const)('uses the %s logical route for reconciliation', async (logicalRoute, call) => {
+    const fetchMock = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('connection lost'))
+      .mockResolvedValueOnce({
+        ok: true,
+        text: jest.fn().mockResolvedValue(
+          JSON.stringify({
+            state: 'completed',
+            request_id: 'request-1',
+            logical_route: logicalRoute,
+            response: {
+              status: 'completed',
+              thread_id: 'thread-1',
+              response: 'Recovered.',
+            },
+          }),
+        ),
+      });
+    global.fetch = fetchMock as any;
+
+    await expect(call(new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' })))
+      .resolves.toEqual(expect.objectContaining({ response: 'Recovered.' }));
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({
+      logical_route: logicalRoute,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['malformed', 'failure'] as const)(
+    'keeps delivery ambiguous after repeated %s status probes',
+    async (mode) => {
+      jest.useFakeTimers();
+      const warn = jest.spyOn(logger, 'warn').mockImplementation();
+      try {
+        const fetchMock = jest.fn()
+          .mockRejectedValueOnce(new Error('connection lost'))
+          .mockImplementation(() => mode === 'malformed'
+            ? Promise.resolve({ ok: true, text: jest.fn().mockResolvedValue('{}') })
+            : Promise.reject(new Error('status unavailable')));
+        global.fetch = fetchMock as any;
+        const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+        const promise = client.invoke({
+          message: 'hello',
+          userId: 'user',
+          requestId: 'request-1',
+        });
+        await jest.advanceTimersByTimeAsync(60_000);
+
+        await expect(promise).resolves.toEqual(
+          expect.objectContaining({ delivery: 'ambiguous' }),
+        );
+        expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/invoke'))).toHaveLength(1);
+      } finally {
+        warn.mockRestore();
+        jest.useRealTimers();
+      }
+    },
+  );
+
+  it('aborts each one-shot status probe after five seconds', async () => {
+    jest.useFakeTimers();
+    try {
+      let signal: AbortSignal | undefined;
+      global.fetch = jest.fn().mockImplementation((_url, init: RequestInit) => {
+        signal = init.signal ?? undefined;
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        });
+      }) as any;
+      const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
+
+      const probe = client.getRunStatus('user', 'request-1');
+      const rejection = expect(probe).rejects.toMatchObject({ name: 'AbortError' });
+      await jest.advanceTimersByTimeAsync(5_000);
+      await rejection;
+      expect(signal?.aborted).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('does not fall back after an ambiguous stream setup failure without a request id', async () => {
@@ -731,7 +883,7 @@ describe('LangGraphAgentClient', () => {
       expect.objectContaining({
         status: 'failed',
         delivery: 'ambiguous',
-        error: 'LangGraph API returned 503',
+        error: 'LangGraph stream returned 503',
       }),
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -773,7 +925,7 @@ describe('LangGraphAgentClient', () => {
     const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
 
     const result = await client.invoke(
-      { message: 'hello', userId: 'local-user', requestId: 'conflict' },
+      { message: 'hello', userId: 'local-user' },
       {},
       jest.fn(),
     );
@@ -798,7 +950,7 @@ describe('LangGraphAgentClient', () => {
 
     await expect(
       client.invoke(
-        { message: 'hello', userId: 'local-user', requestId: 'rate-limited-read-error' },
+        { message: 'hello', userId: 'local-user' },
         {},
         jest.fn(),
       ),
@@ -818,7 +970,7 @@ describe('LangGraphAgentClient', () => {
     const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
 
     const result = await client.invoke(
-      { message: 'hello', userId: 'local-user', requestId: 'request-with-id' },
+      { message: 'hello', userId: 'local-user' },
       {},
       jest.fn(),
     );
@@ -827,7 +979,7 @@ describe('LangGraphAgentClient', () => {
       expect.objectContaining({
         status: 'failed',
         delivery: 'ambiguous',
-        error: 'LangGraph API returned 503',
+        error: 'LangGraph stream returned 503',
       }),
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -875,60 +1027,28 @@ describe('LangGraphAgentClient', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it('applies the body deadline to a non-streaming fallback response', async () => {
-      let fallbackSignal: AbortSignal | undefined;
-      const fetchMock = jest
-        .fn()
-        .mockRejectedValueOnce(new Error('stream unavailable'))
-        .mockImplementationOnce((_url: string, init: RequestInit) => {
-          fallbackSignal = init.signal ?? undefined;
-          return Promise.resolve({
-            ok: true,
-            text: () => new Promise<string>(() => {}),
-          });
-        });
-      global.fetch = fetchMock as any;
-      const client = new LangGraphAgentClient({
-        baseUrl: 'http://localhost:8000',
-        timeoutMs: 1000,
-      });
-
-      const promise = client.invoke(
-        { message: 'hi', userId: 'u', requestId: 'fallback-timeout', threadId: 't' },
-        {},
-        jest.fn(),
-      );
-      await jest.advanceTimersByTimeAsync(1);
-      await jest.advanceTimersByTimeAsync(1000);
-      const result = await promise;
-
-      expect(result.status).toBe('failed');
-      expect(result.response).toContain('finish this in time');
-      expect(fallbackSignal?.aborted).toBe(true);
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-    });
-
-    it('cancels a retryable 5xx body before issuing the next POST', async () => {
-      const cancel = jest.fn().mockResolvedValue(undefined);
+    it('reconciles a standard 5xx without reposting the original request', async () => {
       const fetchMock = jest
         .fn()
         .mockResolvedValueOnce({
           ok: false,
           status: 503,
-          body: { cancel },
+          text: jest.fn().mockResolvedValue('unavailable'),
         })
-        .mockImplementationOnce(() => {
-          expect(cancel).toHaveBeenCalledTimes(1);
-          return Promise.resolve({
-            ok: true,
-            text: jest.fn().mockResolvedValue(
-              JSON.stringify({
+        .mockResolvedValueOnce({
+          ok: true,
+          text: jest.fn().mockResolvedValue(
+            JSON.stringify({
+              state: 'completed',
+              request_id: 'retry-request',
+              logical_route: 'invoke',
+              response: {
                 status: 'completed',
-                thread_id: 'thread-retried',
-                response: 'Done after retry.',
-              }),
-            ),
-          });
+                thread_id: 'thread-reconciled',
+                response: 'Done after reconciliation.',
+              },
+            }),
+          ),
         });
       global.fetch = fetchMock as any;
       const client = new LangGraphAgentClient({
@@ -941,17 +1061,18 @@ describe('LangGraphAgentClient', () => {
         userId: 'u',
         requestId: 'retry-request',
       });
-      await jest.advanceTimersByTimeAsync(1000);
-
       await expect(promise).resolves.toEqual(
         expect.objectContaining({
           status: 'completed',
-          threadId: 'thread-retried',
-          response: 'Done after retry.',
+          threadId: 'thread-reconciled',
+          response: 'Done after reconciliation.',
         }),
       );
-      expect(cancel).toHaveBeenCalledTimes(1);
       expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+        'http://localhost:8000/invoke',
+        'http://localhost:8000/runs/status',
+      ]);
     });
   });
 
@@ -1329,7 +1450,7 @@ describe('LangGraphAgentClient', () => {
       });
 
       const promise = client.invoke(
-        { message: 'hi', userId: 'u', threadId: 't', requestId: 'deadline-request' },
+        { message: 'hi', userId: 'u', threadId: 't' },
         {},
         jest.fn(),
       );
@@ -1358,7 +1479,7 @@ describe('LangGraphAgentClient', () => {
 
       const onProgress = jest.fn();
       const promise = client.invoke(
-        { message: 'hi', userId: 'u', threadId: 't', requestId: 'idle-request' },
+        { message: 'hi', userId: 'u', threadId: 't' },
         {},
         onProgress,
       );
@@ -1453,7 +1574,7 @@ describe('LangGraphAgentClient', () => {
       });
 
       const promise = client.invoke(
-        { message: 'hi', userId: 'u', threadId: 't', requestId: 'overall-request' },
+        { message: 'hi', userId: 'u', threadId: 't' },
         {},
         jest.fn(),
       );
@@ -1478,7 +1599,7 @@ describe('LangGraphAgentClient', () => {
       const client = new LangGraphAgentClient({ baseUrl: 'http://localhost:8000' });
 
       const promise = client.invoke(
-        { message: 'hi', userId: 'u', requestId: 'stream-error-request' },
+        { message: 'hi', userId: 'u' },
         {},
         jest.fn(),
       );
@@ -1613,7 +1734,7 @@ describe('LangGraphAgentClient', () => {
         const onProgress = jest.fn().mockReturnValue(new Promise<void>(() => {}));
 
         const promise = client.invoke(
-          { message: 'hi', userId: 'u', requestId: 'buffered-final-request' },
+          { message: 'hi', userId: 'u' },
           {},
           onProgress,
         );

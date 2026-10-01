@@ -181,7 +181,12 @@ export class TextProcessorService {
         // tryAcquire atomically acquires the gate AND writes active_request_id,
         // collapsing the fresh-request happy path to a single DB round trip.
         const chatIdNum = typeof logContext.chatId === 'number' ? logContext.chatId : undefined;
-        gateAcquired = await this.safeAcquireGate(gateKey, activeRequestId, chatIdNum);
+        gateAcquired = await this.safeAcquireGate(
+          gateKey,
+          activeRequestId,
+          internalUserId,
+          chatIdNum,
+        );
 
         if (!gateAcquired) {
           logger.info('conversation_gate.acquire_failed', { ...logContext, gateKey });
@@ -843,10 +848,17 @@ export class TextProcessorService {
   private async safeAcquireGate(
     gateKey: string,
     requestId: string,
+    userId: string,
     chatId?: number,
   ): Promise<boolean> {
     try {
-      return await this.conversationGate.tryAcquire(gateKey, this.runningTtlMs, chatId, requestId);
+      return await this.conversationGate.tryAcquire(
+        gateKey,
+        this.runningTtlMs,
+        chatId,
+        requestId,
+        userId,
+      );
     } catch (error) {
       logger.error('conversation_gate.acquire_error', {
         gateKey,
