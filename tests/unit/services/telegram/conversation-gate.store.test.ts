@@ -370,7 +370,7 @@ describe('MemoryConversationGateStore', () => {
         jest.setSystemTime(new Date('2026-07-16T00:00:00.000Z'));
         const onExpiry = jest.fn();
         store.setOnExpiry(onExpiry);
-        await store.tryAcquire('key1', 1000, 123, 'request-expired');
+        await store.tryAcquire('key1', 1000, 123, 'request-expired', 'telegram:123');
 
         // Move wall-clock time past the deadline without running the scheduled timer.
         jest.setSystemTime(new Date('2026-07-16T00:00:01.001Z'));
@@ -379,7 +379,12 @@ describe('MemoryConversationGateStore', () => {
         await jest.runOnlyPendingTimersAsync();
 
         expect(onExpiry).toHaveBeenCalledTimes(1);
-        expect(onExpiry).toHaveBeenCalledWith('key1', 123, 'request-expired');
+        expect(onExpiry).toHaveBeenCalledWith(
+          'key1',
+          123,
+          'request-expired',
+          'telegram:123',
+        );
       } finally {
         jest.useRealTimers();
       }
@@ -485,10 +490,15 @@ describe('PostgresConversationGateStore expiry ownership', () => {
     const onExpiry = jest.fn();
     store.setOnExpiry(onExpiry);
 
-    await store.tryAcquire('key1', 1, 123, 'request-current');
+    await store.tryAcquire('key1', 1, 123, 'request-current', 'telegram:123');
     await jest.advanceTimersByTimeAsync(30);
 
-    expect(onExpiry).toHaveBeenCalledWith('key1', 123, 'request-current');
+    expect(onExpiry).toHaveBeenCalledWith(
+      'key1',
+      123,
+      'request-current',
+      'telegram:123',
+    );
   });
 
   it('preserves an expired row request id in the idle snapshot for cancellation cleanup', async () => {
@@ -520,7 +530,7 @@ describe('PostgresConversationGateStore expiry ownership', () => {
       ['key1', 'request-expired'],
     ]);
     expect(onExpiry).toHaveBeenCalledTimes(1);
-    expect(onExpiry).toHaveBeenCalledWith('key1', undefined, 'request-expired');
+    expect(onExpiry).toHaveBeenCalledWith('key1', undefined, 'request-expired', undefined);
   });
 
   it('re-reads instead of reporting stale idle when an expired generation is replaced', async () => {

@@ -6,6 +6,7 @@ import 'dotenv/config';
 import { Telegraf, Context } from 'telegraf';
 import { createRequestId, logger } from './utils/logger';
 import { TelegramConfig } from './types/telegram.types';
+import type { AgentResponse } from './types/agent.types';
 import { LangGraphAgentClient } from './services/ai/langgraph-agent-client.service';
 import { WhisperService } from './services/ai/whisper.service';
 import { AudioConverter } from './utils/ai/audioConverter';
@@ -212,19 +213,32 @@ export const botService = new TelegramBotService(
 // already blocked by the store's expires_at filter; this keeps the persisted status accurate and the
 // chat clean. The atomic expiry claim bypasses the normal read TTL so prompt metadata remains
 // available even when the pending row and gate reach their deadline at the same instant.
-conversationGate.setOnExpiry((gateKey, chatId, requestId) => {
+conversationGate.setOnExpiry((gateKey, chatId, requestId, userId) => {
   void (async () => {
     const cleanupRequestId = createRequestId('expiry');
     const cleanupClaimed = await conversationGate
-      .tryAcquire(gateKey, 30_000, chatId, cleanupRequestId)
+      .tryAcquire(gateKey, 30_000, chatId, cleanupRequestId, userId)
       .catch(() => false);
+    if (!cleanupClaimed) return;
     try {
-      // Exact matching remains safe when a newer request won the gate. An
-      // unscoped claim is needed only for running HITL resumes whose pending
-      // prompt still carries the prior waiting generation, and is permitted
-      // only while this callback owns the cleanup generation.
+      let recovered: AgentResponse | undefined;
+      if (userId && requestId) {
+        try {
+          const status = await agentClient.getRunStatus(userId, requestId, 'telegram');
+          if (status.state === 'completed') recovered = status.response;
+        } catch (error) {
+          logger.warn('telegram.gate_expiry.status_probe_failed', {
+            gateKey,
+            requestId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      // The cleanup generation is now ours, so an unscoped fallback is safe for
+      // running resumes whose pending prompt still carries the waiting generation.
       let pending = await pendingStore.expireIfMatches(gateKey, { requestId });
-      if (!pending && cleanupClaimed) {
+      if (!pending) {
         pending = await pendingStore.expireIfMatches(gateKey);
       }
 
@@ -244,21 +258,20 @@ conversationGate.setOnExpiry((gateKey, chatId, requestId) => {
         await botService.collapseClarification(targetChatId, pending.clarificationMessageId, pending.question);
       }
 
-      // If a newer request already owns the gate, cleaning the old exact prompt
-      // is safe but an old timeout notice would be misleading and out of order.
-      if (cleanupClaimed) {
-        await botService.sendRichMessage(
-          targetChatId,
-          '⏱ Request timed out. Send a new message to try again.',
-          { chatId: targetChatId, gateKey, requestId },
-        );
-      }
+      const message = recovered?.status === 'interrupted'
+        ? 'That request finished waiting for input, but the prompt expired. Please resend your request.'
+        : recovered
+          ? recovered.response
+          : '⏱ Request timed out. Send a new message to try again.';
+      await botService.sendRichMessage(
+        targetChatId,
+        message,
+        { chatId: targetChatId, gateKey, requestId },
+      );
     } finally {
-      if (cleanupClaimed) {
-        await conversationGate
-          .releaseIfActiveRequestId(gateKey, cleanupRequestId)
-          .catch(() => ({ released: false }));
-      }
+      await conversationGate
+        .releaseIfActiveRequestId(gateKey, cleanupRequestId)
+        .catch(() => ({ released: false }));
     }
   })().catch((error) => {
     logger.warn('telegram.gate_expiry.cleanup_failed', {

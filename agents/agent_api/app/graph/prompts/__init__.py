@@ -14,6 +14,7 @@ from agents.agent_api.app.graph.prompts.context import (
 from agents.agent_api.app.graph.prompts.orchestrator import (
     CURRENT_GRAPH_COMPATIBILITY_NOTE,
     ORCHESTRATOR_PROMPT,
+    get_conversation_prompt,
     get_orchestrator_prompt,
     get_system_prompt,
     resolve_user_name,
@@ -28,6 +29,7 @@ __all__ = [
     "WORKER_PROMPT",
     "build_initial_messages",
     "build_user_prompt_with_request_datetime",
+    "get_conversation_prompt",
     "get_orchestrator_prompt",
     "get_system_prompt",
     "get_worker_prompt",

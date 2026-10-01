@@ -686,7 +686,13 @@ describe('CommandHandlers', () => {
       { getFormattedStatus: jest.fn() } as any,
       gateStore,
       new MemoryPendingClarificationStore(),
-      { cancelRun: jest.fn().mockResolvedValue('not_found') } as any,
+      {
+        cancelRun: jest.fn().mockResolvedValue('not_found'),
+        getRunStatus: jest.fn().mockResolvedValue({
+          state: 'running',
+          request_id: 'request-1',
+        }),
+      } as any,
     );
     const ctx = createContext();
 
@@ -696,22 +702,127 @@ describe('CommandHandlers', () => {
     expect(ctx.reply.mock.calls[0][0]).toContain("couldn't confirm cancellation");
   });
 
-  it('retains a running gate when the backend has finished before Telegram settlement', async () => {
+  it('recovers a finished request, releases its exact gate, and surfaces the result', async () => {
     const gateStore = new MemoryConversationGateStore();
     const gateKey = buildConversationKey(123, 'telegram:123', 456);
     await gateStore.tryAcquire(gateKey, 60000, undefined, 'request-1');
+    const ctx = createContext();
     const handlers = new CommandHandlers(
       createActivityService(),
       { getFormattedStatus: jest.fn() } as any,
       gateStore,
       new MemoryPendingClarificationStore(),
-      { cancelRun: jest.fn().mockResolvedValue('already_finished') } as any,
+      {
+        cancelRun: jest.fn().mockResolvedValue('already_finished'),
+        getRunStatus: jest.fn().mockResolvedValue({
+          state: 'completed',
+          request_id: 'request-1',
+          logical_route: 'invoke',
+          response: {
+            status: 'completed',
+            thread_id: 'thread-1',
+            response: 'The task was created.',
+            tool_results: [],
+          },
+        }),
+      } as any,
     );
 
-    await handlers.handleCancel(createContext());
+    await handlers.handleCancel(ctx);
 
-    expect(await gateStore.getActiveRequestId(gateKey)).toBe('request-1');
-    expect(await gateStore.getStatus(gateKey)).toBe('running');
+    expect(await gateStore.getStatus(gateKey)).toBe('idle');
+    expect(ctx.reply.mock.calls[0][0]).toContain('That request had already finished');
+    expect(ctx.reply.mock.calls[0][0]).toContain('The task was created');
+  });
+
+  it('honors cancellation when a recovered result is interrupted', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const pendingStore = new MemoryPendingClarificationStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    await gateStore.tryAcquire(gateKey, 60000, undefined, 'request-1');
+    const now = Date.now();
+    await pendingStore.save({
+      pendingKey: gateKey,
+      threadId: 'thread-1',
+      question: 'Which task?',
+      telegramUserId: 123,
+      userId: 'telegram:123',
+      requestId: 'request-1',
+      interruptType: 'clarify',
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + 60000,
+    });
+    const ctx = createContext();
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      pendingStore,
+      {
+        cancelRun: jest.fn().mockResolvedValue('already_finished'),
+        getRunStatus: jest.fn().mockResolvedValue({
+          state: 'completed',
+          request_id: 'request-1',
+          logical_route: 'invoke',
+          response: {
+            status: 'interrupted',
+            thread_id: 'thread-1',
+            response: 'Which task?',
+            tool_results: [],
+          },
+        }),
+      } as any,
+    );
+
+    await handlers.handleCancel(ctx);
+
+    expect(await gateStore.getStatus(gateKey)).toBe('idle');
+    expect(await pendingStore.get(gateKey)).toBeUndefined();
+    expect(ctx.reply.mock.calls[0][0]).toContain('Conversation cancelled');
+  });
+
+  it('does not release a newer generation after delayed status recovery', async () => {
+    const gateStore = new MemoryConversationGateStore();
+    const gateKey = buildConversationKey(123, 'telegram:123', 456);
+    await gateStore.tryAcquire(gateKey, 60000, undefined, 'request-old');
+    let resolveStatus!: (value: any) => void;
+    const getRunStatus = jest.fn().mockReturnValue(new Promise((resolve) => {
+      resolveStatus = resolve;
+    }));
+    const handlers = new CommandHandlers(
+      createActivityService(),
+      { getFormattedStatus: jest.fn() } as any,
+      gateStore,
+      new MemoryPendingClarificationStore(),
+      {
+        cancelRun: jest.fn().mockResolvedValue('already_finished'),
+        getRunStatus,
+      } as any,
+    );
+    const ctx = createContext();
+
+    const cancelling = handlers.handleCancel(ctx);
+    while (getRunStatus.mock.calls.length === 0) await Promise.resolve();
+    await gateStore.releaseIfActiveRequestId(gateKey, 'request-old');
+    await gateStore.tryAcquire(gateKey, 60000, undefined, 'request-new');
+    resolveStatus({
+      state: 'completed',
+      request_id: 'request-old',
+      logical_route: 'invoke',
+      response: {
+        status: 'completed',
+        thread_id: 'thread-old',
+        response: 'Old result.',
+        tool_results: [],
+      },
+    });
+    await cancelling;
+
+    expect(await gateStore.getActiveRequestId(gateKey)).toBe('request-new');
+    expect(ctx.reply.mock.calls[0][0]).toContain('another request is active');
+    expect(ctx.reply.mock.calls[0][0]).not.toContain('Old result.');
   });
 
   it('does not clear a newer pending row created after the owned gate is released', async () => {
@@ -767,7 +878,13 @@ describe('CommandHandlers', () => {
       { getFormattedStatus: jest.fn() } as any,
       gateStore,
       new MemoryPendingClarificationStore(),
-      { cancelRun: jest.fn().mockRejectedValue(new Error('network unavailable')) } as any,
+      {
+        cancelRun: jest.fn().mockRejectedValue(new Error('network unavailable')),
+        getRunStatus: jest.fn().mockResolvedValue({
+          state: 'unknown',
+          request_id: 'request-1',
+        }),
+      } as any,
     );
     const ctx = createContext();
 

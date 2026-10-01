@@ -261,6 +261,20 @@ class CancelResponse(BaseModel):
     request_id: str
 
 
+class RunStatusRequest(BaseModel):
+    user_id: str = Field(..., min_length=1)
+    request_id: str = Field(..., min_length=1)
+    source: str = Field(..., min_length=1)
+    logical_route: Optional[Literal["invoke", "resume"]] = None
+
+
+class RunStatusResponse(BaseModel):
+    state: Literal["running", "completed", "unknown"]
+    request_id: str
+    logical_route: Optional[Literal["invoke", "resume"]] = None
+    response: Optional[AgentResponse] = None
+
+
 class MemoryResetRequest(IdentityRequestMixin):
     user_id: str = Field(..., min_length=1)
     conversation_key: ConversationKey

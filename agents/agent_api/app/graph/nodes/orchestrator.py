@@ -46,11 +46,17 @@ from agents.agent_api.app.constants import (
     DEEPSEEK_THINKING_ENABLED,
 )
 from agents.agent_api.app.graph.prompts.context import build_user_request_context
-from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
+from agents.agent_api.app.graph.prompts.orchestrator import (
+    get_conversation_prompt,
+    get_system_prompt,
+)
 from agents.agent_api.app.graph.run_deps import deps_from_config
 from agents.agent_api.app.graph.state import JarvisState
 from agents.agent_api.app.router.model_router import ModelRouter
-from agents.agent_api.app.router.prompt import effective_router_domains
+from agents.agent_api.app.router.prompt import (
+    RouterOutcome,
+    effective_router_domains,
+)
 from agents.agent_api.app.tools.base import ToolRegistry
 from agents.agent_api.app.tools.control import is_ask_user_tool_call
 from agents.agent_api.app.tools.selection import DEFAULT_TOOL_SELECTOR, ToolSelector
@@ -1274,6 +1280,24 @@ def _build_orchestrator_system_prompt_for_turn(
             )
             included = None
             source = "all_active"
+        elif routing_decision.outcome == RouterOutcome.CONVERSATION:
+            pinned = set(state.get("active_domains") or []) & snapshot.active_providers()
+            if pinned:
+                # Pinned domains are still merged into the tool schemas by
+                # RouterToolSelector on a conversation turn, so the prompt must keep
+                # their grounding/confirmation/clarification/failure-handling fragments.
+                content = get_system_prompt(
+                    runtime_context=snapshot,
+                    registered_tools=selected_tool_names,
+                    included_domains=pinned,
+                )
+                included = pinned
+                source = "conversation_pinned"
+            else:
+                # No-domain conversation turn: slim prompt, no policy/availability/tools.
+                content = get_conversation_prompt(runtime_context=snapshot)
+                included = None
+                source = "conversation"
         else:
             relevant = set(
                 effective_router_domains(routing_decision)

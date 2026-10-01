@@ -10,6 +10,7 @@ export interface ConversationGateRecord {
   expiresAt: number;
   bufferedMessage?: string;
   chatId?: number;
+  userId?: string;
   activeRequestId?: string;
 }
 
@@ -17,6 +18,7 @@ export type GateExpiryCallback = (
   gateKey: string,
   chatId: number | undefined,
   requestId: string | undefined,
+  userId: string | undefined,
 ) => void;
 
 export interface GateReleaseResult {
@@ -30,7 +32,13 @@ export interface ConversationGateSnapshot {
 }
 
 export interface ConversationGateStore {
-  tryAcquire(gateKey: string, ttlMs: number, chatId?: number, requestId?: string): Promise<boolean>;
+  tryAcquire(
+    gateKey: string,
+    ttlMs: number,
+    chatId?: number,
+    requestId?: string,
+    userId?: string,
+  ): Promise<boolean>;
   getSnapshot(gateKey: string): Promise<ConversationGateSnapshot>;
   getStatus(gateKey: string): Promise<ConversationGateStatus>;
   /** Return the generation token for a running or waiting gate. */
@@ -79,7 +87,13 @@ export class MemoryConversationGateStore implements ConversationGateStore {
     this.onExpiryCallback = callback;
   }
 
-  async tryAcquire(gateKey: string, ttlMs: number, chatId?: number, requestId?: string): Promise<boolean> {
+  async tryAcquire(
+    gateKey: string,
+    ttlMs: number,
+    chatId?: number,
+    requestId?: string,
+    userId?: string,
+  ): Promise<boolean> {
     const existing = this.records.get(gateKey);
     if (existing && existing.status !== 'idle' && existing.expiresAt > Date.now()) {
       return false;
@@ -94,6 +108,7 @@ export class MemoryConversationGateStore implements ConversationGateStore {
       startedAt: now,
       expiresAt: now + ttlMs,
       chatId,
+      userId,
       activeRequestId: requestId,
     });
     this.scheduleExpiry(gateKey, ttlMs, requestId);
@@ -294,12 +309,12 @@ export class MemoryConversationGateStore implements ConversationGateStore {
       return false;
     }
 
-    const chatId = record.chatId;
+    const { chatId, userId } = record;
     this.cancelExpiry(gateKey);
     this.records.delete(gateKey);
     logger.info('conversation_gate.ttl_expired', { gateKey, chatId, requestId: expectedRequestId });
     try {
-      this.onExpiryCallback?.(gateKey, chatId, expectedRequestId);
+      this.onExpiryCallback?.(gateKey, chatId, expectedRequestId, userId);
     } catch (error) {
       logger.warn('conversation_gate.ttl_expiry_callback_failed', {
         gateKey,
@@ -323,6 +338,7 @@ export class PostgresConversationGateStore implements ConversationGateStore {
   private readonly pool: Pool;
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private readonly chatIds = new Map<string, number>();
+  private readonly userIds = new Map<string, string>();
   private onExpiryCallback?: GateExpiryCallback;
 
   constructor(connectionString: string) {
@@ -341,7 +357,13 @@ export class PostgresConversationGateStore implements ConversationGateStore {
     this.onExpiryCallback = callback;
   }
 
-  async tryAcquire(gateKey: string, ttlMs: number, chatId?: number, requestId?: string): Promise<boolean> {
+  async tryAcquire(
+    gateKey: string,
+    ttlMs: number,
+    chatId?: number,
+    requestId?: string,
+    userId?: string,
+  ): Promise<boolean> {
     const result = await this.pool.query(
       `
       INSERT INTO public.telegram_conversation_gates (
@@ -364,6 +386,7 @@ export class PostgresConversationGateStore implements ConversationGateStore {
     const acquired = result.rowCount !== null && result.rowCount > 0;
     if (acquired) {
       if (chatId !== undefined) this.chatIds.set(gateKey, chatId);
+      if (userId !== undefined) this.userIds.set(gateKey, userId);
       this.scheduleExpiry(gateKey, ttlMs, requestId);
     }
     return acquired;
@@ -423,6 +446,7 @@ export class PostgresConversationGateStore implements ConversationGateStore {
   async release(gateKey: string): Promise<void> {
     this.cancelExpiry(gateKey);
     this.chatIds.delete(gateKey);
+    this.userIds.delete(gateKey);
     await this.pool.query(`DELETE FROM public.telegram_conversation_gates WHERE gate_key = $1`, [gateKey]);
   }
 
@@ -446,6 +470,7 @@ export class PostgresConversationGateStore implements ConversationGateStore {
 
     this.cancelExpiry(gateKey);
     this.chatIds.delete(gateKey);
+    this.userIds.delete(gateKey);
     return {
       released: true,
       bufferedMessage: result.rows[0]?.buffered_message ?? undefined,
@@ -470,6 +495,7 @@ export class PostgresConversationGateStore implements ConversationGateStore {
     if (!released) return { released: false };
     this.cancelExpiry(gateKey);
     this.chatIds.delete(gateKey);
+    this.userIds.delete(gateKey);
     return {
       released: true,
       bufferedMessage: result.rows[0]?.buffered_message ?? undefined,
@@ -650,10 +676,11 @@ export class PostgresConversationGateStore implements ConversationGateStore {
     const timer = setTimeout(() => {
       this.timers.delete(gateKey);
       const chatId = this.chatIds.get(gateKey);
+      const userId = this.userIds.get(gateKey);
       void this.expireIfCurrent(gateKey, expectedRequestId)
         .then((expired) => {
           if (!expired) return;
-          this.notifyExpiry(gateKey, expectedRequestId, chatId);
+          this.notifyExpiry(gateKey, expectedRequestId, chatId, userId);
         })
         .catch((error) => {
           logger.warn('conversation_gate.ttl_expiry_failed', {
@@ -685,17 +712,20 @@ export class PostgresConversationGateStore implements ConversationGateStore {
     gateKey: string,
     expectedRequestId?: string,
     knownChatId?: number,
+    knownUserId?: string,
   ): void {
     const chatId = knownChatId ?? this.chatIds.get(gateKey);
+    const userId = knownUserId ?? this.userIds.get(gateKey);
     this.cancelExpiry(gateKey);
     this.chatIds.delete(gateKey);
+    this.userIds.delete(gateKey);
     logger.info('conversation_gate.ttl_expired', {
       gateKey,
       chatId,
       requestId: expectedRequestId,
     });
     try {
-      this.onExpiryCallback?.(gateKey, chatId, expectedRequestId);
+      this.onExpiryCallback?.(gateKey, chatId, expectedRequestId, userId);
     } catch (error) {
       logger.warn('conversation_gate.ttl_expiry_callback_failed', {
         gateKey,

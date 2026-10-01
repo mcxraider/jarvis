@@ -28,7 +28,10 @@ with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c, **_: c):
     )
 
 from agents.agent_api.app.graph.prompts.context import build_initial_messages
-from agents.agent_api.app.graph.prompts.orchestrator import get_system_prompt
+from agents.agent_api.app.graph.prompts.orchestrator import (
+    get_conversation_prompt,
+    get_system_prompt,
+)
 from agents.agent_api.app.graph.run_deps import CONFIGURABLE_DEPS_KEY, RunDeps
 from agents.agent_api.app.router.model_router import create_default_model_router
 from agents.agent_api.app.router.prompt import RouterDecision, effective_router_domains
@@ -293,7 +296,7 @@ class TestTurnSystemPromptBuild:
         assert image_context["prior_batches"] == ((historical,), (hitl,))
         assert image_context["images"] == (current,)
 
-    def test_empty_decision_slims_to_no_domain_fragments(self):
+    def test_conversation_decision_builds_slim_prompt(self):
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         state = _state_with_history(snapshot)
         selector = FakeDecisionSelector(RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low"))
@@ -301,10 +304,51 @@ class TestTurnSystemPromptBuild:
         client, _result = _run_node(state, selector)
 
         system = client.seen_messages[0]["content"]
+        # Slim path: identity + conversational directive stay.
+        assert "You are Jarvis" in system
+        assert "Answer the user directly and conversationally." in system
+        assert "## Final answer formatting" in system
+        # Policy body, domain fragments, availability summary, tools line all dropped.
+        assert "## Hard invariants" not in system
+        assert "## Operating loop" not in system
         assert "## Todoist tool tips" not in system
+        assert "## Domain availability" not in system
+        assert "- Todoist: registered" not in system
+        assert "Available tools:" not in system
+        # Byte-identical to the dedicated composer.
+        assert system == get_conversation_prompt(runtime_context=snapshot)
+
+    def test_conversation_decision_with_pinned_domains_keeps_full_prompt(self):
+        # HITL resume: RouterToolSelector still merges pinned domains into the tool
+        # schemas on a conversation turn, so the prompt must keep their domain
+        # fragments rather than falling back to the slim prompt.
+        snapshot = make_snapshot(active=("todoist", "google_calendar"))
+        state = _state_with_history(snapshot)
+        state["active_domains"] = ["todoist"]
+        selector = FakeDecisionSelector(RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low"))
+
+        client, _result = _run_node(state, selector)
+
+        system = client.seen_messages[0]["content"]
+        # Pinned Todoist domain fragment + policy body are retained...
+        assert "## Todoist tool tips" in system
+        assert "## Hard invariants" in system
+        # ...and the unpinned domain is still omitted.
         assert "## Google Calendar tool tips" not in system
-        # Availability summary still present so the model knows what exists.
-        assert "- Todoist: registered" in system
+        # Not the slim prompt.
+        assert system != get_conversation_prompt(runtime_context=snapshot)
+
+    def test_routed_decision_still_builds_full_prompt(self):
+        snapshot = make_snapshot(active=("todoist", "google_calendar"))
+        state = _state_with_history(snapshot)
+        selector = FakeDecisionSelector(RouterDecision(outcome="routed", domains=["todoist"], uncertain=False, candidate_domains=[], complexity="low"))
+
+        client, _result = _run_node(state, selector)
+
+        system = client.seen_messages[0]["content"]
+        # Domain routes keep the full policy body and availability summary.
+        assert "## Hard invariants" in system
+        assert "## Domain availability" in system
 
 
 def _state_turn0(snapshot, user_prompt="add buy milk", reply_context=None):

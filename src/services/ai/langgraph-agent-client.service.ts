@@ -3,7 +3,7 @@
 //   1. Standard POST to /invoke or /resume — returns the full response in one shot.
 //   2. Streaming POST to /invoke/stream or /resume/stream — delivers progress events
 //      (stage updates) via newline-delimited JSON, ending with a "final" event payload.
-// Falls back from stream to standard POST transparently if the stream fails to start.
+// Delivery-ambiguous failures reconcile through /runs/status without replaying work.
 
 import { LogContext, logger } from '../../utils/logger';
 import {
@@ -13,6 +13,8 @@ import {
   AgentImage,
   AgentImagesSchema,
   AgentResponseSchema,
+  LangGraphRunStatus,
+  LangGraphRunStatusSchema,
   ProgressFact,
   TelegramIdentityPayload,
   StreamEventSchema,
@@ -104,11 +106,13 @@ export interface LangGraphAgentClientConfig {
 // before they reach users as a hard abort.
 const NEAR_TIMEOUT_RATIO = 0.66;
 const PROGRESS_CALLBACK_TIMEOUT_MS = 5000;
-const RETRY_DELAYS_MS = [1000, 3000];
 // Health probes are user-facing (/status) and must fail fast — don't inherit the
 // generous invoke/resume timeout.
 const HEALTH_TIMEOUT_MS = 8000;
 const CANCEL_TIMEOUT_MS = 5000;
+const STATUS_TIMEOUT_MS = 5000;
+const RECONCILIATION_INTERVAL_MS = 1000;
+const RECONCILIATION_TIMEOUT_MS = 60_000;
 const MEMORY_RESET_TIMEOUT_MS = 5000;
 const CANCEL_OUTCOMES = new Set<LangGraphCancelOutcome>([
   'cancelled',
@@ -168,7 +172,7 @@ export class LangGraphAgentClient {
     onProgress?: LangGraphProgressCallback,
   ): Promise<LangGraphAgentResponse> {
     if (onProgress) {
-      return this.postStream('/invoke/stream', '/invoke', request, logContext, onProgress);
+      return this.postStream('/invoke/stream', request, logContext, onProgress);
     }
     return this.post('/invoke', request, logContext);
   }
@@ -181,7 +185,7 @@ export class LangGraphAgentClient {
     onProgress?: LangGraphProgressCallback,
   ): Promise<LangGraphAgentResponse> {
     if (onProgress) {
-      return this.postStream('/resume/stream', '/resume', request, logContext, onProgress);
+      return this.postStream('/resume/stream', request, logContext, onProgress);
     }
     return this.post('/resume', request, logContext);
   }
@@ -235,6 +239,45 @@ export class LangGraphAgentClient {
         throw new Error('LangGraph cancel returned an invalid outcome');
       }
       return body.outcome as LangGraphCancelOutcome;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /** Read durable run state without replaying the original request. */
+  async getRunStatus(
+    userId: string,
+    requestId: string,
+    source = 'telegram',
+    logicalRoute?: 'invoke' | 'resume',
+    timeoutMs = STATUS_TIMEOUT_MS,
+  ): Promise<LangGraphRunStatus> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`${this.baseUrl}/runs/status`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({
+          user_id: userId,
+          request_id: requestId,
+          source,
+          logical_route: logicalRoute,
+        }),
+        signal: controller.signal,
+      });
+      const bodyText = await this.awaitWithAbort(response.text(), controller.signal);
+      if (!response.ok) {
+        throw new Error(`LangGraph run status returned ${response.status}`);
+      }
+      const status = LangGraphRunStatusSchema.parse(JSON.parse(bodyText));
+      if (
+        status.request_id !== requestId
+        || (status.state === 'completed' && logicalRoute && status.logical_route !== logicalRoute)
+      ) {
+        throw new Error('LangGraph run status did not match the requested run');
+      }
+      return status;
     } finally {
       clearTimeout(timeout);
     }
@@ -302,17 +345,12 @@ export class LangGraphAgentClient {
         ...this.imageStats(request),
       });
 
-      const response = await this.fetchWithRetry(
-        `${this.baseUrl}${path}`,
-        {
-          method: 'POST',
-          headers: this.headers(),
-          body: JSON.stringify(this.toPayload(request)),
-        },
-        logContext,
-        controller.signal,
-        !!request.requestId,
-      );
+      const response = await fetch(`${this.baseUrl}${path}`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(this.toPayload(request)),
+        signal: controller.signal,
+      });
 
       const bodyText = await this.awaitWithAbort(response.text(), controller.signal);
 
@@ -329,6 +367,14 @@ export class LangGraphAgentClient {
       }
 
       const normalized = this.parseAndNormalize(bodyText, logContext, request.threadId);
+      if (normalized.delivery === 'ambiguous') {
+        return this.reconcileAmbiguous(
+          request,
+          path.slice(1) as 'invoke' | 'resume',
+          normalized,
+          logContext,
+        );
+      }
       logger.info('langgraph.request.completed', {
         ...logContext,
         path,
@@ -351,19 +397,22 @@ export class LangGraphAgentClient {
         durationMs: Date.now() - startedAt,
       });
 
-      return this.fallbackResponse(request.threadId, (error as Error).message, 'ambiguous');
+      const fallback = this.fallbackResponse(request.threadId, (error as Error).message, 'ambiguous');
+      return this.reconcileAmbiguous(
+        request,
+        path.slice(1) as 'invoke' | 'resume',
+        fallback,
+        logContext,
+      );
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  // Streaming POST: connects to the NDJSON stream endpoint. A pre-header failure can
-  // fall back to the standard endpoint only when the request carries an idempotency
-  // key. Once headers arrive, or after either deadline fires, never re-POST: the
-  // backend may already be executing a mutation.
+  // Streaming POST: connects to the NDJSON stream endpoint. Any ambiguous failure
+  // reconciles by request id; the original payload is never posted a second time.
   private async postStream(
     streamPath: '/invoke/stream' | '/resume/stream',
-    fallbackPath: '/invoke' | '/resume',
     request: LangGraphAgentRequest & { threadId?: string },
     logContext: LogContext,
     onProgress: LangGraphProgressCallback,
@@ -400,20 +449,13 @@ export class LangGraphAgentClient {
         ...this.imageStats(request),
       });
 
-      const response = await this.fetchWithRetry(
-        `${this.baseUrl}${streamPath}`,
-        {
-          method: 'POST',
-          headers: this.headers(),
-          body: JSON.stringify(this.toPayload(request)),
-        },
-        logContext,
-        controller.signal,
-        false,
-        () => {
-          responseReceived = true;
-        },
-      );
+      const response = await fetch(`${this.baseUrl}${streamPath}`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(this.toPayload(request)),
+        signal: controller.signal,
+      });
+      responseReceived = true;
 
       if (!response.ok) {
         const error = `LangGraph stream returned ${response.status}`;
@@ -479,16 +521,16 @@ export class LangGraphAgentClient {
         durationMs: Date.now() - startedAt,
       });
 
-      // Retrying or switching endpoints is safe only when the backend can collapse
-      // an ambiguous duplicate using the same request id.
-      if (!responseReceived && !streamStarted && !deadlineKind && !!request.requestId) {
-        return this.post(fallbackPath, request, logContext);
-      }
-
-      return this.fallbackResponse(
+      const fallback = this.fallbackResponse(
         request.threadId,
         this.streamFailureMessage(failureKind, error as Error),
         'ambiguous',
+      );
+      return this.reconcileAmbiguous(
+        request,
+        streamPath.startsWith('/invoke') ? 'invoke' : 'resume',
+        fallback,
+        logContext,
       );
     } finally {
       clearTimeout(overallTimer);
@@ -508,6 +550,55 @@ export class LangGraphAgentClient {
       timeoutMs: this.timeoutMs,
       thresholdRatio: NEAR_TIMEOUT_RATIO,
     });
+  }
+
+  private async reconcileAmbiguous(
+    request: LangGraphAgentRequest,
+    logicalRoute: 'invoke' | 'resume',
+    fallback: LangGraphAgentResponse,
+    logContext: LogContext,
+  ): Promise<LangGraphAgentResponse> {
+    if (!request.requestId) return fallback;
+
+    const deadline = Date.now() + RECONCILIATION_TIMEOUT_MS;
+    const source = request.source || (request.telegramIdentity ? 'telegram' : 'api');
+    while (Date.now() < deadline) {
+      const probeBudget = Math.min(STATUS_TIMEOUT_MS, deadline - Date.now());
+      try {
+        const status = await this.getRunStatus(
+          request.userId,
+          request.requestId,
+          source,
+          logicalRoute,
+          probeBudget,
+        );
+        if (status.state === 'completed') {
+          logger.info('langgraph.request.reconciled', {
+            ...logContext,
+            userId: request.userId,
+            requestId: request.requestId,
+            logicalRoute,
+            status: status.response.status,
+          });
+          return this.normalize(status.response);
+        }
+      } catch (error) {
+        logger.warn('langgraph.request.reconciliation_probe_failed', {
+          ...logContext,
+          userId: request.userId,
+          requestId: request.requestId,
+          logicalRoute,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await new Promise((resolve) => {
+        setTimeout(resolve, Math.min(RECONCILIATION_INTERVAL_MS, remaining));
+      });
+    }
+    return fallback;
   }
 
   private classifyStreamFailure(
@@ -533,72 +624,6 @@ export class LangGraphAgentClient {
       return 'LangGraph stream timed out (idle: no data received)';
     }
     return error.message;
-  }
-
-  private async fetchWithRetry(
-    url: string,
-    init: RequestInit,
-    logContext: LogContext,
-    signal: AbortSignal,
-    allowRetries = true,
-    onResponse?: () => void,
-  ): Promise<Response> {
-    let lastError: Error | undefined;
-    const retryDelays = allowRetries ? RETRY_DELAYS_MS : [];
-
-    for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
-      try {
-        const response = await fetch(url, {
-          ...init,
-          signal,
-        });
-        onResponse?.();
-
-        if (response.ok || response.status < 500) {
-          return response;
-        }
-
-        lastError = new Error(`LangGraph API returned ${response.status}`);
-
-        if (attempt < retryDelays.length) {
-          if (response.body) {
-            await this.awaitWithAbort(response.body.cancel(), signal);
-          }
-          logger.warn('langgraph.request.retrying', {
-            ...logContext,
-            attempt: attempt + 1,
-            status: response.status,
-            delayMs: retryDelays[attempt],
-          });
-          await this.waitForRetry(retryDelays[attempt], signal);
-        }
-      } catch (error) {
-        // Don't retry aborts (timeout) or network errors
-        throw error;
-      }
-    }
-
-    throw lastError!;
-  }
-
-  private async waitForRetry(delayMs: number, signal: AbortSignal): Promise<void> {
-    if (signal.aborted) {
-      throw signal.reason || new DOMException('The operation was aborted', 'AbortError');
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      const onAbort = () => {
-        signal.removeEventListener('abort', onAbort);
-        clearTimeout(timeout);
-        reject(signal.reason || new DOMException('The operation was aborted', 'AbortError'));
-      };
-      const timeout = setTimeout(() => {
-        signal.removeEventListener('abort', onAbort);
-        resolve();
-      }, delayMs);
-      signal.addEventListener('abort', onAbort, { once: true });
-      if (signal.aborted) onAbort();
-    });
   }
 
   private async awaitWithAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {

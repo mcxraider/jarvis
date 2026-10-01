@@ -99,6 +99,7 @@ export class MessageProcessorService {
       gateSnapshot,
       requestContext,
       activeRequestId,
+      internalUserId,
       hooks?.onPendingPauseAccepted,
     );
     if (!reservation.reserved) {
@@ -193,6 +194,7 @@ export class MessageProcessorService {
       gateSnapshot,
       requestContext,
       activeRequestId,
+      internalUserId,
       hooks?.onPendingPauseAccepted,
     );
     if (!reservation.reserved) {
@@ -351,6 +353,7 @@ export class MessageProcessorService {
     gateSnapshot: ConversationGateSnapshot,
     logContext: LogContext,
     activeRequestId: string,
+    userId: string,
     onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>,
   ): Promise<
     | { reserved: true; kind: 'fresh'; pauseAcceptedNotified?: boolean }
@@ -411,6 +414,7 @@ export class MessageProcessorService {
         this.runningTtlMs,
         chatIdNum,
         activeRequestId,
+        userId,
       );
       if (!acquired) {
         const currentSnapshot = await this.safeGetGateSnapshot(gateKey);

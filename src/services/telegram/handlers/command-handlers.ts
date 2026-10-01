@@ -2,6 +2,7 @@ import { Context } from 'telegraf';
 import { createRequestId, logger } from '../../../utils/logger';
 import { BotActivityService } from '../bot-activity.service';
 import { BotStatusService } from '../bot-status.service';
+import type { AgentResponse } from '../../../types/agent.types';
 import type { LangGraphAgentClient, LangGraphCancelOutcome } from '../../ai/langgraph-agent-client.service';
 import { collapseClarification, sendFinalReply } from '../formatters/telegram-rich';
 import { TELEGRAM_ONBOARDING_MESSAGE } from '../onboarding-message';
@@ -25,6 +26,7 @@ interface CancelState {
   pendingClaimedExpired: boolean;
   cancelOutcome: LangGraphCancelOutcome | undefined;
   cancellationError: unknown;
+  recoveredResponse?: AgentResponse;
   retainRunningGate: boolean;
   ownershipChanged: boolean;
   safeToClearPending: boolean;
@@ -37,7 +39,7 @@ export class CommandHandlers {
     private readonly statusService: BotStatusService,
     private readonly conversationGate: ConversationGateStore,
     private readonly pendingStore: PendingClarificationStore,
-    private readonly agentClient?: Pick<LangGraphAgentClient, 'cancelRun'>,
+    private readonly agentClient?: Pick<LangGraphAgentClient, 'cancelRun' | 'getRunStatus'>,
   ) {}
 
   // Sent when the user first opens the bot and presses Start (or types /start).
@@ -119,6 +121,7 @@ export class CommandHandlers {
       pendingClaimedExpired: false,
       cancelOutcome: undefined,
       cancellationError: undefined,
+      recoveredResponse: undefined,
       retainRunningGate: false,
       ownershipChanged: false,
       safeToClearPending: false,
@@ -128,6 +131,7 @@ export class CommandHandlers {
     await this.cancelClaimGate(s);
     await this.cancelFetchPending(s);
     await this.cancelRequestBackend(s);
+    await this.cancelProbeBackend(s);
     this.cancelResolveFlags(s);
     await this.cancelHandleGenerationMismatch(s);
     await this.cancelReleaseRunningGate(s);
@@ -151,7 +155,9 @@ export class CommandHandlers {
         ? s.ownershipChanged
           ? 'The previous request already settled and another request is active, so I left the current conversation untouched.'
           : "I couldn't confirm cancellation yet. I'm keeping this conversation locked until the current request finishes."
-        : "Conversation cancelled. Let me know what you'd like to do next!";
+        : s.recoveredResponse && s.recoveredResponse.status !== 'interrupted'
+          ? `That request had already finished:\n\n${s.recoveredResponse.response}`
+          : "Conversation cancelled. Let me know what you'd like to do next!";
     await sendFinalReply(ctx, response, { userId, chatId, gateKey });
   }
 
@@ -223,16 +229,48 @@ export class CommandHandlers {
     }
   }
 
+  private async cancelProbeBackend(s: CancelState): Promise<void> {
+    const { gateSnapshot, internalUserId, userId, chatId, gateKey } = s;
+    const requestId = gateSnapshot.requestId;
+    const needsProbe = gateSnapshot.status === 'running'
+      && requestId !== undefined
+      && this.agentClient !== undefined
+      && (
+        s.cancellationError !== undefined
+        || s.cancelOutcome === 'already_finished'
+        || s.cancelOutcome === 'not_found'
+      );
+    if (!needsProbe) return;
+
+    try {
+      const status = await this.agentClient!.getRunStatus(
+        internalUserId,
+        requestId,
+        'telegram',
+      );
+      if (status.state === 'completed') s.recoveredResponse = status.response;
+    } catch (error) {
+      logger.warn('telegram.cancel.agent_status_failed', {
+        userId,
+        chatId,
+        gateKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private cancelResolveFlags(s: CancelState): void {
     const status = s.gateSnapshot.status;
     s.retainRunningGate = ((status === 'idle' || status === 'waiting_for_clarification')
       && !s.cancelClaimed)
       || (status === 'running'
         && (
-          s.cancellationError !== undefined
+          (s.cancellationError !== undefined
           || s.cancelOutcome === 'mutation_in_flight'
           || s.cancelOutcome === 'not_found'
-          || s.cancelOutcome === 'already_finished'
+          || s.cancelOutcome === 'already_finished')
+          && s.recoveredResponse === undefined
+          || (s.pendingReadFailed && s.recoveredResponse?.status === 'interrupted')
         ));
     s.ownershipChanged = (status === 'idle' || status === 'waiting_for_clarification')
       && !s.cancelClaimed;
@@ -282,6 +320,11 @@ export class CommandHandlers {
         return { released: false };
       });
     if (!release.released) {
+      if (s.recoveredResponse) {
+        s.ownershipChanged = true;
+        s.retainRunningGate = true;
+        return;
+      }
       const currentSnapshot = await this.conversationGate
         .getSnapshot(gateKey)
         .catch(() => ({ status: 'running' as const }));
