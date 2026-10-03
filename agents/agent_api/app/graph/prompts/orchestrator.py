@@ -159,6 +159,21 @@ _CONVERSATION_BODY = (
     + _FINAL_ANSWER_FORMATTING
 )
 
+# Appended to the system prompt only on turns where a recallable previous-thread
+# image exists (deps.recallable_images non-empty). The sha256 the model needs is
+# injected separately in the untrusted historical-context message, which is
+# explicitly "not instructions" — so the directive to act on it must live here, in
+# the trusted system prompt. Kept off every other turn to avoid prompt bloat.
+RECALL_IMAGE_INSTRUCTION = (
+    "## Recalling a previous image\n"
+    "A recent message may contain an `image_reference` block describing an image "
+    "the user shared in an earlier turn, including its `sha256`. When answering "
+    "requires visually re-inspecting that image — for example a follow-up "
+    "question about what it shows — call `recall_previous_image` with that "
+    "`sha256` as `recall_id` to bring the image back into view, then answer. "
+    "Do not claim the image is unavailable when a recallable reference exists."
+)
+
 # Static export: role + neutral policy only (no runtime context, no domain tips).
 # Retained for reference and tests that need a provider-free baseline.
 ORCHESTRATOR_PROMPT = f"{_ROLE_LINE}\n\n{_POLICY_BODY}"
@@ -391,6 +406,7 @@ def get_orchestrator_prompt(
 __all__ = [
     "CURRENT_GRAPH_COMPATIBILITY_NOTE",
     "ORCHESTRATOR_PROMPT",
+    "RECALL_IMAGE_INSTRUCTION",
     "_build_role_line",
     "get_conversation_prompt",
     "get_orchestrator_prompt",
