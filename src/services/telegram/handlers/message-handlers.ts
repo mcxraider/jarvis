@@ -282,7 +282,11 @@ export class MessageHandlers {
       return;
     }
 
-    if (!instruction) {
+    const imageCount = snapshot.filter((m) => m.fileId).length;
+
+    // A bare /forward re-prompts only when there's nothing we can act on by default.
+    // If images are buffered, fall through with a default captioning instruction instead.
+    if (!instruction && imageCount === 0) {
       await sendFinalReply(
         ctx,
         `You have ${snapshot.length} message${snapshot.length === 1 ? '' : 's'} buffered. Send /forward <instruction> to tell me what to do with them.`,
@@ -291,10 +295,14 @@ export class MessageHandlers {
       return;
     }
 
+    const effectiveInstruction =
+      instruction ||
+      (imageCount === 1 ? 'help me with this image.' : 'help me with these images.');
+
     // No gate pre-check here: the processor's tryAcquire is authoritative and rejects a
     // running gate anyway (and never fires onRequestAccepted on rejection, so the buffer
     // stays intact). Skipping it drops one DB round trip before the progress indicator.
-    const combined = formatForwardContext(snapshot, instruction);
+    const combined = formatForwardContext(snapshot, effectiveInstruction);
     const photoFileIds = snapshot
       .map((m) => m.fileId)
       .filter((id): id is string => Boolean(id));
