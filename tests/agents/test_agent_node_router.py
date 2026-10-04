@@ -29,6 +29,7 @@ with patch("langsmith.wrappers.wrap_openai", side_effect=lambda c, **_: c):
 
 from agents.agent_api.app.graph.prompts.context import build_initial_messages
 from agents.agent_api.app.graph.prompts.orchestrator import (
+    RECALL_IMAGE_INSTRUCTION,
     get_conversation_prompt,
     get_system_prompt,
 )
@@ -317,6 +318,50 @@ class TestTurnSystemPromptBuild:
         assert "Available tools:" not in system
         # Byte-identical to the dedicated composer.
         assert system == get_conversation_prompt(runtime_context=snapshot)
+
+    def _run_node_with_deps(self, state, selector, deps):
+        client = RecordingClient()
+        node = create_agent_node(client, _registry(), max_agent_turns=30, tool_selector=selector)
+        asyncio.run(node(state, {"configurable": {CONFIGURABLE_DEPS_KEY: deps}}))
+        return client
+
+    def test_recall_instruction_present_on_slim_conversation_turn(self):
+        # #127: a recallable predecessor image must make the slim conversation
+        # prompt carry the recall directive so the model fetches the image.
+        snapshot = make_snapshot(active=("todoist", "google_calendar"))
+        state = _state_with_history(snapshot)
+        selector = FakeDecisionSelector(RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low"))
+        deps = RunDeps(recallable_images={"abc": {"sha256": "abc", "bytes": 4}})
+
+        system = self._run_node_with_deps(state, selector, deps).seen_messages[0]["content"]
+
+        # Slim branch still fired, and the recall directive is appended to it.
+        assert "Answer the user directly and conversationally." in system
+        assert RECALL_IMAGE_INSTRUCTION in system
+
+    def test_recall_instruction_present_on_routed_full_prompt(self):
+        # The append sits at the shared chokepoint, so the full/routed prompt
+        # gets it too whenever a recallable image is in scope.
+        snapshot = make_snapshot(active=("todoist", "google_calendar"))
+        state = _state_with_history(snapshot)
+        selector = FakeDecisionSelector(_routed_decision(["todoist"]))
+        deps = RunDeps(recallable_images={"abc": {"sha256": "abc", "bytes": 4}})
+
+        system = self._run_node_with_deps(state, selector, deps).seen_messages[0]["content"]
+
+        assert "## Hard invariants" in system  # full prompt
+        assert RECALL_IMAGE_INSTRUCTION in system
+
+    def test_recall_instruction_absent_without_recallable_image(self):
+        # No recallable image (deps=None): the directive must not appear, keeping
+        # the slim prompt byte-identical to the dedicated composer.
+        snapshot = make_snapshot(active=("todoist", "google_calendar"))
+        state = _state_with_history(snapshot)
+        selector = FakeDecisionSelector(RouterDecision(outcome="conversation", domains=[], uncertain=False, candidate_domains=[], complexity="low"))
+
+        client, _result = _run_node(state, selector)
+
+        assert RECALL_IMAGE_INSTRUCTION not in client.seen_messages[0]["content"]
 
     def test_conversation_decision_with_pinned_domains_keeps_full_prompt(self):
         # HITL resume: RouterToolSelector still merges pinned domains into the tool

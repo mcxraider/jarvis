@@ -325,6 +325,86 @@ describe('MessageHandlers forward buffering', () => {
       );
     });
 
+    it('bare /forward auto-dispatches a buffered image with a default instruction', async () => {
+      const { handlers, messageProcessor, forwardBuffer } = createHandlers();
+      const ctx = createContext({
+        photo: [{ file_id: 'pic1', width: 800, height: 600 }],
+        forward_origin: FORWARD_ORIGIN,
+        message_id: 94,
+      });
+      await handlers.maybeBufferForward(ctx);
+      const key = (handlers as any).gateKey(ctx);
+
+      ctx.message = { text: '/forward', message_id: 95 };
+      await handlers.handleForward(ctx);
+
+      expect(messageProcessor.processPhotoMessage).toHaveBeenCalledTimes(1);
+      const [text, images] = messageProcessor.processPhotoMessage.mock.calls[0];
+      expect(text).toContain('help me with this image.');
+      expect(images).toHaveLength(1);
+      expect(messageProcessor.processTextMessage).not.toHaveBeenCalled();
+      expect(forwardBuffer.count(key)).toBe(0);
+    });
+
+    it('bare /forward auto-dispatches a mixed image+text buffer', async () => {
+      const { handlers, messageProcessor, forwardBuffer } = createHandlers();
+      const textCtx = createContext({ text: 'meeting moved', forward_origin: FORWARD_ORIGIN, message_id: 96 });
+      await handlers.maybeBufferForward(textCtx);
+      const photoCtx = createContext({
+        photo: [{ file_id: 'pic1', width: 800, height: 600 }],
+        forward_origin: FORWARD_ORIGIN,
+        message_id: 97,
+      });
+      await handlers.maybeBufferForward(photoCtx);
+      const key = (handlers as any).gateKey(photoCtx);
+
+      photoCtx.message = { text: '/forward', message_id: 98 };
+      await handlers.handleForward(photoCtx);
+
+      expect(messageProcessor.processPhotoMessage).toHaveBeenCalledTimes(1);
+      const [text] = messageProcessor.processPhotoMessage.mock.calls[0];
+      expect(text).toContain('help me with this image.');
+      expect(text).toContain('meeting moved');
+      expect(forwardBuffer.count(key)).toBe(0);
+    });
+
+    it('bare /forward uses the plural default for multiple buffered images', async () => {
+      const { handlers, messageProcessor } = createHandlers();
+      for (let i = 0; i < 2; i++) {
+        const ctx = createContext({
+          photo: [{ file_id: `pic${i}`, width: 800, height: 600 }],
+          forward_origin: FORWARD_ORIGIN,
+          message_id: 110 + i,
+        });
+        await handlers.maybeBufferForward(ctx);
+      }
+
+      const dispatchCtx = createContext({ text: '/forward', message_id: 112 });
+      await handlers.handleForward(dispatchCtx);
+
+      expect(messageProcessor.processPhotoMessage).toHaveBeenCalledTimes(1);
+      const [text, images] = messageProcessor.processPhotoMessage.mock.calls[0];
+      expect(text).toContain('help me with these images.');
+      expect(images).toHaveLength(2);
+    });
+
+    it('explicit instruction overrides the image default', async () => {
+      const { handlers, messageProcessor } = createHandlers();
+      const ctx = createContext({
+        photo: [{ file_id: 'pic1', width: 800, height: 600 }],
+        forward_origin: FORWARD_ORIGIN,
+        message_id: 113,
+      });
+      await handlers.maybeBufferForward(ctx);
+
+      ctx.message = { text: '/forward extract the text', message_id: 114 };
+      await handlers.handleForward(ctx);
+
+      const [text] = messageProcessor.processPhotoMessage.mock.calls[0];
+      expect(text).toContain('extract the text');
+      expect(text).not.toContain('help me with this image.');
+    });
+
     it('dispatches formatted context + instruction and clears the buffer', async () => {
       const { handlers, messageProcessor, forwardBuffer } = createHandlers();
       const ctx = createContext({ text: 'meeting moved', forward_origin: FORWARD_ORIGIN, message_id: 23 });
