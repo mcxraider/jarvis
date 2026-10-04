@@ -190,6 +190,46 @@ describe('TextProcessorService', () => {
     );
   });
 
+  it('does not append an empty batch when a text-only reply resumes an image clarify', async () => {
+    const store = new MemoryPendingClarificationStore();
+    const gateStore = new MemoryConversationGateStore();
+    const images = [
+      { image_url: 'data:image/jpeg;base64,/9j/2Q==' as const, detail: 'auto' as const },
+    ];
+    const agentClient = {
+      invoke: jest.fn().mockResolvedValue({
+        status: 'interrupted',
+        threadId: 'thread-empty',
+        response: 'Which one?',
+        interrupt: { type: 'clarify' },
+        toolResults: [],
+      }),
+      resume: jest.fn().mockResolvedValue({
+        status: 'interrupted',
+        threadId: 'thread-empty',
+        response: 'Still unclear?',
+        interrupt: { type: 'clarify' },
+        toolResults: [],
+      }),
+    };
+    const service = createService(agentClient, store, gateStore);
+    await service.processTextMessage(
+      'inspect this',
+      42,
+      { chatId: 100, requestId: 'first' },
+      undefined,
+      { images },
+    );
+    // Text-only reply re-interrupts: the newly persisted batches must stay [images], not [images, []].
+    await service.processTextMessage('describe it', 42, { chatId: 100, requestId: 'second' });
+
+    expect(agentClient.resume).toHaveBeenCalledTimes(1);
+    expect(agentClient.resume.mock.calls[0][0].priorImageBatches).toEqual([images]);
+    expect((await store.get(buildConversationKey(42, 'telegram:42', 100)))?.imageBatches).toEqual([
+      images,
+    ]);
+  });
+
   it('preserves fresh image batches and rejects cumulative overflow without resuming', async () => {
     const store = new MemoryPendingClarificationStore();
     const gateStore = new MemoryConversationGateStore();

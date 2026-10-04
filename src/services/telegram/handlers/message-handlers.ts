@@ -623,7 +623,14 @@ export class MessageHandlers {
       });
       void progressReporter.complete();
       if (this.claimTerminalReply(logContext, `${resultKind}_error`)) {
-        await sendFinalReply(ctx, errorMessage, logContext);
+        // Surface a user-actionable cause (e.g. download/validation failure) rather than
+        // flattening it to the generic size/format copy — mirrors the audio catch below.
+        const classified = classifyError(error as Error);
+        await sendFinalReply(
+          ctx,
+          classified.category === 'user_actionable' ? classified.userMessage : errorMessage,
+          logContext,
+        );
       }
     }
   }
