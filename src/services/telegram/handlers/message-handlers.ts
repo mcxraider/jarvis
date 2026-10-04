@@ -282,10 +282,11 @@ export class MessageHandlers {
       return;
     }
 
-    const imageCount = snapshot.filter((m) => m.fileId).length;
+    const photoFileIds = snapshot.map((m) => m.fileId).filter((id): id is string => Boolean(id));
+    const imageCount = photoFileIds.length;
 
     // A bare /forward re-prompts only when there's nothing we can act on by default.
-    // If images are buffered, fall through with a default captioning instruction instead.
+    // If images are buffered, fall through with a default instruction instead.
     if (!instruction && imageCount === 0) {
       await sendFinalReply(
         ctx,
@@ -296,16 +297,12 @@ export class MessageHandlers {
     }
 
     const effectiveInstruction =
-      instruction ||
-      (imageCount === 1 ? 'help me with this image.' : 'help me with these images.');
+      instruction || (imageCount === 1 ? 'help me with this image.' : 'help me with these images.');
 
     // No gate pre-check here: the processor's tryAcquire is authoritative and rejects a
     // running gate anyway (and never fires onRequestAccepted on rejection, so the buffer
     // stays intact). Skipping it drops one DB round trip before the progress indicator.
     const combined = formatForwardContext(snapshot, effectiveInstruction);
-    const photoFileIds = snapshot
-      .map((m) => m.fileId)
-      .filter((id): id is string => Boolean(id));
 
     logger.info('telegram.forward.dispatched', {
       ...logContext,
@@ -377,7 +374,9 @@ export class MessageHandlers {
 
     if (result.remainingCount === 0) {
       if (result.confirmationMessageId !== undefined && ctx.chat) {
-        await ctx.telegram.deleteMessage(ctx.chat.id, result.confirmationMessageId).catch(() => undefined);
+        await ctx.telegram
+          .deleteMessage(ctx.chat.id, result.confirmationMessageId)
+          .catch(() => undefined);
       }
     } else {
       const prev = this.confirmationChains.get(gateKey) ?? Promise.resolve();
@@ -623,14 +622,7 @@ export class MessageHandlers {
       });
       void progressReporter.complete();
       if (this.claimTerminalReply(logContext, `${resultKind}_error`)) {
-        // Surface a user-actionable cause (e.g. download/validation failure) rather than
-        // flattening it to the generic size/format copy — mirrors the audio catch below.
-        const classified = classifyError(error as Error);
-        await sendFinalReply(
-          ctx,
-          classified.category === 'user_actionable' ? classified.userMessage : errorMessage,
-          logContext,
-        );
+        await this.sendClassifiedErrorReply(ctx, error, errorMessage, logContext);
       }
     }
   }
@@ -1218,20 +1210,29 @@ export class MessageHandlers {
       });
       void progressReporter.complete();
       if (this.claimTerminalReply(logContext, 'audio_error')) {
-        // Size/duration admission (and any other user-actionable failure) carries copy that
-        // tells the user what to change; the generic message would hide it.
-        const classified = classifyError(error as Error);
-        await sendFinalReply(
-          ctx,
-          classified.category === 'user_actionable' ? classified.userMessage : errorMessage,
-          logContext,
-        );
+        await this.sendClassifiedErrorReply(ctx, error, errorMessage, logContext);
       }
     }
   }
 
   private claimTerminalReply(logContext: LogContext, kind: string): boolean {
     return this.terminalReplyStore.claim(logContext.requestId as string, kind);
+  }
+
+  // Surface a user-actionable cause (e.g. download/validation/admission failure) rather than
+  // flattening every failure to the generic size/format copy, which would hide what to change.
+  private async sendClassifiedErrorReply(
+    ctx: Context,
+    error: unknown,
+    errorMessage: string,
+    logContext: LogContext,
+  ): Promise<void> {
+    const classified = classifyError(error as Error);
+    await sendFinalReply(
+      ctx,
+      classified.category === 'user_actionable' ? classified.userMessage : errorMessage,
+      logContext,
+    );
   }
 
   // Sends the transcription as its own message once Whisper finishes. The
