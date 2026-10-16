@@ -31,6 +31,7 @@ import { verifyAgentContract } from './services/ai/agent-contract-readiness';
 import { createTerminalReplyStore } from './services/telegram/terminal-reply.store';
 import { MemoryForwardBufferStore } from './services/telegram/forward-buffer.store';
 import { resolveTurnTimeoutConfig } from './config/turn-timeout.config';
+import { AudioModeStore } from './services/telegram/audio-mode.store';
 
 // --- Environment validation ---
 // All of these must be set before the app can start. A missing variable
@@ -147,6 +148,7 @@ const terminalReplyStore = createTerminalReplyStore();
 // Forward buffer accumulates messages the user forwards to the bot until dispatched
 // via /forward. Memory-only by design: short-lived working material.
 const forwardBuffer = new MemoryForwardBufferStore();
+const audioModeStore = new AudioModeStore();
 
 // Telegram infrastructure: file downloads, activity metrics, and health reporting.
 const fileService = new FileService(BOT_TOKEN, bot.telegram);
@@ -172,6 +174,7 @@ const messageHandlers = new MessageHandlers(
   terminalReplyStore,
   conversationGate,
   forwardBuffer,
+  audioModeStore,
 );
 const commandHandlers = new CommandHandlers(
   activityService,
@@ -179,6 +182,7 @@ const commandHandlers = new CommandHandlers(
   conversationGate,
   pendingStore,
   agentClient,
+  audioModeStore,
 );
 const callbackHandler = new CallbackHandler(
   agentClient,

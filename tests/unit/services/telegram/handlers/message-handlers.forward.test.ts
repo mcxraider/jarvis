@@ -230,7 +230,7 @@ describe('MessageHandlers forward buffering', () => {
       expect(forwardBuffer.peek(key)[0]).toMatchObject({ text: '[photo]', fileId: 'p1' });
     });
 
-    it('rejects forwarded voice notes instead of transcribing them', async () => {
+    it('passes forwarded voice notes through to the normal voice handler', async () => {
       const { handlers } = createHandlers();
       const ctx = createContext({
         voice: { file_id: 'v1', duration: 5 },
@@ -238,14 +238,11 @@ describe('MessageHandlers forward buffering', () => {
         message_id: 12,
       });
 
-      await expect(handlers.maybeBufferForward(ctx)).resolves.toBe(true);
-      expect(ctx.reply).toHaveBeenCalledWith(
-        expect.stringContaining('I can only buffer forwarded text, photos, and polls'),
-        { parse_mode: 'MarkdownV2' },
-      );
+      await expect(handlers.maybeBufferForward(ctx)).resolves.toBe(false);
+      expect(ctx.reply).not.toHaveBeenCalled();
     });
 
-    it('rejects a captioned audio forward rather than buffering only its caption', async () => {
+    it('passes a captioned audio forward through without buffering its caption', async () => {
       const { handlers, forwardBuffer } = createHandlers();
       const ctx = createContext({
         audio: { file_id: 'a1' },
@@ -254,12 +251,22 @@ describe('MessageHandlers forward buffering', () => {
         message_id: 13,
       });
 
-      await expect(handlers.maybeBufferForward(ctx)).resolves.toBe(true);
+      await expect(handlers.maybeBufferForward(ctx)).resolves.toBe(false);
       expect(forwardBuffer.count((handlers as any).gateKey(ctx))).toBe(0);
-      expect(ctx.reply).toHaveBeenCalledWith(
-        expect.stringContaining('I can only buffer forwarded text, photos, and polls'),
-        { parse_mode: 'MarkdownV2' },
-      );
+      expect(ctx.reply).not.toHaveBeenCalled();
+    });
+
+    it('passes forwarded audio documents through to the document handler', async () => {
+      const { handlers } = createHandlers({
+        fileService: { isAudioFile: jest.fn().mockReturnValue(true) },
+      });
+      const ctx = createContext({
+        document: { file_id: 'd1', mime_type: 'audio/mpeg' },
+        forward_origin: FORWARD_ORIGIN,
+        message_id: 14,
+      });
+
+      await expect(handlers.maybeBufferForward(ctx)).resolves.toBe(false);
     });
 
     it('rejects new forwards once the buffer is full, keeping existing ones', async () => {

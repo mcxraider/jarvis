@@ -74,6 +74,8 @@ describe('TelegramBotService', () => {
   const EXPECTED_MENU_COMMANDS = [
     { command: 'new', description: 'Abandon the current step and start a new request' },
     { command: 'forward', description: 'Send buffered forwards to Jarvis' },
+    { command: 'transcribe', description: 'Transcribe the next audio only' },
+    { command: 'translate', description: 'Translate the next audio to English' },
     { command: 'cancel', description: 'Cancel the current operation' },
     { command: 'help', description: 'Show available commands and supported inputs' },
   ];

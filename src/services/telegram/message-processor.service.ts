@@ -14,6 +14,7 @@ import type { ReplyContextData } from './reply-context';
 import { PendingClarificationStore } from './pending-clarification.store';
 import type { AgentImage } from '../../types/agent.types';
 import { resolveRunningGateTtlMs, resolveWaitingGateTtlMs } from '../../config/turn-timeout.config';
+import type { SpecialAudioResult } from './processors/audio-processor.service';
 
 export class MessageProcessorService {
   private readonly runningTtlMs: number;
@@ -154,6 +155,21 @@ export class MessageProcessorService {
       if (!ownershipSettled) return { response: '', suppressed: true };
       throw error;
     }
+  }
+
+  async processSpecialAudio(
+    fileUrl: string,
+    mode: 'transcribe' | 'translate',
+    userId?: number,
+    logContext: LogContext = {},
+  ): Promise<SpecialAudioResult> {
+    logger.info('processor.route.selected', {
+      ...logContext,
+      userId,
+      messageType: logContext.messageType || 'audio',
+      processor: mode === 'translate' ? 'AudioTranslationPipeline' : 'AudioTranscriptionPipeline',
+    });
+    return this.audioProcessor.processSpecialAudio(fileUrl, mode, userId, logContext);
   }
 
   async processAudioDocument(

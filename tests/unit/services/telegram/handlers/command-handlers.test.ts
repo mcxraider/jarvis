@@ -1,10 +1,38 @@
 import { CommandHandlers } from '../../../../../src/services/telegram/handlers/command-handlers';
+import { AudioModeStore } from '../../../../../src/services/telegram/audio-mode.store';
+import { buildConversationKey, mapTelegramUserId } from '../../../../../src/services/telegram/conversation-key';
 import { MemoryConversationGateStore } from '../../../../../src/services/telegram/conversation-gate.store';
 import { MemoryPendingClarificationStore } from '../../../../../src/services/telegram/pending-clarification.store';
-import { buildConversationKey } from '../../../../../src/services/telegram/conversation-key';
 import { setRichMessagesEnabled } from '../../../../../src/services/telegram/formatters/telegram-rich';
+import { toTelegramMarkdownV2 } from '../../../../../src/services/telegram/formatters/telegram-markdown';
 
 describe('CommandHandlers', () => {
+  it.each([
+    ['handleTranscribe', 'transcribe', 'In transcribe mode.'],
+    ['handleTranslate', 'translate', 'In translate mode.'],
+  ] as const)('selects the one-shot mode and acknowledges immediately', async (method, mode, reply) => {
+    const store = new AudioModeStore();
+    const activityService = { recordActivity: jest.fn() } as any;
+    const handlers = new CommandHandlers(
+      activityService,
+      {} as any,
+      new MemoryConversationGateStore(),
+      new MemoryPendingClarificationStore(),
+      undefined,
+      store,
+    );
+    const ctx = {
+      from: { id: 123 },
+      chat: { id: 456 },
+      reply: jest.fn().mockResolvedValue({ message_id: 1 }),
+    } as any;
+
+    await handlers[method](ctx);
+
+    expect(ctx.reply).toHaveBeenCalledWith(toTelegramMarkdownV2(reply), expect.anything());
+    const key = buildConversationKey(123, mapTelegramUserId(123), 456);
+    expect(store.get(key).mode).toBe(mode);
+  });
   afterEach(() => {
     setRichMessagesEnabled(false);
   });

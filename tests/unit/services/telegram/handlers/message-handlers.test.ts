@@ -10,6 +10,7 @@ import { createTerminalReplyStore } from '../../../../../src/services/telegram/t
 import { logger } from '../../../../../src/utils/logger';
 import { AUDIO_LIMIT_MESSAGES, AUDIO_LIMITS } from '../../../../../src/utils/ai/audio-limits';
 import { AudioAdmissionError } from '../../../../../src/utils/ai/audio-admission-error';
+import { AudioModeStore } from '../../../../../src/services/telegram/audio-mode.store';
 
 // Minimal PendingClarificationStore mock. `get` defaults to "no pending record".
 function makePendingStore(overrides: Record<string, any> = {}) {
@@ -54,6 +55,7 @@ describe('MessageHandlers', () => {
       activityService?: any;
       pendingStore?: any;
       gateStore?: any;
+      audioModeStore?: AudioModeStore;
     } = {},
   ) {
     const fileService = options.fileService || {
@@ -72,10 +74,78 @@ describe('MessageHandlers', () => {
       pendingStore,
       createTerminalReplyStore(),
       options.gateStore,
+      undefined,
+      options.audioModeStore,
     );
 
     return { handlers, fileService, messageProcessor, activityService, pendingStore };
   }
+
+  it.each(['voice', 'audio', 'document'] as const)(
+    'routes pending special mode for direct or forwarded %s without the default agent path and resets after success',
+    async (kind) => {
+      const audioModeStore = new AudioModeStore();
+      const fileService = {
+        isAudioFile: jest.fn().mockReturnValue(true),
+        getFileUrl: jest.fn().mockResolvedValue('https://example.com/audio'),
+      };
+      const messageProcessor = {
+        processSpecialAudio: jest.fn().mockResolvedValue({
+          response: 'special result',
+          processedSuccessfully: true,
+        }),
+        processAudioMessage: jest.fn(),
+        processAudioDocument: jest.fn(),
+      };
+      const { handlers } = createHandlers({ fileService, messageProcessor, audioModeStore });
+      const message = kind === 'document'
+        ? { document: { file_id: 'd', file_name: 'a.mp3', mime_type: 'audio/mpeg' } }
+        : { [kind]: { file_id: 'a', duration: 2 } };
+      const ctx = createContext({ message_id: 80, forward_origin: { type: 'user' }, ...message });
+      const key = (handlers as any).gateKey(ctx);
+      audioModeStore.select(key, 'transcribe');
+
+      await (kind === 'document'
+        ? handlers.handleDocument(ctx)
+        : kind === 'voice'
+          ? handlers.handleVoice(ctx)
+          : handlers.handleAudio(ctx));
+
+      expect(messageProcessor.processSpecialAudio).toHaveBeenCalledWith(
+        'https://example.com/audio',
+        'transcribe',
+        123,
+        expect.any(Object),
+      );
+      expect(messageProcessor.processAudioMessage).not.toHaveBeenCalled();
+      expect(messageProcessor.processAudioDocument).not.toHaveBeenCalled();
+      expect(audioModeStore.get(key).mode).toBe('default');
+    },
+  );
+
+  it('retains a special mode after a recoverable provider failure', async () => {
+    const audioModeStore = new AudioModeStore();
+    const messageProcessor = {
+      processSpecialAudio: jest.fn().mockResolvedValue({
+        response: 'Provider unavailable. Please try again.',
+        processedSuccessfully: false,
+      }),
+      processAudioMessage: jest.fn(),
+    };
+    const { handlers } = createHandlers({
+      audioModeStore,
+      messageProcessor,
+      fileService: { getFileUrl: jest.fn().mockResolvedValue('https://example.com/audio') },
+    });
+    const ctx = createContext({ message_id: 81, voice: { file_id: 'v', duration: 2 } });
+    const key = (handlers as any).gateKey(ctx);
+    audioModeStore.select(key, 'translate');
+
+    await handlers.handleVoice(ctx);
+
+    expect(audioModeStore.get(key).mode).toBe('translate');
+    expect(messageProcessor.processAudioMessage).not.toHaveBeenCalled();
+  });
 
   it('deletes a just-sent confirmation prompt when ownership changes after delivery', async () => {
     const pendingStore = makePendingStore({

@@ -46,6 +46,7 @@ import {
 import { AUDIO_LIMIT_MESSAGES, AUDIO_LIMITS } from '../../../utils/ai/audio-limits';
 import { classifyError } from '../errors/classified-error';
 import { formatPollAsText } from '../poll-content';
+import { AudioModeState, AudioModeStore } from '../audio-mode.store';
 
 const ALBUM_QUIET_MS = 1500;
 // Bounds the late-arrival ledger so a stream of albums can't grow it without limit
@@ -84,6 +85,7 @@ export class MessageHandlers {
     private readonly terminalReplyStore: TerminalReplyStore,
     private readonly conversationGate?: ConversationGateStore,
     private readonly forwardBuffer?: ForwardBufferStore,
+    private readonly audioModeStore?: AudioModeStore,
   ) {}
 
   // Serializes confirmation updates per conversation. Webhook updates are processed
@@ -104,6 +106,17 @@ export class MessageHandlers {
     const message = ctx.message as unknown as Record<string, unknown>;
     const origin = extractForwardOrigin(message);
     if (!origin) return false;
+
+    // Forwarded audio is actionable media, not passive forward context. Let the same
+    // voice/audio/document handlers used for direct uploads normalize and route it.
+    if (
+      'voice' in message ||
+      'audio' in message ||
+      ('document' in message &&
+        this.fileService.isAudioFile((message.document as { mime_type?: string }).mime_type))
+    ) {
+      return false;
+    }
 
     const logContext = this.createLogContext(ctx, 'forward');
     let text: string | undefined;
@@ -956,6 +969,7 @@ export class MessageHandlers {
     const replied = 'reply_to_message' in ctx.message ? ctx.message.reply_to_message : undefined;
     const replyContext = formatReplyContext(replied, ctx.botInfo?.id);
     const instruction = this.audioInstruction(ctx);
+    const modeState = this.currentAudioMode(ctx);
 
     logger.info('telegram.message.received', {
       ...logContext,
@@ -979,6 +993,17 @@ export class MessageHandlers {
           document.file_id,
           AUDIO_LIMITS.MAX_INPUT_BYTES,
         );
+        if (modeState.mode !== 'default') {
+          const result = await this.messageProcessor.processSpecialAudio(
+            fileUrl,
+            modeState.mode,
+            userId,
+            logContext,
+          );
+          await onTranscribed();
+          if (result.processedSuccessfully) this.resetAudioMode(ctx, modeState);
+          return result;
+        }
         return this.messageProcessor.processAudioDocument(
           fileUrl,
           fileName,
@@ -1091,6 +1116,7 @@ export class MessageHandlers {
       ctx.message && 'reply_to_message' in ctx.message ? ctx.message.reply_to_message : undefined;
     const replyContext = formatReplyContext(replied, ctx.botInfo?.id);
     const instruction = this.audioInstruction(ctx);
+    const modeState = this.currentAudioMode(ctx);
 
     logger.info('telegram.message.received', {
       ...logContext,
@@ -1113,6 +1139,17 @@ export class MessageHandlers {
           audioFile.file_id,
           AUDIO_LIMITS.MAX_INPUT_BYTES,
         );
+        if (modeState.mode !== 'default') {
+          const result = await this.messageProcessor.processSpecialAudio(
+            fileUrl,
+            modeState.mode,
+            userId,
+            logContext,
+          );
+          await onTranscribed();
+          if (result.processedSuccessfully) this.resetAudioMode(ctx, modeState);
+          return result;
+        }
         return this.messageProcessor.processAudioMessage(
           fileUrl,
           userId,
@@ -1136,6 +1173,14 @@ export class MessageHandlers {
   private audioInstruction(ctx: Context): string | undefined {
     const caption = (ctx.message as { caption?: string } | undefined)?.caption?.trim();
     return caption || undefined;
+  }
+
+  private currentAudioMode(ctx: Context): AudioModeState {
+    return this.audioModeStore?.get(this.gateKey(ctx)) ?? { mode: 'default', revision: 0 };
+  }
+
+  private resetAudioMode(ctx: Context, state: AudioModeState): void {
+    this.audioModeStore?.resetIfCurrent(this.gateKey(ctx), state);
   }
 
   // Cheapest of the three size gates: Telegram's declared size, checked before any

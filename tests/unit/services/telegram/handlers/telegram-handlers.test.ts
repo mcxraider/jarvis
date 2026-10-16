@@ -1,7 +1,7 @@
 import { TelegramHandlers } from '../../../../../src/services/telegram/handlers/telegram-handlers';
 
 describe('TelegramHandlers', () => {
-  it('registers /start, /help, /status, /cancel, /new, and /forward commands', () => {
+  it('registers commands including one-shot audio modes', () => {
     const bot = {
       command: jest.fn(),
       on: jest.fn(),
@@ -12,6 +12,8 @@ describe('TelegramHandlers', () => {
       handleHelp: jest.fn(),
       handleStatus: jest.fn(),
       handleCancel: jest.fn(),
+      handleTranscribe: jest.fn(),
+      handleTranslate: jest.fn(),
     } as any;
     const messageHandlers = {
       handleText: jest.fn(),
@@ -39,12 +41,14 @@ describe('TelegramHandlers', () => {
     expect(bot.use).toHaveBeenCalledTimes(1);
     expect(bot.use.mock.invocationCallOrder[0]).toBeLessThan(bot.command.mock.invocationCallOrder[0]);
 
-    expect(bot.command).toHaveBeenCalledTimes(6);
+    expect(bot.command).toHaveBeenCalledTimes(8);
     expect(bot.command).toHaveBeenNthCalledWith(1, 'start', expect.any(Function));
     expect(bot.command).toHaveBeenNthCalledWith(2, 'help', expect.any(Function));
     expect(bot.command).toHaveBeenNthCalledWith(3, 'status', expect.any(Function));
     expect(bot.command).toHaveBeenNthCalledWith(4, 'cancel', expect.any(Function));
     expect(bot.command).toHaveBeenNthCalledWith(5, 'new', expect.any(Function));
     expect(bot.command).toHaveBeenNthCalledWith(6, 'forward', expect.any(Function));
+    expect(bot.command).toHaveBeenNthCalledWith(7, 'transcribe', expect.any(Function));
+    expect(bot.command).toHaveBeenNthCalledWith(8, 'translate', expect.any(Function));
   });
 });

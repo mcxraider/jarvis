@@ -10,6 +10,7 @@ import { ConversationGateStore } from '../conversation-gate.store';
 import { PendingClarificationStore } from '../pending-clarification.store';
 import { buildConversationKey, mapTelegramUserId } from '../conversation-key';
 import { resolveRunningGateTtlMs } from '../../../config/turn-timeout.config';
+import { AudioModeStore } from '../audio-mode.store';
 
 
 interface CancelState {
@@ -40,7 +41,31 @@ export class CommandHandlers {
     private readonly conversationGate: ConversationGateStore,
     private readonly pendingStore: PendingClarificationStore,
     private readonly agentClient?: Pick<LangGraphAgentClient, 'cancelRun' | 'getRunStatus'>,
+    private readonly audioModeStore?: AudioModeStore,
   ) {}
+
+  async handleTranscribe(ctx: Context): Promise<void> {
+    await this.selectAudioMode(ctx, 'transcribe', 'In transcribe mode.');
+  }
+
+  async handleTranslate(ctx: Context): Promise<void> {
+    await this.selectAudioMode(ctx, 'translate', 'In translate mode.');
+  }
+
+  private async selectAudioMode(
+    ctx: Context,
+    mode: 'transcribe' | 'translate',
+    acknowledgement: string,
+  ): Promise<void> {
+    const userId = ctx.from?.id;
+    const chatId = ctx.chat?.id;
+    const internalUserId = mapTelegramUserId(userId);
+    const gateKey = buildConversationKey(userId, internalUserId, chatId);
+    this.audioModeStore?.select(gateKey, mode);
+    logger.info('telegram.audio_mode.selected', { userId, chatId, gateKey, mode });
+    this.activityService.recordActivity(`command_${mode}` as any);
+    await sendFinalReply(ctx, acknowledgement, { userId, chatId, gateKey });
+  }
 
   // Sent when the user first opens the bot and presses Start (or types /start).
   async handleStart(ctx: Context): Promise<void> {
@@ -69,6 +94,8 @@ export class CommandHandlers {
       `* /cancel — cancel the current operation\n` +
       `* /new <message> — abandon the current step and start a new request\n` +
       `* /forward [instruction] — act on messages you've forwarded to me\n` +
+      `* /transcribe — transcribe the next audio without invoking Jarvis\n` +
+      `* /translate — translate the next audio to English without invoking Jarvis\n` +
       `\n` +
       `### ⚙️ Capabilities\n` +
       `\n` +
