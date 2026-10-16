@@ -1,4 +1,8 @@
 import { MessageHandlers } from '../../../../../src/services/telegram/handlers/message-handlers';
+import { MessageProcessorService } from '../../../../../src/services/telegram/message-processor.service';
+import { TextProcessorService } from '../../../../../src/services/telegram/processors/text-processor.service';
+import { MemoryPendingClarificationStore } from '../../../../../src/services/telegram/pending-clarification.store';
+import { MemoryConversationGateStore } from '../../../../../src/services/telegram/conversation-gate.store';
 import { TELEGRAM_ONBOARDING_MESSAGE } from '../../../../../src/services/telegram/onboarding-message';
 import { setRichMessagesEnabled } from '../../../../../src/services/telegram/formatters/telegram-rich';
 import { toTelegramMarkdownV2 } from '../../../../../src/services/telegram/formatters/telegram-markdown';
@@ -837,6 +841,115 @@ describe('MessageHandlers', () => {
     expect(fileService.downloadFile).not.toHaveBeenCalled();
     expect(messageProcessor.processPhotoMessage).not.toHaveBeenCalled();
     expect(ctx.reply).not.toHaveBeenCalledWith('Analysing image…', expect.anything());
+  });
+
+  it('accepts a photo reply during a clarify pause with a matching requestId', async () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    const fileService = { downloadFile: jest.fn().mockResolvedValue(jpeg) };
+    const messageProcessor = {
+      processPhotoMessage: jest.fn().mockResolvedValue({ response: 'processed photo' }),
+    };
+    const gateStore = {
+      getSnapshot: jest
+        .fn()
+        .mockResolvedValue({ status: 'waiting_for_clarification', requestId: 'pending-1' }),
+    };
+    const pendingStore = makePendingStore({
+      get: jest.fn().mockResolvedValue({ requestId: 'pending-1', interruptType: 'clarify' }),
+    });
+    const { handlers } = createHandlers({ fileService, messageProcessor, gateStore, pendingStore });
+    const ctx = createContext({
+      message_id: 9,
+      caption: 'describe this',
+      photo: [{ file_id: 'clarify-file-id', width: 100, height: 100 }],
+    });
+
+    await handlers.handlePhoto(ctx);
+
+    expect(fileService.downloadFile).toHaveBeenCalledWith('clarify-file-id', expect.any(Number));
+    expect(messageProcessor.processPhotoMessage).toHaveBeenCalledTimes(1);
+    expect(messageProcessor.processPhotoMessage.mock.calls[0][0]).toBe('describe this');
+    expect(ctx.reply).not.toHaveBeenCalledWith(
+      expect.stringContaining("couldn't process that image"),
+      expect.anything(),
+    );
+  });
+
+  // End-to-end over the real processor/store graph (only agentClient + fileService stubbed):
+  // a clarify interrupt followed by a photo reply must resume with the image attached, not
+  // get rejected with the generic PHOTO_ERROR (issue #126).
+  it('forwards a clarify-reply photo through to resume with the image attached', async () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    const agentClient: any = {
+      invoke: jest.fn().mockResolvedValue({
+        status: 'interrupted',
+        threadId: 'thr',
+        response: 'Which one?',
+        interrupt: { type: 'clarify' },
+        toolResults: [],
+      }),
+      resume: jest.fn().mockResolvedValue({
+        status: 'completed',
+        threadId: 'thr',
+        response: 'Here is what I see.',
+        toolResults: [],
+      }),
+    };
+    const pending = new MemoryPendingClarificationStore();
+    const gate = new MemoryConversationGateStore();
+    const text = new TextProcessorService(agentClient, pending, gate);
+    const audio: any = { processAudioMessage: jest.fn(), processAudioDocument: jest.fn() };
+    const mp = new MessageProcessorService(text, audio, gate, pending);
+    const fileService: any = { downloadFile: jest.fn().mockResolvedValue(jpeg) };
+    const activity: any = { recordActivity: jest.fn() };
+    const handlers = new MessageHandlers(
+      fileService,
+      mp,
+      activity,
+      pending,
+      createTerminalReplyStore(),
+      gate,
+    );
+
+    const replies: string[] = [];
+    const mkctx = (message: Record<string, unknown>, requestId: string) =>
+      ({
+        from: { id: 123, username: 'u', first_name: 'U' },
+        chat: { id: 456 },
+        botInfo: { id: 999 },
+        update: { __requestId: requestId },
+        message,
+        reply: jest.fn(async (t: string) => {
+          replies.push(t);
+          return { message_id: 1 };
+        }),
+        telegram: {
+          editMessageText: jest.fn().mockResolvedValue(true),
+          deleteMessage: jest.fn().mockResolvedValue(true),
+          callApi: jest.fn().mockResolvedValue(true),
+        },
+      }) as any;
+
+    await handlers.handleText(mkctx({ message_id: 1, text: 'book me a slot' }, 'rid-1'));
+    await handlers.handlePhoto(
+      mkctx(
+        {
+          message_id: 2,
+          caption: 'describe this',
+          photo: [{ file_id: 'f1', width: 100, height: 100 }],
+        },
+        'rid-2',
+      ),
+    );
+
+    expect(agentClient.resume).toHaveBeenCalledTimes(1);
+    const resumeArg = agentClient.resume.mock.calls[0][0];
+    expect(resumeArg.message).toBe('describe this');
+    expect(resumeArg.images).toEqual([
+      { image_url: expect.stringMatching(/^data:image\/jpeg;base64,/), detail: 'original' },
+    ]);
+    expect(replies.some((r) => r.includes("couldn't process that image"))).toBe(false);
+    expect(replies.some((r) => r.includes('Here is what I see'))).toBe(true);
   });
 
   it('rejects a partially failed album once without submitting pixels', async () => {

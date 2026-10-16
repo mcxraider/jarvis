@@ -482,7 +482,7 @@ export class TextProcessorService {
     const priorImageBatches = pending.imageBatches?.length ? pending.imageBatches : undefined;
     const nextImageBatches =
       pending.interruptType === 'clarify' && (priorImageBatches || options?.images?.length)
-        ? [...(priorImageBatches ?? []), options?.images ?? []]
+        ? [...(priorImageBatches ?? []), ...(options?.images?.length ? [options.images] : [])]
         : priorImageBatches;
     if (nextImageBatches !== undefined && !AgentImageBatchesSchema.safeParse(nextImageBatches).success) {
       if (options?.alreadyRunning) {

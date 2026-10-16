@@ -47,6 +47,7 @@ from agents.agent_api.app.constants import (
 )
 from agents.agent_api.app.graph.prompts.context import build_user_request_context
 from agents.agent_api.app.graph.prompts.orchestrator import (
+    RECALL_IMAGE_INSTRUCTION,
     get_conversation_prompt,
     get_system_prompt,
 )
@@ -1233,6 +1234,7 @@ def _build_orchestrator_system_prompt_for_turn(
     state: JarvisState,
     tracer: TracePrinter,
     selected_tool_names: List[str],
+    recall_available: bool = False,
 ) -> None:
     """Build this turn's orchestrator system prompt from the routing output.
 
@@ -1314,6 +1316,12 @@ def _build_orchestrator_system_prompt_for_turn(
             )
             included = relevant
             source = "routed"
+
+    # Covers every branch: tell the model it may recall a prior-thread image when
+    # one is in scope this turn. The sha256 lives in the untrusted history message,
+    # so the directive to act on it belongs in the trusted system prompt.
+    if recall_available:
+        content = f"{content}\n\n{RECALL_IMAGE_INSTRUCTION}"
 
     if messages and messages[0].get("role") == "system":
         messages[0] = {**messages[0], "content": content}
@@ -1559,6 +1567,7 @@ def create_agent_node(
             state,
             run_tracer,
             selected_tool_names,
+            recall_available=bool(deps is not None and deps.recallable_images),
         )
         model_override = None
         effort_override = None
