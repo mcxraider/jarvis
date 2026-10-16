@@ -48,11 +48,55 @@ export interface AudioProcessingHooks {
   onPendingPauseAccepted?: (presentation: PendingPausePresentation) => void | Promise<void>;
 }
 
+export interface SpecialAudioResult extends TextProcessorResult {
+  processedSuccessfully: boolean;
+}
+
 export class AudioProcessorService {
   constructor(
     private readonly whisperService: WhisperService,
     private readonly textProcessor: TextProcessorService,
   ) {}
+
+  async processSpecialAudio(
+    fileUrl: string,
+    mode: 'transcribe' | 'translate',
+    userId?: number,
+    logContext: LogContext = {},
+  ): Promise<SpecialAudioResult> {
+    const startTime = Date.now();
+    logger.info('audio_processor.special_started', { ...logContext, userId, mode });
+    try {
+      const result = mode === 'translate'
+        ? await this.whisperService.translateAudio(fileUrl, userId, logContext)
+        : await this.whisperService.transcribeAudio(fileUrl, userId, logContext);
+      if (!result.text?.trim()) {
+        return { response: 'No speech detected in the audio.', processedSuccessfully: true };
+      }
+      logger.info('audio_processor.special_completed', {
+        ...logContext,
+        userId,
+        mode,
+        durationMs: Date.now() - startTime,
+        audioDurationSeconds: result.durationSeconds,
+        chunkCount: result.chunkCount,
+        textLength: result.text.length,
+      });
+      return { response: result.text, processedSuccessfully: true };
+    } catch (error) {
+      logger.error('audio_processor.special_failed', {
+        ...logContext,
+        userId,
+        mode,
+        error: error instanceof Error ? error.message : String(error),
+        durationMs: Date.now() - startTime,
+      });
+      return {
+        response: this.handleAudioProcessingError(error as Error),
+        processedSuccessfully: false,
+      };
+    }
+  }
 
   // Processes voice notes and audio messages. Downloads the file from Telegram's CDN,
   // transcribes it, then passes the text through the agent pipeline.

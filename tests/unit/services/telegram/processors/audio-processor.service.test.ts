@@ -16,6 +16,41 @@ function makeService(textProcessor: any): AudioProcessorService {
 }
 
 describe('AudioProcessorService', () => {
+  it.each([
+    ['transcribe', 'transcribeAudio', 'verbatim transcript'],
+    ['translate', 'translateAudio', 'English translation'],
+  ] as const)('runs %s mode without invoking the agent', async (mode, whisperMethod, text) => {
+    const whisper = {
+      transcribeAudio: jest.fn(),
+      translateAudio: jest.fn(),
+    } as any;
+    whisper[whisperMethod].mockResolvedValue({
+      text,
+      durationSeconds: 4,
+      chunkCount: 1,
+    });
+    const textProcessor = { processTextMessage: jest.fn() } as any;
+    const service = new AudioProcessorService(whisper, textProcessor);
+    const result = await service.processSpecialAudio('https://example.com/audio.ogg', mode, 7);
+    expect(result).toEqual({ response: text, processedSuccessfully: true });
+    expect(textProcessor.processTextMessage).not.toHaveBeenCalled();
+  });
+
+  it('marks special-mode provider failures unsuccessful so the pending mode can be retried', async () => {
+    const whisper = {
+      transcribeAudio: jest.fn().mockRejectedValue(new Error('provider unavailable')),
+      translateAudio: jest.fn(),
+    } as any;
+    const textProcessor = { processTextMessage: jest.fn() } as any;
+    const service = new AudioProcessorService(whisper, textProcessor);
+    const result = await service.processSpecialAudio(
+      'https://example.com/audio.ogg',
+      'transcribe',
+      7,
+    );
+    expect(result.processedSuccessfully).toBe(false);
+    expect(textProcessor.processTextMessage).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     mockTranscribeAudio.mockResolvedValue({
       text: 'Add a Todoist task to buy milk tomorrow',

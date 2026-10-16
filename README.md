@@ -189,6 +189,8 @@ Complexity is assessed independently of query length, mutation risk, and the num
 - **Text mode** — send plain English requests to create, find, update, complete, reschedule, or delete tasks and calendar items.
 - **Voice mode** — send a Telegram voice note; Jarvis transcribes it, echoes the transcription, then runs the same agent flow as text.
 - **Audio files** — send OGG, MP3, WAV, M4A, or other Telegram audio/document uploads with audio MIME types for transcription and action.
+- **One-shot audio modes** — `/transcribe` returns only the next recording's transcript; `/translate` uses Whisper's dedicated speech-to-English translation endpoint. Both bypass the Jarvis agent and return to normal mode after a successful recording.
+- **Forwarded audio** — forwarded voice notes, audio uploads, and audio documents use the same normalization and routing as directly sent media, including one-shot modes.
 - **Long audio** — recordings up to **20 minutes** and **20 MB** are accepted. Anything longer than 45 seconds is split into chunks, transcribed concurrently, and stitched back into one transcript before the agent sees it. You get the whole transcript or a clear error — never a partial one.
 - **Audio captions** — a caption sent with the audio becomes the instruction applied to the transcript ("summarize this into 3 bullets"), while the transcript itself is echoed unchanged.
 - **Reply context** — swipe/reply to an earlier Telegram message from the bot or the user, and Jarvis includes a quoted version of that message as context for the new request.
