@@ -198,6 +198,8 @@ export interface TranscriptionResult {
   quality?: TranscriptionQuality;
 }
 
+type AudioRecognitionTask = 'transcribe' | 'translate';
+
 export class WhisperService {
   private readonly openai: OpenAI;
   private readonly config: Required<
@@ -388,6 +390,7 @@ export class WhisperService {
     fileUrl: string,
     userId?: number,
     logContext: LogContext = {},
+    task: AudioRecognitionTask = 'transcribe',
   ): Promise<TranscriptionResult> {
     const startTime = Date.now();
 
@@ -395,6 +398,7 @@ export class WhisperService {
       ...logContext,
       userId,
       fileUrl: this.sanitizeUrlForLogging(fileUrl),
+      task,
     });
 
     // Every intermediate artefact — download, normalized FLAC, chunks — lives here and
@@ -427,8 +431,8 @@ export class WhisperService {
 
       const merged =
         normalized.plan.length === 1
-          ? await this.transcribeSingleChunk(normalized, userId, logContext)
-          : await this.transcribeOverlapped(normalized, workDir, userId, logContext);
+          ? await this.transcribeSingleChunk(normalized, userId, logContext, task)
+          : await this.transcribeOverlapped(normalized, workDir, userId, logContext, task);
 
       return this.buildTranscriptionResult({
         merged,
@@ -474,6 +478,15 @@ export class WhisperService {
         });
       });
     }
+  }
+
+  /** Uses Groq Whisper's dedicated speech-to-English translation endpoint. */
+  translateAudio(
+    fileUrl: string,
+    userId?: number,
+    logContext: LogContext = {},
+  ): Promise<TranscriptionResult> {
+    return this.transcribeAudio(fileUrl, userId, logContext, 'translate');
   }
 
   // ---------------------------------------------------------------------------
@@ -597,6 +610,7 @@ export class WhisperService {
     normalized: NormalizedAudio,
     userId?: number,
     logContext: LogContext = {},
+    task: AudioRecognitionTask = 'transcribe',
   ): Promise<ReturnType<typeof mergeChunkTranscriptions>> {
     const plan = normalized.plan[0];
     const chunk: PreparedAudioChunk = {
@@ -618,6 +632,7 @@ export class WhisperService {
       },
       userId,
       logContext,
+      task,
     );
 
     const merged = mergeChunkTranscriptions([
@@ -662,6 +677,7 @@ export class WhisperService {
     workDir: string,
     userId?: number,
     logContext: LogContext = {},
+    task: AudioRecognitionTask = 'transcribe',
   ): Promise<ReturnType<typeof mergeChunkTranscriptions>> {
     const plan = normalized.plan;
     const stageStart = Date.now();
@@ -723,6 +739,7 @@ export class WhisperService {
                 },
                 userId,
                 logContext,
+                task,
               );
               attemptsTotal += attempts;
               results[chunk.index] = transcription;
@@ -798,6 +815,7 @@ export class WhisperService {
     },
     userId?: number,
     logContext: LogContext = {},
+    task: AudioRecognitionTask = 'transcribe',
   ): Promise<{ transcription: ParsedTranscription; attempts: number }> {
     // Defence in depth: AudioConverter already checks this, but an oversized upload is a
     // wasted round trip and a confusing 413.
@@ -835,7 +853,7 @@ export class WhisperService {
 
       try {
         const transcription = await this.limiter.run(
-          () => this.requestTranscription(chunk, timeoutMs, attempt, userId, logContext),
+          () => this.requestTranscription(chunk, timeoutMs, attempt, userId, logContext, task),
           budget.deadlineMs,
         );
         return { transcription, attempts: attempt };
@@ -918,22 +936,28 @@ export class WhisperService {
     attempt: number,
     userId?: number,
     logContext: LogContext = {},
+    task: AudioRecognitionTask = 'transcribe',
   ): Promise<ParsedTranscription> {
     const apiStart = Date.now();
     // Read lazily, inside the slot, so at most `limit` chunks are resident at once.
     const audioFile = this.createAudioFile(await readFile(chunk.path), 'flac');
 
-    const request = this.openai.audio.transcriptions.create(
-      {
-        file: audioFile,
-        model: this.config.model,
-        language: this.language,
-        response_format: this.config.responseFormat,
-        timestamp_granularities: ['segment', 'word'],
-        temperature: 0,
-      },
-      { timeout: timeoutMs, maxRetries: 0 },
-    );
+    const request = task === 'translate'
+      ? this.openai.audio.translations.create(
+          { file: audioFile, model: this.config.model, response_format: 'json', temperature: 0 },
+          { timeout: timeoutMs, maxRetries: 0 },
+        )
+      : this.openai.audio.transcriptions.create(
+          {
+            file: audioFile,
+            model: this.config.model,
+            language: this.language,
+            response_format: this.config.responseFormat,
+            timestamp_granularities: ['segment', 'word'],
+            temperature: 0,
+          },
+          { timeout: timeoutMs, maxRetries: 0 },
+        );
     const { data, response, request_id: requestId } = await request.withResponse();
 
     const parsed = this.parseTranscriptionResponse(data);
