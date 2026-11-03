@@ -18,6 +18,8 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 os.environ["JARVIS_CHECKPOINT_BACKEND"] = "memory"
 os.environ["JARVIS_POSTGRES_DSN"] = ""
 os.environ["DATABASE_URL"] = ""
+# Never use a developer's real Jev credential in graph/wiring unit tests.
+os.environ["TYPESAFE_API_KEY"] = ""
 
 # Pin the retained legacy token-file fallback to a guaranteed-absent path so a
 # developer's real ``token.json`` cannot leak into credential-loading tests.
@@ -34,6 +36,7 @@ def _reset_shared_runtime_resources():
     from agents.agent_api.app.graph import builder
     from agents.agent_api.app.graph.nodes import orchestrator, summarize
     from agents.agent_api.app.router import client as router_client
+    from agents.agent_api.app.router import runtime as router_runtime
     from agents.agent_api.app import db
 
     def reset() -> None:
@@ -41,6 +44,8 @@ def _reset_shared_runtime_resources():
         asyncio.run(orchestrator.close_shared_async_agent_client())
         router_client.close_shared_router_client()
         asyncio.run(router_client.close_shared_async_router_openai_client())
+        router_runtime.close_shared_typesafe_router()
+        asyncio.run(router_runtime.close_shared_async_typesafe_router())
         summarize.close_shared_summarizer_client()
         asyncio.run(summarize.close_shared_async_summarizer_client())
         summarize.reset_summarizer_limiters()

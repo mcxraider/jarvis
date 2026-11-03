@@ -3,6 +3,7 @@
   "timezone": "Asia/Singapore",
   "locale": "en-SG",
   "active_providers": ["todoist"],
+  "custom_instructions": "Use Todoist for tasks, projects, and reminders. Use Todoist for events, meetings, availability, and scheduling too. Generic calendar requests go to Todoist. Only use Google Calendar when explicitly named.",
   "preferences": {
     "communication": {
       "tone": "professional",

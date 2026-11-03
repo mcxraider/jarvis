@@ -31,7 +31,7 @@ agent: Jarvis Agent {
   graph: LangGraph | checkpointed loop {
     class: layer
     style.fill: honeydew
-    orchestrator: "Orchestrator\nDomain / model selection + LLM" {class: node}
+    orchestrator: "Orchestrator\nJev domains -> LLM fallback + model selection" {class: node}
     validate: "Validate entities\nPrior-read IDs + risk split" {class: node}
     tools: Safe tools {class: node}
     summarize: Summarize large results {class: node}
@@ -69,7 +69,8 @@ database: "Database\n\nStorage · Idempotency" {
 services: External services {
   class: layer
   style.fill: "#ECF7F3"
-  llm: "OpenAI: GPT 5.6-luna" {class: box}
+  jev: "TypeSafe: Jev 1.14" {class: box}
+  llm: "OpenAI: GPT-6 Luna" {class: box}
   todoist: Todoist API {class: box}
   calendar: Google Calendar API {class: box}
   websearch: Web search {class: box}
@@ -85,6 +86,7 @@ inputs -> builder
 builder -> agent.graph.orchestrator: start / resume
 builder <-> database: storage {class: storage}
 agent.graph <-> database: storage / idempotency {class: storage}
+agent.graph.orchestrator <-> services.jev: "Typed domain questions" {class: service}
 agent.graph <-> services.llm: "LLM calls\n+ responses" {class: service}
 agent.dispatcher <-> services.todoist: tasks {class: service}
 agent.dispatcher <-> services.calendar: events {class: service}

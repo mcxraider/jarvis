@@ -566,16 +566,17 @@ def _resolve_tool_selector(
     *,
     router_enabled: bool,
     tool_selector_name: str,
+    usage_accumulator: Optional[UsageSummary] = None,
 ) -> ToolSelector:
-    """Choose the tool selector for this run, honoring the opt-in router gate.
+    """Choose the tool selector for this run, honoring the router gate.
 
     The query router is built ONLY when every condition holds:
     ``router_enabled`` and ``tool_selector_name == "router"`` and a runtime
     snapshot exists. Resumed runs use the router too so clarification turns keep
     the same narrow tool surface instead of falling back to every connected tool.
     It is also never a hard-failure path:
-    constructing the ``RouterClient`` (e.g. a missing API key) degrades to the
-    static, all-tools selector, which is also the router's per-turn fallback.
+    Jev construction/classification failures use the LLM fallback. If neither
+    classifier returns a decision, the selector exposes all connected tools.
 
     Outside the gate the configured selector is honored — ``"static"``/``"keyword"``
     as named; a ``"router"`` request whose gate is unmet degrades to ``"static"``.
@@ -589,8 +590,12 @@ def _resolve_tool_selector(
     if use_router:
         try:
             from agents.agent_api.app.router.client import get_shared_router_client
+            from agents.agent_api.app.router.runtime import build_runtime_router
 
-            router_client = get_shared_router_client().with_tracer(tracer)
+            router_client = build_runtime_router(
+                lambda: get_shared_router_client().with_tracer(tracer),
+                tracer=tracer, usage_accumulator=usage_accumulator,
+            )
         except Exception as error:  # noqa: BLE001 — router must never fail the run
             tracer.event(
                 "router.disabled",
@@ -969,6 +974,7 @@ async def _run_jarvis_async_impl(
             tracer,
             router_enabled=settings.router_enabled,
             tool_selector_name=settings.tool_selector,
+            usage_accumulator=run_usage,
         )
     model_router = create_default_model_router(
         profile=settings.orchestrator_llm,

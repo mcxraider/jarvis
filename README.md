@@ -4,14 +4,15 @@
 
 Jarvis turns Telegram into a natural-language command center for tasks, calendars, planning, and everyday research. Type it, say it, photograph it, or forward it—Jarvis turns the conversation into action.
 
-**Powered by Groq Whisper and GPT-6 Luna — with JEV coming next.**
+**Powered by Groq Whisper, TypeSafe Jev routing, and GPT-6 Luna.**
 
 ## Architecture
 
 [![Jarvis — architecture overview](assets/jarvis-architecture.png)](assets/jarvis-architecture.png)
 
-Text turns are classified by the OpenAI GPT-6 Luna router using each user's
-custom instructions, then sent to the orchestrator with only the connected
+Text turns are classified by TypeSafe Jev using each user's custom instructions.
+Errors and uncertain decisions use the existing LLM classifier as fallback.
+The final decision sends the orchestrator only the connected
 Todoist and/or Google Calendar tools they need. Image-bearing turns skip text
 routing and give the vision orchestrator every connected tool.
 
@@ -97,7 +98,7 @@ The handler watchdog must outlast the worst audio turn, and the gate TTL must ou
 
 **run_jarvis** builds the graph and injects clients, then hands control to the **Orchestrator**.
 
-Before the orchestrator sees tools, the default **RouterToolSelector** uses the configured lightweight classifier to pick the relevant connected service domains and expose only those tools plus `ask_user`. The router can also provide a faithful query rewrite and build the runtime prompt for the chosen domains. When the router classifies a turn as `conversation` (no domain), the orchestrator swaps in a slim conversational system prompt (identity + answer-directly directive, no domain policy body, availability summary, or tools line) so generic requests carry minimal prompt overhead — unless the turn still carries pinned active domains (e.g. a HITL resume, where the selector keeps those domains' tools), in which case the full domain-scoped prompt is retained. Router failures are non-fatal: the run falls back to the static all-tools selector.
+Before the orchestrator sees tools, the default **RouterToolSelector** uses the configured lightweight classifier to pick the relevant connected service domains and expose only those tools plus `ask_user`. The final decision drives the runtime prompt for the chosen domains. When the router classifies a turn as `conversation` (no domain), the orchestrator swaps in a slim conversational system prompt (identity + answer-directly directive, no domain policy body, availability summary, or tools line) so generic requests carry minimal prompt overhead — unless the turn still carries pinned active domains (e.g. a HITL resume, where the selector keeps those domains' tools), in which case the full domain-scoped prompt is retained. Jev errors or uncertain decisions use the LLM classifier. If that classifier fails after a valid uncertain Jev answer, the safe Jev candidate domains remain available; if neither returns a decision, the static selector exposes all connected tools.
 
 The **Orchestrator** is the only graph node that calls the main LLM. It routes every turn to one of:
 
@@ -161,15 +162,39 @@ The router is enabled by default:
 |---------|---------|---------|
 | `TOOL_SELECTOR` | `router` | Chooses `router`, `keyword`, or `static` tool selection |
 | `ROUTER_ENABLED` | `true` | Enables the pre-orchestrator domain classifier |
-| `ROUTER_PROVIDER` | `LLM_PROVIDER` | Provider used for routing |
-| `ROUTER_MODEL` | Selected provider model (`gpt-6-luna` by default) | Model used for routing |
-| `ROUTER_BASE_URL` | Selected provider base URL | OpenAI-compatible router endpoint |
-| `ROUTER_API_KEY` | Selected provider API key | Router API key |
-| `ROUTER_REASONING_EFFORT` | `off` | Keeps classification fast |
+| `ROUTER_ENGINE` | `typesafe` | Jev first; `llm` selects the existing classifier directly |
+| `TYPESAFE_API_KEY` | unset | Jev credential; absence skips to LLM fallback |
+| `TYPESAFE_MODEL` | `jev-1.14.0` | Pinned Jev release |
+| `TYPESAFE_BASE_URL` | `https://api.typesafe.ai/v1` | System One API endpoint |
+| `TYPESAFE_ROUTER_REQUEST_TIMEOUT_SECONDS` | `2.0` | Jev timeout per attempt |
+| `TYPESAFE_ROUTER_MAX_RETRY_ATTEMPTS` | `2` | Jev attempt limit, including initial call |
+| `TYPESAFE_ROUTER_RETRY_MAX_DELAY_SECONDS` | `0.5` | Maximum Jev backoff and Retry-After wait |
+| `ROUTER_PROVIDER` | `openai` | LLM fallback provider |
+| `ROUTER_MODEL` | Selected provider model (`gpt-6-luna` by default) | LLM fallback model |
+| `ROUTER_REASONING_EFFORT` | `none` for OpenAI | LLM fallback reasoning |
 | `ROUTER_REQUEST_TIMEOUT_SECONDS` | `5.0` | Per-attempt router timeout |
 | `ROUTER_MAX_RETRY_ATTEMPTS` | `2` | Router retry budget |
 
-Set `ROUTER_ENABLED=false` or `TOOL_SELECTOR=static` to expose every registered tool each turn. Set `TOOL_SELECTOR=keyword` to use the static keyword table instead of the LLM router.
+Set `ROUTER_ENABLED=false` or `TOOL_SELECTOR=static` to expose every registered tool each turn. Set `TOOL_SELECTOR=keyword` to use the static keyword table instead of the classifier chain.
+
+Set `TYPESAFE_API_KEY` in the Python agent environment to activate Jev. Roll back
+with `ROUTER_ENGINE=llm`; existing `ROUTER_*` settings continue to configure the
+LLM classifier, whose credentials and base URL come from its selected provider.
+No database migration is needed. Model aliases can move; the
+pinned Jev version keeps probability thresholds reproducible.
+
+Run the labeled comparison without accessing user integrations:
+
+```bash
+venv/bin/python scripts/eval_domain_router.py --engine all --out /tmp/domain-router-comparison.json
+venv/bin/python scripts/eval_domain_router.py --engine replay --out /tmp/domain-router-replay.json
+```
+
+The comparison reports decision agreement, required-domain recall, critical-case
+failures, fallback frequency, latency, token usage, and cost. Replay uses historical
+Jev 1.13 answers and measures neither current Jev quality nor current latency.
+Live comparison requires the TypeSafe and selected LLM credentials. Expected
+labels and persona instructions are checked in under `tests/data/` for review.
 
 The router also labels the intrinsic complexity of the current query as `low`, `medium`, or `high`. Model routing fuses that label with domain breadth and uncertainty. Each selected route has a fixed per-attempt timeout; the existing orchestrator retry count and backoff apply independently.
 
@@ -256,8 +281,9 @@ Supply those values only for that command; do not save the privileged DSN in
 `.env`. Stop the administrative launch afterward, restore the runtime DSN, and
 start the services normally.
 
-Text turns are classified by the OpenAI GPT-6 Luna router using each user's
-custom instructions, then sent to the orchestrator with only the connected
+Text turns are classified by TypeSafe Jev using each user's custom instructions.
+Errors and uncertain decisions use the existing LLM classifier as fallback.
+The final decision sends the orchestrator only the connected
 Todoist and/or Google Calendar tools they need. Image-bearing turns skip text
 routing and give the vision orchestrator every connected tool.
 

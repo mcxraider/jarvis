@@ -17,7 +17,7 @@ USD_QUANTUM = Decimal("0.0001")
 OPENAI_LONG_CONTEXT_THRESHOLD = 272_000
 OPENAI_PRICING_AS_OF = "2026-09-23"
 DEEPSEEK_PRICING_AS_OF = "2026-07-05"
-TYPESAFE_PRICING_AS_OF = "2026-09-17"
+TYPESAFE_PRICING_AS_OF = "2026-11-03"
 
 
 @dataclass(frozen=True)
@@ -39,6 +39,13 @@ _TYPESAFE_PRICING_SOURCE = "https://docs.typesafe.ai/models"
 # TypeSafe charges per input token only; output tokens are free.  Jev has no
 # prompt-cache tier, so the cached and uncached input rates are the same price.
 TYPESAFE_TOKEN_RATES: Mapping[str, TokenRates] = {
+    "jev-1.14.0": TokenRates(
+        cached_input=Decimal("0.042"),
+        uncached_input=Decimal("0.042"),
+        output=Decimal("0"),
+        source=_TYPESAFE_PRICING_SOURCE,
+        as_of=TYPESAFE_PRICING_AS_OF,
+    ),
     "jev-1.13.0": TokenRates(
         cached_input=Decimal("0.042"),
         uncached_input=Decimal("0.042"),

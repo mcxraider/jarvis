@@ -9,7 +9,8 @@ import re
 from typing import Any, Dict, List, Optional, Set
 
 from agents.agent_api.app.async_offload import bounded_to_thread
-from agents.agent_api.app.router.client import RouterClient, RouterClientError
+from agents.agent_api.app.router.client import RouterClientError
+from agents.agent_api.app.router.runtime import DomainClassifier
 from agents.agent_api.app.router.prompt import RouterDecision, effective_router_domains
 from agents.agent_api.app.tools.base import ToolRegistry
 from agents.agent_api.app.tools.control import ASK_USER_TOOL_NAME, RECALL_IMAGE_TOOL_NAME
@@ -28,7 +29,7 @@ class RouterToolSelector:
 
     def __init__(
         self,
-        router_client: RouterClient,
+        router_client: DomainClassifier,
         snapshot: RuntimeContextSnapshotLike,
         tracer: Optional[TracePrinter] = None,
         fallback_selector: Optional[Any] = None,

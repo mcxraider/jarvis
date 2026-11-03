@@ -67,7 +67,8 @@ class TestRouterGateMet:
         # Snapshot is threaded through; fallback is the static all-tools selector.
         assert selector._snapshot is context.snapshot
         assert isinstance(selector._fallback, StaticToolSelector)
-        assert isinstance(selector._client, FakeRouterClient)
+        from agents.agent_api.app.router.runtime import RoutingChain
+        assert isinstance(selector._client, RoutingChain)
 
 
 class TestRouterGateNotMet:
@@ -120,6 +121,12 @@ class TestRouterConstructionFailure:
         def _boom():
             raise RuntimeError("ROUTER_API_KEY missing")
 
+        from agents.agent_api.app.router.client import RouterClientError
         with patch(_ROUTER_CLIENT_PATH, _boom):
             selector = _resolve(runtime_context=_context())
-        assert isinstance(selector, StaticToolSelector)
+            # Construction is lazy: failures surface at classification and are
+            # memoized by the selector, which exposes the static tool surface.
+            selector._client.primary = None
+            import pytest
+            with pytest.raises(RouterClientError):
+                selector._client.classify("tasks", _context().snapshot)

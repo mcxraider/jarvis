@@ -139,10 +139,16 @@ class Settings:
     openai_max_retry_attempts: int
     openai_retry_max_delay_seconds: float
     openai_sdk_max_retries: int
-    # Query router (pre-orchestrator domain classifier). Opt-in via router_enabled;
-    # tool_selector selects the strategy ("static" | "keyword" | "router"). The
-    # router reuses the DeepSeek OpenAI-compatible endpoint but with tighter,
-    # non-critical retry/timeout budgets since it is never a hard-failure path.
+    # Domain routing: Jev first, then the configured LLM on error/uncertainty.
+    # TOOL_SELECTOR selects static, keyword, or router. LLM role settings below
+    # remain separate from TypeSafe because Jev is not a generative provider.
+    router_engine: str
+    typesafe_api_key: Optional[str] = field(repr=False)
+    typesafe_model: str
+    typesafe_base_url: str
+    typesafe_router_request_timeout_seconds: float
+    typesafe_router_max_retry_attempts: int
+    typesafe_router_retry_max_delay_seconds: float
     router_enabled: bool
     router_model: str
     router_base_url: str
@@ -361,6 +367,9 @@ def load_settings() -> Settings:
     llm_provider = LLMProvider.parse(os.getenv("LLM_PROVIDER", "openai"))
     router_provider = _role_provider("ROUTER_PROVIDER", LLMProvider.OPENAI)
     summarizer_provider = _role_provider("SUMMARIZER_PROVIDER", llm_provider)
+    router_engine = _non_empty_env("ROUTER_ENGINE", "typesafe").lower()
+    if router_engine not in {"typesafe", "llm"}:
+        raise ValueError("ROUTER_ENGINE must be typesafe or llm.")
     router_enabled = _bool_env("ROUTER_ENABLED", True)
     tool_selector = _non_empty_env("TOOL_SELECTOR", "router").lower()
     router_is_active = router_enabled and tool_selector == "router"
@@ -606,6 +615,19 @@ def load_settings() -> Settings:
         # non-critical and always degrades to the static selector on failure.
         # Enabled by default (paired with tool_selector="router" below); set
         # ROUTER_ENABLED=false to fall back to loading every domain each turn.
+        router_engine=router_engine,
+        typesafe_api_key=_unused_secret_env("TYPESAFE_API_KEY"),
+        typesafe_model=_non_empty_env("TYPESAFE_MODEL", "jev-1.14.0"),
+        typesafe_base_url=_non_empty_env("TYPESAFE_BASE_URL", "https://api.typesafe.ai/v1"),
+        typesafe_router_request_timeout_seconds=_positive_float_env(
+            "TYPESAFE_ROUTER_REQUEST_TIMEOUT_SECONDS", 2.0
+        ),
+        typesafe_router_max_retry_attempts=_positive_int_env(
+            "TYPESAFE_ROUTER_MAX_RETRY_ATTEMPTS", 2
+        ),
+        typesafe_router_retry_max_delay_seconds=_positive_float_env(
+            "TYPESAFE_ROUTER_RETRY_MAX_DELAY_SECONDS", 0.5
+        ),
         router_enabled=router_enabled,
         router_model=router_llm.model,
         router_base_url=router_llm.base_url,

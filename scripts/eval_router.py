@@ -61,6 +61,8 @@ from agents.agent_api.app.user_context.preferences import AssistantPreferencesV1
 from agents.agent_api.app.user_context.runtime import (
     DomainAvailability,
     LegacyRuntimeContextSnapshot,
+    RuntimeContextSnapshot,
+    RuntimeContextSnapshotLike,
 )
 from tests.agents.runtime_helpers import _CAPABILITIES, _TOOL_NAMES
 
@@ -90,7 +92,7 @@ PROMPTS: List[str] = [
 class Persona:
     name: str
     path: Path
-    snapshot: LegacyRuntimeContextSnapshot
+    snapshot: RuntimeContextSnapshotLike
     active_providers: List[str]
 
 
@@ -184,6 +186,32 @@ def build_snapshot_from_fixture(
     )
 
 
+def build_current_snapshot_from_fixture(
+    data: dict[str, Any], *, name: str = "fixture"
+) -> RuntimeContextSnapshot:
+    """Evaluate current production inputs; legacy preferences are fixture-only."""
+    active = set(data.get("active_providers", []))
+    domains = [
+        DomainAvailability(
+            provider=provider,
+            status="active" if provider in active else "unavailable",
+            capabilities=list(_CAPABILITIES[provider]),
+            tool_names=list(_TOOL_NAMES[provider]),
+        )
+        for provider in _CAPABILITIES
+    ]
+    return RuntimeContextSnapshot(
+        user_id=f"router-eval-{name}", display_name=data["display_name"],
+        timezone=data.get("timezone", "UTC"), locale=data.get("locale", "en"),
+        custom_instructions=data.get("custom_instructions", ""), policy_revision=1,
+        domains=domains,
+        registered_tools=[ASK_USER_TOOL_NAME, *[
+            name for provider in _TOOL_NAMES if provider in active for name in _TOOL_NAMES[provider]
+        ]],
+        resolved_at=_utc_now(),
+    )
+
+
 def load_personas(users_dir: Path, *, user_filters: Optional[Sequence[str]] = None) -> List[Persona]:
     filters = {value.lower() for value in _split_filter_values(user_filters)}
     personas: List[Persona] = []
@@ -192,7 +220,7 @@ def load_personas(users_dir: Path, *, user_filters: Optional[Sequence[str]] = No
         if filters and name.lower() not in filters:
             continue
         data = json.loads(path.read_text(encoding="utf-8"))
-        snapshot = build_snapshot_from_fixture(data, name=name)
+        snapshot = build_current_snapshot_from_fixture(data, name=name)
         personas.append(
             Persona(
                 name=name,
@@ -375,23 +403,12 @@ def format_markdown(
     ]
 
     for persona in personas:
-        routing = persona.snapshot.preferences.routing
         active = ", ".join(persona.active_providers) or "none"
-        lines.extend(
-            [
-                f"## {persona.name}",
-                (
-                    f"Task provider: {routing.task_provider} - "
-                    f"Event provider: {routing.event_provider} - "
-                    f"Reminder provider: {routing.reminder_provider} - "
-                    f"Time-related provider: {routing.time_related_provider} - "
-                    f"Explicit calendar provider: "
-                    f"{routing.explicit_calendar_provider} - "
-                    f"calendar_usage: {routing.calendar_usage} - Active: {active}"
-                ),
-                "",
-            ]
-        )
+        lines.extend([
+            f"## {persona.name}",
+            f"Custom instructions: {persona.snapshot.custom_instructions or '(none)'}",
+            f"Active: {active}", "",
+        ])
         persona_results = [result for result in results if result.persona.name == persona.name]
         for result in persona_results:
             lines.extend(

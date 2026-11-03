@@ -244,23 +244,12 @@ def format_markdown(
     ]
 
     for persona in personas:
-        routing = persona.snapshot.preferences.routing
         active = ", ".join(persona.active_providers) or "none"
-        lines.extend(
-            [
-                f"## {persona.name}",
-                (
-                    f"Task provider: {routing.task_provider} - "
-                    f"Event provider: {routing.event_provider} - "
-                    f"Reminder provider: {routing.reminder_provider} - "
-                    f"Time-related provider: {routing.time_related_provider} - "
-                    f"Explicit calendar provider: "
-                    f"{routing.explicit_calendar_provider} - "
-                    f"calendar_usage: {routing.calendar_usage} - Active: {active}"
-                ),
-                "",
-            ]
-        )
+        lines.extend([
+            f"## {persona.name}",
+            f"Custom instructions: {persona.snapshot.custom_instructions or '(none)'}",
+            f"Active: {active}", "",
+        ])
         persona_results = [
             result for result in results if result.persona.name == persona.name
         ]

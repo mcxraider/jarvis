@@ -9,6 +9,12 @@ Jarvis is a multi-user Telegram assistant for task and calendar management. The 
 `README.md` is the architecture narrative (diagram, request gate order, guard descriptions) and is kept current — read it before large changes. This file is the map of *where things live*.
 
 Active tool domains: Todoist, Google Calendar.
+
+Domain routing defaults to TypeSafe Jev 1.14 with the existing LLM classifier as
+fallback on errors or uncertainty. `ROUTER_ENGINE=llm` rolls back; `ROUTER_PROVIDER`
+configures the fallback LLM, not Jev. Missing `TYPESAFE_API_KEY` skips Jev.
+`router/runtime.py` owns the classifier chain and shared Jev lifecycle;
+`router/typesafe.py` owns typed questions, reconciliation, HTTP, and accounting.
 Placeholder stubs only (not active): Gmail, Notion, Apple Calendar, Apple Notes, GitHub, Google Drive.
 Not in scope: MCP child-process infrastructure, tool-search experiments.
 
@@ -88,7 +94,7 @@ Telegram update
   -> graph/builder.py: run_jarvis / run_jarvis_async
   -> pre-graph DI setup (injected into RunDeps, not graph nodes):
      - RuntimeContextSnapshot resolver (identity, secrets/Vault, domains, prefs)
-     - domain router (LLM classifier → fast_path/cache/LLM fallback)
+     - domain router (Jev → LLM on error/uncertainty → connected tools; run-local cache)
      - model_router (rule-based DeepSeek model + reasoning effort selection)
   -> orchestrator node (LLM via RunDeps)
   -> validate_entities node (prior-read ID verification, hallucination guard)

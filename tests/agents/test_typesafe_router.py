@@ -1,4 +1,4 @@
-"""Tests for the TypeSafe (Jev) benchmark router.
+"""Tests for TypeSafe Jev request construction and decision composition.
 
 Two things are worth testing here and both are pure — no API key, no network:
 
@@ -6,8 +6,8 @@ Two things are worth testing here and both are pure — no API key, no network:
    signals into a :class:`RouterDecision`. That schema cross-validates its fields,
    so most of the function is reconciliation and every rung can be exercised
    directly.
-2. That the Noul criteria are genuinely rendered from each persona's routing
-   policy rather than being static text.
+2. Current and legacy snapshots supply custom instructions without depending
+   on removed routing-preference fields.
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ import pytest
 
 from agents.agent_api.app.router.prompt import (
     QueryComplexity,
-    RouterDecision,
     RouterOutcome,
 )
 from agents.agent_api.app.router.typesafe import (
@@ -60,6 +59,8 @@ def _answers(
 ) -> dict:
     """Build a synthetic TypeSafe answers payload."""
 
+    kind_options = ["service_request", "conversation", "unsupported_provider", "unclear_service"]
+    named_options = ["none", "multiple", "todoist", "google_calendar"]
     return {
         noul_question_id("todoist"): {"type": "noul", "noul": todoist},
         noul_question_id("google_calendar"): {"type": "noul", "noul": google_calendar},
@@ -67,19 +68,20 @@ def _answers(
             "type": "choice",
             "choice": kind,
             "confidence": confidence,
-            "probabilities": {kind: confidence},
+            "probabilities": {key: float(key == kind) for key in kind_options},
         },
         NAMED_PROVIDER_QUESTION: {
             "type": "choice",
             "choice": named,
             "confidence": named_confidence,
-            "probabilities": {named: named_confidence},
+            "probabilities": {key: float(key == named) for key in named_options},
         },
         COMPLEXITY_QUESTION: {
             "type": "score",
             "score": score,
             "legend": {"0": "low", "1": "medium", "2": "high"},
-            "probabilities": {"0": 1.0},
+            "confidence": 1.0,
+            "probabilities": {"0": 1.0, "1": 0.0, "2": 0.0},
         },
     }
 
@@ -198,25 +200,20 @@ def test_unclear_service_becomes_ambiguous_and_uncertain():
 # ---------------------------------------------------------------------------
 
 
-def test_named_provider_wins_over_a_higher_competing_noul():
-    """The live failure: `whats on my google cal tmr` gave todoist 0.74, gcal 0.58."""
-
+def test_named_provider_conflict_preserves_both_and_requests_fallback():
     decision = decision_from_answers(
         _answers(todoist=0.74, google_calendar=0.58, named="google_calendar")
     )
-
-    assert [domain.value for domain in decision.domains] == ["google_calendar"]
-    assert decision.uncertain is False
+    assert set(decision.domains) == {"todoist", "google_calendar"}
+    assert decision.uncertain
 
 
 def test_named_provider_routes_even_when_its_own_noul_is_low():
-    """Naming is a fact about the text, so it does not need the Noul's agreement."""
-
     decision = decision_from_answers(
         _answers(todoist=0.91, google_calendar=0.12, named="google_calendar")
     )
-
-    assert [domain.value for domain in decision.domains] == ["google_calendar"]
+    assert set(decision.domains) == {"todoist", "google_calendar"}
+    assert decision.uncertain
 
 
 def test_low_confidence_naming_does_not_override():
@@ -260,16 +257,12 @@ def test_naming_several_services_does_not_narrow_the_route():
     ]
 
 
-def test_named_provider_clears_a_borderline_noul_on_the_discarded_domain():
-    """Once the route is settled, a mid-band Noul must not re-raise uncertainty."""
-
-    borderline = (NOUL_MAYBE + NOUL_IN) / 2
+def test_named_provider_keeps_borderline_competing_candidate():
     decision = decision_from_answers(
-        _answers(todoist=borderline, google_calendar=0.95, named="google_calendar")
+        _answers(todoist=0.4, google_calendar=0.95, named="google_calendar")
     )
-
-    assert decision.uncertain is False
-    assert decision.candidate_domains == []
+    assert decision.uncertain
+    assert set(decision.candidate_domains) == {"todoist", "google_calendar"}
 
 
 def test_named_provider_does_not_resurrect_a_non_routed_outcome():
@@ -295,46 +288,22 @@ def test_routed_with_no_confident_domain_falls_back_to_the_best_candidate():
     assert [domain.value for domain in decision.domains] == ["todoist"]
 
 
-def test_routed_with_no_plausible_domain_degrades_to_conversation():
-    """`routed` requires a domain; with nothing plausible it cannot stay routed."""
-
-    decision = decision_from_answers(_answers(todoist=0.03, google_calendar=0.02))
-
-    assert decision.outcome is RouterOutcome.CONVERSATION
-    assert decision.domains == []
-    assert decision.candidate_domains == []
+@pytest.mark.parametrize("kind", ["service_request", "unclear_service"])
+def test_service_request_without_candidates_requests_fallback(kind):
+    decision = decision_from_answers(_answers(todoist=0.01, google_calendar=0.01, kind=kind))
+    assert decision.outcome is RouterOutcome.AMBIGUOUS
+    assert decision.uncertain
+    assert set(decision.candidate_domains) == {"todoist", "google_calendar"}
 
 
-def test_ambiguous_without_candidates_degrades_to_conversation():
-    """`ambiguous` requires candidates, and candidates require a plausible domain."""
-
-    decision = decision_from_answers(
-        _answers(todoist=0.01, google_calendar=0.01, kind="unclear_service")
-    )
-
-    assert decision.outcome is RouterOutcome.CONVERSATION
-    assert decision.uncertain is False
-    assert decision.candidate_domains == []
+def test_unknown_choice_option_is_rejected():
+    with pytest.raises(ValueError):
+        decision_from_answers(_answers(todoist=0.9, kind="something_new"))
 
 
-def test_unknown_choice_option_degrades_safely():
-    """An unrecognised option must not raise; it falls back to conversation."""
-
-    decision = decision_from_answers(
-        _answers(todoist=0.9, google_calendar=0.0, kind="something_new")
-    )
-
-    assert decision.outcome is RouterOutcome.CONVERSATION
-    assert decision.domains == []
-
-
-def test_missing_answers_do_not_raise():
-    """A truncated payload composes to a safe decision rather than exploding."""
-
-    decision = decision_from_answers({})
-
-    assert isinstance(decision, RouterDecision)
-    assert decision.outcome is RouterOutcome.CONVERSATION
+def test_missing_answers_are_rejected():
+    with pytest.raises(ValueError):
+        decision_from_answers({})
 
 
 @pytest.mark.parametrize(
@@ -359,26 +328,20 @@ def test_complexity_score_buckets_into_three_levels(score, expected):
 # ---------------------------------------------------------------------------
 
 
-def test_explicit_only_persona_gets_a_stricter_calendar_noul():
-    """jerry.json is explicit-only; nadia.json is not. The criteria must differ."""
-
-    jerry = build_questions(_snapshot("jerry"))[noul_question_id("google_calendar")]
-    nadia = build_questions(_snapshot("nadia"))[noul_question_id("google_calendar")]
-
-    assert "explicit_only" in jerry["criteria"]["true"]
-    assert "generic_scheduling_is_not_enough" in jerry["criteria"]["false"]
-    assert "explicit_only" not in nadia["criteria"]["true"]
-    assert jerry["criteria"] != nadia["criteria"]
+def test_state_carries_custom_instructions_without_legacy_preferences():
+    from tests.agents.runtime_helpers import make_snapshot
+    snapshot = make_snapshot(custom_instructions="Use Todoist for events; Google Calendar only when named.")
+    state = build_state("am I free?", snapshot)
+    assert state["custom_instructions"] == snapshot.custom_instructions
+    assert "routing_policy" not in state
+    assert "google_calendar_allocation" not in state
+    assert "custom_instructions" in build_questions(snapshot)["needs_google_calendar"]["instructions"]
 
 
-def test_todoist_noul_reflects_who_owns_events():
-    """jerry routes events to Todoist; nadia routes them to Google Calendar."""
-
-    jerry = build_questions(_snapshot("jerry"))[noul_question_id("todoist")]
-    nadia = build_questions(_snapshot("nadia"))[noul_question_id("todoist")]
-
-    assert "events and meetings" in jerry["criteria"]["true"]["this_user_routes_here"]
-    assert "events and meetings" not in nadia["criteria"]["true"]["this_user_routes_here"]
+def test_legacy_resume_uses_current_custom_instruction_semantics():
+    snapshot = _snapshot("jerry")
+    snapshot.custom_instructions = "Events go to Google Calendar."
+    assert build_state("schedule dinner", snapshot)["custom_instructions"] == snapshot.custom_instructions
 
 
 def test_domain_nouls_do_not_restate_minimality():
@@ -421,7 +384,7 @@ def test_request_carries_state_model_and_every_question():
     request = build_typesafe_request("what do i have tomorrow?", _snapshot("jerry"))
 
     assert request["state"]["user_request"] == "what do i have tomorrow?"
-    assert request["model"] == "jev-latest"
+    assert request["model"] == "jev-1.14.0"
     assert set(request["questions"]) == {
         noul_question_id("todoist"),
         noul_question_id("google_calendar"),

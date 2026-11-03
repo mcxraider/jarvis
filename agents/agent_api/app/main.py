@@ -140,6 +140,9 @@ async def lifespan(_app: FastAPI):
             close_shared_async_router_openai_client,
             close_shared_router_client,
         )
+        from agents.agent_api.app.router.runtime import (
+            close_shared_typesafe_router, close_shared_async_typesafe_router,
+        )
         from agents.agent_api.app.run_logging import shutdown_run_logs
         from agents.agent_api.app.tools.todoist.client import (
             close_todoist_async_http_client,
@@ -224,6 +227,7 @@ async def lifespan(_app: FastAPI):
         for close_resource in (
             close_shared_agent_client,
             close_shared_router_client,
+            close_shared_typesafe_router,
             close_shared_summarizer_client,
         ):
             try:
@@ -237,6 +241,7 @@ async def lifespan(_app: FastAPI):
         for close_resource in (
             close_shared_async_agent_client,
             close_shared_async_router_openai_client,
+            close_shared_async_typesafe_router,
             close_shared_async_summarizer_client,
         ):
             try:

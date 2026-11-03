@@ -99,15 +99,14 @@ def test_router_eval_loads_fixtures_and_formats_markdown_without_api_call(tmp_pa
     )
 
     assert client.calls == 1
-    assert personas[0].snapshot.preferences.routing.calendar_usage == "explicit_only"
+    assert personas[0].snapshot.schema_version == 2
+    assert "Only use Google Calendar when explicitly named" in personas[0].snapshot.custom_instructions
     assert personas[0].snapshot.active_providers() == {"todoist", "google_calendar"}
     assert results[0].raw_response["domains"] == ["google_calendar"]
     assert "reasoning" not in results[0].raw_response
     assert results[0].adjusted_response is None
     assert "# Router evaluation - 2026-07-07T14:33:12Z" in markdown
-    assert "Reminder provider: todoist" in markdown
-    assert "Time-related provider: todoist" in markdown
-    assert "Explicit calendar provider: todoist" in markdown
+    assert "Custom instructions: Use Todoist for tasks, projects, and reminders." in markdown
     assert (
         "**Model:** deepseek-v4-flash - **Users:** 1 - **Queries:** 1 - **Pairs:** 1"
         in markdown
