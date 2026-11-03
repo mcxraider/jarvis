@@ -963,6 +963,8 @@ class JarvisApiTests(unittest.TestCase):
         assert result is checkpointer
         pool_module.ConnectionPool.assert_called_once_with(
             conninfo="postgresql://jarvis:test@localhost:5432/jarvis",
+            min_size=2,
+            max_size=4,
             kwargs={"autocommit": True, "prepare_threshold": None},
             check=pool_module.ConnectionPool.check_connection,
             max_idle=300,

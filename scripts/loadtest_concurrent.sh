@@ -3,7 +3,7 @@
 #
 # Required:
 #   DATABASE_URL
-#   JARVIS_AGENT_API_KEY
+#   LANGGRAPH_AGENT_API_KEY
 #
 # Optional:
 #   JARVIS_AGENT_URL                    default: http://localhost:8000
@@ -16,9 +16,9 @@
 
 set -euo pipefail
 
-readonly EXPECTED_USERS=12
+readonly EXPECTED_USERS="${JARVIS_LOADTEST_USERS:-12}"
 readonly URL="${JARVIS_AGENT_URL:-http://localhost:8000}"
-readonly API_KEY="${JARVIS_AGENT_API_KEY:?Set JARVIS_AGENT_API_KEY}"
+readonly API_KEY="${LANGGRAPH_AGENT_API_KEY:?Set LANGGRAPH_AGENT_API_KEY}"
 readonly DATABASE_URL="${DATABASE_URL:?Set DATABASE_URL}"
 readonly REQUEST_TIMEOUT="${JARVIS_LOADTEST_TIMEOUT_SECONDS:-180}"
 

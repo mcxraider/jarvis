@@ -1,3 +1,4 @@
+import { telegramWorkContext } from '../telegram/work-context';
 // src/services/ai/langgraph-agent-client.service.ts — HTTP client for the Python
 // LangGraph agent API (FastAPI backend). Supports two delivery modes:
 //   1. Standard POST to /invoke or /resume — returns the full response in one shot.
@@ -25,7 +26,10 @@ export type LangGraphAgentStatus = 'completed' | 'interrupted' | 'failed';
 export type LangGraphDelivery = 'terminal' | 'ambiguous';
 export type LangGraphInterruptType = 'clarify' | 'confirm';
 export type LangGraphCancelOutcome =
-  'cancelled' | 'mutation_in_flight' | 'already_finished' | 'not_found';
+  | 'cancelled'
+  | 'mutation_in_flight'
+  | 'already_finished'
+  | 'not_found';
 
 export type { LangGraphInterrupt } from '../../types/agent.types';
 
@@ -171,10 +175,17 @@ export class LangGraphAgentClient {
     logContext: LogContext = {},
     onProgress?: LangGraphProgressCallback,
   ): Promise<LangGraphAgentResponse> {
-    if (onProgress) {
-      return this.postStream('/invoke/stream', request, logContext, onProgress);
-    }
-    return this.post('/invoke', request, logContext);
+    await telegramWorkContext.getStore()?.beforeDispatch({
+      route: 'invoke',
+      userId: request.userId,
+      requestId: request.requestId!,
+      threadId: request.threadId,
+    });
+    const response = onProgress
+      ? await this.postStream('/invoke/stream', request, logContext, onProgress)
+      : await this.post('/invoke', request, logContext);
+    if (response.delivery === 'ambiguous') telegramWorkContext.getStore()?.markAmbiguous?.();
+    return response;
   }
 
   // Resumes an interrupted conversation thread (e.g. after a HITL clarify/confirm).
@@ -184,10 +195,17 @@ export class LangGraphAgentClient {
     logContext: LogContext = {},
     onProgress?: LangGraphProgressCallback,
   ): Promise<LangGraphAgentResponse> {
-    if (onProgress) {
-      return this.postStream('/resume/stream', request, logContext, onProgress);
-    }
-    return this.post('/resume', request, logContext);
+    await telegramWorkContext.getStore()?.beforeDispatch({
+      route: 'resume',
+      userId: request.userId,
+      requestId: request.requestId!,
+      threadId: request.threadId,
+    });
+    const response = onProgress
+      ? await this.postStream('/resume/stream', request, logContext, onProgress)
+      : await this.post('/resume', request, logContext);
+    if (response.delivery === 'ambiguous') telegramWorkContext.getStore()?.markAmbiguous?.();
+    return response;
   }
 
   // Probes the Python agent's deep-health endpoint for the /status card. Passes the
@@ -272,8 +290,8 @@ export class LangGraphAgentClient {
       }
       const status = LangGraphRunStatusSchema.parse(JSON.parse(bodyText));
       if (
-        status.request_id !== requestId
-        || (status.state === 'completed' && logicalRoute && status.logical_route !== logicalRoute)
+        status.request_id !== requestId ||
+        (status.state === 'completed' && logicalRoute && status.logical_route !== logicalRoute)
       ) {
         throw new Error('LangGraph run status did not match the requested run');
       }
@@ -397,7 +415,11 @@ export class LangGraphAgentClient {
         durationMs: Date.now() - startedAt,
       });
 
-      const fallback = this.fallbackResponse(request.threadId, (error as Error).message, 'ambiguous');
+      const fallback = this.fallbackResponse(
+        request.threadId,
+        (error as Error).message,
+        'ambiguous',
+      );
       return this.reconcileAmbiguous(
         request,
         path.slice(1) as 'invoke' | 'resume',

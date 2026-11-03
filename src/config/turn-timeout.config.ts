@@ -58,10 +58,10 @@ export interface TurnTimeoutLadderViolation {
 export const TURN_TIMEOUT_DEFAULTS: Readonly<TurnTimeoutConfig> = Object.freeze({
   overallMs: 165_000,
   streamIdleMs: 155_000,
-  telegrafHandlerMs: 600_000,
+  telegrafHandlerMs: 780_000,
   audioPrepareMs: 120_000,
   audioTranscriptionMs: 360_000,
-  runningGateTtlMs: 720_000,
+  runningGateTtlMs: 900_000,
   waitingGateTtlMs: 1_800_000,
 });
 
@@ -191,6 +191,13 @@ export function findTurnTimeoutLadderViolations(
     violations.push({
       rule: 'audioPrepareMs + audioTranscriptionMs < telegrafHandlerMs',
       detail: `audio stage ${audioStageMs}ms (prepare ${config.audioPrepareMs}ms + transcription ${config.audioTranscriptionMs}ms) must be below telegrafHandlerMs ${config.telegrafHandlerMs}ms`,
+    });
+  }
+  const downloadMs = Number(process.env.GROQ_AUDIO_DOWNLOAD_TIMEOUT_SECONDS ?? 30) * 1000;
+  if (!(downloadMs + audioStageMs + config.overallMs < config.telegrafHandlerMs)) {
+    violations.push({
+      rule: 'download + audio + agent < telegrafHandlerMs',
+      detail: 'The complete audio turn must fit inside the Telegram handler timeout',
     });
   }
   if (!(config.telegrafHandlerMs < config.runningGateTtlMs)) {

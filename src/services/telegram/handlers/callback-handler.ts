@@ -303,7 +303,7 @@ export class CallbackHandler {
           ...logContext,
           gateKey,
           interruptType,
-          presentation: interruptType === 'clarify' ? 'clarification_block' : 'prompt_only',
+          presentation: interruptType === 'clarify' ? 'clarification_text' : 'prompt_only',
         });
       } else {
         const release = await this.conversationGate

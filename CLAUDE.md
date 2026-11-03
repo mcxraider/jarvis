@@ -64,8 +64,8 @@ Normal startup path:
 src/server.ts
   -> imports src/app.ts (DI root, env validation, service graph construction)
   -> awaits databaseReadiness + agentContractReadiness + ffmpegReadiness
-  -> registers Telegram webhook via POST /webhook/:secret
-  -> starts Express on port 3000
+  -> verifies durable intake schema, starts inbox workers and Express on port 3000
+  -> registers Telegram webhook via POST /webhook/:secret (readiness gates registration)
   -> /ping (liveness), /health (readiness: DB + FFmpeg + LangGraph + log worker)
 ```
 
@@ -79,7 +79,7 @@ LangGraph Studio: `langgraph.json` registers the graph at `./agents/agent_api/ap
 
 ```text
 Telegram update
-  -> webhook.controller.ts (POST /webhook/:secret, responds 200 immediately)
+  -> webhook.controller.ts (POST /webhook/:secret, persists before 200 when JARVIS_DURABLE_INTAKE=true)
   -> TelegramBotService (Telegraf lifecycle, auth middleware, error boundary)
   -> TelegramHandlers (command/message/callback registration)
   -> MessageHandlers / CommandHandlers / CallbackHandler
@@ -145,7 +145,7 @@ All five channels converge on the same Python graph path:
 - **Voice / audio** → FFmpeg normalization (16 kHz mono FLAC) → Whisper transcription → same `TextProcessorService`. Files up to 20 MB / 20 minutes are accepted; anything over 45 s is chunked (45 s cores, 0 s overlap), transcribed concurrently (5 in-flight Groq requests process-wide), and merged. A caption on the audio becomes the instruction above the transcript. Limits live in `src/utils/ai/audio-limits.ts`.
 - **Photos** → `MessageHandlers.handlePhoto` buffers Telegram `media_group_id` albums for `ALBUM_QUIET_MS` (1.5s), then downloads and JPEG-validates each file into `AgentImage[]` (data-URL base64) → `MessageProcessorService.processPhotoMessage`. Bounds live in `src/types/agent.types.ts`: `MAX_AGENT_IMAGE_COUNT` (10), `MAX_AGENT_IMAGE_BYTES` (10 MB total per turn), `MAX_AGENT_IMAGE_BATCHES` (20). Images sent during a HITL pause are persisted as `image_batches` on `telegram_pending_clarifications` so a resume replays them.
 - **Polls** → `MessageHandlers.handlePoll` formats the poll via `poll-content.ts` (`formatPollAsText`) and feeds the structured text into the same text path.
-- **Forwards** → buffered in `forward-buffer.store.ts`; the next ordinary text message auto-dispatches them as one combined turn (text + any buffered photos), while `/forward <instruction>` remains an explicit dispatch path. Dispatch is always force-fresh unless a clarification/confirmation is already pending.
+- **Forwards** → buffered in `forward-buffer.store.ts`; the next ordinary text message auto-dispatches them as one combined turn (text + any buffered photos and one transcribed audio file), while `/forward <instruction>` remains an explicit dispatch path. One forwarded voice/audio/supported audio-document reference is allowed per buffer; transcription happens only at dispatch through the existing Whisper pipeline. Failed media preparation retains the buffer. Ordinary text preserves pending clarification/confirmation; explicit `/forward` dispatch is force-fresh and supersedes a pause only after media preparation. Active runs reject dispatch without draining the buffer.
 
 ### Tracing
 
@@ -523,3 +523,7 @@ Use the current flat ESLint config: `eslint.config.js`. Do not reintroduce `.esl
 ## GitHub Issues
 
 Every issue created with `gh issue create` must include at least one existing label via `--label` — never leave an issue unlabeled. Pick from the repo's existing label set (`gh label list`); do not invent new labels ad hoc. Current labels: `bug`, `documentation`, `duplicate`, `enhancement`, `good first issue`, `help wanted`, `invalid`, `question`, `wontfix`, `testing`, `architecture`, `infrastructure`, `safety`, `ux`.
+
+## Production containers
+
+See `deployment/README.md` and `compose.yaml`. Production enables durable Postgres Telegram intake via `update-inbox.store.ts` / `update-inbox.worker.ts`, asynchronous `PostgresForwardBufferStore`, and dispatch-intent recovery via `work-context.ts`. Do not replay dispatched inbox jobs: reconcile against `/runs/status`. All Node stores share `services/database/runtime-pool.ts`. The deployment contains no local Supabase stack.

@@ -1,3 +1,4 @@
+import { AsyncChunkQueue } from '../../utils/async-channel';
 // src/services/ai/whisper.service.ts — Audio transcription via Groq-hosted Whisper
 // large-v3.
 //
@@ -80,38 +81,6 @@ const DEFAULT_QUALITY_THRESHOLDS = {
   maxCompressionRatio: 2.4,
 } as const;
 
-// Async channel for producer-consumer chunk overlap. The sequential FFmpeg producer
-// pushes chunks as they're extracted; transcription workers pull and transcribe
-// immediately. push() is synchronous because the producer is always slower than the
-// network consumers, so the buffer stays at 0–1 items naturally.
-class AsyncChunkQueue<T> {
-  private readonly buffer: T[] = [];
-  private closed = false;
-  private readonly pullWaiters: Array<(v: T | null) => void> = [];
-
-  push(item: T): void {
-    const waiter = this.pullWaiters.shift();
-    if (waiter) {
-      waiter(item);
-      return;
-    }
-    this.buffer.push(item);
-  }
-
-  async pull(): Promise<T | null> {
-    const item = this.buffer.shift();
-    if (item !== undefined) return item;
-    if (this.closed) return null;
-    return new Promise((resolve) => this.pullWaiters.push(resolve));
-  }
-
-  close(): void {
-    this.closed = true;
-    for (const w of this.pullWaiters) w(null);
-    this.pullWaiters.length = 0;
-  }
-}
-
 export interface WhisperConfig {
   apiKey: string;
   /** Ceiling for a single upload to Groq. */
@@ -154,7 +123,10 @@ interface QualityFlag {
   start?: number;
   end?: number;
   reason:
-    'low_avg_logprob' | 'high_no_speech_prob' | 'low_compression_ratio' | 'high_compression_ratio';
+    | 'low_avg_logprob'
+    | 'high_no_speech_prob'
+    | 'low_compression_ratio'
+    | 'high_compression_ratio';
   value: number;
   threshold: number;
 }
@@ -692,7 +664,7 @@ export class WhisperService {
             extractOpts,
           );
           if (failure) break;
-          queue.push(chunk);
+          await queue.push(chunk);
         }
       } catch (err) {
         failure ??= err as Error;
@@ -728,6 +700,7 @@ export class WhisperService {
               results[chunk.index] = transcription;
             } catch (error) {
               failure ??= error as Error;
+              queue.close();
               return;
             }
           }

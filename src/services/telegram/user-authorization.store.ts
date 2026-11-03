@@ -1,4 +1,5 @@
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
+import { getRuntimePool } from '../database/runtime-pool';
 import { logger } from '../../utils/logger';
 
 export interface TelegramIdentityReference {
@@ -29,7 +30,7 @@ export class PostgresUserAuthorizationStore implements UserAuthorizationStore {
   constructor(
     connectionString: string,
     deniedUserIds: Iterable<number> = [],
-    private readonly database: Queryable = new Pool({ connectionString }),
+    private readonly database: Queryable = getRuntimePool(connectionString),
   ) {
     this.deniedUserIds = new Set(deniedUserIds);
   }
@@ -80,9 +81,7 @@ function parseTelegramIdSet(rawValue?: string): Set<number> {
 }
 
 export function createUserAuthorizationStore(): UserAuthorizationStore {
-  const connectionString =
-    process.env.JARVIS_POSTGRES_DSN ||
-    process.env.DATABASE_URL;
+  const connectionString = process.env.JARVIS_POSTGRES_DSN || process.env.DATABASE_URL;
 
   if (!connectionString) {
     throw new Error(
@@ -90,9 +89,7 @@ export function createUserAuthorizationStore(): UserAuthorizationStore {
     );
   }
 
-  const deniedUserIds = parseTelegramIdSet(
-    process.env.TELEGRAM_EMERGENCY_DENY_USER_IDS,
-  );
+  const deniedUserIds = parseTelegramIdSet(process.env.TELEGRAM_EMERGENCY_DENY_USER_IDS);
   logger.info('telegram.authorization.configured', {
     store: 'postgres',
     emergencyDeniedUsers: deniedUserIds.size,

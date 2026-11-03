@@ -91,14 +91,14 @@ describe('TelegramBotService', () => {
   });
 
   // The watchdog must outlast the worst audio turn (30s download + 120s prepare +
-  // 360s transcription + 165s agent), so it is 600s, not the old 195s text-only budget.
-  it('uses the centralized 600 second handler watchdog by default', async () => {
+  // 360s transcription + 165s agent), so it is 780s, above the old 195s text-only budget.
+  it('uses the centralized 780 second handler watchdog by default', async () => {
     const originalHandlerTimeout = process.env.TELEGRAM_HANDLER_TIMEOUT_MS;
     delete process.env.TELEGRAM_HANDLER_TIMEOUT_MS;
     try {
       const service = await createService();
 
-      expect((service.bot as any).options.handlerTimeout).toBe(600_000);
+      expect((service.bot as any).options.handlerTimeout).toBe(780_000);
       await service.stop();
     } finally {
       if (originalHandlerTimeout === undefined) {

@@ -162,6 +162,14 @@ describe('AudioConverter', () => {
     installScriptedStat();
   });
 
+  it('bounds FFmpeg warning retention while preserving header and final diagnostics', async () => {
+    scripts = [{ stderr: 'header\n' + 'warning\n'.repeat(100_000) + 'last diagnostic', code: 0 }];
+    const result = await (AudioConverter as any).runFFmpeg({ args: [], deadlineMs: Date.now() + 1000, totalTimeoutMs: 1000 });
+    expect(result.stderr.length).toBeLessThanOrEqual(65_536);
+    expect(result.stderr.startsWith('header')).toBe(true);
+    expect(result.stderr.endsWith('last diagnostic')).toBe(true);
+  });
+
   describe('isFFmpegAvailable()', () => {
     it('returns true when ffmpeg exits with code 0', async () => {
       const proc = createMockProcess();

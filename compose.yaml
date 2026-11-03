@@ -1,0 +1,134 @@
+name: jarvis
+x-runtime: &runtime
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: '3'
+
+services:
+  agent:
+    <<: *runtime
+    restart: unless-stopped
+    image: ${JARVIS_AGENT_IMAGE:-jarvis-agent:local}
+    build:
+      context: .
+      dockerfile: deployment/Dockerfile.agent
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337}
+    env_file: deployment/agent.env
+    environment:
+      JARVIS_MAX_CONCURRENT_RUNS: '2'
+      JARVIS_EXECUTOR_MAX_WORKERS: '2'
+      JARVIS_SUMMARIZER_MAX_CONCURRENCY: '1'
+      JARVIS_DB_SYNC_MIN: '1'
+      JARVIS_DB_SYNC_MAX: '4'
+      JARVIS_DB_ASYNC_MIN: '1'
+      JARVIS_DB_ASYNC_MAX: '4'
+      JARVIS_DB_IDEMPOTENCY_MIN: '1'
+      JARVIS_DB_IDEMPOTENCY_MAX: '2'
+      JARVIS_CHECKPOINT_BACKEND: postgres
+      JARVIS_RUN_CHECKPOINT_SETUP: 'false'
+      JARVIS_DEBUG: 'false'
+      JARVIS_DEBUG_PAYLOADS: 'false'
+      JARVIS_TRACE_PAYLOADS: 'false'
+    mem_limit: 896m
+    memswap_limit: 896m
+    pids_limit: 128
+    stop_grace_period: 180s
+    volumes:
+      - agent-logs:/app/logs
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+  telegram:
+    <<: *runtime
+    restart: unless-stopped
+    image: ${JARVIS_TELEGRAM_IMAGE:-jarvis-telegram:local}
+    build:
+      context: .
+      dockerfile: deployment/Dockerfile.node
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da}
+    env_file: deployment/telegram.env
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      LANGGRAPH_AGENT_URL: http://agent:8000
+      TELEGRAM_PENDING_STORE: postgres
+      JARVIS_DURABLE_INTAKE: 'true'
+      JARVIS_NODE_DB_POOL_MAX: '6'
+      JARVIS_NODE_MAX_ACTIVE_TURNS: '2'
+      JARVIS_MAX_CONCURRENT_AUDIO_JOBS: '1'
+      JARVIS_MAX_CONCURRENT_IMAGE_JOBS: '1'
+      GROQ_TRANSCRIPTION_MAX_CONCURRENCY: '2'
+      TELEGRAM_HANDLER_TIMEOUT_MS: '780000'
+      TELEGRAM_GATE_RUNNING_TTL_MS: '900000'
+      TELEGRAM_GATE_WAITING_TTL_MS: '1800000'
+      JARVIS_SHUTDOWN_TIMEOUT_MS: '800000'
+      JARVIS_LOG_WORKER_HEAP_MB: '48'
+      TMPDIR: /app/scratch
+    mem_limit: 576m
+    memswap_limit: 576m
+    pids_limit: 64
+    stop_grace_period: 810s
+    depends_on:
+      agent:
+        condition: service_healthy
+    volumes:
+      - telegram-logs:/app/logs
+      - audio-scratch:/app/scratch
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/health',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+  proxy:
+    <<: *runtime
+    restart: unless-stopped
+    image: ${JARVIS_PROXY_IMAGE:-jarvis-proxy:local}
+    build:
+      context: .
+      dockerfile: deployment/Dockerfile.proxy
+      args:
+        CADDY_IMAGE: ${CADDY_IMAGE:-caddy:2-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5}
+    user: '1000:1000'
+    environment:
+      JARVIS_DOMAIN: ${JARVIS_DOMAIN:?Set JARVIS_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL}
+      GOMEMLIMIT: 32MiB
+      GOGC: '50'
+      GOMAXPROCS: '2'
+      XDG_DATA_HOME: /data
+      XDG_CONFIG_HOME: /config
+    mem_limit: 64m
+    memswap_limit: 64m
+    pids_limit: 64
+    stop_grace_period: 20s
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: '0'
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./deployment/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      telegram:
+        condition: service_started
+
+volumes:
+  agent-logs:
+  telegram-logs:
+  audio-scratch:
+  caddy-data:
+  caddy-config:

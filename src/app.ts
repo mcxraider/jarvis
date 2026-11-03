@@ -1,8 +1,20 @@
+import 'dotenv/config';
+import {
+  getRuntimePool,
+  closeRuntimePools,
+  positiveInteger,
+} from './services/database/runtime-pool';
+import { PostgresUpdateInbox } from './services/telegram/update-inbox.store';
+import { UpdateInboxWorker } from './services/telegram/update-inbox.worker';
+import { PostgresForwardBufferStore } from './services/telegram/postgres-forward-buffer.store';
+import { recoverInboxJob } from './services/telegram/recover-inbox-job';
+import { readdir, rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 // src/app.ts — Application bootstrap: validates environment, constructs the full
 // service dependency graph, and exports the configured TelegramBotService instance.
 // This module is imported by server.ts, which wires up Express and the webhook.
 
-import 'dotenv/config';
 import { Telegraf, Context } from 'telegraf';
 import { createRequestId, logger } from './utils/logger';
 import { TelegramConfig } from './types/telegram.types';
@@ -44,6 +56,13 @@ const REQUIRED_ENV_VARS = [
   'LANGGRAPH_AGENT_URL',
 ];
 
+if (process.env.JARVIS_DURABLE_INTAKE === 'true') {
+  REQUIRED_ENV_VARS.push('LANGGRAPH_AGENT_API_KEY');
+  if (!process.env.JARVIS_POSTGRES_DSN && !process.env.DATABASE_URL) {
+    throw new Error('Durable intake requires a runtime Postgres DSN');
+  }
+}
+
 for (const key of REQUIRED_ENV_VARS) {
   if (!process.env[key]) {
     logger.error('app.startup.validation_failed', { missingEnvVar: key });
@@ -75,19 +94,21 @@ setRichMessagesEnabled(RICH_MESSAGES_ENABLED);
 const bot = new Telegraf<Context>(BOT_TOKEN);
 const userAuthorizationStore = createUserAuthorizationStore();
 const runtimeDsn = process.env.JARVIS_POSTGRES_DSN || process.env.DATABASE_URL!;
-export const databaseReadiness = verifyDatabaseRuntime(runtimeDsn).then((result) => {
-  logger.info('database.runtime.ready', {
-    role: result.role,
-    inheritedRole: result.inheritedRole,
-    requiredTables: result.tables.length,
+export const databaseReadiness = verifyDatabaseRuntime(runtimeDsn)
+  .then((result) => {
+    logger.info('database.runtime.ready', {
+      role: result.role,
+      inheritedRole: result.inheritedRole,
+      requiredTables: result.tables.length,
+    });
+    return result;
+  })
+  .catch((error) => {
+    logger.error('database.runtime.not_ready', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   });
-  return result;
-}).catch((error) => {
-  logger.error('database.runtime.not_ready', {
-    error: error instanceof Error ? error.message : String(error),
-  });
-  throw error;
-});
 
 // AI services: the LangGraph agent client talks to the Python FastAPI backend,
 // and WhisperService handles Groq-hosted audio transcription.
@@ -103,12 +124,18 @@ export const agentContractReadiness = verifyAgentContract(agentClient, {
   audioPrepareMs: turnTimeoutConfig.audioPrepareMs,
   audioTranscriptionMs: turnTimeoutConfig.audioTranscriptionMs,
   runningGateTtlMs: turnTimeoutConfig.runningGateTtlMs,
-}).catch((error) => {
-  logger.error('agent.contract.not_ready', {
-    error: error instanceof Error ? error.message : String(error),
+})
+  .then((result) => {
+    if (process.env.JARVIS_DURABLE_INTAKE === 'true' && !result.verified)
+      throw new Error('Production agent contract could not be verified');
+    return result;
+  })
+  .catch((error) => {
+    logger.error('agent.contract.not_ready', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   });
-  throw error;
-});
 const whisperService = new WhisperService({
   enforceEnglishOnly: true,
   language: 'en',
@@ -120,20 +147,22 @@ const whisperService = new WhisperService({
 // FFmpeg normalization is mandatory now — every accepted file is re-encoded to 16 kHz
 // mono FLAC before transcription. Without the binary, audio cannot be served at all, so
 // this is a startup barrier rather than a per-request check.
-export const ffmpegReadiness = AudioConverter.isFFmpegAvailable().then((available) => {
-  if (!available) {
-    throw new Error(
-      'FFmpeg is not available. Audio normalization is mandatory; install FFmpeg or restore @ffmpeg-installer/ffmpeg.',
-    );
-  }
-  logger.info('audio.ffmpeg.ready', { available });
-  return available;
-}).catch((error) => {
-  logger.error('audio.ffmpeg.not_ready', {
-    error: error instanceof Error ? error.message : String(error),
+export const ffmpegReadiness = AudioConverter.isFFmpegAvailable()
+  .then((available) => {
+    if (!available) {
+      throw new Error(
+        'FFmpeg is not available. Audio normalization is mandatory; install FFmpeg or restore @ffmpeg-installer/ffmpeg.',
+      );
+    }
+    logger.info('audio.ffmpeg.ready', { available });
+    return available;
+  })
+  .catch((error) => {
+    logger.error('audio.ffmpeg.not_ready', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   });
-  throw error;
-});
 
 // Pending clarification store tracks HITL (human-in-the-loop) interrupt state
 // between messages. Backed by Postgres in production, in-memory for local dev.
@@ -146,7 +175,15 @@ const terminalReplyStore = createTerminalReplyStore();
 
 // Forward buffer accumulates messages the user forwards to the bot until dispatched
 // via /forward. Memory-only by design: short-lived working material.
-const forwardBuffer = new MemoryForwardBufferStore();
+const durableIntake = process.env.JARVIS_DURABLE_INTAKE === 'true';
+const botId = BOT_TOKEN.split(':')[0];
+const runtimePool = durableIntake ? getRuntimePool(runtimeDsn) : undefined;
+export const updateInbox = runtimePool
+  ? new PostgresUpdateInbox(runtimePool, botId, positiveInteger('JARVIS_INBOX_CAPACITY', 100))
+  : undefined;
+const forwardBuffer = runtimePool
+  ? new PostgresForwardBufferStore(runtimePool, botId)
+  : new MemoryForwardBufferStore();
 
 // Telegram infrastructure: file downloads, activity metrics, and health reporting.
 const fileService = new FileService(BOT_TOKEN, bot.telegram);
@@ -161,7 +198,12 @@ const statusService = new BotStatusService(activityService, {
 // forwarded through the same text pipeline — so voice and typed share the same path.
 const textProcessor = new TextProcessorService(agentClient, pendingStore, conversationGate);
 const audioProcessor = new AudioProcessorService(whisperService, textProcessor);
-const messageProcessor = new MessageProcessorService(textProcessor, audioProcessor, conversationGate, pendingStore);
+const messageProcessor = new MessageProcessorService(
+  textProcessor,
+  audioProcessor,
+  conversationGate,
+  pendingStore,
+);
 
 // Telegram handlers: commands (/help, /status, /cancel), message types, and inline callbacks.
 const messageHandlers = new MessageHandlers(
@@ -208,6 +250,44 @@ export const botService = new TelegramBotService(
   telegramMenu,
 );
 
+export const inboxWorker = updateInbox
+  ? new UpdateInboxWorker(updateInbox, {
+      handle: async (job) => {
+        const update = { ...job.payloads[0], __requestId: `tg_update_${job.ids[0]}` };
+        if (job.payloads[0].message?.media_group_id && job.payloads[0].message?.photo) {
+          Object.assign(update, {
+            __albumMessages: job.payloads.map((payload) => payload.message),
+          });
+        }
+        await botService.handleUpdate(update);
+      },
+      recover: (job) =>
+        recoverInboxJob(job, agentClient, botService, conversationGate, pendingStore),
+    })
+  : undefined;
+
+export async function prepareRuntime(): Promise<void> {
+  await updateInbox?.ready();
+  if (durableIntake && process.env.TMPDIR) {
+    // Singleton deployment: only remove Jarvis-owned scratch directories before workers start.
+    const entries = await readdir(tmpdir(), { withFileTypes: true });
+    await Promise.all(
+      entries
+        .filter((entry) => entry.isDirectory() && entry.name.startsWith('jarvis-audio-'))
+        .map((entry) => rm(join(tmpdir(), entry.name), { recursive: true, force: true })),
+    );
+  }
+}
+export async function runtimeReady(): Promise<boolean> {
+  if (!runtimePool) return true;
+  await runtimePool.query('SELECT 1');
+  return Boolean(inboxWorker?.healthy);
+}
+export async function stopRuntime(): Promise<void> {
+  await inboxWorker?.stop();
+  await closeRuntimePools();
+}
+
 // When a conversation gate times out, notify the user, collapse any active clarification,
 // and mark the matching pending clarification 'expired' (gateKey === pendingKey). Resumption is
 // already blocked by the store's expires_at filter; this keeps the persisted status accurate and the
@@ -247,27 +327,36 @@ conversationGate.setOnExpiry((gateKey, chatId, requestId, userId) => {
       if (targetChatId === undefined) return;
 
       if (
-        pending?.interruptType === 'clarify'
-        && pending.clarificationMessageId !== undefined
-        && pending.clarificationMessageId === pending.promptMessageId
+        pending?.interruptType === 'clarify' &&
+        pending.clarificationMessageId !== undefined &&
+        pending.clarificationMessageId === pending.promptMessageId
       ) {
-        await botService.collapseClarification(targetChatId, pending.clarificationMessageId, pending.question);
+        await botService.collapseClarification(
+          targetChatId,
+          pending.clarificationMessageId,
+          pending.question,
+        );
       } else if (pending?.promptMessageId !== undefined) {
         await botService.deleteMessage(targetChatId, pending.promptMessageId);
       } else if (pending?.clarificationMessageId !== undefined) {
-        await botService.collapseClarification(targetChatId, pending.clarificationMessageId, pending.question);
+        await botService.collapseClarification(
+          targetChatId,
+          pending.clarificationMessageId,
+          pending.question,
+        );
       }
 
-      const message = recovered?.status === 'interrupted'
-        ? 'That request finished waiting for input, but the prompt expired. Please resend your request.'
-        : recovered
-          ? recovered.response
-          : '⏱ Request timed out. Send a new message to try again.';
-      await botService.sendRichMessage(
-        targetChatId,
-        message,
-        { chatId: targetChatId, gateKey, requestId },
-      );
+      const message =
+        recovered?.status === 'interrupted'
+          ? 'That request finished waiting for input, but the prompt expired. Please resend your request.'
+          : recovered
+            ? recovered.response
+            : '⏱ Request timed out. Send a new message to try again.';
+      await botService.sendRichMessage(targetChatId, message, {
+        chatId: targetChatId,
+        gateKey,
+        requestId,
+      });
     } finally {
       await conversationGate
         .releaseIfActiveRequestId(gateKey, cleanupRequestId)

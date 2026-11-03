@@ -101,3 +101,31 @@ def test_health_detail_identifies_orchestrator_not_role_override(monkeypatch) ->
     assert result.checks["llm"].ok is True
     assert result.limits.llm_request_timeout_seconds == 60.0
     health_module._check_llm.assert_called_once_with(orchestrator)
+
+
+def test_readiness_checks_database_without_provider_probes(monkeypatch):
+    import asyncio
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+    from agents.agent_api.app import db
+
+    connection = SimpleNamespace(execute=AsyncMock())
+    class Pool:
+        @asynccontextmanager
+        async def connection(self, **kwargs):
+            yield connection
+    monkeypatch.setattr(db, "open_async_pool", AsyncMock(return_value=Pool()))
+    monkeypatch.setattr("agents.agent_api.app.run_logging.log_writer_healthy", lambda: True)
+    probe = MagicMock(side_effect=AssertionError("readiness must not call providers"))
+    monkeypatch.setattr(health_module, "_check_llm", probe)
+    assert asyncio.run(health_module.ready()) == {"status": "ok"}
+    connection.execute.assert_awaited_once_with("SELECT 1")
+    probe.assert_not_called()
+
+
+def test_readiness_fails_when_database_is_unavailable(monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock
+    from agents.agent_api.app import db
+    monkeypatch.setattr(db, "open_async_pool", AsyncMock(side_effect=RuntimeError("offline")))
+    assert asyncio.run(health_module.ready()).status_code == 503

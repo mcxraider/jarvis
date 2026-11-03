@@ -221,7 +221,10 @@ function startWorker(): Worker | undefined {
     const configuredLogDir = process.env.JARVIS_LOG_DIR?.trim();
     workerFailureHandled = false;
     worker = new Worker(location.filename, {
-      execArgv: location.execArgv,
+      execArgv: location.execArgv ?? [],
+      resourceLimits: process.env.JARVIS_LOG_WORKER_HEAP_MB
+        ? { maxOldGenerationSizeMb: Number(process.env.JARVIS_LOG_WORKER_HEAP_MB) }
+        : undefined,
       workerData: configuredLogDir ? { logDir: configuredLogDir } : undefined,
     });
     worker.on('message', (message: WorkerAck) => {

@@ -1,3 +1,4 @@
+import { telegramWorkContext } from '../work-context';
 // src/services/telegram/handlers/telegram-handlers.ts — Registers all Telegraf event
 // handlers in the correct order. Registration order matters because Telegraf evaluates
 // handlers top-down and stops at the first match within a category (commands, then
@@ -23,8 +24,21 @@ export class TelegramHandlers {
     // TelegramBotService.handleUpdate before Telegraf dispatch, so only
     // authorized users ever reach this middleware.
     bot.use(async (ctx, next) => {
-      if (await this.messageHandlers.maybeBufferForward(ctx)) return;
-      return next();
+      const work = telegramWorkContext.getStore();
+      if (work && ctx.telegram?.callApi) {
+        ctx.telegram.callApi = new Proxy(ctx.telegram.callApi, {
+          apply(target, receiver, args) {
+            work.assertOwned();
+            return Reflect.apply(target, receiver, args);
+          },
+        });
+      }
+      const handler = (async () => {
+        if (await this.messageHandlers.maybeBufferForward(ctx)) return;
+        return next();
+      })();
+      work?.trackHandler?.(handler);
+      return handler;
     });
     this.setupCommandHandlers(bot);
     this.setupCallbackHandlers(bot);

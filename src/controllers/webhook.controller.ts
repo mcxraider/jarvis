@@ -5,6 +5,7 @@
 // request idempotency identity passed through to the Python agent.
 
 import express from 'express';
+import type { PostgresUpdateInbox } from '../services/telegram/update-inbox.store';
 import type { TelegramBotService } from '../services/telegram/telegram-bot.service';
 import { createRequestId, logger } from '../utils/logger';
 
@@ -17,7 +18,11 @@ interface TelegramWebhookUpdate {
  * The route pattern is POST /webhook/:secret — the :secret param must match
  * the TELEGRAM_SECRET_TOKEN env var, providing an extra auth layer on top of HTTPS.
  */
-export function createWebhookRouter(botService: TelegramBotService) {
+export function createWebhookRouter(
+  botService: TelegramBotService,
+  inbox?: PostgresUpdateInbox,
+  accepting: () => boolean = () => true,
+) {
   const router = express.Router();
 
   router.post('/webhook/:secret', express.json(), async (req, res): Promise<void> => {
@@ -26,7 +31,11 @@ export function createWebhookRouter(botService: TelegramBotService) {
 
     // Validate the webhook secret before processing — reject early if mismatched.
     const secret = req.params.secret;
-    if (!secret || secret !== process.env.TELEGRAM_SECRET_TOKEN) {
+    if (
+      !secret ||
+      secret !== process.env.TELEGRAM_SECRET_TOKEN ||
+      (inbox && req.get('X-Telegram-Bot-Api-Secret-Token') !== secret)
+    ) {
       logger.warn('telegram.webhook.rejected', {
         requestId,
         ip: req.ip,
@@ -37,6 +46,14 @@ export function createWebhookRouter(botService: TelegramBotService) {
       return;
     }
 
+    if (!accepting()) {
+      res.sendStatus(503);
+      return;
+    }
+    if (inbox && (!Number.isSafeInteger(req.body?.update_id) || req.body.update_id < 0)) {
+      res.sendStatus(400);
+      return;
+    }
     const update = {
       ...req.body,
       __requestId: requestId,
@@ -48,6 +65,17 @@ export function createWebhookRouter(botService: TelegramBotService) {
       messageType: getTelegramMessageType(req.body),
       hasReplyToMessage: Boolean(req.body?.message?.reply_to_message),
     });
+
+    if (inbox) {
+      try {
+        const accepted = await inbox.enqueue(update);
+        res.sendStatus(accepted ? 200 : 503);
+      } catch {
+        logger.warn('telegram.webhook.persistence_failed', { requestId });
+        res.sendStatus(503);
+      }
+      return;
+    }
 
     // Respond 200 immediately so Telegram doesn't retry on slow processing.
     res.sendStatus(200);

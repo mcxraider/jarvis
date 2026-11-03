@@ -6,7 +6,17 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { flushLogger, getLoggerStats, logger, shutdownLogger } from './utils/logger';
 import { createWebhookRouter } from './controllers/webhook.controller';
-import { agentContractReadiness, botService, databaseReadiness, ffmpegReadiness } from './app';
+import {
+  agentContractReadiness,
+  botService,
+  databaseReadiness,
+  ffmpegReadiness,
+  updateInbox,
+  inboxWorker,
+  prepareRuntime,
+  runtimeReady,
+  stopRuntime,
+} from './app';
 
 const NGROK_URL = process.env.NGROK_URL!;
 const TELEGRAM_SECRET_TOKEN = process.env.TELEGRAM_SECRET_TOKEN!;
@@ -15,7 +25,9 @@ const SKIP_WEBHOOK_SETUP = process.env.TELEGRAM_SKIP_WEBHOOK_SETUP === 'true';
 // --- Express application setup ---
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '256kb' }));
+let draining = false;
+let webhookReady = SKIP_WEBHOOK_SETUP;
 
 // Simple liveness probe.
 app.get('/ping', (_req: Request, res: Response, _next: NextFunction) => {
@@ -27,11 +39,11 @@ const LANGGRAPH_AGENT_URL = process.env.LANGGRAPH_AGENT_URL!;
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
 
 app.get('/health', async (_req: Request, res: Response, _next: NextFunction) => {
-  const dependencies: Record<string, string> = {};
+  const dependencies: Record<string, string> = { webhook: webhookReady ? 'ok' : 'not ready' };
 
   try {
     await databaseReadiness;
-    dependencies.database = 'ok';
+    dependencies.database = !runtimeReady || (await runtimeReady()) ? 'ok' : 'not ready';
   } catch {
     dependencies.database = 'not ready';
   }
@@ -44,12 +56,9 @@ app.get('/health', async (_req: Request, res: Response, _next: NextFunction) => 
   }
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
-    const langGraphRes = await fetch(`${LANGGRAPH_AGENT_URL.replace(/\/+$/, '')}/health`, {
-      signal: controller.signal,
+    const langGraphRes = await fetch(`${LANGGRAPH_AGENT_URL.replace(/\/+$/, '')}/ready`, {
+      signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
     });
-    clearTimeout(timeout);
     dependencies.langgraph = langGraphRes.ok ? 'ok' : `error (${langGraphRes.status})`;
   } catch {
     dependencies.langgraph = 'unreachable';
@@ -58,10 +67,12 @@ app.get('/health', async (_req: Request, res: Response, _next: NextFunction) => 
   const loggerStats = getLoggerStats();
   const LOGGER_FAILURE_WINDOW_MS = 5 * 60 * 1000;
   const recentFailure = loggerStats.last_write_failure_time
-    ? Date.now() - new Date(loggerStats.last_write_failure_time).getTime() < LOGGER_FAILURE_WINDOW_MS
+    ? Date.now() - new Date(loggerStats.last_write_failure_time).getTime() <
+      LOGGER_FAILURE_WINDOW_MS
     : false;
   const loggerHealthy = loggerStats.worker_alive && !recentFailure;
-  const healthy = Object.values(dependencies).every((v) => v === 'ok') && loggerHealthy;
+  const healthy =
+    !draining && Object.values(dependencies).every((v) => v === 'ok') && loggerHealthy;
   res.status(healthy ? 200 : 503).json({
     status: healthy ? 'healthy' : 'degraded',
     dependencies,
@@ -73,13 +84,16 @@ app.get('/health', async (_req: Request, res: Response, _next: NextFunction) => 
 });
 
 // Mount the Telegram webhook route at POST /webhook/:secret.
-app.use(createWebhookRouter(botService));
+app.use(createWebhookRouter(botService, updateInbox, () => !draining));
 
 // Global error-handling middleware — catches unhandled errors from any route.
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   logger.error('server.unhandled_error', { error: err.message, stack: err.stack });
   if (!res.headersSent) {
-    res.status(500).json({ error: 'Internal Server Error' });
+    const status = (err as Error & { status?: number }).status;
+    res
+      .status(status === 400 || status === 413 ? status : 500)
+      .json({ error: status === 413 ? 'Payload too large' : 'Request failed' });
   }
 });
 
@@ -93,16 +107,33 @@ let server: ReturnType<typeof app.listen> | undefined;
 // ladder, or no way to normalize audio.
 export async function startServer(): Promise<void> {
   await Promise.all([databaseReadiness, agentContractReadiness, ffmpegReadiness]);
+  await prepareRuntime?.();
+  inboxWorker?.start();
+  // Listen before registration: Telegram may validate the public endpoint during setup.
+  await new Promise<void>((resolve, reject) => {
+    server = app.listen(PORT, () => {
+      logger.info('server.started', { url: `http://localhost:${PORT}` });
+      resolve();
+    });
+    server.once?.('error', reject);
+  });
   if (SKIP_WEBHOOK_SETUP) {
     logger.info('telegram.webhook.setup_skipped');
   } else {
-    await botService.setupWebhook(NGROK_URL, TELEGRAM_SECRET_TOKEN);
+    const attempts = updateInbox ? 10 : 1;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        await botService.setupWebhook(NGROK_URL, TELEGRAM_SECRET_TOKEN);
+        webhookReady = true;
+        break;
+      } catch (error) {
+        if (attempt === attempts) throw error;
+        logger.warn('telegram.webhook.setup_retry', { attempt });
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+    }
   }
-
-  server = app.listen(PORT, () => {
-    logger.info('server.started', { url: `http://localhost:${PORT}` });
-    logger.info('telegram.webhook.awaiting_updates', { path: '/webhook/:secret' });
-  });
+  logger.info('telegram.webhook.awaiting_updates', { path: '/webhook/:secret' });
 }
 
 export const serverStartup = startServer().catch((err) => {
@@ -113,9 +144,11 @@ export const serverStartup = startServer().catch((err) => {
 });
 
 // Graceful shutdown: close the HTTP server, stop the bot, then exit.
-const SHUTDOWN_TIMEOUT_MS = 10_000;
+const SHUTDOWN_TIMEOUT_MS = Number(process.env.JARVIS_SHUTDOWN_TIMEOUT_MS ?? 800_000);
 
 function shutdown(signal: string) {
+  if (draining) return;
+  draining = true;
   logger.info('server.shutdown.started', { signal });
   const forceExit = setTimeout(() => {
     logger.warn('server.shutdown.forced', { signal, timeoutMs: SHUTDOWN_TIMEOUT_MS });
@@ -124,15 +157,17 @@ function shutdown(signal: string) {
   forceExit.unref();
 
   const stopBotAndExit = () => {
-    botService.stop().finally(async () => {
-      logger.info('server.shutdown.completed', { signal });
-      try {
-        await shutdownLogger();
-      } catch (error) {
-        process.stderr.write(`logger.shutdown.failed ${String(error)}\n`);
-      }
-      process.exit(0);
-    });
+    Promise.resolve(stopRuntime?.())
+      .then(() => botService.stop())
+      .finally(async () => {
+        logger.info('server.shutdown.completed', { signal });
+        try {
+          await shutdownLogger();
+        } catch (error) {
+          process.stderr.write(`logger.shutdown.failed ${String(error)}\n`);
+        }
+        process.exit(0);
+      });
   };
   if (server) {
     server.close(stopBotAndExit);

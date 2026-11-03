@@ -1,0 +1,8 @@
+# Local Docker Desktop deployment using the already-running ngrok tunnel.
+# Keep the production Compose file as the base; TLS terminates at ngrok.
+services:
+  proxy:
+    ports: !override
+      - '127.0.0.1:3000:8080'
+    volumes:
+      - ./deployment/Caddyfile.local:/etc/caddy/Caddyfile:ro

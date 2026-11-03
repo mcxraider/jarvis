@@ -64,6 +64,10 @@ export class MessageProcessorService {
     await this.textProcessor.resetConversationMemory(userId, logContext);
   }
 
+  transcribeForwardedAudio(fileUrl: string, userId?: number, logContext: LogContext = {}) {
+    return this.audioProcessor.transcribeForwardedAudio(fileUrl, userId, logContext);
+  }
+
   async processAudioMessage(
     fileUrl: string,
     userId?: number,

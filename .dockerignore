@@ -1,0 +1,27 @@
+.git
+.env
+.env.*
+!.env.sample
+node_modules
+venv
+.venv
+**/__pycache__
+**/*.pyc
+**/* 2.*
+dist
+logs
+**/logs
+scratch
+tests
+reports
+plans
+assets
+.supabase
+supabase/.temp
+deployment/*.env
+**/*token*.json
+**/*secret*.json
+
+.claude
+.codex
+**/.DS_Store

@@ -1,0 +1,19 @@
+{
+	email {$ACME_EMAIL}
+	admin off
+}
+{$JARVIS_DOMAIN} {
+	@webhook {
+		method POST
+		path /webhook/*
+	}
+	handle @webhook {
+		request_body {
+			max_size 256KB
+		}
+		reverse_proxy telegram:3000
+	}
+	handle {
+		respond 404
+	}
+}

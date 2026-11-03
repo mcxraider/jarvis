@@ -4,13 +4,14 @@ import {
   renderClarificationBlock,
   renderThinkingLabel,
   sendClarificationReply,
+  sendClarificationReplyWithReceipt,
   sendFinalReply,
   sendRichMessage,
   sendRichMessageToChat,
   setRichMessagesEnabled,
 } from '../../../../../src/services/telegram/formatters/telegram-rich';
 
-describe('telegram-rich clarification blocks', () => {
+describe('telegram-rich clarification replies', () => {
   afterEach(() => setRichMessagesEnabled(false));
 
   it('renders the same Markdown question expanded and collapsed', () => {
@@ -23,7 +24,7 @@ describe('telegram-rich clarification blocks', () => {
     );
   });
 
-  it('sends an expanded rich clarification and returns its message id', async () => {
+  it('sends an ordinary rich clarification and returns only its cleanup id', async () => {
     setRichMessagesEnabled(true);
     const callApi = jest.fn().mockResolvedValue({ message_id: 42 });
     const ctx = {
@@ -32,13 +33,40 @@ describe('telegram-rich clarification blocks', () => {
       telegram: { callApi },
     } as any;
 
-    await expect(sendClarificationReply(ctx, 'Which project?')).resolves.toBe(42);
+    await expect(sendClarificationReplyWithReceipt(ctx, "Yo Jerry! What's up?")).resolves.toEqual({
+      messageId: 42,
+    });
     expect(callApi).toHaveBeenCalledWith('sendRichMessage', {
       chat_id: 123,
       rich_message: {
-        markdown: '<details open><summary>Clarification</summary>\n\nWhich project?\n\n</details>',
+        markdown: "Yo Jerry! What's up?",
       },
     });
+  });
+
+  it.each([false, true])('preserves Markdown formatting with rich enabled=%s', async (enabled) => {
+    setRichMessagesEnabled(enabled);
+    const ctx = {
+      chat: { id: 123 },
+      reply: jest.fn().mockResolvedValue({ message_id: 1 }),
+      telegram: { callApi: jest.fn().mockRejectedValue(new Error('unsupported')) },
+    } as any;
+
+    await expect(sendClarificationReplyWithReceipt(ctx, '**Which project?** Pick one!')).resolves.toEqual({
+      messageId: 1,
+    });
+    expect(ctx.reply).toHaveBeenCalledWith('*Which project?* Pick one\\!', { parse_mode: 'MarkdownV2' });
+    if (!enabled) expect(ctx.telegram.callApi).not.toHaveBeenCalled();
+  });
+
+  it('returns no collapsible id from the compatibility helper in rich mode', async () => {
+    setRichMessagesEnabled(true);
+    const ctx = {
+      chat: { id: 123 },
+      telegram: { callApi: jest.fn().mockResolvedValue({ message_id: 42 }) },
+    } as any;
+
+    await expect(sendClarificationReply(ctx, 'Which project?')).resolves.toBeUndefined();
   });
 
   it('passes compact tables through unchanged for direct rich sends', async () => {

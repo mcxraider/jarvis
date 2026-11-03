@@ -1,3 +1,4 @@
+import { getRuntimePool } from '../database/runtime-pool';
 // src/services/telegram/pending-clarification.store.ts — Persistence layer for HITL
 // (human-in-the-loop) interrupt state. When the LangGraph agent pauses for user input
 // (clarify or confirm), a record is saved here so the next user message can resume
@@ -14,7 +15,11 @@ const parseImageBatches = (value: unknown): AgentImage[][] =>
   AgentImageBatchesSchema.parse(value) as AgentImage[][];
 
 export type PendingClarificationStatus =
-  'pending' | 'completed' | 'failed' | 'expired' | 'superseded';
+  | 'pending'
+  | 'completed'
+  | 'failed'
+  | 'expired'
+  | 'superseded';
 
 // Two interrupt flavors from the LangGraph agent:
 //   - 'clarify': agent needs more information before proceeding
@@ -238,12 +243,7 @@ export class PostgresPendingClarificationStore implements PendingClarificationSt
   private readonly pool: Pool;
 
   constructor(connectionString: string) {
-    this.pool = new Pool({
-      connectionString,
-      max: 5,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 5_000,
-    });
+    this.pool = getRuntimePool(connectionString);
     this.pool.on('error', (err) => {
       logger.warn('telegram.pending_store.pool_error', { error: err.message });
     });

@@ -1,5 +1,6 @@
 """Liveness and provider-neutral detailed dependency health routes."""
 
+import asyncio
 import json
 import urllib.error
 import urllib.request
@@ -7,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 from agents.agent_api.app.api.schemas import DetailedHealthResponse
 from agents.agent_api.app.config import settings
@@ -23,6 +25,26 @@ _TODOIST_TIMEOUT_SECONDS = 5.0
 
 @router.get("/health")
 def health() -> Dict[str, str]:
+    return {"status": "ok"}
+
+
+@router.get("/ready")
+async def ready():
+    """Cheap readiness: never call LLM or per-user provider APIs."""
+    from agents.agent_api.app.db import open_async_pool
+    from agents.agent_api.app.run_logging import log_writer_healthy
+
+    try:
+        async with asyncio.timeout(3):
+            pool = await open_async_pool()
+            if pool is None:
+                return JSONResponse({"status": "not_ready"}, status_code=503)
+            async with pool.connection(timeout=2) as connection:
+                await connection.execute("SELECT 1")
+            if not log_writer_healthy():
+                return JSONResponse({"status": "not_ready"}, status_code=503)
+    except Exception:
+        return JSONResponse({"status": "not_ready"}, status_code=503)
     return {"status": "ok"}
 
 

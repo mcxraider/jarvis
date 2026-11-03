@@ -54,6 +54,11 @@ export class AudioProcessorService {
     private readonly textProcessor: TextProcessorService,
   ) {}
 
+  /** Prepare forwarded audio without invoking or resuming an agent turn. */
+  transcribeForwardedAudio(fileUrl: string, userId?: number, logContext: LogContext = {}) {
+    return this.whisperService.transcribeAudio(fileUrl, userId, logContext);
+  }
+
   // Processes voice notes and audio messages. Downloads the file from Telegram's CDN,
   // transcribes it, then passes the text through the agent pipeline.
   async processAudioMessage(

@@ -601,7 +601,7 @@ describe('PostgresConversationGateStore pool config', () => {
   it('creates pool with bounded size and connection timeout', () => {
     const store = new PostgresConversationGateStore('postgres://example.invalid/jarvis');
     const pool = (store as any).pool;
-    expect(pool.options.max).toBe(5);
+    expect(pool.options.max).toBe(6);
     expect(pool.options.connectionTimeoutMillis).toBe(5_000);
     expect(pool.options.idleTimeoutMillis).toBe(30_000);
   });

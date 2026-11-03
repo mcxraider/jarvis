@@ -32,6 +32,29 @@ describe('MemoryForwardBufferStore', () => {
     expect(store.peek('k')).toEqual([]);
   });
 
+  it('atomically admits one audio, deduplicates replay, and permits another after acknowledgment', async () => {
+    const store = new MemoryForwardBufferStore();
+    const audio = (id: string) => msg({ id, audio: { kind: 'voice', fileId: id } });
+    const results = await Promise.all(['1', '2'].map(id => Promise.resolve(store.push('k', audio(id)))));
+    expect(results).toEqual([{ ok: true, count: 1 }, { ok: false, reason: 'audio_already_buffered' }]);
+    expect(store.push('k', audio('1'))).toEqual({ ok: true, count: 1 });
+    const snapshot = store.peek('k');
+    store.push('k', msg({ text: 'later' }));
+    expect(store.acknowledge('k', snapshot)).toMatchObject({ acknowledged: true, remainingCount: 1 });
+    expect(store.push('k', audio('2'))).toEqual({ ok: true, count: 2 });
+  });
+
+  it('clears audio admission on expiry and /new-style clear', () => {
+    jest.useFakeTimers();
+    const store = new MemoryForwardBufferStore({ ttlMs: 1000 });
+    const audio = msg({ audio: { kind: 'voice', fileId: 'voice' } });
+    store.push('k', audio);
+    jest.advanceTimersByTime(1001);
+    expect(store.push('k', audio)).toEqual({ ok: true, count: 1 });
+    store.clear('k');
+    expect(store.push('k', audio)).toEqual({ ok: true, count: 1 });
+  });
+
   it('keys buffers independently per conversation', () => {
     const store = new MemoryForwardBufferStore();
     store.push('a', msg());

@@ -76,6 +76,12 @@ export async function verifyAgentContract(
       `audio stage ${audioStageMs}ms (prepare ${timeouts.audioPrepareMs}ms + transcription ${timeouts.audioTranscriptionMs}ms) must be below Telegraf handler timeout ${timeouts.telegrafHandlerTimeoutMs}ms`,
     );
   }
+  const downloadMs = Number(process.env.GROQ_AUDIO_DOWNLOAD_TIMEOUT_SECONDS ?? 30) * 1000;
+  if (!(downloadMs + audioStageMs + timeouts.clientOverallMs < timeouts.telegrafHandlerTimeoutMs)) {
+    violations.push(
+      'complete download + audio + agent turn must fit below Telegraf handler timeout',
+    );
+  }
   if (!(timeouts.telegrafHandlerTimeoutMs < timeouts.runningGateTtlMs)) {
     violations.push(
       `Telegraf handler timeout ${timeouts.telegrafHandlerTimeoutMs}ms must be below running conversation-gate TTL ${timeouts.runningGateTtlMs}ms`,

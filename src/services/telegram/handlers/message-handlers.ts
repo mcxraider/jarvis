@@ -1,3 +1,5 @@
+import { telegramWorkContext } from '../work-context';
+import { imageAdmission } from '../media-admission';
 // src/services/telegram/handlers/message-handlers.ts — Handles all non-command message
 // types: text, voice, audio, photos, documents, and unsupported media. Each handler
 // follows the same pattern: validate context → log → show progress → process → reply.
@@ -37,12 +39,15 @@ import {
   ForwardBufferStore,
   ForwardedMessage,
   AcknowledgeResult,
+  ForwardedAudio,
+  FORWARD_AUDIO_LIMIT_MESSAGE,
 } from '../forward-buffer.store';
 import {
   AgentImage,
   MAX_AGENT_IMAGE_BYTES,
   MAX_AGENT_IMAGE_COUNT,
 } from '../../../types/agent.types';
+import { resolveTurnTimeoutConfig } from '../../../config/turn-timeout.config';
 import { AUDIO_LIMIT_MESSAGES, AUDIO_LIMITS } from '../../../utils/ai/audio-limits';
 import { classifyError } from '../errors/classified-error';
 import { formatPollAsText } from '../poll-content';
@@ -51,10 +56,7 @@ const ALBUM_QUIET_MS = 1500;
 // Bounds the late-arrival ledger so a stream of albums can't grow it without limit
 // between the age-based sweeps in pruneStaleAlbumEntries.
 const MAX_RECENT_ALBUMS = 100;
-// Caps in-flight photo downloads. Each may buy up to MAX_AGENT_IMAGE_BYTES before the
-// budget check runs, so transient memory is bounded at N × MAX_AGENT_IMAGE_BYTES rather
-// than COUNT × that. Forwarded photos are untrusted, so this ceiling is load-bearing.
-const IMAGE_DOWNLOAD_CONCURRENCY = 4;
+// Photos share one process-wide admission budget and download sequentially.
 const PHOTO_ERROR =
   "I couldn't process that image or album. Send 1–10 JPEG photos totaling no more than 10 MB, then try again.";
 
@@ -108,8 +110,42 @@ export class MessageHandlers {
     const logContext = this.createLogContext(ctx, 'forward');
     let text: string | undefined;
     let fileId: string | undefined;
+    let audio: ForwardedAudio | undefined;
+    const audioKind =
+      'voice' in message
+        ? 'voice'
+        : 'audio' in message
+          ? 'audio'
+          : 'document' in message &&
+              this.fileService.isAudioFile((message.document as { mime_type?: string })?.mime_type)
+            ? 'document'
+            : undefined;
     if (typeof message.text === 'string') {
       text = message.text;
+    } else if (audioKind) {
+      const file = message[audioKind] as {
+        file_id: string;
+        file_name?: string;
+        mime_type?: string;
+        file_size?: number;
+        duration?: number;
+      };
+      if (await this.rejectOversizedAudio(ctx, file.file_size, logContext)) return true;
+      if (file.duration !== undefined && file.duration > AUDIO_LIMITS.MAX_DURATION_SECONDS) {
+        await sendFinalReply(ctx, AUDIO_LIMIT_MESSAGES.tooLong, logContext);
+        return true;
+      }
+      audio = {
+        kind: audioKind,
+        fileId: file.file_id,
+        fileName: file.file_name,
+        mimeType: file.mime_type,
+        fileSize: file.file_size,
+        duration: file.duration,
+      };
+      text =
+        `[${audioKind}${file.file_name ? `: ${file.file_name}` : ''}]` +
+        (typeof message.caption === 'string' ? ` ${message.caption}` : '');
     } else if ('photo' in message) {
       const photos = message.photo as Array<{ file_id: string; width: number; height: number }>;
       const largest = photos.reduce((best, c) =>
@@ -122,7 +158,11 @@ export class MessageHandlers {
       if (pollText) {
         text = pollText;
       }
-    } else if (typeof message.caption === 'string' && 'document' in message) {
+    } else if (
+      typeof message.caption === 'string' &&
+      'document' in message &&
+      !(message.document as { mime_type?: string })?.mime_type?.startsWith('audio/')
+    ) {
       const name = (message.document as { file_name?: string })?.file_name ?? 'unnamed';
       text = `[file: ${name}] ${message.caption}`;
     }
@@ -139,7 +179,7 @@ export class MessageHandlers {
       logger.info('telegram.forward.rejected', { ...logContext, reason: 'no_text' });
       await sendFinalReply(
         ctx,
-        'I can only buffer forwarded text, photos, and polls. Voice, video, and sticker forwards are not supported.',
+        'I can buffer forwarded text, photos, polls, voice notes, and supported audio files. Video, stickers, and unsupported audio formats are not supported.',
         logContext,
       );
       return true;
@@ -148,7 +188,9 @@ export class MessageHandlers {
     const gateKey = this.gateKey(ctx);
 
     if (fileId) {
-      const existingPhotos = this.forwardBuffer.peek(gateKey).filter((m) => m.fileId).length;
+      const existingPhotos = (await this.forwardBuffer.peek(gateKey)).filter(
+        (m) => m.fileId,
+      ).length;
       if (existingPhotos >= MAX_AGENT_IMAGE_COUNT) {
         await sendFinalReply(
           ctx,
@@ -169,6 +211,7 @@ export class MessageHandlers {
         receivedAt: new Date(),
         text,
         ...(fileId && { fileId }),
+        ...(audio && { audio }),
       },
       logContext,
     );
@@ -184,15 +227,20 @@ export class MessageHandlers {
     logContext: LogContext,
   ): Promise<void> {
     if (!this.forwardBuffer) return;
-    const result = this.forwardBuffer.push(gateKey, msg);
+    const result = await this.forwardBuffer.push(gateKey, {
+      ...msg,
+      id: ctx.update?.update_id === undefined ? undefined : String(ctx.update.update_id),
+    });
 
     if (!result.ok) {
       logger.info('telegram.forward.rejected', { ...logContext, reason: result.reason });
       await sendFinalReply(
         ctx,
-        result.reason === 'buffer_full'
-          ? `Buffer is full (${this.forwardBuffer.count(gateKey)} messages). Send /forward <instruction> to dispatch, or /new to clear.`
-          : 'That message is too long for me to buffer.',
+        result.reason === 'audio_already_buffered'
+          ? FORWARD_AUDIO_LIMIT_MESSAGE
+          : result.reason === 'buffer_full'
+            ? `Buffer is full (${await this.forwardBuffer.count(gateKey)} messages). Send /forward <instruction> to dispatch, or /new to clear.`
+            : 'That message is too long for me to buffer.',
         logContext,
       );
       return;
@@ -227,11 +275,11 @@ export class MessageHandlers {
     logContext: LogContext,
   ): Promise<void> {
     if (!this.forwardBuffer) return;
-    const count = this.forwardBuffer.count(gateKey);
+    const count = await this.forwardBuffer.count(gateKey);
     // Buffer dispatched or cleared while this turn waited in the chain — nothing to show.
     if (count === 0) return;
     const text = `📥 ${count} message${count === 1 ? '' : 's'} buffered. Send your instruction next, or use /forward <instruction>.`;
-    const existingId = this.forwardBuffer.getConfirmationMessageId(gateKey);
+    const existingId = await this.forwardBuffer.getConfirmationMessageId(gateKey);
     if (existingId !== undefined && ctx.chat) {
       try {
         await ctx.telegram.editMessageText(ctx.chat.id, existingId, undefined, text);
@@ -247,7 +295,7 @@ export class MessageHandlers {
     }
     try {
       const sent = await ctx.reply(text);
-      this.forwardBuffer.setConfirmationMessageId(gateKey, sent.message_id);
+      await this.forwardBuffer.setConfirmationMessageId(gateKey, sent.message_id);
     } catch (error) {
       logger.warn('telegram.forward.confirmation_send_failed', {
         ...logContext,
@@ -265,7 +313,7 @@ export class MessageHandlers {
     const startedAt = Date.now();
     const instruction = ctx.message.text.replace(/^\/forward(?:@\w+)?\s*/i, '').trim();
     const gateKey = this.gateKey(ctx);
-    const snapshot = this.forwardBuffer.peek(gateKey);
+    const snapshot = await this.forwardBuffer.peek(gateKey);
 
     logger.info('telegram.command.forward', {
       ...logContext,
@@ -284,10 +332,11 @@ export class MessageHandlers {
 
     const photoFileIds = snapshot.map((m) => m.fileId).filter((id): id is string => Boolean(id));
     const imageCount = photoFileIds.length;
+    const audioMessage = snapshot.find((message) => message.audio);
 
     // A bare /forward re-prompts only when there's nothing we can act on by default.
-    // If images are buffered, fall through with a default instruction instead.
-    if (!instruction && imageCount === 0) {
+    // Audio and images can use a default instruction.
+    if (!instruction && imageCount === 0 && !audioMessage) {
       await sendFinalReply(
         ctx,
         `You have ${snapshot.length} message${snapshot.length === 1 ? '' : 's'} buffered. Send /forward <instruction> to tell me what to do with them.`,
@@ -297,11 +346,15 @@ export class MessageHandlers {
     }
 
     const effectiveInstruction =
-      instruction || (imageCount === 1 ? 'help me with this image.' : 'help me with these images.');
+      instruction ||
+      (audioMessage
+        ? 'help me with this forwarded content.'
+        : imageCount === 1
+          ? 'help me with this image.'
+          : 'help me with these images.');
 
-    // No gate pre-check here: the processor's tryAcquire is authoritative and rejects a
-    // running gate anyway (and never fires onRequestAccepted on rejection, so the buffer
-    // stays intact). Skipping it drops one DB round trip before the progress indicator.
+    // The processor owns final gate acquisition and only accepts the snapshot after
+    // dispatch. Media preparation failures leave both the buffer and pending pause intact.
     const combined = formatForwardContext(snapshot, effectiveInstruction);
 
     logger.info('telegram.forward.dispatched', {
@@ -309,11 +362,15 @@ export class MessageHandlers {
       count: snapshot.length,
       totalChars: combined.length,
       imageCount: photoFileIds.length,
+      hasAudio: Boolean(audioMessage),
     });
 
-    const acceptCallback = () => this.acknowledgeForwardBuffer(ctx, gateKey, snapshot, logContext);
+    const acceptCallback = () => {
+      telegramWorkContext.getStore()?.assertOwned();
+      return this.acknowledgeForwardBuffer(ctx, gateKey, snapshot, logContext);
+    };
 
-    if (photoFileIds.length === 0) {
+    if (photoFileIds.length === 0 && !audioMessage) {
       await this.runFreshText(ctx, combined, logContext, startedAt, {
         forceFresh: true,
         inputKind: 'forwarded',
@@ -327,23 +384,89 @@ export class MessageHandlers {
       logContext,
       startedAt,
       async (onProgress, onPendingPauseAccepted) => {
-        // Download inside the progress scope so "Reviewing forwarded messages…" paints
-        // immediately, in parallel with the (now concurrent) CDN fetches. All-or-nothing:
-        // any failure keeps the buffer intact (onRequestAccepted never fires) for a retry.
-        let images: AgentImage[];
+        // Gate acquisition after preparation remains authoritative; this early check
+        // avoids transcription costs when a known active run already blocks dispatch.
+        if (audioMessage && this.conversationGate) {
+          const gate = await this.conversationGate.getSnapshot(gateKey);
+          if (gate.status === 'running')
+            return {
+              response:
+                "I'm still working on your previous request. Your forwards are buffered; retry /forward when I'm done.",
+              blocked: true,
+            };
+        }
+        let images: AgentImage[] = [];
+        let prepared = snapshot;
+        let transcript: string | undefined;
         try {
-          const result = await this.downloadImages(photoFileIds, logContext, {
-            skipFailures: false,
-          });
-          images = result.images;
-        } catch {
+          if (audioMessage?.audio) {
+            telegramWorkContext.getStore()?.assertOwned();
+            const fileUrl = await this.fileService.getFileUrl(
+              audioMessage.audio.fileId,
+              AUDIO_LIMITS.MAX_INPUT_BYTES,
+            );
+            const result = await this.messageProcessor.transcribeForwardedAudio(
+              fileUrl,
+              ctx.from?.id,
+              logContext,
+            );
+            telegramWorkContext.getStore()?.assertOwned();
+            transcript = result.text;
+            if (!transcript || transcript.trim().length < 2)
+              return {
+                response:
+                  'No speech detected in the forwarded audio. Your buffer is intact; retry /forward, or /new to clear it.',
+              };
+            prepared = snapshot.map((message) =>
+              message === audioMessage
+                ? { ...message, text: `${message.text}\nTranscript:\n${transcript}` }
+                : message,
+            );
+          }
+          if (photoFileIds.length) {
+            images = (await this.downloadImages(photoFileIds, logContext, { skipFailures: false }))
+              .images;
+          }
+        } catch (error) {
+          telegramWorkContext.getStore()?.assertOwned();
+          const classified = classifyError(error as Error);
           return {
-            response:
-              "I couldn't load every forwarded photo. Your buffer is still intact; retry `/forward`, or `/new` and re-forward the photos.",
+            response: audioMessage
+              ? `${classified.category === 'user_actionable' ? classified.userMessage : "I couldn't prepare every forwarded file."} Your buffer is intact; retry /forward, or /new to clear it.`
+              : "I couldn't load every forwarded photo. Your buffer is still intact; retry `/forward`, or `/new` and re-forward the photos.",
           };
         }
+        telegramWorkContext.getStore()?.assertOwned();
+        const message = formatForwardContext(prepared, effectiveInstruction);
+        if (transcript) {
+          try {
+            await this.sendTranscription(ctx, transcript, logContext);
+          } catch {
+            logger.warn('telegram.forward.transcript_presentation_failed', logContext);
+          }
+        }
+        telegramWorkContext.getStore()?.assertOwned();
+        if (audioMessage) {
+          // Mixed audio/photo preparation must leave room for the full agent turn
+          // and final presentation inside the existing handler watchdog.
+          const timeouts = resolveTurnTimeoutConfig();
+          if (Date.now() - startedAt >= timeouts.telegrafHandlerMs - timeouts.overallMs - 5000) {
+            return {
+              response:
+                'Preparing the forwarded files took too long. Your buffer is intact; retry /forward, or /new to clear it.',
+            };
+          }
+        }
+        if (!images.length)
+          return this.messageProcessor.processTextMessage(
+            message,
+            ctx.from?.id,
+            logContext,
+            onProgress,
+            { forceFresh: true, onPendingPauseAccepted, onRequestAccepted: acceptCallback },
+          );
         return this.messageProcessor.processPhotoMessage(
-          combined,
+          message,
           images,
           ctx.from?.id,
           logContext,
@@ -369,7 +492,7 @@ export class MessageHandlers {
     logContext: LogContext,
   ): Promise<void> {
     if (!this.forwardBuffer) return;
-    const result = this.forwardBuffer.acknowledge(gateKey, snapshot);
+    const result = await this.forwardBuffer.acknowledge(gateKey, snapshot);
     if (!result.acknowledged) return;
 
     if (result.remainingCount === 0) {
@@ -404,7 +527,7 @@ export class MessageHandlers {
     // semantics, though — if the agent is waiting for user input, plain text must resume
     // that pending turn instead of silently starting a fresh forwarded-content request.
     const gateKey = this.gateKey(ctx);
-    const bufferedForwardCount = this.forwardBuffer?.count(gateKey) ?? 0;
+    const bufferedForwardCount = (await this.forwardBuffer?.count(gateKey)) ?? 0;
     if (bufferedForwardCount > 0) {
       const gateSnapshot = this.conversationGate
         ? await this.conversationGate.getSnapshot(gateKey).catch(() => undefined)
@@ -521,7 +644,7 @@ export class MessageHandlers {
         return;
       }
       // /new means "abandon everything", including any accumulated forwards.
-      this.forwardBuffer?.clear(gateKey);
+      await this.forwardBuffer?.clear(gateKey);
       await sendFinalReply(
         ctx,
         "We're in a new conversation — send your next message.",
@@ -531,7 +654,7 @@ export class MessageHandlers {
     }
 
     // Explicitly starting a new request abandons accumulated forwards along with it.
-    this.forwardBuffer?.clear(this.gateKey(ctx));
+    await this.forwardBuffer?.clear(this.gateKey(ctx));
     await this.runFreshText(ctx, remainder, logContext, startedAt, {
       forceFresh: true,
       resetMemory: true,
@@ -593,6 +716,7 @@ export class MessageHandlers {
         },
         (presentation) => this.resolvePausePresentation(ctx, presentation, logContext),
       );
+      telegramWorkContext.getStore()?.assertOwned();
       if (result.suppressed) {
         logger.info('telegram.reply.suppressed_stale_owner', { ...logContext });
         void progressReporter.complete();
@@ -612,6 +736,12 @@ export class MessageHandlers {
         totalDurationMs: Date.now() - startedAt,
       });
     } catch (error) {
+      try {
+        telegramWorkContext.getStore()?.assertOwned();
+      } catch {
+        void progressReporter.complete();
+        return;
+      }
       logger.error('telegram.message.failed', {
         ...logContext,
         ...(resultKind === 'photo'
@@ -646,6 +776,29 @@ export class MessageHandlers {
 
   async handlePhoto(ctx: Context): Promise<void> {
     if (!ctx.message || !('photo' in ctx.message)) return;
+    const durableAlbum = (
+      ctx.update as unknown as { __albumMessages?: Array<Message.PhotoMessage> }
+    )?.__albumMessages;
+    if (durableAlbum) {
+      await this.processPhotoItems(
+        ctx,
+        durableAlbum.map((message) => {
+          const largest = message.photo.reduce((best, candidate) =>
+            candidate.width * candidate.height > best.width * best.height ? candidate : best,
+          );
+          return {
+            messageId: message.message_id,
+            fileId: largest.file_id,
+            caption: message.caption,
+            width: largest.width,
+            height: largest.height,
+          };
+        }),
+        this.createLogContext(ctx, 'photo'),
+        Date.now(),
+      );
+      return;
+    }
     const message = ctx.message;
     const largest = message.photo.reduce((best, candidate) =>
       candidate.width * candidate.height > best.width * best.height ? candidate : best,
@@ -792,54 +945,37 @@ export class MessageHandlers {
     logContext: LogContext,
     options: { skipFailures: boolean },
   ): Promise<{ images: AgentImage[]; decodedBytes: number }> {
-    // Download with bounded concurrency, then enforce the byte budget afterward in order —
-    // so N small photos no longer pay N sequential CDN round trips, while transient memory
-    // stays bounded at IMAGE_DOWNLOAD_CONCURRENCY × MAX_AGENT_IMAGE_BYTES. The per-file cap
-    // still guards a single oversized file.
-    type Downloaded = { ok: true; buffer: Buffer } | { ok: false; error: unknown };
-    const downloadOne = async (fileId: string): Promise<Downloaded> => {
-      try {
-        const buffer = await this.fileService.downloadFile(fileId, MAX_AGENT_IMAGE_BYTES);
-        if (!this.isJpeg(buffer)) throw new Error('Telegram photo is not a valid JPEG');
-        return { ok: true, buffer };
-      } catch (error) {
-        return { ok: false, error };
-      }
-    };
-    const settled = new Array<Downloaded>(fileIds.length);
-    let cursor = 0;
-    const worker = async (): Promise<void> => {
-      while (cursor < fileIds.length) {
-        const i = cursor++;
-        settled[i] = await downloadOne(fileIds[i]);
-      }
-    };
-    await Promise.all(
-      Array.from({ length: Math.min(IMAGE_DOWNLOAD_CONCURRENCY, fileIds.length) }, worker),
-    );
+    return imageAdmission().run(() => this.downloadImagesAdmitted(fileIds, logContext, options));
+  }
 
+  private async downloadImagesAdmitted(
+    fileIds: string[],
+    logContext: LogContext,
+    options: { skipFailures: boolean },
+  ): Promise<{ images: AgentImage[]; decodedBytes: number }> {
     let remaining = MAX_AGENT_IMAGE_BYTES;
     let decodedBytes = 0;
     const images: AgentImage[] = [];
-    for (const result of settled) {
-      if (!result.ok || result.buffer.length > remaining) {
-        const error = result.ok
-          ? new Error('Forwarded photos exceed the size budget')
-          : result.error;
+    if (fileIds.length > MAX_AGENT_IMAGE_COUNT) throw new Error('Too many images');
+    for (const fileId of fileIds) {
+      try {
+        if (remaining <= 0) throw new Error('Photo byte budget exhausted');
+        const buffer = await this.fileService.downloadFile(fileId, remaining);
+        if (buffer.length > remaining || !this.isJpeg(buffer))
+          throw new Error('Invalid or oversized JPEG');
+        remaining -= buffer.length;
+        decodedBytes += buffer.length;
+        images.push({
+          image_url: `data:image/jpeg;base64,${buffer.toString('base64')}`,
+          detail: 'original',
+        });
+      } catch (error) {
         if (!options.skipFailures) throw error;
         logger.warn('telegram.photo.download_failed', {
           ...logContext,
           errorType: error instanceof Error ? error.name : 'UnknownError',
         });
-        continue;
       }
-      // result.ok narrowed to true and within budget: result.buffer is defined.
-      remaining -= result.buffer.length;
-      decodedBytes += result.buffer.length;
-      images.push({
-        image_url: `data:image/jpeg;base64,${result.buffer.toString('base64')}`,
-        detail: 'original',
-      });
     }
     return { images, decodedBytes };
   }
@@ -1345,7 +1481,7 @@ export class MessageHandlers {
         ...logContext,
         gateKey,
         interruptType: result.interruptType,
-        presentation: 'clarification_block',
+        presentation: 'clarification_text',
       });
     }
   }

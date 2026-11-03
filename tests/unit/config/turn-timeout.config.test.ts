@@ -16,10 +16,10 @@ import {
 const DEFAULT_LADDER: TurnTimeoutConfig = {
   overallMs: 165_000,
   streamIdleMs: 155_000,
-  telegrafHandlerMs: 600_000,
+  telegrafHandlerMs: 780_000,
   audioPrepareMs: 120_000,
   audioTranscriptionMs: 360_000,
-  runningGateTtlMs: 720_000,
+  runningGateTtlMs: 900_000,
   waitingGateTtlMs: 1_800_000,
 };
 
@@ -34,10 +34,10 @@ describe('turn timeout configuration', () => {
     // a silent regression in any single stage budget fails here.
     expect(TURN_TIMEOUT_DEFAULTS.overallMs).toBe(165_000);
     expect(TURN_TIMEOUT_DEFAULTS.streamIdleMs).toBe(155_000);
-    expect(TURN_TIMEOUT_DEFAULTS.telegrafHandlerMs).toBe(600_000);
+    expect(TURN_TIMEOUT_DEFAULTS.telegrafHandlerMs).toBe(780_000);
     expect(TURN_TIMEOUT_DEFAULTS.audioPrepareMs).toBe(120_000);
     expect(TURN_TIMEOUT_DEFAULTS.audioTranscriptionMs).toBe(360_000);
-    expect(TURN_TIMEOUT_DEFAULTS.runningGateTtlMs).toBe(720_000);
+    expect(TURN_TIMEOUT_DEFAULTS.runningGateTtlMs).toBe(900_000);
     expect(TURN_TIMEOUT_DEFAULTS.waitingGateTtlMs).toBe(1_800_000);
   });
 
@@ -45,14 +45,14 @@ describe('turn timeout configuration', () => {
     const env = {
       LANGGRAPH_AGENT_TIMEOUT_MS: '180000',
       LANGGRAPH_STREAM_IDLE_TIMEOUT_MS: '130000',
-      TELEGRAM_HANDLER_TIMEOUT_MS: '610000',
+      TELEGRAM_HANDLER_TIMEOUT_MS: '800000',
     };
 
     expect(resolveTurnTimeoutConfig({}, env)).toEqual({
       ...DEFAULT_LADDER,
       overallMs: 180_000,
       streamIdleMs: 130_000,
-      telegrafHandlerMs: 610_000,
+      telegrafHandlerMs: 800_000,
     });
   });
 
@@ -60,20 +60,20 @@ describe('turn timeout configuration', () => {
     const env = {
       LANGGRAPH_AGENT_TIMEOUT_MS: '200000',
       LANGGRAPH_STREAM_IDLE_TIMEOUT_MS: '190000',
-      TELEGRAM_HANDLER_TIMEOUT_MS: '900000',
+      TELEGRAM_HANDLER_TIMEOUT_MS: '1000000',
       GROQ_AUDIO_PREPARE_TIMEOUT_MS: '150000',
       GROQ_AUDIO_TRANSCRIPTION_TIMEOUT_MS: '600000',
-      TELEGRAM_GATE_RUNNING_TTL_MS: '960000',
+      TELEGRAM_GATE_RUNNING_TTL_MS: '1100000',
       TELEGRAM_GATE_WAITING_TTL_MS: '2400000',
     };
 
     expect(resolveTurnTimeoutConfig({}, env)).toEqual({
       overallMs: 200_000,
       streamIdleMs: 190_000,
-      telegrafHandlerMs: 900_000,
+      telegrafHandlerMs: 1_000_000,
       audioPrepareMs: 150_000,
       audioTranscriptionMs: 600_000,
-      runningGateTtlMs: 960_000,
+      runningGateTtlMs: 1_100_000,
       waitingGateTtlMs: 2_400_000,
     });
   });
@@ -183,7 +183,7 @@ describe('turn timeout configuration', () => {
       overallMs: 165_000,
       streamIdleMs: 155_000,
     });
-    expect(resolveTelegrafHandlerTimeoutMs(undefined, {})).toBe(600_000);
+    expect(resolveTelegrafHandlerTimeoutMs(undefined, {})).toBe(780_000);
   });
 
   describe('single-value resolvers', () => {
@@ -213,7 +213,7 @@ describe('turn timeout configuration', () => {
         resolve: resolveRunningGateTtlMs,
         envName: 'TELEGRAM_GATE_RUNNING_TTL_MS',
         explicitName: 'runningGateTtlMs',
-        defaultValue: 720_000,
+        defaultValue: 900_000,
       },
       {
         name: 'waiting gate TTL',
@@ -269,30 +269,29 @@ describe('turn timeout configuration', () => {
     it.each([
       ['streamIdleMs < overallMs', { streamIdleMs: 200_000 }],
       ['streamIdleMs < overallMs', { streamIdleMs: 165_000 }],
-      ['overallMs < telegrafHandlerMs', { overallMs: 700_000, streamIdleMs: 1_000 }],
-      ['overallMs < telegrafHandlerMs', { overallMs: 600_000, streamIdleMs: 1_000 }],
+      ['download + audio + agent < telegrafHandlerMs', { overallMs: 700_000, streamIdleMs: 1_000 }],
+      ['overallMs < telegrafHandlerMs', { overallMs: 780_000, streamIdleMs: 1_000 }],
       [
-        'audioPrepareMs + audioTranscriptionMs < telegrafHandlerMs',
+        'download + audio + agent < telegrafHandlerMs',
         { audioTranscriptionMs: 500_000 },
       ],
       [
-        'audioPrepareMs + audioTranscriptionMs < telegrafHandlerMs',
+        'download + audio + agent < telegrafHandlerMs',
         { audioTranscriptionMs: 480_000 },
       ],
       ['telegrafHandlerMs < runningGateTtlMs', { runningGateTtlMs: 500_000 }],
-      ['telegrafHandlerMs < runningGateTtlMs', { runningGateTtlMs: 600_000 }],
+      ['telegrafHandlerMs < runningGateTtlMs', { runningGateTtlMs: 780_000 }],
       ['runningGateTtlMs <= waitingGateTtlMs', { waitingGateTtlMs: 700_000 }],
-    ])('flags exactly one violation for %s with %o', (rule, patch) => {
+    ])('flags the expected violation for %s with %o', (rule, patch) => {
       const violations = findTurnTimeoutLadderViolations({ ...DEFAULT_LADDER, ...patch });
 
-      expect(violations).toHaveLength(1);
-      expect(violations[0].rule).toBe(rule);
+      expect(violations.map(item => item.rule)).toContain(rule);
       expect(violations[0].detail).toEqual(expect.any(String));
     });
 
     it('treats equal running and waiting gate TTLs as valid', () => {
       expect(
-        findTurnTimeoutLadderViolations({ ...DEFAULT_LADDER, waitingGateTtlMs: 720_000 }),
+        findTurnTimeoutLadderViolations({ ...DEFAULT_LADDER, waitingGateTtlMs: 900_000 }),
       ).toEqual([]);
     });
 
@@ -311,6 +310,7 @@ describe('turn timeout configuration', () => {
         'streamIdleMs < overallMs',
         'overallMs < telegrafHandlerMs',
         'audioPrepareMs + audioTranscriptionMs < telegrafHandlerMs',
+        'download + audio + agent < telegrafHandlerMs',
         'telegrafHandlerMs < runningGateTtlMs',
         'runningGateTtlMs <= waitingGateTtlMs',
       ]);
@@ -327,6 +327,7 @@ describe('turn timeout configuration', () => {
         'streamIdleMs < overallMs',
         'overallMs < telegrafHandlerMs',
         'audioPrepareMs + audioTranscriptionMs < telegrafHandlerMs',
+        'download + audio + agent < telegrafHandlerMs',
         'telegrafHandlerMs < runningGateTtlMs',
         'runningGateTtlMs <= waitingGateTtlMs',
       ]) {
@@ -336,7 +337,7 @@ describe('turn timeout configuration', () => {
 
     it('fails fast at resolution time when an environment override inverts the ladder', () => {
       expect(() => resolveTurnTimeoutConfig({}, { TELEGRAM_GATE_RUNNING_TTL_MS: '1000' })).toThrow(
-        'Turn timeout ladder inverted: telegrafHandlerMs < runningGateTtlMs: telegrafHandlerMs 600000ms must be below runningGateTtlMs 1000ms',
+        'Turn timeout ladder inverted: telegrafHandlerMs < runningGateTtlMs: telegrafHandlerMs 780000ms must be below runningGateTtlMs 1000ms',
       );
     });
 

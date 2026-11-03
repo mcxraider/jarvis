@@ -73,7 +73,7 @@ export class CommandHandlers {
       `### ⚙️ Capabilities\n` +
       `\n` +
       `* Text — send a message and I'll handle it (task management via Todoist)\n` +
-      `* Forwards — forward messages from other chats, then /forward\n` +
+      `* Forwards — text, photos, polls, and one voice/audio file per batch; then /forward\n` +
       `* Voice — send a voice note and I'll transcribe + act on it\n` +
       `* Audio files — OGG, MP3, WAV, M4A supported\n` +
       `* Photos — send one JPEG photo or an album of up to 10 photos\n` +

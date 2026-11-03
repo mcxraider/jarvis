@@ -336,7 +336,7 @@ describe('MessageHandlers', () => {
         expect.stringContaining('Something went wrong'),
         expect.anything(),
       );
-      expect(pendingStore.attachClarificationMessageIdIfMatches).toHaveBeenCalledWith(
+      expect(pendingStore.attachPromptMessageIdIfMatches).toHaveBeenCalledWith(
         expect.any(String),
         { threadId, requestId: settlementRequestId },
         701,
@@ -1629,7 +1629,7 @@ describe('MessageHandlers', () => {
       );
     });
 
-    it('sends exactly one rich clarification block and persists its id', async () => {
+    it('sends one ordinary rich clarification and persists only its cleanup id', async () => {
       setRichMessagesEnabled(true);
       const messageProcessor = {
         processTextMessage: jest.fn().mockResolvedValue({
@@ -1655,11 +1655,10 @@ describe('MessageHandlers', () => {
         'sendRichMessageDraft',
         'sendRichMessage',
       ]);
+      expect(pendingStore.attachClarificationMessageIdIfMatches).not.toHaveBeenCalled();
       const promptCall = ctx.telegram.callApi.mock.calls[1][1];
-      expect(promptCall.rich_message.markdown).toBe(
-        '<details open><summary>Clarification</summary>\n\nWhich project?\n\n</details>',
-      );
-      expect(pendingStore.attachClarificationMessageIdIfMatches).toHaveBeenCalledWith(
+      expect(promptCall.rich_message.markdown).toBe('Which project?');
+      expect(pendingStore.attachPromptMessageIdIfMatches).toHaveBeenCalledWith(
         expect.any(String),
         { threadId: 'tg_order_clarify', requestId: 'request-clarify' },
         701,
@@ -1693,7 +1692,7 @@ describe('MessageHandlers', () => {
         chat_id: 456,
         rich_message: { markdown: expect.stringContaining('What time?') },
       });
-      expect(pendingStore.attachClarificationMessageIdIfMatches).toHaveBeenCalledWith(
+      expect(pendingStore.attachPromptMessageIdIfMatches).toHaveBeenCalledWith(
         expect.any(String),
         { threadId: 'thread-second', requestId: 'resume-request' },
         77,

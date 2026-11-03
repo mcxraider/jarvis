@@ -1,3 +1,4 @@
+import { getRuntimePool } from '../database/runtime-pool';
 import { Pool } from 'pg';
 import { logger } from '../../utils/logger';
 
@@ -47,7 +48,10 @@ export interface ConversationGateStore {
   /** Atomically release only when the completing request still owns the gate. */
   releaseIfActiveRequestId(gateKey: string, expectedRequestId: string): Promise<GateReleaseResult>;
   /** Atomically release a waiting gate only when its generation token still matches. */
-  releaseIfWaitingRequestId(gateKey: string, expectedRequestId?: string): Promise<GateReleaseResult>;
+  releaseIfWaitingRequestId(
+    gateKey: string,
+    expectedRequestId?: string,
+  ): Promise<GateReleaseResult>;
   transitionToWaiting(gateKey: string, ttlMs: number): Promise<void>;
   /** Atomically transition only when the interrupting request still owns the gate. */
   transitionToWaitingIfActiveRequestId(
@@ -158,7 +162,10 @@ export class MemoryConversationGateStore implements ConversationGateStore {
     expectedRequestId?: string,
   ): Promise<GateReleaseResult> {
     const record = this.records.get(gateKey);
-    if (record?.status !== 'waiting_for_clarification' || record.activeRequestId !== expectedRequestId) {
+    if (
+      record?.status !== 'waiting_for_clarification' ||
+      record.activeRequestId !== expectedRequestId
+    ) {
       return { released: false };
     }
     const bufferedMessage = record.bufferedMessage;
@@ -184,10 +191,10 @@ export class MemoryConversationGateStore implements ConversationGateStore {
   ): Promise<boolean> {
     const record = this.records.get(gateKey);
     if (
-      !record
-      || record.status !== 'running'
-      || record.activeRequestId !== expectedRequestId
-      || record.expiresAt <= Date.now()
+      !record ||
+      record.status !== 'running' ||
+      record.activeRequestId !== expectedRequestId ||
+      record.expiresAt <= Date.now()
     ) {
       return false;
     }
@@ -197,9 +204,10 @@ export class MemoryConversationGateStore implements ConversationGateStore {
       record.activeRequestId = restoredWaitingRequestId ?? undefined;
     }
     record.expiresAt = Date.now() + ttlMs;
-    const waitingRequestId = restoredWaitingRequestId === undefined
-      ? expectedRequestId
-      : restoredWaitingRequestId ?? undefined;
+    const waitingRequestId =
+      restoredWaitingRequestId === undefined
+        ? expectedRequestId
+        : (restoredWaitingRequestId ?? undefined);
     this.scheduleExpiry(gateKey, ttlMs, waitingRequestId);
     return true;
   }
@@ -212,10 +220,11 @@ export class MemoryConversationGateStore implements ConversationGateStore {
   ): Promise<boolean> {
     const record = this.records.get(gateKey);
     if (
-      !record
-      || record.status !== 'waiting_for_clarification'
-      || record.activeRequestId !== expectedWaitingRequestId
-    ) return false;
+      !record ||
+      record.status !== 'waiting_for_clarification' ||
+      record.activeRequestId !== expectedWaitingRequestId
+    )
+      return false;
     if (record.expiresAt <= Date.now()) {
       this.expireIfCurrent(gateKey, record.activeRequestId);
       return false;
@@ -241,10 +250,11 @@ export class MemoryConversationGateStore implements ConversationGateStore {
   ): Promise<boolean> {
     const record = this.records.get(gateKey);
     if (
-      record?.status !== 'running'
-      || record.expiresAt <= Date.now()
-      || record.activeRequestId !== expectedRequestId
-    ) return false;
+      record?.status !== 'running' ||
+      record.expiresAt <= Date.now() ||
+      record.activeRequestId !== expectedRequestId
+    )
+      return false;
     record.bufferedMessage = message.slice(0, 4096);
     return true;
   }
@@ -260,9 +270,9 @@ export class MemoryConversationGateStore implements ConversationGateStore {
   async setActiveRequestId(gateKey: string, requestId: string): Promise<boolean> {
     const record = this.records.get(gateKey);
     if (
-      record?.status !== 'running'
-      || record.expiresAt <= Date.now()
-      || (record.activeRequestId !== undefined && record.activeRequestId !== requestId)
+      record?.status !== 'running' ||
+      record.expiresAt <= Date.now() ||
+      (record.activeRequestId !== undefined && record.activeRequestId !== requestId)
     ) {
       return false;
     }
@@ -301,11 +311,7 @@ export class MemoryConversationGateStore implements ConversationGateStore {
 
   private expireIfCurrent(gateKey: string, expectedRequestId?: string): boolean {
     const record = this.records.get(gateKey);
-    if (
-      !record
-      || record.activeRequestId !== expectedRequestId
-      || record.expiresAt > Date.now()
-    ) {
+    if (!record || record.activeRequestId !== expectedRequestId || record.expiresAt > Date.now()) {
       return false;
     }
 
@@ -342,12 +348,7 @@ export class PostgresConversationGateStore implements ConversationGateStore {
   private onExpiryCallback?: GateExpiryCallback;
 
   constructor(connectionString: string) {
-    this.pool = new Pool({
-      connectionString,
-      max: 5,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 5_000,
-    });
+    this.pool = getRuntimePool(connectionString);
     this.pool.on('error', (err) => {
       logger.warn('telegram.gate_store.pool_error', { error: err.message });
     });
@@ -447,7 +448,9 @@ export class PostgresConversationGateStore implements ConversationGateStore {
     this.cancelExpiry(gateKey);
     this.chatIds.delete(gateKey);
     this.userIds.delete(gateKey);
-    await this.pool.query(`DELETE FROM public.telegram_conversation_gates WHERE gate_key = $1`, [gateKey]);
+    await this.pool.query(`DELETE FROM public.telegram_conversation_gates WHERE gate_key = $1`, [
+      gateKey,
+    ]);
   }
 
   async releaseIfActiveRequestId(
@@ -553,9 +556,10 @@ export class PostgresConversationGateStore implements ConversationGateStore {
     );
     const transitioned = result.rowCount !== null && result.rowCount > 0;
     if (transitioned) {
-      const waitingRequestId = restoredWaitingRequestId === undefined
-        ? expectedRequestId
-        : restoredWaitingRequestId ?? undefined;
+      const waitingRequestId =
+        restoredWaitingRequestId === undefined
+          ? expectedRequestId
+          : (restoredWaitingRequestId ?? undefined);
       this.scheduleExpiry(gateKey, ttlMs, waitingRequestId);
     }
     return transitioned;
@@ -742,7 +746,6 @@ export class PostgresConversationGateStore implements ConversationGateStore {
       this.timers.delete(gateKey);
     }
   }
-
 }
 
 export function createConversationGateStore(): ConversationGateStore {
@@ -754,7 +757,9 @@ export function createConversationGateStore(): ConversationGateStore {
 
   if (configuredStore === 'postgres' || (!configuredStore && postgresDsn)) {
     if (!postgresDsn) {
-      throw new Error('TELEGRAM_GATE_STORE=postgres requires a Postgres DSN (TELEGRAM_GATE_POSTGRES_DSN or DATABASE_URL)');
+      throw new Error(
+        'TELEGRAM_GATE_STORE=postgres requires a Postgres DSN (TELEGRAM_GATE_POSTGRES_DSN or DATABASE_URL)',
+      );
     }
     logger.info('telegram.gate_store.configured', { store: 'postgres' });
     return new PostgresConversationGateStore(postgresDsn);

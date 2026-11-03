@@ -7,6 +7,7 @@ selection remains owned by ``checkpointing.__init__``.
 """
 
 from typing import Any, Optional
+from agents.agent_api.app.pool_config import pool_sizes
 
 
 def create_postgres_checkpointer(dsn: Optional[str], *, run_setup: bool = False) -> Any:
@@ -22,6 +23,7 @@ def create_postgres_checkpointer(dsn: Optional[str], *, run_setup: bool = False)
 
     pool = ConnectionPool(
         conninfo=dsn,
+        **pool_sizes("SYNC", 2, 4),
         kwargs={"autocommit": True, "prepare_threshold": None},
         check=ConnectionPool.check_connection,
         max_idle=300,

@@ -9,10 +9,7 @@ import { TelegramHandlers } from './handlers/telegram-handlers';
 import { TelegramConfig } from '../../types/telegram.types';
 import { sendMessageWithMarkdown } from './formatters/telegram-markdown';
 import { collapseClarification, sendRichMessageToChat } from './formatters/telegram-rich';
-import {
-  StaticUserAuthorizationStore,
-  UserAuthorizationStore,
-} from './user-authorization.store';
+import { StaticUserAuthorizationStore, UserAuthorizationStore } from './user-authorization.store';
 import { TerminalReplyStore } from './terminal-reply.store';
 import { resolveTelegrafHandlerTimeoutMs } from '../../config/turn-timeout.config';
 import { TelegramMenuRegistry } from './telegram-menu.registry';
@@ -31,8 +28,8 @@ export class TelegramBotService {
   ) {
     // Production injects the database-backed store. The static implementation
     // remains as a constructor default for isolated tests and embedded callers.
-    this.authorizationStore = authorizationStore ??
-      new StaticUserAuthorizationStore(config.allowedUserIds ?? []);
+    this.authorizationStore =
+      authorizationStore ?? new StaticUserAuthorizationStore(config.allowedUserIds ?? []);
     this.handlerTimeoutMs = resolveTelegrafHandlerTimeoutMs(config.handlerTimeoutMs);
     this.bot = new Telegraf(config.token, {
       handlerTimeout: this.handlerTimeoutMs,
@@ -55,9 +52,10 @@ export class TelegramBotService {
         __handlerStartedAt?: number;
       };
       const requestId = update?.__requestId;
-      const durationMs = typeof update?.__handlerStartedAt === 'number'
-        ? Date.now() - update.__handlerStartedAt
-        : undefined;
+      const durationMs =
+        typeof update?.__handlerStartedAt === 'number'
+          ? Date.now() - update.__handlerStartedAt
+          : undefined;
 
       if (this.isHandlerWatchdogTimeout(error)) {
         logger.error('telegram.handler.watchdog_expired', {
@@ -99,7 +97,7 @@ export class TelegramBotService {
   }
 
   // Registers the webhook URL with Telegram and syncs bot commands.
-  // drop_pending_updates=true avoids replaying stale messages from before startup.
+  // Preserve pending updates: the durable inbox deduplicates Telegram redelivery.
   async setupWebhook(webhookUrl: string, secretToken: string): Promise<void> {
     try {
       const fullWebhookUrl = `${webhookUrl}/webhook/${secretToken}`;
@@ -113,8 +111,8 @@ export class TelegramBotService {
 
       await this.bot.telegram.setWebhook(fullWebhookUrl, {
         secret_token: secretToken,
-        max_connections: 100,
-        drop_pending_updates: true,
+        max_connections: 10,
+        drop_pending_updates: false,
       });
 
       logger.info('telegram.webhook.configured', {
@@ -156,13 +154,8 @@ export class TelegramBotService {
         updateId: update.update_id,
       });
 
-      const senderIdentity = senderId
-        ? { telegramId: senderId }
-        : undefined;
-      if (
-        !senderIdentity
-        || !(await this.authorizationStore.isAuthorized(senderIdentity))
-      ) {
+      const senderIdentity = senderId ? { telegramId: senderId } : undefined;
+      if (!senderIdentity || !(await this.authorizationStore.isAuthorized(senderIdentity))) {
         logger.warn('telegram.update.denied', {
           requestId,
           updateId: update.update_id,

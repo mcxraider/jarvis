@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from agents.agent_api.app.pool_config import pool_sizes
+
 import logging
 import threading
 import uuid
@@ -278,8 +280,7 @@ class PostgresIdempotencyStore:
                     conninfo=self._dsn,
                     kwargs={"autocommit": True, "prepare_threshold": None},
                     open=False,
-                    min_size=2,
-                    max_size=5,
+                    **pool_sizes("IDEMPOTENCY", 2, 5),
                     check=ConnectionPool.check_connection,
                     max_idle=300,
                     max_lifetime=1800,
@@ -289,8 +290,7 @@ class PostgresIdempotencyStore:
                     conninfo=self._dsn,
                     kwargs={"autocommit": True, "prepare_threshold": None},
                     open=False,
-                    min_size=2,
-                    max_size=5,
+                    **pool_sizes("IDEMPOTENCY", 2, 5),
                     check=_check_connection,
                     max_idle=300,
                     max_lifetime=1800,

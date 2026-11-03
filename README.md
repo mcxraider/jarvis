@@ -6,6 +6,10 @@ Jarvis turns Telegram into a natural-language command center for tasks, calendar
 
 **Powered by Groq Whisper, TypeSafe Jev routing, and GPT-6 Luna.**
 
+## Docker deployment
+
+Production Docker Compose runs the complete backend within a 1,536 MiB container budget with hosted Supabase. See [deployment setup and verification](deployment/README.md) for images, durable Telegram intake, memory limits, migration prerequisites, shutdown, and rollback.
+
 ## Architecture
 
 [![Jarvis — architecture overview](assets/jarvis-architecture.png)](assets/jarvis-architecture.png)
@@ -31,11 +35,13 @@ d2 --layout elk --elk-nodeNodeBetweenLayers 35 --elk-edgeNodeBetweenLayers 20 --
 
 ### Input channels & API
 
+Telegram updates enter through the Node webhook. Production Docker intake persists them before acknowledgement, groups albums durably, and recovers dispatched requests through `/runs/status` without replaying uncertain mutations. See the deployment guide for queue limits and recovery behavior.
+
 Telegram (voice or text) hits the **FastAPI** service through the invoke and resume routers:
 
 | Router | Routes |
 |--------|--------|
-| `health_router` | `GET /health`, `GET /health/detail` |
+| `health_router` | `GET /health`, `GET /ready`, `GET /health/detail` |
 | `invoke_router` | `POST /invoke`, `POST /invoke/stream`, `POST /invoke-bulk` |
 | `resume_router` | `POST /resume`, `POST /resume/stream` |
 | `cancel_router` | `POST /runs/cancel`, `POST /runs/status` |
@@ -89,7 +95,7 @@ Merging is deterministic (no LLM, no fuzzy alignment): each chunk owns the words
 Timeouts form a strict ladder, verified at startup by `agent-contract-readiness.ts`:
 
 ```text
-120s FFmpeg prepare + 360s transcription < 600s Telegraf handler < 720s running gate TTL
+30s download + 120s FFmpeg prepare + 360s transcription + 165s agent < 780s Telegraf handler < 900s running gate TTL
 ```
 
 The handler watchdog must outlast the worst audio turn, and the gate TTL must outlast the handler — otherwise a still-working turn loses ownership of its own conversation. FFmpeg availability is a startup barrier (`ffmpegReadiness` in `src/app.ts`) and a `/health` dependency, since normalization is mandatory rather than opportunistic.
@@ -230,7 +236,8 @@ Complexity is assessed independently of query length, mutation risk, and the num
 - **Typed approval** — pending confirmations can also be answered with `yes`/`y`, `approve`, `confirm`, `ok`, `no`/`n`, `decline`, or `cancel`.
 - **Conversation gate** — only one request per Telegram conversation runs at a time; extra messages are buffered and surfaced after the active run finishes.
 - **`/new <message>`** — abandon a pending clarification/confirmation, rotate the durable memory lineage, and start fresh in one step. Bare `/new` persists the same blank-slate boundary before acknowledging it.
-- **Forward context** — forwarded messages are buffered; your next plain-text message is treated as the instruction and dispatched with that context. `/forward <instruction>` remains available as an explicit dispatch.
+- **Forwarded audio** — forward one voice note, audio message, or supported audio document per batch (up to 20 MB / 20 minutes), optionally alongside text, photos, and polls. Jarvis transcribes it when you dispatch; a second audio file is rejected until you dispatch or clear the batch. Failed preparation leaves the buffer intact.
+- **Forward context** — forwarded messages are buffered; your next plain-text message is treated as the instruction and dispatched with that context. `/forward <instruction>` remains available as an explicit dispatch. Bare `/forward` also works for audio and photos. Forwards can be buffered while a run is active or paused; retry dispatch after an active run finishes. During a pending clarification or approval, ordinary text answers that prompt, while explicit `/forward` starts a fresh request after preparing the buffered media.
 - **`/cancel`** — clear the current pending operation and release the conversation gate.
 - **`/status`** — check service health from Telegram.
 

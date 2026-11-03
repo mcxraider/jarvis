@@ -133,7 +133,7 @@ export interface ClarificationReplyReceipt {
   collapsibleMessageId?: number;
 }
 
-/** Sends a clarification and reports both deletion and rich-collapse capabilities. */
+/** Sends an ordinary clarification reply and reports its id for prompt cleanup. */
 export async function sendClarificationReplyWithReceipt(
   ctx: Context,
   question: string,
@@ -141,10 +141,9 @@ export async function sendClarificationReplyWithReceipt(
 ): Promise<ClarificationReplyReceipt> {
   if (richEnabled && ctx.chat) {
     try {
-      const message = await sendRichMessage(ctx, renderClarificationBlock(question, true));
+      const message = await sendRichMessage(ctx, question);
       return {
         messageId: message.message_id,
-        collapsibleMessageId: message.message_id,
       };
     } catch (error) {
       logger.warn('telegram.rich.fallback', {
@@ -160,8 +159,8 @@ export async function sendClarificationReplyWithReceipt(
 }
 
 /**
- * Sends a clarification as one expanded rich details block and returns its collapsible id.
- * Plain-mode and rich-send fallback messages return undefined for backwards compatibility.
+ * Compatibility helper returning no collapsible id for ordinary clarification replies.
+ * Use sendClarificationReplyWithReceipt when the delivered message id is needed.
  */
 export async function sendClarificationReply(
   ctx: Context,
@@ -172,7 +171,7 @@ export async function sendClarificationReply(
   return receipt.collapsibleMessageId;
 }
 
-/** Collapses a previously sent rich clarification block. */
+/** Collapses a legacy rich clarification block persisted before ordinary replies. */
 export async function collapseClarification(
   telegram: Telegram,
   chatId: number,

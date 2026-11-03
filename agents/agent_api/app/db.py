@@ -11,6 +11,7 @@ import threading
 from typing import Any, Optional
 
 from agents.agent_api.app.config import settings
+from agents.agent_api.app.pool_config import pool_sizes
 
 logger = logging.getLogger(__name__)
 
@@ -96,8 +97,7 @@ def get_pool() -> Any:
 
         pool = ConnectionPool(
             conninfo=dsn,
-            min_size=2,
-            max_size=16,
+            **pool_sizes("SYNC", 2, 16),
             kwargs={"autocommit": True, "prepare_threshold": None},
             open=False,
             check=ConnectionPool.check_connection,
@@ -407,8 +407,7 @@ async def _create_async_pool(dsn: str) -> Any:
 
     pool = AsyncConnectionPool(
         conninfo=dsn,
-        min_size=2,
-        max_size=10,
+        **pool_sizes("ASYNC", 2, 10),
         kwargs={"autocommit": True, "prepare_threshold": None},
         open=False,
         check=AsyncConnectionPool.check_connection,

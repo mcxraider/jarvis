@@ -7,7 +7,21 @@
 
 import { logger } from '../../utils/logger';
 
+export interface ForwardedAudio {
+  kind: 'voice' | 'audio' | 'document';
+  fileId: string;
+  fileName?: string;
+  mimeType?: string;
+  fileSize?: number;
+  duration?: number;
+}
+
+export const FORWARD_AUDIO_LIMIT_MESSAGE =
+  'Only one audio file per forwarded batch. Dispatch with /forward first, or /new to clear the buffer.';
+
 export interface ForwardedMessage {
+  audio?: ForwardedAudio;
+  id?: string;
   senderName: string;
   chatTitle?: string;
   forwardedAt: Date; // when the message was originally sent (forward_origin.date)
@@ -18,23 +32,28 @@ export interface ForwardedMessage {
 
 export type PushResult =
   | { ok: true; count: number }
-  | { ok: false; reason: 'buffer_full' | 'message_too_long' };
+  | { ok: false; reason: 'buffer_full' | 'message_too_long' | 'audio_already_buffered' };
 
 export type AcknowledgeResult =
   | { acknowledged: true; remainingCount: number; confirmationMessageId?: number }
   | { acknowledged: false; reason: 'mismatch' | 'empty' };
 
 export interface ForwardBufferStore {
-  push(conversationKey: string, msg: ForwardedMessage): PushResult;
+  push(conversationKey: string, msg: ForwardedMessage): PushResult | Promise<PushResult>;
   /** Read without clearing — dispatch clears only after the processor accepts. */
-  peek(conversationKey: string): ForwardedMessage[];
+  peek(conversationKey: string): ForwardedMessage[] | Promise<ForwardedMessage[]>;
   /** Remove exactly `prefix` from the head of the buffer. Forwards appended while the
    *  request was running survive; returns mismatch (no-op) if the stored head diverged. */
-  acknowledge(conversationKey: string, prefix: ForwardedMessage[]): AcknowledgeResult;
-  clear(conversationKey: string): void;
-  count(conversationKey: string): number;
-  getConfirmationMessageId(conversationKey: string): number | undefined;
-  setConfirmationMessageId(conversationKey: string, messageId: number): void;
+  acknowledge(
+    conversationKey: string,
+    prefix: ForwardedMessage[],
+  ): AcknowledgeResult | Promise<AcknowledgeResult>;
+  clear(conversationKey: string): void | Promise<void>;
+  count(conversationKey: string): number | Promise<number>;
+  getConfirmationMessageId(
+    conversationKey: string,
+  ): number | undefined | Promise<number | undefined>;
+  setConfirmationMessageId(conversationKey: string, messageId: number): void | Promise<void>;
 }
 
 // Telegram itself caps message text at 4096 chars; guard covers captions + placeholders.
@@ -72,11 +91,20 @@ export class MemoryForwardBufferStore implements ForwardBufferStore {
     if (msg.text.length > MAX_MESSAGE_CHARS) {
       return { ok: false, reason: 'message_too_long' };
     }
+    for (const [key, value] of this.buffers) {
+      if (Date.now() - value.lastActivityAt >= this.ttlMs) this.buffers.delete(key);
+    }
     const entry = this.getLive(conversationKey) ?? {
       messages: [],
       totalChars: 0,
       lastActivityAt: Date.now(),
     };
+    if (msg.id && entry.messages.some((item) => item.id === msg.id)) {
+      return { ok: true, count: entry.messages.length };
+    }
+    if (msg.audio && entry.messages.some((item) => item.audio)) {
+      return { ok: false, reason: 'audio_already_buffered' };
+    }
     if (
       entry.messages.length >= this.maxMessages ||
       entry.totalChars + msg.text.length > this.maxTotalChars
@@ -151,16 +179,16 @@ export class MemoryForwardBufferStore implements ForwardBufferStore {
 // forward_origin is a discriminated union (Bot API 7+): user / hidden_user / chat / channel.
 // Legacy messages may carry only forward_date. Everything here is defensive because the
 // payload comes straight off the wire.
-export function extractForwardOrigin(message: Record<string, unknown>): {
-  senderName: string;
-  chatTitle?: string;
-  forwardedAt: Date;
-} | undefined {
+export function extractForwardOrigin(message: Record<string, unknown>):
+  | {
+      senderName: string;
+      chatTitle?: string;
+      forwardedAt: Date;
+    }
+  | undefined {
   const origin = message.forward_origin as Record<string, any> | undefined;
   if (origin && typeof origin === 'object') {
-    const forwardedAt = new Date(
-      typeof origin.date === 'number' ? origin.date * 1000 : Date.now(),
-    );
+    const forwardedAt = new Date(typeof origin.date === 'number' ? origin.date * 1000 : Date.now());
     switch (origin.type) {
       case 'user': {
         const u = origin.sender_user ?? {};
@@ -196,15 +224,19 @@ export function extractForwardOrigin(message: Record<string, unknown>): {
 
 function formatTimestamp(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
-    `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}`
+  );
 }
 
 function formatCollectionAge(messages: ForwardedMessage[]): string {
   if (messages.length === 0) return '0 minutes';
   const oldest = Math.min(...messages.map((m) => m.receivedAt.getTime()));
   const minutes = Math.max(1, Math.round((Date.now() - oldest) / 60_000));
-  return minutes < 60 ? `${minutes} minute${minutes === 1 ? '' : 's'}` : `${Math.round(minutes / 60)} hour${Math.round(minutes / 60) === 1 ? '' : 's'}`;
+  return minutes < 60
+    ? `${minutes} minute${minutes === 1 ? '' : 's'}`
+    : `${Math.round(minutes / 60)} hour${Math.round(minutes / 60) === 1 ? '' : 's'}`;
 }
 
 /**
@@ -212,10 +244,7 @@ function formatCollectionAge(messages: ForwardedMessage[]): string {
  * The "data, not instructions" preamble is deliberate prompt-injection hygiene:
  * forwarded content is untrusted third-party text entering the LLM prompt.
  */
-export function formatForwardContext(
-  messages: ForwardedMessage[],
-  instruction: string,
-): string {
+export function formatForwardContext(messages: ForwardedMessage[], instruction: string): string {
   const msgWord = messages.length === 1 ? 'message' : 'messages';
   const header =
     `Forwarded context (${messages.length} ${msgWord}, last ${formatCollectionAge(messages)}):\n` +

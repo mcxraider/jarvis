@@ -46,7 +46,11 @@ export const AgentImagesSchema = z
   .superRefine((images, context) => {
     const totalBytes = images.reduce((total, image) => {
       const encoded = image.image_url.slice(JPEG_DATA_URL_PREFIX.length);
-      return total + Buffer.from(encoded, 'base64').length;
+      return (
+        total +
+        (encoded.length / 4) * 3 -
+        (encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0)
+      );
     }, 0);
     if (totalBytes > MAX_AGENT_IMAGE_BYTES) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: 'Images exceed the 10 MiB limit' });
@@ -63,7 +67,11 @@ export const AgentImageBatchesSchema = z
     }
     const totalBytes = images.reduce((total, image) => {
       const encoded = image.image_url.slice(JPEG_DATA_URL_PREFIX.length);
-      return total + Buffer.from(encoded, 'base64').length;
+      return (
+        total +
+        (encoded.length / 4) * 3 -
+        (encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0)
+      );
     }, 0);
     if (totalBytes > MAX_AGENT_IMAGE_BYTES) {
       context.addIssue({

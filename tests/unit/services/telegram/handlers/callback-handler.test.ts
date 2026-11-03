@@ -800,7 +800,7 @@ describe('CallbackHandler', () => {
     expect(clarifyReply).not.toContain('Clarification required');
   });
 
-  it('persists the rich block id for a callback-generated clarification', async () => {
+  it('persists only the cleanup id for an ordinary callback-generated clarification', async () => {
     setRichMessagesEnabled(true);
     const agentClient = {
       resume: jest.fn().mockResolvedValue({
@@ -833,9 +833,10 @@ describe('CallbackHandler', () => {
       (call: unknown[]) => call[0] === 'sendRichMessage',
     );
     expect(richCalls[0][1].rich_message.markdown).toBe('✅ Approved');
-    expect(richCalls[1][1].rich_message.markdown).toContain('<details open>');
+    expect(richCalls[1][1].rich_message.markdown).toBe('Which project do you mean?');
     const pending = await pendingStore.get(getGateKey());
-    expect(pending?.clarificationMessageId).toBe(901);
+    expect(pending?.promptMessageId).toBe(901);
+    expect(pending?.clarificationMessageId).toBeUndefined();
   });
 
   it('sends a callback-triggered confirmation re-interrupt with unchanged buttons', async () => {
@@ -1009,7 +1010,7 @@ describe('CallbackHandler', () => {
     ctx.telegram.callApi = jest.fn().mockImplementation(async (method: string, payload: any) => {
       if (
         method === 'sendRichMessage' &&
-        String(payload?.rich_message?.markdown).includes('<details open>')
+        payload?.rich_message?.markdown === 'Which project?'
       ) {
         const owned = await gateStore.getSnapshot(getGateKey());
         await gateStore.releaseIfWaitingRequestId(getGateKey(), owned.requestId);

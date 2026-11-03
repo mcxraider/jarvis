@@ -89,3 +89,6 @@ next-env.d.ts
 
 # local scratch/debug dir
 work/
+
+# Production runtime credentials
+deployment/*.env

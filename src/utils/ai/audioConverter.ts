@@ -23,7 +23,19 @@ import { TURN_TIMEOUT_DEFAULTS } from '../../config/turn-timeout.config';
 
 // Encoding invariants shared by normalization and chunk extraction. Sample rate,
 // channel count, first-audio-track selection and codec are not negotiable.
-const ENCODE_ARGS = ['-vn', '-map', '0:a:0', '-ar', '16000', '-ac', '1', '-c:a', 'flac'] as const;
+const ENCODE_ARGS = [
+  '-vn',
+  '-map',
+  '0:a:0',
+  '-ar',
+  '16000',
+  '-ac',
+  '1',
+  '-c:a',
+  'flac',
+  '-threads',
+  '1',
+] as const;
 
 // FFmpeg reports a failed `-map 0:a:0` selection with one of these phrasings.
 const NO_AUDIO_STREAM_RE = /Stream map .* matches no streams|does not contain any stream/i;
@@ -501,7 +513,12 @@ export class AudioConverter {
       });
 
       child.stderr.on('data', (data: Buffer | string) => {
-        stderr += data.toString();
+        // Malformed media can make FFmpeg emit arbitrarily verbose warnings.
+        const combined = stderr + data.toString();
+        stderr =
+          combined.length <= 65_536
+            ? combined
+            : combined.slice(0, 32_768) + combined.slice(-32_768);
       });
 
       child.once('error', (error: Error) => {

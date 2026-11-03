@@ -22,10 +22,10 @@ const validHealth = {
 const validTimeouts: AgentContractTimeouts = {
   clientOverallMs: 165_000,
   clientIdleMs: 155_000,
-  telegrafHandlerTimeoutMs: 600_000,
+  telegrafHandlerTimeoutMs: 780_000,
   audioPrepareMs: 120_000,
   audioTranscriptionMs: 360_000,
-  runningGateTtlMs: 720_000,
+  runningGateTtlMs: 900_000,
 };
 
 describe('verifyAgentContract', () => {
@@ -42,7 +42,7 @@ describe('verifyAgentContract', () => {
         runDeadlineMs: 150_000,
         llmRequestTimeoutMs: 60_000,
         clientOverallMs: 165_000,
-        telegrafHandlerTimeoutMs: 600_000,
+        telegrafHandlerTimeoutMs: 780_000,
       }),
     );
   });
@@ -60,7 +60,7 @@ describe('verifyAgentContract', () => {
         audioPrepareMs: 120_000,
         audioTranscriptionMs: 360_000,
         audioStageMs: 480_000,
-        runningGateTtlMs: 720_000,
+        runningGateTtlMs: 900_000,
       }),
     );
   });
@@ -100,20 +100,20 @@ describe('verifyAgentContract', () => {
     await expect(
       verifyAgentContract(client as any, { ...validTimeouts, ...patch }),
     ).rejects.toThrow(
-      /Agent timeout contract inverted: audio stage \d+ms \(prepare 120000ms \+ transcription \d+ms\) must be below Telegraf handler timeout 600000ms/,
+      /complete download \+ audio \+ agent turn must fit below Telegraf handler timeout/,
     );
   });
 
   it.each([
     ['the Telegraf watchdog outlives the running gate TTL', { runningGateTtlMs: 500_000 }],
-    ['the Telegraf watchdog equals the running gate TTL', { runningGateTtlMs: 600_000 }],
+    ['the Telegraf watchdog equals the running gate TTL', { runningGateTtlMs: 780_000 }],
   ])('throws when %s', async (_label, patch) => {
     const client = { fetchDependencyHealth: jest.fn().mockResolvedValue(validHealth) };
 
     await expect(
       verifyAgentContract(client as any, { ...validTimeouts, ...patch }),
     ).rejects.toThrow(
-      /Agent timeout contract inverted: Telegraf handler timeout 600000ms must be below running conversation-gate TTL \d+ms/,
+      /Agent timeout contract inverted: Telegraf handler timeout 780000ms must be below running conversation-gate TTL \d+ms/,
     );
   });
 

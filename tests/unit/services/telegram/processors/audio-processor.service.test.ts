@@ -29,6 +29,15 @@ describe('AudioProcessorService', () => {
     mockTranscribeAudio.mockReset();
   });
 
+  it('prepares forwarded audio without invoking text processing and propagates failure', async () => {
+    const textProcessor = { processTextMessage: jest.fn() };
+    const service = makeService(textProcessor);
+    await expect(service.transcribeForwardedAudio('https://example.com/audio', 123)).resolves.toMatchObject({ text: expect.any(String) });
+    expect(textProcessor.processTextMessage).not.toHaveBeenCalled();
+    mockTranscribeAudio.mockRejectedValue(new Error('transcription failed'));
+    await expect(service.transcribeForwardedAudio('https://example.com/audio', 123)).rejects.toThrow('transcription failed');
+  });
+
   it('passes successful transcriptions into the text processor', async () => {
     const textProcessor = {
       processTextMessage: jest.fn().mockResolvedValue({ response: 'Task created.' }),
