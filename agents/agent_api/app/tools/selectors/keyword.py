@@ -10,6 +10,7 @@ not registered this run; those names are dropped when schemas are selected.
 import logging
 from typing import Any, Dict, List, Optional, Set
 
+from agents.agent_api.app.llm.responses import ImageContext
 from agents.agent_api.app.tools.base import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,8 @@ class KeywordToolSelector:
         query: str,
         registry: ToolRegistry,
         active_domains: Optional[List[str]] = None,
+        *,
+        image_context: Optional[ImageContext] = None,
     ) -> List[Dict[str, Any]]:
         del active_domains
         selected_names = self._match(query)
@@ -147,6 +150,8 @@ class KeywordToolSelector:
         query: str,
         registry: ToolRegistry,
         active_domains: Optional[List[str]] = None,
+        *,
+        image_context: Optional[ImageContext] = None,
     ) -> List[Dict[str, Any]]:
         """Async-compatible keyword selection; this strategy performs no I/O."""
 

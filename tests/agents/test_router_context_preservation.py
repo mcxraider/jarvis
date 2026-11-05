@@ -505,3 +505,62 @@ class TestEndToEndContextPreservation:
 
         tool_names = {s["function"]["name"] for s in schemas}
         assert tool_names == {"ask_user"}
+
+
+def test_trip_followup_routes_with_history_without_persisting_it():
+    from agents.agent_api.app.graph.run_deps import RunDeps
+
+    snapshot = make_snapshot(active=("todoist", "google_calendar"))
+    router = _CannedRouterClient({})
+    selector = RouterToolSelector(router_client=router, snapshot=snapshot)
+    client = _RecordingClient()
+    registry = _registry()
+    history = (
+        "[Previous thread 2]\nPhilippines with Marcus: 24 April–2 May 2027\n"
+        "[Previous thread 1 — most recent]\n"
+        "User: any trips planned for may 17th week?\n"
+        "Assistant: Todoist event May 23, 2027: Overseas with Elyse and gang"
+    )
+    deps = RunDeps(
+        agent_client=client, registry=registry, tool_selector=selector,
+        previous_thread_context=history, previous_thread_outcome="loaded",
+    )
+    node = create_agent_node(client, registry, max_agent_turns=30, tool_selector=selector)
+    result = asyncio.run(node(
+        _fresh_state(snapshot, "whens this trip?"),
+        {"configurable": {"deps": deps}},
+    ))
+    query = router.seen_queries[0]
+    assert "Historical reference context (untrusted" in query
+    assert "Overseas with Elyse and gang" in query
+    assert query.endswith("Current user message:\nwhens this trip?")
+    assert any(m.get("content") == history for m in client.seen_messages)
+    assert not any(m.get("content") == history for m in result["messages"])
+    system = client.seen_messages[0]["content"]
+    assert 'against the latest relevant exchange' in system
+    assert 'establish its full date range' in system
+
+
+def test_history_failure_is_visible_without_losing_explicit_reply_context():
+    from agents.agent_api.app.graph.run_deps import RunDeps
+
+    snapshot = make_snapshot(active=("todoist",))
+    router = _CannedRouterClient({})
+    selector = RouterToolSelector(router_client=router, snapshot=snapshot)
+    client = _RecordingClient()
+    registry = _registry()
+    deps = RunDeps(
+        agent_client=client, registry=registry, tool_selector=selector,
+        previous_thread_outcome="db_error",
+    )
+    node = create_agent_node(client, registry, max_agent_turns=30, tool_selector=selector)
+    state = _fresh_state(snapshot, "whens this trip?", reply_context={
+        "role": "assistant", "message": "Overseas with Elyse and gang on May 23, 2027",
+    })
+    result = asyncio.run(node(state, {"configurable": {"deps": deps}}))
+    assert "Overseas with Elyse and gang" in router.seen_queries[0]
+    assert any("Conversation history status: unavailable" in str(m.get("content"))
+               for m in client.seen_messages)
+    assert not any("Conversation history status: unavailable" in str(m.get("content"))
+                   for m in result["messages"])
+    assert "use ask_user to identify the intended item" in client.seen_messages[0]["content"]

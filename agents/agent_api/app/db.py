@@ -314,6 +314,15 @@ def verify_database_runtime() -> None:
                         'public.prepare_thread_memory(bigint,text,text,text,boolean,integer)',
                         'EXECUTE'
                     )
+                    UNION ALL
+                    SELECT 'trigger:thread_memory_heads_validate'
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM pg_catalog.pg_trigger
+                        WHERE tgrelid = 'public.thread_memory_heads'::regclass
+                          AND tgname = 'thread_memory_heads_validate'
+                          AND tgenabled IN ('O', 'A')
+                          AND NOT tgisinternal
+                    )
                     """
                 )
                 missing_memory_contract = [row[0] for row in cursor.fetchall()]

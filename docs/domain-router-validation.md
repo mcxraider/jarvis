@@ -72,3 +72,34 @@ venv/bin/python scripts/eval_domain_router.py --engine replay --out /tmp/domain-
 
 Rollback requires only `ROUTER_ENGINE=llm` and a process/container restart.
 No database schema or checkpoint migration is involved.
+
+## Image routing
+
+Current-turn images and replayed clarification batches now pass through the
+router instead of bypassing domain selection. Routing uses separate JPEG copies
+rotated upright, scaled to at most 1568 pixels per side, and padded to at least
+280 pixels per side. Previous-thread images stay model-only until recalled.
+Original image bytes remain available to the vision orchestrator.
+
+Jev receives multipart assets, each referenced once in state, with the
+`TypeSafe-Danger-Zone-Images: true` request header. See the
+[TypeSafe image contract](https://docs.typesafe.ai/images). Image support is
+experimental upstream; the pinned `jev-1.14.0` model remains unchanged.
+
+An image-bearing call gets exactly one attempt. Preparation errors, API errors,
+invalid answers, or uncertainty immediately retry Jev without images, assets, or
+the image header. This text-only call retains the configured retry policy, then
+uses the existing LLM/candidate-domain/static fallback behavior. Cancellation
+propagates without fallback. Missing Jev credentials or `ROUTER_ENGINE=llm`
+uses text routing directly.
+
+Run-local decision and failure caches include ordered image fingerprints and
+batch boundaries. Diagnostics record counts and bounded reasons, never image
+bytes or multipart bodies; detailed results retain only asset metadata. Every
+successful response contributes usage, including uncertain or rejected answers.
+
+Focused regression coverage:
+
+```bash
+venv/bin/python -m pytest tests/agents/test_router_images.py tests/agents/test_typesafe_runtime.py tests/agents/test_router_selector.py tests/agents/test_agent_node_router.py tests/agents/test_router_context_preservation.py
+```

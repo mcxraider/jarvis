@@ -6,6 +6,7 @@ from typing import Any, Callable, Optional, Protocol
 
 from agents.agent_api.app.config import settings
 from agents.agent_api.app.router.client import RouterClientError
+from agents.agent_api.app.router.images import has_images
 from agents.agent_api.app.router.prompt import RouterDecision
 from agents.agent_api.app.router.typesafe import TypeSafeRouterClient
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter
@@ -60,20 +61,33 @@ class RoutingChain:
         self, query: str, snapshot: RuntimeContextSnapshotLike, **kwargs: Any
     ) -> RouterDecision:
         context = {"tracer": self._tracer, "usage_accumulator": self._usage, **kwargs}
+        image_context = context.pop("image_context", None)
         started = time.perf_counter()
         decision = None
         reason = "unavailable"
         if self.primary is not None:
-            try:
-                decision = self.primary.classify(query, snapshot, **context)
-            except RouterClientError:
-                reason = "error"
-            else:
-                if not decision.uncertain:
-                    return self._selected(
-                        decision, "typesafe", started, context["tracer"]
+            attempts = (image_context, None) if has_images(image_context) else (None,)
+            for images in attempts:
+                image_kwargs = {"image_context": images} if images is not None else {}
+                try:
+                    decision = self.primary.classify(
+                        query, snapshot, **context, **image_kwargs
                     )
-                reason = "uncertain"
+                except RouterClientError:
+                    decision = None
+                    reason = "error"
+                else:
+                    if not decision.uncertain:
+                        return self._selected(
+                            decision, "typesafe", started, context["tracer"]
+                        )
+                    reason = "uncertain"
+                if images is not None:
+                    context["tracer"].event(
+                        "router.image_fallback",
+                        "Retrying JEV classification with text only.",
+                        reason=reason,
+                    )
         self._fallback_event(reason, context["tracer"])
         try:
             result = self._fallback().classify(query, snapshot, **context)
@@ -90,20 +104,33 @@ class RoutingChain:
         self, query: str, snapshot: RuntimeContextSnapshotLike, **kwargs: Any
     ) -> RouterDecision:
         context = {"tracer": self._tracer, "usage_accumulator": self._usage, **kwargs}
+        image_context = context.pop("image_context", None)
         started = time.perf_counter()
         decision = None
         reason = "unavailable"
         if self.primary is not None:
-            try:
-                decision = await self.primary.async_classify(query, snapshot, **context)
-            except RouterClientError:
-                reason = "error"
-            else:
-                if not decision.uncertain:
-                    return self._selected(
-                        decision, "typesafe", started, context["tracer"]
+            attempts = (image_context, None) if has_images(image_context) else (None,)
+            for images in attempts:
+                image_kwargs = {"image_context": images} if images is not None else {}
+                try:
+                    decision = await self.primary.async_classify(
+                        query, snapshot, **context, **image_kwargs
                     )
-                reason = "uncertain"
+                except RouterClientError:
+                    decision = None
+                    reason = "error"
+                else:
+                    if not decision.uncertain:
+                        return self._selected(
+                            decision, "typesafe", started, context["tracer"]
+                        )
+                    reason = "uncertain"
+                if images is not None:
+                    context["tracer"].event(
+                        "router.image_fallback",
+                        "Retrying JEV classification with text only.",
+                        reason=reason,
+                    )
         self._fallback_event(reason, context["tracer"])
         try:
             result = await self._fallback().async_classify(query, snapshot, **context)

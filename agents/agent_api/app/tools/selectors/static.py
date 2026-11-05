@@ -7,6 +7,7 @@ is desired.
 
 from typing import Any, Dict, List, Optional
 
+from agents.agent_api.app.llm.responses import ImageContext
 from agents.agent_api.app.tools.base import ToolRegistry
 
 
@@ -25,6 +26,8 @@ class StaticToolSelector:
         query: str,
         registry: ToolRegistry,
         active_domains: Optional[List[str]] = None,
+        *,
+        image_context: Optional[ImageContext] = None,
     ) -> List[Dict[str, Any]]:
         del query, active_domains
         return registry.openai_schemas()
@@ -34,6 +37,8 @@ class StaticToolSelector:
         query: str,
         registry: ToolRegistry,
         active_domains: Optional[List[str]] = None,
+        *,
+        image_context: Optional[ImageContext] = None,
     ) -> List[Dict[str, Any]]:
         """Async-compatible pass-through with no I/O to await."""
 

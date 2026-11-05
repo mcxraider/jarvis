@@ -87,6 +87,8 @@ class PreviousThreadMemory:
     row_count: int = 0
     outcome: str = "empty"
     duration_ms: float = 0.0
+    error_type: str | None = None
+    sqlstate: str | None = None
 
 
 @dataclass(frozen=True)
@@ -464,10 +466,12 @@ async def prepare_previous_thread_memory_async(
             outcome="db_timeout",
             duration_ms=round((time.monotonic() - started) * 1000, 1),
         )
-    except Exception:
+    except Exception as exc:
         if reset_memory:
             raise
         return PreviousThreadMemory(
+            error_type=type(exc).__name__,
+            sqlstate=getattr(exc, "sqlstate", None),
             outcome="db_error",
             duration_ms=round((time.monotonic() - started) * 1000, 1),
         )
@@ -498,10 +502,11 @@ async def prepare_previous_thread_memory_async(
         )
     except asyncio.CancelledError:
         raise
-    except Exception:
+    except Exception as exc:
         if reset_memory:
             raise
         return PreviousThreadMemory(
+            error_type=type(exc).__name__,
             outcome="memory_error",
             duration_ms=round((time.monotonic() - started) * 1000, 1),
         )
@@ -701,15 +706,9 @@ async def _write_snapshot(
                     """,
                     (terminal_status, thread_id, canonical_user_id),
                 )
-                if conversation_key:
-                    await cursor.execute(
-                        """
-                        UPDATE public.thread_memory_heads
-                        SET latest_thread_id = %s, updated_at = now()
-                        WHERE user_id = %s AND conversation_key = %s
-                        """,
-                        (thread_id, canonical_user_id, conversation_key),
-                    )
+                # Registration alone owns the conversation head. In particular,
+                # a failed lookup must not publish an unregistered snapshot, and
+                # a slow older run must not replace a newer registered head.
 
 
 async def _upload_image(image: _StoredImage) -> bool:

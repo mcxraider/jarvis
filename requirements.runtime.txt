@@ -50,6 +50,7 @@ orjson==3.11.9
 ormsgpack==1.12.2
 packaging==25.0
 pathspec==1.1.1
+Pillow==13.0.0
 proto-plus==1.28.0
 protobuf==6.33.6
 psycopg==3.2.10

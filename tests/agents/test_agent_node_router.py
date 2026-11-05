@@ -50,7 +50,8 @@ class _CannedRouterClient:
         self._decision = decision
         self.seen_queries: List[str] = []
 
-    def classify(self, query, snapshot):
+    def classify(self, query, snapshot, *, image_context=None):
+        self.seen_image_context = image_context
         self.seen_queries.append(query)
         return self._decision
 
@@ -584,7 +585,7 @@ class TestEndToEndThroughRealSelector:
             ((), (({"image_url": "replayed", "detail": "high"},),)),
         ],
     )
-    def test_image_turn_bypasses_router_and_exposes_all_connected_tools(
+    def test_image_turn_routes_and_keeps_original_images(
         self, images, prior_batches
     ):
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
@@ -606,18 +607,20 @@ class TestEndToEndThroughRealSelector:
             node(state, {"configurable": {CONFIGURABLE_DEPS_KEY: deps}})
         )
 
-        assert router_client.seen_queries == []
+        assert router_client.seen_queries == ["read this image"]
+        assert router_client.seen_image_context == {
+            "images": images, "prior_batches": prior_batches,
+        }
         assert {tool["function"]["name"] for tool in client.seen_tools} == {
-            "ask_user",
-            "add_todoist_task",
-            "get_tasks",
-            "list_calendar_events",
+            "ask_user", "add_todoist_task", "get_tasks",
         }
         assert "## Todoist tool tips" in client.seen_messages[0]["content"]
-        assert "## Google Calendar tool tips" in client.seen_messages[0]["content"]
-        assert result["router_outcome"] is None
-        bypass = next(event for event in tracer.events if event[0] == "router.bypassed")
-        assert bypass[2]["reason"] == "images"
+        assert "## Google Calendar tool tips" not in client.seen_messages[0]["content"]
+        assert result["router_outcome"] == "routed"
+        assert client.seen_kwargs["image_context"] == router_client.seen_image_context
+        assert deps.images == images
+        assert deps.prior_image_batches == prior_batches
+        assert not any(event[0] == "router.bypassed" for event in tracer.events)
 
 
 class TestNoSlimming:

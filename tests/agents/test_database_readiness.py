@@ -113,6 +113,7 @@ def test_readiness_requires_typed_policy_tables_but_not_legacy_preferences():
         {"missing_columns": ("lease_expires_at",)},
         {"missing_privileges": ("DELETE",)},
         {"missing_memory_contract": ("function:prepare_thread_memory:EXECUTE",)},
+        {"missing_memory_contract": ("trigger:thread_memory_heads_validate",)},
     ],
 )
 def test_readiness_rejects_incomplete_idempotency_provisioning(cursor_options):

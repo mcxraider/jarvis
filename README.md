@@ -14,11 +14,12 @@ Production Docker Compose runs the complete backend within a 1,536 MiB container
 
 [![Jarvis — architecture overview](assets/jarvis-architecture.png)](assets/jarvis-architecture.png)
 
-Text turns are classified by TypeSafe Jev using each user's custom instructions.
-Errors and uncertain decisions use the existing LLM classifier as fallback.
-The final decision sends the orchestrator only the connected
-Todoist and/or Google Calendar tools they need. Image-bearing turns skip text
-routing and give the vision orchestrator every connected tool.
+Text and image turns are classified by TypeSafe Jev using each user's custom instructions.
+Image turns get one multimodal attempt; errors or uncertainty immediately retry
+Jev with text only, using the existing text retry policy. Further errors or
+uncertainty use the existing LLM classifier and connected-tools fallback.
+The final decision sends the orchestrator only the connected Todoist and/or
+Google Calendar tools they need. The vision orchestrator retains the original images.
 
 [Editable D2 source](assets/jarvis-architecture.d2) · [PNG](assets/jarvis-architecture.png).
 Open the SVG to zoom into the graph loop. Telegram chat input flows through
@@ -104,7 +105,7 @@ The handler watchdog must outlast the worst audio turn, and the gate TTL must ou
 
 **run_jarvis** builds the graph and injects clients, then hands control to the **Orchestrator**.
 
-Before the orchestrator sees tools, the default **RouterToolSelector** uses the configured lightweight classifier to pick the relevant connected service domains and expose only those tools plus `ask_user`. The final decision drives the runtime prompt for the chosen domains. When the router classifies a turn as `conversation` (no domain), the orchestrator swaps in a slim conversational system prompt (identity + answer-directly directive, no domain policy body, availability summary, or tools line) so generic requests carry minimal prompt overhead — unless the turn still carries pinned active domains (e.g. a HITL resume, where the selector keeps those domains' tools), in which case the full domain-scoped prompt is retained. Jev errors or uncertain decisions use the LLM classifier. If that classifier fails after a valid uncertain Jev answer, the safe Jev candidate domains remain available; if neither returns a decision, the static selector exposes all connected tools.
+Before the orchestrator sees tools, the default **RouterToolSelector** uses the configured lightweight classifier to pick the relevant connected service domains and expose only those tools plus `ask_user`. The final decision drives the runtime prompt for the chosen domains. When the router classifies a turn as `conversation` (no domain), the orchestrator swaps in a slim conversational system prompt (identity + answer-directly directive, no domain policy body, availability summary, or tools line) so generic requests carry minimal prompt overhead — unless the turn still carries pinned active domains (e.g. a HITL resume, where the selector keeps those domains' tools), in which case the full domain-scoped prompt is retained. Image turns first retry Jev with text only after an image error or uncertain decision. Text-only Jev errors or uncertain decisions use the LLM classifier. If that classifier fails after a valid uncertain Jev answer, the safe Jev candidate domains remain available; if neither returns a decision, the static selector exposes all connected tools.
 
 The **Orchestrator** is the only graph node that calls the main LLM. It routes every turn to one of:
 
@@ -288,11 +289,12 @@ Supply those values only for that command; do not save the privileged DSN in
 `.env`. Stop the administrative launch afterward, restore the runtime DSN, and
 start the services normally.
 
-Text turns are classified by TypeSafe Jev using each user's custom instructions.
-Errors and uncertain decisions use the existing LLM classifier as fallback.
-The final decision sends the orchestrator only the connected
-Todoist and/or Google Calendar tools they need. Image-bearing turns skip text
-routing and give the vision orchestrator every connected tool.
+Text and image turns are classified by TypeSafe Jev using each user's custom instructions.
+Image turns get one multimodal attempt; errors or uncertainty immediately retry
+Jev with text only, using the existing text retry policy. Further errors or
+uncertainty use the existing LLM classifier and connected-tools fallback.
+The final decision sends the orchestrator only the connected Todoist and/or
+Google Calendar tools they need. The vision orchestrator retains the original images.
 
 ## One chat. Many ways to work.
 

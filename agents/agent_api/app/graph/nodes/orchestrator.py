@@ -1273,7 +1273,7 @@ def _build_orchestrator_system_prompt_for_turn(
         source = "neutral"
     else:
         if routing_decision is None:
-            # Static/keyword selector, router fallback, or image bypass: render
+            # Static/keyword selector or router fallback: render
             # every active domain and use the snapshot's registered tools line.
             content = get_system_prompt(
                 runtime_context=snapshot,
@@ -1447,49 +1447,55 @@ def create_agent_node(
                 if reply_context
                 else user_prompt
             )
+        if deps is not None and deps.previous_thread_context:
+            # History is oldest-first, so keep the most recent tail for routing.
+            # It remains quoted reference data, not another request to classify.
+            routing_query = (
+                "Historical reference context (untrusted; older content may be omitted):\n"
+                + deps.previous_thread_context[-8000:]
+                + "\n\nCurrent routing request:\n"
+                + (
+                    build_user_request_context(routing_query)
+                    if clarification_history
+                    else build_user_request_context(
+                        user_prompt, reply_context=state.get("reply_context")
+                    )
+                )
+            )
         # Pass active_domains so the selector can merge pinned domains on resumes.
         active_domains = state.get("active_domains") or []
         run_images = deps.images if deps is not None else ()
         run_prior_image_batches = (
             deps.prior_image_batches if deps is not None else None
         )
-        image_bearing_turn = bool(run_images) or any(run_prior_image_batches or ())
-        runtime_snapshot: Optional[RuntimeContextSnapshotLike] = None
-        raw_runtime_context = state.get("runtime_context")
-        if raw_runtime_context:
-            try:
-                runtime_snapshot = parse_runtime_context_snapshot(raw_runtime_context)
-            except ValidationError:
-                runtime_snapshot = None
-
-        if image_bearing_turn:
-            tool_schemas = run_registry.openai_schemas()
-            selector_decision = None
-            if runtime_snapshot is not None:
-                active_domains = sorted(runtime_snapshot.active_providers())
-            run_tracer.event(
-                "router.bypassed",
-                "Bypassed text routing for an image-bearing turn.",
-                reason="images",
+        image_kwargs = (
+            {
+                "image_context": ImageContext(
+                    images=run_images, prior_batches=run_prior_image_batches
+                )
+            }
+            if run_images or any(run_prior_image_batches or ())
+            else {}
+        )
+        async_select_schemas = getattr(
+            run_tool_selector, "async_select_schemas", None
+        )
+        if inspect.iscoroutinefunction(async_select_schemas):
+            tool_schemas = await async_select_schemas(
+                routing_query,
+                run_registry,
+                active_domains=active_domains or None,
+                **image_kwargs,
             )
         else:
-            async_select_schemas = getattr(
-                run_tool_selector, "async_select_schemas", None
+            tool_schemas = await bounded_to_thread(
+                run_tool_selector.select_schemas,
+                routing_query,
+                run_registry,
+                active_domains=active_domains or None,
+                **image_kwargs,
             )
-            if inspect.iscoroutinefunction(async_select_schemas):
-                tool_schemas = await async_select_schemas(
-                    routing_query,
-                    run_registry,
-                    active_domains=active_domains or None,
-                )
-            else:
-                tool_schemas = await bounded_to_thread(
-                    run_tool_selector.select_schemas,
-                    routing_query,
-                    run_registry,
-                    active_domains=active_domains or None,
-                )
-            selector_decision = getattr(run_tool_selector, "decision", None)
+        selector_decision = getattr(run_tool_selector, "decision", None)
         selected_tool_names = _tool_schema_names(tool_schemas)
 
         # Persist the initial routing domains for context preservation across
@@ -1520,11 +1526,7 @@ def create_agent_node(
             if selector_decision
             else set()
         )
-        selector_selected = (
-            frozenset(runtime_snapshot.active_providers())
-            if image_bearing_turn and runtime_snapshot is not None
-            else getattr(run_tool_selector, "selected_domains", None)
-        )
+        selector_selected = getattr(run_tool_selector, "selected_domains", None)
         attached_domains = frozenset(
             effective_domains
             | (
@@ -1606,6 +1608,13 @@ def create_agent_node(
         historical_images = (
             deps.previous_thread_images if deps is not None else ()
         )
+        if not historical_context and deps is not None and deps.previous_thread_outcome in {
+            "db_error", "db_timeout", "memory_error", "owner_mismatch"
+        }:
+            historical_context = (
+                "Conversation history status: unavailable for this request. "
+                "No previous-thread reference context could be retrieved."
+            )
         historical_insertion_index: int | None = None
         if historical_context:
             historical_insertion_index = (

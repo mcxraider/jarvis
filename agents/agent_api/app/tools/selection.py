@@ -10,6 +10,7 @@ Use ``get_selector(name)`` to instantiate by name (config-driven swap).
 
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
+from agents.agent_api.app.llm.responses import ImageContext
 from agents.agent_api.app.tools.base import ToolRegistry
 
 
@@ -26,6 +27,8 @@ class ToolSelector(Protocol):
         query: str,
         registry: ToolRegistry,
         active_domains: Optional[List[str]] = None,
+        *,
+        image_context: Optional[ImageContext] = None,
     ) -> List[Dict[str, Any]]:
         ...
 
@@ -34,6 +37,8 @@ class ToolSelector(Protocol):
         query: str,
         registry: ToolRegistry,
         active_domains: Optional[List[str]] = None,
+        *,
+        image_context: Optional[ImageContext] = None,
     ) -> List[Dict[str, Any]]:
         """Async selection path used by the production graph runtime."""
 

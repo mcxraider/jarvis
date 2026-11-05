@@ -771,6 +771,7 @@ async def test_repeated_persistence_replaces_rows_and_marks_complete(monkeypatch
     assert len(deletes) == 2
     assert len(inserts) == 2
     assert len(completes) == 2
+    assert not any("thread_memory_heads" in query for query, _ in statements)
 
     image = {
         "image_url": "data:image/jpeg;base64,"
@@ -791,3 +792,26 @@ async def test_repeated_persistence_replaces_rows_and_marks_complete(monkeypatch
 def test_default_context_budget_is_fixed() -> None:
     assert PREVIOUS_THREAD_COUNT == 2
     assert PREVIOUS_THREAD_TEXT_LIMIT == 40_000
+
+
+@async_test
+async def test_prepare_reports_redacted_database_error(monkeypatch) -> None:
+    import psycopg
+
+    async def broken_prepare(*_args, **_kwargs):
+        raise psycopg.errors.CheckViolation("secret database detail must not escape")
+
+    monkeypatch.setattr(thread_memory_module, "_prepare_rows", broken_prepare)
+    memory = await prepare_previous_thread_memory_async(
+        identity=IDENTITY, conversation_key=CONVERSATION_KEY,
+        current_thread_id="thread", user_prompt="whens this trip?",
+    )
+    assert memory.outcome == "db_error"
+    assert memory.error_type == "CheckViolation"
+    assert memory.sqlstate == "23514"
+    assert "secret database detail" not in repr(memory)
+    with pytest.raises(psycopg.errors.CheckViolation):
+        await prepare_previous_thread_memory_async(
+            identity=IDENTITY, conversation_key=CONVERSATION_KEY,
+            current_thread_id="thread", user_prompt="reset", reset_memory=True,
+        )

@@ -999,6 +999,8 @@ async def _run_jarvis_async_impl(
             "thread_memory.loaded",
             "Cross-thread memory lookup settled.",
             outcome=previous_memory.outcome,
+            error_type=previous_memory.error_type,
+            sqlstate=previous_memory.sqlstate,
             duration_ms=previous_memory.duration_ms,
             thread_count=len(previous_memory.previous_threads),
             row_count=previous_memory.row_count,
@@ -1035,6 +1037,7 @@ async def _run_jarvis_async_impl(
         images=memory_images,
         prior_image_batches=memory_prior_image_batches,
         previous_thread_context=previous_memory.text,
+        previous_thread_outcome=previous_memory.outcome,
         recallable_images={
             ref["sha256"]: ref
             for ref in previous_memory.image_references

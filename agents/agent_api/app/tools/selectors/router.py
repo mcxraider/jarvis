@@ -9,9 +9,11 @@ import re
 from typing import Any, Dict, List, Optional, Set
 
 from agents.agent_api.app.async_offload import bounded_to_thread
+from agents.agent_api.app.llm.responses import ImageContext
 from agents.agent_api.app.router.client import RouterClientError
-from agents.agent_api.app.router.runtime import DomainClassifier
+from agents.agent_api.app.router.images import RoutingCacheKey, image_cache_key
 from agents.agent_api.app.router.prompt import RouterDecision, effective_router_domains
+from agents.agent_api.app.router.runtime import DomainClassifier
 from agents.agent_api.app.tools.base import ToolRegistry
 from agents.agent_api.app.tools.control import ASK_USER_TOOL_NAME, RECALL_IMAGE_TOOL_NAME
 from agents.agent_api.app.tools.selectors.static import StaticToolSelector
@@ -42,8 +44,8 @@ class RouterToolSelector:
         self._fallback = fallback_selector or StaticToolSelector()
         self._decision: Optional[RouterDecision] = None
         self._selected_domains: frozenset[str] = frozenset()
-        self._decisions: Dict[str, RouterDecision] = {}
-        self._failed_queries: Set[str] = set()
+        self._decisions: Dict[RoutingCacheKey, RouterDecision] = {}
+        self._failed_queries: Set[RoutingCacheKey] = set()
 
     @property
     def decision(self) -> Optional[RouterDecision]:
@@ -58,20 +60,24 @@ class RouterToolSelector:
         query: str,
         registry: ToolRegistry,
         active_domains: Optional[List[str]] = None,
+        *,
+        image_context: Optional[ImageContext] = None,
     ) -> List[Dict[str, Any]]:
         self._reset_turn_state()
-        decision = self._cached_decision(query)
-        if decision is None and query in self._failed_queries:
+        cache_key = image_cache_key(query, image_context)
+        image_kwargs = {"image_context": image_context} if image_context else {}
+        decision = self._cached_decision(cache_key)
+        if decision is None and cache_key in self._failed_queries:
             self._trace_fallback_cache_hit()
             return self._fallback.select_schemas(query, registry, active_domains)
         if decision is None:
             self._tracer.event("router.start", "Classifying query domains.")
             try:
-                decision = self._client.classify(query, self._snapshot)
+                decision = self._client.classify(query, self._snapshot, **image_kwargs)
             except RouterClientError as error:
-                self._record_failure(query, error)
+                self._record_failure(cache_key, error)
                 return self._fallback.select_schemas(query, registry, active_domains)
-            self._decisions[query] = decision
+            self._decisions[cache_key] = decision
         return self._schemas_for_decision(query, registry, active_domains, decision)
 
     async def async_select_schemas(
@@ -79,10 +85,14 @@ class RouterToolSelector:
         query: str,
         registry: ToolRegistry,
         active_domains: Optional[List[str]] = None,
+        *,
+        image_context: Optional[ImageContext] = None,
     ) -> List[Dict[str, Any]]:
         self._reset_turn_state()
-        decision = self._cached_decision(query)
-        if decision is None and query in self._failed_queries:
+        cache_key = image_cache_key(query, image_context)
+        image_kwargs = {"image_context": image_context} if image_context else {}
+        decision = self._cached_decision(cache_key)
+        if decision is None and cache_key in self._failed_queries:
             self._trace_fallback_cache_hit()
             return await self._async_fallback_schemas(query, registry, active_domains)
         if decision is None:
@@ -94,29 +104,31 @@ class RouterToolSelector:
                         query,
                         self._snapshot,
                         tracer=self._tracer,
+                        **image_kwargs,
                     )
                 else:
                     decision = await bounded_to_thread(
                         self._client.classify,
                         query,
                         self._snapshot,
+                        **image_kwargs,
                     )
             except RouterClientError as error:
-                self._record_failure(query, error)
+                self._record_failure(cache_key, error)
                 return await self._async_fallback_schemas(
                     query,
                     registry,
                     active_domains,
                 )
-            self._decisions[query] = decision
+            self._decisions[cache_key] = decision
         return self._schemas_for_decision(query, registry, active_domains, decision)
 
     def _reset_turn_state(self) -> None:
         self._decision = None
         self._selected_domains = frozenset()
 
-    def _cached_decision(self, query: str) -> Optional[RouterDecision]:
-        decision = self._decisions.get(query)
+    def _cached_decision(self, cache_key: RoutingCacheKey) -> Optional[RouterDecision]:
+        decision = self._decisions.get(cache_key)
         if decision is None:
             return None
         self._tracer.event(
@@ -134,8 +146,8 @@ class RouterToolSelector:
             fallback_selector=type(self._fallback).__name__,
         )
 
-    def _record_failure(self, query: str, error: RouterClientError) -> None:
-        self._failed_queries.add(query)
+    def _record_failure(self, cache_key: RoutingCacheKey, error: RouterClientError) -> None:
+        self._failed_queries.add(cache_key)
         self._tracer.event(
             "router.fallback",
             "Router failed; exposing all connected tools.",

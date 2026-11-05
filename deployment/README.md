@@ -69,6 +69,31 @@ The process timeout chain allows a 30s download + 120s preparation + 360s transc
 
 Logs and audio scratch are disk-backed named volumes. A startup sweep removes Jarvis audio scratch left by forced termination. Named volumes have no portable size quota: monitor free disk. Existing asynchronous log retention and rotated Docker logs bound normal growth; neither is a filesystem quota. TLS state is stored in the two proxy volumes. Application root filesystems are read-only; all services run as non-root with capabilities dropped.
 
+## Thread history integrity repair
+
+Release the agent changes together with migration
+`20261104152216_guard_thread_memory_heads.sql`. Before migration, run
+`scripts/audit_thread_memory.sql` through an authorized database connection to
+inspect invalid heads and unlinked snapshots. The audit contains identifiers,
+but no message content or credentials.
+
+Drain and stop Telegram intake, then drain the agent before applying the migration
+through the normal migration workflow and replacing the agent image. The migration
+clears invalid head pointers and rotates their lineage; it preserves snapshots and
+does not guess predecessor links for unregistered threads. The database guard
+rejects future heads outside their registered owner, conversation, or lineage.
+Agent readiness requires this guard, so migrate before starting the new agent.
+Start the agent, then Telegram intake. Do not replay old dispatched inbox jobs.
+
+Run the audit again: invalid heads should be empty; orphaned snapshots may remain.
+Verify a new three-message read-only travel exchange. The second and third runs
+should report `thread_memory.loaded` with `outcome: loaded`, and
+`thread_memory.injected` should appear before the LLM call. A failed lookup now
+records the exception class and SQLSTATE through the existing async run logger,
+without raw database error messages. Verify that “this trip” refers to the named
+trip from the preceding reply and checks its full dates. Already-unlinked history
+is not reconstructed by this release.
+
 ## Validation and release gates
 
 ```sh
