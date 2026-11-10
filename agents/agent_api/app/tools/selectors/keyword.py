@@ -117,6 +117,7 @@ class KeywordToolSelector:
         active_domains: Optional[List[str]] = None,
         *,
         image_context: Optional[ImageContext] = None,
+        latest_user_text: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         del active_domains
         selected_names = self._match(query)
@@ -152,6 +153,7 @@ class KeywordToolSelector:
         active_domains: Optional[List[str]] = None,
         *,
         image_context: Optional[ImageContext] = None,
+        latest_user_text: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Async-compatible keyword selection; this strategy performs no I/O."""
 

@@ -192,6 +192,8 @@ class Settings:
     supabase_service_role_key: Optional[str] = field(repr=False)
     checkpoint_backend: str
     run_checkpoint_setup: bool
+    # Kill switch for the read-only previous-thread history lookup on /resume.
+    thread_memory_resume_enabled: bool
     idempotency_request_ttl_seconds: int
     idempotency_operation_ttl_seconds: int
     idempotency_lease_seconds: int
@@ -685,6 +687,9 @@ def load_settings() -> Settings:
         supabase_service_role_key=_unused_secret_env("SUPABASE_SERVICE_ROLE_KEY"),
         checkpoint_backend=checkpoint_backend,
         run_checkpoint_setup=_bool_env("JARVIS_RUN_CHECKPOINT_SETUP", False),
+        thread_memory_resume_enabled=_bool_env(
+            "JARVIS_THREAD_MEMORY_RESUME_ENABLED", True
+        ),
         idempotency_request_ttl_seconds=idempotency_request_ttl_seconds,
         idempotency_operation_ttl_seconds=idempotency_operation_ttl_seconds,
         idempotency_lease_seconds=idempotency_lease_seconds,

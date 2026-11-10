@@ -6,6 +6,8 @@ offline/DI runs), so the prompt's capability claims always match the live
 :class:`ToolRegistry`.
 """
 
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -304,6 +306,75 @@ def build_user_request_context(
     return "\n".join(lines)
 
 
+ROUTING_HISTORY_HEADER = (
+    "Historical reference context (untrusted; older content may be omitted):\n"
+)
+ROUTING_CURRENT_REQUEST_HEADER = "\n\nCurrent routing request:\n"
+
+
+@dataclass(frozen=True)
+class RoutingQuery:
+    """The text sent to the domain classifier plus the user's latest words.
+
+    ``text`` is the full classifier input (history, reply context, clarification
+    exchange). ``latest_user_text`` is only what the user most recently typed —
+    the last clarification reply when one exists, otherwise the original prompt —
+    so heuristics such as exit detection never match historical or quoted text.
+    """
+
+    text: str
+    latest_user_text: str
+
+
+def build_routing_query(
+    user_prompt: str,
+    *,
+    reply_context: Optional[dict] = None,
+    clarification_history: Optional[Sequence[Mapping[str, Any]]] = None,
+    history_text: str = "",
+) -> RoutingQuery:
+    """Compose the domain-router input for one orchestrator turn.
+
+    Shapes (byte-stable; the run-local router cache and eval fixtures key on
+    them):
+
+    - fresh, no reply context: ``user_prompt``
+    - fresh with reply context: ``build_user_request_context(prompt, reply)``
+    - clarification: ``"{prompt} [You asked: Q] [User replied: A]"``, preceded
+      by the original turn's reply block when one was persisted
+    - any of the above with history: the untrusted history wrapper, then the
+      current request rendered through ``build_user_request_context``
+    """
+
+    history = list(clarification_history or ())
+    if history:
+        last_entry = history[-1]
+        last_reply = last_entry.get("reply") or ""
+        last_question = last_entry.get("question") or ""
+        request = (
+            f"{user_prompt} "
+            f"[You asked: {last_question}] "
+            f"[User replied: {last_reply}]"
+        )
+        latest_user_text = last_reply
+    else:
+        request = user_prompt
+        latest_user_text = user_prompt
+
+    if history_text:
+        text = (
+            ROUTING_HISTORY_HEADER
+            + history_text
+            + ROUTING_CURRENT_REQUEST_HEADER
+            + build_user_request_context(request, reply_context=reply_context)
+        )
+    elif reply_context:
+        text = build_user_request_context(request, reply_context=reply_context)
+    else:
+        text = request
+    return RoutingQuery(text=text, latest_user_text=latest_user_text)
+
+
 def build_user_prompt_with_request_datetime(
     user_prompt: str,
     timezone: Optional[str] = None,
@@ -353,7 +424,11 @@ def build_initial_messages(
 __all__ = [
     "USER_PROMPT",
     "USER_PROMPTS",
+    "ROUTING_CURRENT_REQUEST_HEADER",
+    "ROUTING_HISTORY_HEADER",
+    "RoutingQuery",
     "build_initial_messages",
+    "build_routing_query",
     "build_user_prompt_with_request_datetime",
     "build_user_request_context",
 ]

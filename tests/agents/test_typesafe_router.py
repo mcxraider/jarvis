@@ -338,6 +338,28 @@ def test_state_carries_custom_instructions_without_legacy_preferences():
     assert "custom_instructions" in build_questions(snapshot)["needs_google_calendar"]["instructions"]
 
 
+def test_clarification_query_with_reply_context_reaches_user_request():
+    from agents.agent_api.app.graph.prompts.context import build_routing_query
+    from tests.agents.runtime_helpers import make_snapshot
+
+    query = build_routing_query(
+        "move this to 3pm",
+        reply_context={"role": "assistant", "message": "Created event: Dentist"},
+        clarification_history=[{"question": "Which day?", "reply": "friday"}],
+    ).text
+    user_request = build_state(query, make_snapshot())["user_request"]
+    assert user_request == query
+    assert user_request.startswith(
+        "Reply context:\n"
+        "- Replied-to role: assistant\n"
+        "- Replied-to message: Created event: Dentist\n"
+    )
+    assert user_request.endswith(
+        "Current user message:\n"
+        "move this to 3pm [You asked: Which day?] [User replied: friday]"
+    )
+
+
 def test_legacy_resume_uses_current_custom_instruction_semantics():
     snapshot = _snapshot("jerry")
     snapshot.custom_instructions = "Events go to Google Calendar."

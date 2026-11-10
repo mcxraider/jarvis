@@ -84,6 +84,7 @@ from agents.agent_api.app.tools.todoist.client import TodoistApiClient
 from agents.agent_api.app.tracing import NULL_TRACE, TracePrinter, name_current_run
 from agents.agent_api.app.thread_memory import (
     PreviousThreadMemory,
+    load_resumed_thread_memory_async,
     persist_thread_memory_async,
     prepare_previous_thread_memory_async,
 )
@@ -800,6 +801,21 @@ async def _run_jarvis_async_impl(
             _memory_tasks.append(memory_task)
     elif reset_memory:
         raise RuntimeError("Durable thread memory requires a configured Postgres runtime.")
+    elif (
+        resuming
+        and identity is not None
+        and settings.postgres_dsn
+        and getattr(settings, "thread_memory_resume_enabled", True)
+    ):
+        # Read-only: recompute the predecessor set fixed when this thread was
+        # registered. Never claims the head (prepare_thread_memory must not run
+        # on resume). Overlaps load_thread_runtime_context_async below.
+        memory_task = asyncio.create_task(
+            load_resumed_thread_memory_async(identity=identity, thread_id=thread_id),
+            name=f"thread-memory-resume:{thread_id}",
+        )
+        if _memory_tasks is not None:
+            _memory_tasks.append(memory_task)
     invocation_type = "resume" if resuming else "invoke"
     run_name = f"jarvis.{invocation_type}"
     # The public @traceable wrapper opens the root run as "jarvis"; rename it once we know
@@ -998,6 +1014,7 @@ async def _run_jarvis_async_impl(
         tracer.event(
             "thread_memory.loaded",
             "Cross-thread memory lookup settled.",
+            phase=invocation_type,
             outcome=previous_memory.outcome,
             error_type=previous_memory.error_type,
             sqlstate=previous_memory.sqlstate,
@@ -1022,6 +1039,15 @@ async def _run_jarvis_async_impl(
                 "Discarded previous-thread memory with a mismatched canonical owner.",
             )
             previous_memory = PreviousThreadMemory(outcome="owner_mismatch")
+    if previous_memory.routing_text:
+        tracer.event(
+            "router.history_attached",
+            "Attached bounded previous-thread history to router input.",
+            source=invocation_type,
+            chars=len(previous_memory.routing_text),
+            threads=previous_memory.routing_thread_count,
+            omitted=previous_memory.routing_omitted,
+        )
     run_deps = RunDeps(
         agent_client=agent_client,
         registry=registry,
@@ -1037,6 +1063,7 @@ async def _run_jarvis_async_impl(
         images=memory_images,
         prior_image_batches=memory_prior_image_batches,
         previous_thread_context=previous_memory.text,
+        previous_thread_routing_context=previous_memory.routing_text,
         previous_thread_outcome=previous_memory.outcome,
         recallable_images={
             ref["sha256"]: ref

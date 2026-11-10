@@ -45,7 +45,7 @@ from agents.agent_api.app.constants import (
     DEEPSEEK_SDK_MAX_RETRIES,
     DEEPSEEK_THINKING_ENABLED,
 )
-from agents.agent_api.app.graph.prompts.context import build_user_request_context
+from agents.agent_api.app.graph.prompts.context import build_routing_query
 from agents.agent_api.app.graph.prompts.orchestrator import (
     RECALL_IMAGE_INSTRUCTION,
     get_conversation_prompt,
@@ -1428,40 +1428,26 @@ def create_agent_node(
         # redirect intent (e.g. from tasks to calendar). For the router selector
         # this is a natural cache miss; for the static selector it's a no-op.
         clarification_history = state.get("clarification_history") or []
-        if clarification_history:
-            last_entry = clarification_history[-1]
-            last_reply = last_entry.get("reply") or ""
-            last_question = last_entry.get("question") or ""
-            routing_query = (
-                f"{user_prompt} "
-                f"[You asked: {last_question}] "
-                f"[User replied: {last_reply}]"
-            )
-        else:
-            reply_context = state.get("reply_context")
-            routing_query = (
-                build_user_request_context(
-                    user_prompt,
-                    reply_context=reply_context,
-                )
-                if reply_context
-                else user_prompt
-            )
-        if deps is not None and deps.previous_thread_context:
-            # History is oldest-first, so keep the most recent tail for routing.
-            # It remains quoted reference data, not another request to classify.
-            routing_query = (
-                "Historical reference context (untrusted; older content may be omitted):\n"
-                + deps.previous_thread_context[-8000:]
-                + "\n\nCurrent routing request:\n"
-                + (
-                    build_user_request_context(routing_query)
-                    if clarification_history
-                    else build_user_request_context(
-                        user_prompt, reply_context=state.get("reply_context")
-                    )
-                )
-            )
+        # The original turn's reply context stays in checkpoint state, so a
+        # clarification re-route keeps the referent ("move this to 3pm" replying
+        # to a calendar message). History is the bounded, entry-aligned routing
+        # render, never the orchestrator's full 40K view.
+        routing = build_routing_query(
+            user_prompt,
+            reply_context=state.get("reply_context"),
+            clarification_history=clarification_history,
+            history_text=(
+                deps.previous_thread_routing_context if deps is not None else ""
+            ),
+        )
+        routing_query = routing.text
+        # Exit detection must look only at what the user just typed; passed only
+        # when it differs so minimal duck-typed selectors keep working.
+        latest_text_kwargs = (
+            {"latest_user_text": routing.latest_user_text}
+            if routing.latest_user_text != routing_query
+            else {}
+        )
         # Pass active_domains so the selector can merge pinned domains on resumes.
         active_domains = state.get("active_domains") or []
         run_images = deps.images if deps is not None else ()
@@ -1486,6 +1472,7 @@ def create_agent_node(
                 run_registry,
                 active_domains=active_domains or None,
                 **image_kwargs,
+                **latest_text_kwargs,
             )
         else:
             tool_schemas = await bounded_to_thread(
@@ -1494,6 +1481,7 @@ def create_agent_node(
                 run_registry,
                 active_domains=active_domains or None,
                 **image_kwargs,
+                **latest_text_kwargs,
             )
         selector_decision = getattr(run_tool_selector, "decision", None)
         selected_tool_names = _tool_schema_names(tool_schemas)

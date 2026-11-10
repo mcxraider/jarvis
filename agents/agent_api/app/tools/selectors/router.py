@@ -62,6 +62,7 @@ class RouterToolSelector:
         active_domains: Optional[List[str]] = None,
         *,
         image_context: Optional[ImageContext] = None,
+        latest_user_text: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         self._reset_turn_state()
         cache_key = image_cache_key(query, image_context)
@@ -78,7 +79,13 @@ class RouterToolSelector:
                 self._record_failure(cache_key, error)
                 return self._fallback.select_schemas(query, registry, active_domains)
             self._decisions[cache_key] = decision
-        return self._schemas_for_decision(query, registry, active_domains, decision)
+        return self._schemas_for_decision(
+            query,
+            registry,
+            active_domains,
+            decision,
+            latest_user_text=latest_user_text,
+        )
 
     async def async_select_schemas(
         self,
@@ -87,6 +94,7 @@ class RouterToolSelector:
         active_domains: Optional[List[str]] = None,
         *,
         image_context: Optional[ImageContext] = None,
+        latest_user_text: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         self._reset_turn_state()
         cache_key = image_cache_key(query, image_context)
@@ -121,7 +129,13 @@ class RouterToolSelector:
                     active_domains,
                 )
             self._decisions[cache_key] = decision
-        return self._schemas_for_decision(query, registry, active_domains, decision)
+        return self._schemas_for_decision(
+            query,
+            registry,
+            active_domains,
+            decision,
+            latest_user_text=latest_user_text,
+        )
 
     def _reset_turn_state(self) -> None:
         self._decision = None
@@ -179,6 +193,8 @@ class RouterToolSelector:
         registry: ToolRegistry,
         active_domains: Optional[List[str]],
         decision: RouterDecision,
+        *,
+        latest_user_text: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         self._decision = decision
         self._tracer.event(
@@ -193,7 +209,11 @@ class RouterToolSelector:
 
         relevant = set(effective_router_domains(decision)) & self._snapshot.active_providers()
         router_empty = not effective_router_domains(decision)
-        is_exit = router_empty and bool(_EXIT_PATTERNS.search(query))
+        # Exit intent is judged only on what the user just typed: the routing
+        # query also carries the original prompt, reply context and history,
+        # where "cancel"/"stop" commonly appear without being an exit request.
+        exit_text = query if latest_user_text is None else latest_user_text
+        is_exit = router_empty and bool(_EXIT_PATTERNS.search(exit_text))
         if active_domains and not is_exit:
             pinned = set(active_domains) & self._snapshot.active_providers()
             if pinned - relevant:

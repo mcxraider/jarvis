@@ -44,6 +44,11 @@ class RunDeps:
         default=None, repr=False, compare=False
     )
     previous_thread_context: str = field(default="", repr=False, compare=False)
+    # Bounded, entry-aligned history render for the domain router only (no
+    # image references). Never checkpointed; excluded from repr like the above.
+    previous_thread_routing_context: str = field(
+        default="", repr=False, compare=False
+    )
     previous_thread_outcome: str = "disabled"
     previous_thread_images: tuple[dict[str, str], ...] = field(
         default_factory=tuple, repr=False, compare=False

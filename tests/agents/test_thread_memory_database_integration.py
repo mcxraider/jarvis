@@ -526,3 +526,168 @@ def test_cleanup_keeps_uploaded_image_rows_until_storage_object_is_gone() -> Non
             cursor.execute("reset role")
 
         connection.rollback()
+
+
+def test_resume_query_is_read_only_and_owner_scoped(monkeypatch) -> None:
+    """Stage 4: the resume loader's real SQL recomputes the predecessor set for
+    the owner only, never for another user or an unregistered thread."""
+
+    import asyncio
+    from contextlib import asynccontextmanager
+
+    import psycopg
+    from psycopg.rows import dict_row
+
+    from agents.agent_api.app import thread_memory
+    from agents.agent_api.app.user_context.identity import TelegramIdentity
+
+    telegram_id, user_id, conversation_key = _new_scope("resume")
+    other_telegram_id, other_user_id, _ = _new_scope("resume_other")
+    suffix = uuid.uuid4().hex
+    thread_a, thread_b, thread_c = (
+        f"memory-resume-a-{suffix}",
+        f"memory-resume-b-{suffix}",
+        f"memory-resume-c-{suffix}",
+    )
+    unregistered = f"memory-resume-null-key-{suffix}"
+    monkeypatch.setattr(thread_memory, "PREVIOUS_THREAD_DB_TIMEOUT_SECONDS", 10.0)
+
+    async def scenario() -> None:
+        connection = await psycopg.AsyncConnection.connect(
+            TEST_DSN, row_factory=dict_row
+        )
+        try:
+            async with connection.cursor() as cursor:
+                for tid, uid in (
+                    (telegram_id, user_id),
+                    (other_telegram_id, other_user_id),
+                ):
+                    await cursor.execute(
+                        """
+                        insert into public.users (
+                          id, display_name, telegram_id, telegram_verified_at,
+                          custom_instructions, preference_schema_version,
+                          preference_revision, preferences_created_at,
+                          preferences_updated_at, preferences_updated_by
+                        ) values (
+                          %s, 'Thread memory test', %s, now(),
+                          'Keep thread-memory test responses concise.',
+                          1, 1, now(), now(), 'test:thread-memory'
+                        )
+                        """,
+                        (uid, tid),
+                    )
+                    await cursor.execute(
+                        "insert into private.user_runtime_policies(user_id, updated_by)"
+                        " values (%s, 'test:thread-memory')",
+                        (uid,),
+                    )
+                    await cursor.execute(
+                        "insert into private.user_onboarding_metadata(user_id, updated_by)"
+                        " values (%s, 'test:thread-memory')",
+                        (uid,),
+                    )
+                await cursor.execute("set local role jarvis_app")
+                for thread_id in (thread_a, thread_b, thread_c):
+                    await cursor.execute(
+                        "select * from public.prepare_thread_memory"
+                        "(%s, %s, %s, %s, false, 2)",
+                        (telegram_id, conversation_key, thread_id, thread_id),
+                    )
+                    await cursor.fetchall()
+                await cursor.execute("reset role")
+                await cursor.execute(
+                    """
+                    insert into public.threads (thread_id, user_id, title, status)
+                    values (%s, %s, 'legacy', 'active')
+                    """,
+                    (unregistered, user_id),
+                )
+                await cursor.execute(
+                    "select count(*) as count from public.thread_messages"
+                    " where thread_id = any(%s)",
+                    ([thread_a, thread_b, thread_c],),
+                )
+                messages_before = (await cursor.fetchone())["count"]
+                await cursor.execute(
+                    "select latest_thread_id from public.thread_memory_heads"
+                    " where user_id = %s",
+                    (user_id,),
+                )
+                heads_before = await cursor.fetchall()
+                # Run the loader's own SQL with the runtime role.
+                await cursor.execute("set local role jarvis_app")
+
+            class Pool:
+                @asynccontextmanager
+                async def connection(self):
+                    yield connection
+
+            monkeypatch.setattr(thread_memory, "get_async_pool", lambda: Pool())
+            owner = TelegramIdentity(telegram_id=telegram_id, username="owner")
+            other = TelegramIdentity(telegram_id=other_telegram_id, username="other")
+
+            rows = await thread_memory._resumed_rows(owner, thread_c)
+            assert {
+                (row["source_thread_id"], row["history_rank"]) for row in rows
+            } == {(thread_b, 1), (thread_a, 2)}
+            assert {str(row["user_id"]) for row in rows} == {str(user_id)}
+
+            memory = await thread_memory.load_resumed_thread_memory_async(
+                identity=owner, thread_id=thread_c
+            )
+            assert memory.outcome == "loaded"
+            assert [ref.thread_id for ref in memory.previous_threads] == [
+                thread_b,
+                thread_a,
+            ]
+            assert memory.canonical_user_id == str(user_id)
+            assert memory.routing_text
+
+            first = await thread_memory.load_resumed_thread_memory_async(
+                identity=owner, thread_id=thread_a
+            )
+            assert first.outcome == "no_predecessor"
+
+            assert await thread_memory._resumed_rows(other, thread_c) == []
+            foreign = await thread_memory.load_resumed_thread_memory_async(
+                identity=other, thread_id=thread_c
+            )
+            assert foreign.outcome == "not_registered"
+            assert foreign.text == "" and foreign.routing_text == ""
+
+            assert await thread_memory._resumed_rows(owner, unregistered) == []
+            legacy = await thread_memory.load_resumed_thread_memory_async(
+                identity=owner, thread_id=unregistered
+            )
+            assert legacy.outcome == "not_registered"
+
+            async with connection.cursor() as cursor:
+                await cursor.execute("reset role")
+                await cursor.execute(
+                    "select count(*) as count from public.thread_messages"
+                    " where thread_id = any(%s)",
+                    ([thread_a, thread_b, thread_c],),
+                )
+                assert (await cursor.fetchone())["count"] == messages_before
+                await cursor.execute(
+                    "select latest_thread_id from public.thread_memory_heads"
+                    " where user_id = %s",
+                    (user_id,),
+                )
+                assert await cursor.fetchall() == heads_before
+                await cursor.execute("set local role jarvis_app")
+
+            # An unknown Telegram user makes resolve_user_id raise P0002; the
+            # loader treats it as not_registered (last: it aborts the transaction).
+            unknown = TelegramIdentity(telegram_id=telegram_id + 1, username="nobody")
+            unknown_memory = await thread_memory.load_resumed_thread_memory_async(
+                identity=unknown, thread_id=thread_c
+            )
+            assert unknown_memory.outcome == "not_registered"
+            assert unknown_memory.sqlstate == "P0002"
+        finally:
+            await connection.rollback()
+            await connection.close()
+
+    asyncio.run(scenario())

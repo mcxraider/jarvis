@@ -177,6 +177,65 @@ class TestDomainMerging:
         tool_names = {s["function"]["name"] for s in schemas}
         assert "list_calendar_events" not in tool_names
 
+    _CONVERSATION = RouterDecision(
+        outcome="conversation", domains=[], uncertain=False,
+        candidate_domains=[], complexity="low",
+    )
+
+    def test_cancel_in_original_prompt_does_not_drop_pinned_domains(self):
+        """"cancel" appears only in the original prompt/history; the user's
+        latest words are "friday" → not an exit, pinned tools kept."""
+        snapshot = make_snapshot(active=("todoist", "google_calendar"))
+        router_client = _CannedRouterClient({"cancel": self._CONVERSATION})
+        selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
+
+        schemas = selector.select_schemas(
+            "cancel my dentist appointment "
+            "[You asked: Which day?] [User replied: friday]",
+            _registry(),
+            active_domains=["google_calendar"],
+            latest_user_text="friday",
+        )
+
+        tool_names = {s["function"]["name"] for s in schemas}
+        # make_snapshot's google_calendar domain exposes these two tools.
+        assert {"list_calendar_events", "delete_calendar_event"} <= tool_names
+        assert "add_todoist_task" not in tool_names
+
+    def test_cancel_as_latest_user_text_drops_pinned_domains(self):
+        snapshot = make_snapshot(active=("todoist", "google_calendar"))
+        router_client = _CannedRouterClient({"cancel": self._CONVERSATION})
+        selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
+
+        schemas = selector.select_schemas(
+            "move my dentist appointment "
+            "[You asked: Which day?] [User replied: cancel]",
+            _registry(),
+            active_domains=["google_calendar"],
+            latest_user_text="cancel",
+        )
+
+        # _allowed_tool_names always includes ask_user + recall_previous_image;
+        # only ask_user is registered in this test registry.
+        tool_names = {s["function"]["name"] for s in schemas}
+        assert tool_names == {"ask_user"}
+
+    def test_async_select_honours_latest_user_text(self):
+        snapshot = make_snapshot(active=("todoist", "google_calendar"))
+        router_client = _CannedRouterClient({"cancel": self._CONVERSATION})
+        selector = RouterToolSelector(router_client=router_client, snapshot=snapshot)
+
+        schemas = asyncio.run(selector.async_select_schemas(
+            "cancel my dentist appointment "
+            "[You asked: Which day?] [User replied: friday]",
+            _registry(),
+            active_domains=["google_calendar"],
+            latest_user_text="friday",
+        ))
+
+        tool_names = {s["function"]["name"] for s in schemas}
+        assert "list_calendar_events" in tool_names
+
 
 # ---------------------------------------------------------------------------
 # Stage 1 + 2: Orchestrator sets active_domains and composes contextual query
@@ -248,7 +307,7 @@ class TestOrchestratorActiveDomains:
         assert selector.decision is not None
         assert "google_calendar" in effective_router_domains(selector.decision)
 
-    def test_clarification_query_excludes_persisted_telegram_reply_context(self):
+    def test_clarification_query_includes_original_reply_context(self):
         snapshot = make_snapshot(active=("todoist", "google_calendar"))
         router_client = _CannedRouterClient({})
         selector = RouterToolSelector(
@@ -272,12 +331,18 @@ class TestOrchestratorActiveDomains:
 
         asyncio.run(node(state))
 
+        # The original turn's reply context (persisted in checkpoint state) is
+        # kept on the clarification re-route so the referent survives.
         assert router_client.seen_queries == [
+            "Reply context:\n"
+            "- Replied-to role: assistant\n"
+            "- Replied-to message: Created task: Buy milk\n"
+            "\n"
+            "Current user message:\n"
             "make it due tomorrow "
             "[You asked: Which task?] "
             "[User replied: Buy milk]"
         ]
-        assert "Reply context:" not in router_client.seen_queries[0]
 
 
 # ---------------------------------------------------------------------------
@@ -523,7 +588,9 @@ def test_trip_followup_routes_with_history_without_persisting_it():
     )
     deps = RunDeps(
         agent_client=client, registry=registry, tool_selector=selector,
-        previous_thread_context=history, previous_thread_outcome="loaded",
+        previous_thread_context=history,
+        previous_thread_routing_context=history,
+        previous_thread_outcome="loaded",
     )
     node = create_agent_node(client, registry, max_agent_turns=30, tool_selector=selector)
     result = asyncio.run(node(
@@ -564,3 +631,135 @@ def test_history_failure_is_visible_without_losing_explicit_reply_context():
     assert not any("Conversation history status: unavailable" in str(m.get("content"))
                    for m in result["messages"])
     assert "use ask_user to identify the intended item" in client.seen_messages[0]["content"]
+
+
+def test_router_ignores_full_history_without_routing_render():
+    """Only the bounded routing render reaches the router; the orchestrator's
+    full previous_thread_context alone adds no history wrapper."""
+    from agents.agent_api.app.graph.prompts.context import ROUTING_HISTORY_HEADER
+    from agents.agent_api.app.graph.run_deps import RunDeps
+
+    snapshot = make_snapshot(active=("todoist", "google_calendar"))
+    router = _CannedRouterClient({})
+    selector = RouterToolSelector(router_client=router, snapshot=snapshot)
+    client = _RecordingClient()
+    registry = _registry()
+    history = "[Previous thread 1 — most recent]\nUser: Overseas trip planning"
+    deps = RunDeps(
+        agent_client=client, registry=registry, tool_selector=selector,
+        previous_thread_context=history, previous_thread_outcome="loaded",
+    )
+    node = create_agent_node(client, registry, max_agent_turns=30, tool_selector=selector)
+    asyncio.run(node(
+        _fresh_state(snapshot, "whens this trip?"),
+        {"configurable": {"deps": deps}},
+    ))
+
+    assert router.seen_queries == ["whens this trip?"]
+    assert ROUTING_HISTORY_HEADER not in router.seen_queries[0]
+    assert "Overseas trip planning" not in router.seen_queries[0]
+    # The orchestrator still sees the full history.
+    assert any(m.get("content") == history for m in client.seen_messages)
+
+
+def test_router_uses_routing_render_not_raw_history_tail():
+    from agents.agent_api.app.graph.prompts.context import (
+        ROUTING_CURRENT_REQUEST_HEADER,
+        ROUTING_HISTORY_HEADER,
+    )
+    from agents.agent_api.app.graph.run_deps import RunDeps
+
+    snapshot = make_snapshot(active=("todoist", "google_calendar"))
+    router = _CannedRouterClient({})
+    selector = RouterToolSelector(router_client=router, snapshot=snapshot)
+    client = _RecordingClient()
+    registry = _registry()
+    full_history = (
+        "[Previous thread 1 — most recent]\n"
+        + ("x" * 9000)
+        + "\nRAW_TAIL_MARKER image_reference deadbeef"
+    )
+    routing_history = (
+        "[Previous thread 1 — most recent]\n"
+        '{"role": "user", "content": "ROUTING_RENDER_MARKER"}'
+    )
+    deps = RunDeps(
+        agent_client=client, registry=registry, tool_selector=selector,
+        previous_thread_context=full_history,
+        previous_thread_routing_context=routing_history,
+        previous_thread_outcome="loaded",
+    )
+    node = create_agent_node(client, registry, max_agent_turns=30, tool_selector=selector)
+    result = asyncio.run(node(
+        _fresh_state(snapshot, "whens this trip?"),
+        {"configurable": {"deps": deps}},
+    ))
+
+    query = router.seen_queries[0]
+    assert query == (
+        ROUTING_HISTORY_HEADER
+        + routing_history
+        + ROUTING_CURRENT_REQUEST_HEADER
+        + "Current user message:\nwhens this trip?"
+    )
+    assert "RAW_TAIL_MARKER" not in query
+    for content in (full_history, routing_history):
+        assert not any(m.get("content") == content for m in result["messages"])
+    assert not any(
+        "ROUTING_RENDER_MARKER" in str(m.get("content")) for m in result["messages"]
+    )
+
+
+def test_resume_routes_with_history_and_keeps_pinned_tools_despite_cancel():
+    """Stage 4.5: resume with clarification, pinned domains and routing
+    history mentioning "cancel"; router answers conversation."""
+    from agents.agent_api.app.graph.prompts.context import (
+        ROUTING_CURRENT_REQUEST_HEADER,
+        ROUTING_HISTORY_HEADER,
+    )
+    from agents.agent_api.app.graph.run_deps import RunDeps
+
+    snapshot = make_snapshot(active=("todoist", "google_calendar"))
+    conversation = RouterDecision(
+        outcome="conversation", domains=[], uncertain=False,
+        candidate_domains=[], complexity="low",
+    )
+    router = _CannedRouterClient({"": conversation})
+    selector = RouterToolSelector(router_client=router, snapshot=snapshot)
+    client = _RecordingClient()
+    registry = _registry()
+    history = (
+        "[Previous thread 1 — most recent]\n"
+        '{"role": "user", "content": "cancel the standup tomorrow"}\n'
+        '{"role": "assistant", "content": "Cancelled the standup."}'
+    )
+    deps = RunDeps(
+        agent_client=client, registry=registry, tool_selector=selector,
+        previous_thread_context=history,
+        previous_thread_routing_context=history,
+        previous_thread_outcome="loaded",
+    )
+    node = create_agent_node(client, registry, max_agent_turns=30, tool_selector=selector)
+    state = _resume_state(
+        snapshot,
+        user_prompt="move my dentist appointment",
+        clarification_history=[{"question": "Which day?", "reply": "friday"}],
+        active_domains=["google_calendar"],
+    )
+    result = asyncio.run(node(state, {"configurable": {"deps": deps}}))
+
+    query = router.seen_queries[0]
+    assert query.startswith(ROUTING_HISTORY_HEADER + history)
+    assert query.endswith(
+        ROUTING_CURRENT_REQUEST_HEADER
+        + "Current user message:\n"
+        + "move my dentist appointment [You asked: Which day?] [User replied: friday]"
+    )
+    assert effective_router_domains(selector.decision) == []
+
+    offered = {t["function"]["name"] for t in client.seen_tools}
+    assert {"list_calendar_events", "delete_calendar_event"} <= offered
+    assert not any(m.get("content") == history for m in result["messages"])
+    assert not any(
+        "cancel the standup" in str(m.get("content")) for m in result["messages"]
+    )

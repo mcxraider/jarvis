@@ -248,7 +248,7 @@ LangSmith tracing is wired at four layers — keep new code consistent with it:
 - `errors.py` — API key validation, shared exception types
 - `async_offload.py` — bounded `asyncio.to_thread` with per-loop semaphore and cancellation safety
 - `post_run.py` — bounded FIFO queue for non-critical post-run DB writes
-- `thread_memory.py` — awaited canonical transcript persistence, bounded loading/rendering of the two immediately previous threads, and private Supabase Storage image IO; `PreviousThreadRef` ranks source threads, `RecallImageReference` carries metadata-only image references, and `fetch_previous_image_by_reference()` fetches an image only when the model calls `recall_previous_image`
+- `thread_memory.py` — awaited canonical transcript persistence, bounded loading/rendering of the two immediately previous threads (claimed via `prepare_previous_thread_memory_async` on invoke, re-read without mutation via `load_resumed_thread_memory_async` on resume), a separate 8,000-char entry-aligned router view (`render_router_history`, no image references), and private Supabase Storage image IO; `PreviousThreadRef` ranks source threads, `RecallImageReference` carries metadata-only image references, and `fetch_previous_image_by_reference()` fetches an image only when the model calls `recall_previous_image`
 - `tracing.py` — `TracePrinter`, `UserProgressTracePrinter`, `name_current_run()`, `ProgressCallback` protocol
 - `runner.py` — local CLI runner (terminal prompts, HITL via input())
 - `studio.py` — LangGraph Studio graph entrypoint
@@ -374,9 +374,13 @@ The project uses **Supabase/PostgreSQL** for user identity, typed runtime policy
 Key tables: `public.users` (canonical Telegram identity + custom instructions), `private.user_runtime_policies`, `private.user_resource_restrictions`, `private.user_onboarding_metadata`, `public.integration_connections`, `public.telegram_pending_clarifications`, `public.telegram_conversation_gates`, `public.rate_limits`, `public.threads`, `public.thread_memory_heads`, `public.thread_messages`.
 
 Cross-thread memory is scoped by canonical user, hashed Telegram conversation,
-and `/new` lineage. A fresh thread can read its two immediate predecessors,
+and `/new` lineage. A thread can read its two immediate predecessors,
 newest first, within one global 256-row / 64-KiB database bound and a 40,000
-character rendered-context bound. Canonical user and assistant messages have no
+character rendered-context bound. Fresh invokes claim the head and fetch in one
+call; resumes recompute the same predecessor set with a read-only,
+owner-checked query (`JARVIS_THREAD_MEMORY_RESUME_ENABLED` kill switch). The
+domain router gets its own entry-aligned 8,000-character render without image
+references (`RunDeps.previous_thread_routing_context`), never a raw tail slice. Canonical user and assistant messages have no
 age cutoff. Stored snapshots exclude Base64 image data, system prompts, hidden
 reasoning, and injected predecessor context; rendered cross-thread context also
 excludes tool protocol traffic.

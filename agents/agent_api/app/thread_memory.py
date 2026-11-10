@@ -32,6 +32,11 @@ THREAD_IMAGE_BUCKET = "thread-images"
 PREVIOUS_THREAD_DB_TIMEOUT_SECONDS = 0.5
 PREVIOUS_THREAD_TEXT_LIMIT = 40_000
 PREVIOUS_THREAD_COUNT = 2
+# Budget for the domain router's view of previous-thread history. The router
+# gets its own entry-aligned render (never a raw tail slice of the 40K
+# orchestrator view) so the preamble survives and no entry is cut mid-JSON.
+ROUTER_HISTORY_TEXT_LIMIT = 8_000
+_NO_ACTIVE_USER_SQLSTATE = "P0002"
 IMAGE_UPLOAD_TIMEOUT_SECONDS = 5.0
 
 _HISTORY_PREAMBLE = (
@@ -82,6 +87,9 @@ class PreviousThreadMemory:
     lineage_id: str | None = None
     previous_threads: tuple[PreviousThreadRef, ...] = ()
     text: str = ""
+    routing_text: str = field(default="", repr=False)
+    routing_thread_count: int = 0
+    routing_omitted: bool = False
     images: tuple[dict[str, str], ...] = ()
     image_references: tuple[RecallImageReference, ...] = ()
     row_count: int = 0
@@ -262,8 +270,14 @@ def render_previous_thread_context(
     rows: Sequence[Mapping[str, Any]],
     *,
     limit: int = PREVIOUS_THREAD_TEXT_LIMIT,
+    include_image_references: bool = True,
 ) -> tuple[str, set[tuple[str, int]]]:
-    """Prioritize newest history, then render retained threads oldest-first."""
+    """Prioritize newest history, then render retained threads oldest-first.
+
+    ``include_image_references=False`` omits ``image_reference`` lines (used for
+    the router view: a sha256 is noise to a domain classifier, and the router
+    has no recall tool). ``retained_keys`` semantics are unchanged.
+    """
 
     valid = _valid_candidate_rows(rows)
     refs = _thread_refs(rows)
@@ -292,7 +306,12 @@ def render_previous_thread_context(
                 continue
             sequence = row["sequence"]
             entries = [_render_entry(row)]
-            for image_row in images_by_user_sequence.get(sequence, ()):
+            image_rows = (
+                images_by_user_sequence.get(sequence, ())
+                if include_image_references
+                else ()
+            )
+            for image_row in image_rows:
                 image_payload = image_row["payload"]
                 entries.append(
                     json.dumps(
@@ -477,29 +496,7 @@ async def prepare_previous_thread_memory_async(
         )
 
     try:
-        canonical_user_id, lineage_id = _metadata(rows)
-        previous_threads = _thread_refs(rows)
-        if not previous_threads:
-            return PreviousThreadMemory(
-                canonical_user_id=canonical_user_id,
-                lineage_id=lineage_id,
-                row_count=len(rows),
-                outcome="no_predecessor",
-                duration_ms=round((time.monotonic() - started) * 1000, 1),
-            )
-
-        text, retained_keys = render_previous_thread_context(rows)
-        image_references = _build_image_references(rows, retained_keys)
-        return PreviousThreadMemory(
-            canonical_user_id=canonical_user_id,
-            lineage_id=lineage_id,
-            previous_threads=previous_threads,
-            text=text,
-            image_references=image_references,
-            row_count=len(rows),
-            outcome="loaded",
-            duration_ms=round((time.monotonic() - started) * 1000, 1),
-        )
+        return _memory_from_rows(rows, started)
     except asyncio.CancelledError:
         raise
     except Exception as exc:
@@ -509,6 +506,181 @@ async def prepare_previous_thread_memory_async(
             error_type=type(exc).__name__,
             outcome="memory_error",
             duration_ms=round((time.monotonic() - started) * 1000, 1),
+        )
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((time.monotonic() - started) * 1000, 1)
+
+
+@dataclass(frozen=True)
+class RouterHistory:
+    """Router view of previous-thread history plus content-free metrics."""
+
+    text: str = field(default="", repr=False)
+    thread_count: int = 0
+    omitted: bool = False
+
+
+def _conversation_entry_keys(
+    rows: Sequence[Mapping[str, Any]],
+) -> set[tuple[str, int]]:
+    thread_ids = {ref.thread_id for ref in _thread_refs(rows)}
+    return {
+        (row["source_thread_id"], row["sequence"])
+        for row in _valid_candidate_rows(rows)
+        if row["source_thread_id"] in thread_ids
+        and row["kind"] in {"user", "assistant"}
+        and set(row["payload"].keys()) == {"role", "content"}
+    }
+
+
+def render_router_history(rows: Sequence[Mapping[str, Any]]) -> RouterHistory:
+    """Bounded, entry-aligned history view for the domain router.
+
+    Text is ``""`` when no conversation entry fits the budget, so the router is
+    never sent a preamble-only (or omission-marker-only) block.
+    """
+
+    text, retained_keys = render_previous_thread_context(
+        rows,
+        limit=ROUTER_HISTORY_TEXT_LIMIT,
+        include_image_references=False,
+    )
+    available = _conversation_entry_keys(rows)
+    if not retained_keys:
+        return RouterHistory(omitted=bool(available))
+    return RouterHistory(
+        text=text,
+        thread_count=len({thread_id for thread_id, _sequence in retained_keys}),
+        omitted=len(retained_keys) < len(available),
+    )
+
+
+def _memory_from_rows(
+    rows: Sequence[Mapping[str, Any]], started: float
+) -> PreviousThreadMemory:
+    """Map predecessor rows to memory; shared by the invoke and resume paths.
+
+    Raises on malformed metadata; callers turn that into ``memory_error``.
+    """
+
+    canonical_user_id, lineage_id = _metadata(rows)
+    previous_threads = _thread_refs(rows)
+    if not previous_threads:
+        return PreviousThreadMemory(
+            canonical_user_id=canonical_user_id,
+            lineage_id=lineage_id,
+            row_count=len(rows),
+            outcome="no_predecessor",
+            duration_ms=_elapsed_ms(started),
+        )
+
+    text, retained_keys = render_previous_thread_context(rows)
+    image_references = _build_image_references(rows, retained_keys)
+    router_history = render_router_history(rows)
+    return PreviousThreadMemory(
+        canonical_user_id=canonical_user_id,
+        lineage_id=lineage_id,
+        previous_threads=previous_threads,
+        text=text,
+        routing_text=router_history.text,
+        routing_thread_count=router_history.thread_count,
+        routing_omitted=router_history.omitted,
+        image_references=image_references,
+        row_count=len(rows),
+        outcome="loaded",
+        duration_ms=_elapsed_ms(started),
+    )
+
+
+async def _resumed_rows(
+    identity: TelegramIdentity, thread_id: str
+) -> list[dict[str, Any]]:
+    """Read-only predecessor fetch for an already-registered thread.
+
+    Never claims or mutates thread-memory state (unlike ``prepare_thread_memory``).
+    Ownership is enforced in SQL: a thread belonging to another user, or one that
+    was never registered for memory, yields zero rows.
+    """
+
+    pool = get_async_pool()
+    async with pool.connection() as connection:
+        async with connection.cursor() as cursor:
+            await cursor.execute(
+                """
+                SELECT current_thread.user_id,
+                       current_thread.lineage_id,
+                       history.source_thread_id,
+                       history.history_rank,
+                       history.sequence,
+                       history.kind,
+                       history.payload
+                FROM public.threads current_thread
+                LEFT JOIN LATERAL public.fetch_previous_thread_memory(
+                    current_thread.thread_id, %s
+                ) history ON true
+                WHERE current_thread.thread_id = %s
+                  AND current_thread.user_id = public.resolve_user_id(%s)
+                  AND current_thread.conversation_key IS NOT NULL
+                """,
+                (PREVIOUS_THREAD_COUNT, thread_id, identity.telegram_id),
+            )
+            return [_row_mapping(cursor, row) for row in await cursor.fetchall()]
+
+
+async def load_resumed_thread_memory_async(
+    *,
+    identity: TelegramIdentity,
+    thread_id: str,
+) -> PreviousThreadMemory:
+    """Recompute a resumed thread's predecessor history without mutating state.
+
+    Outcomes: ``loaded`` / ``no_predecessor`` (same as invoke), ``not_registered``
+    (legacy, unregistered or foreign thread; behaves like ``disabled``), and
+    ``db_timeout`` / ``db_error`` / ``memory_error``. Never raises except on
+    cancellation.
+    """
+
+    started = time.monotonic()
+    try:
+        async with asyncio.timeout(PREVIOUS_THREAD_DB_TIMEOUT_SECONDS):
+            rows = await _resumed_rows(identity, thread_id)
+    except asyncio.CancelledError:
+        raise
+    except TimeoutError:
+        return PreviousThreadMemory(
+            outcome="db_timeout", duration_ms=_elapsed_ms(started)
+        )
+    except Exception as exc:
+        if getattr(exc, "sqlstate", None) == _NO_ACTIVE_USER_SQLSTATE:
+            # resolve_user_id found no active user (e.g. deactivated mid-HITL):
+            # the caller owns no thread, which is not a memory outage.
+            return PreviousThreadMemory(
+                outcome="not_registered",
+                sqlstate=_NO_ACTIVE_USER_SQLSTATE,
+                duration_ms=_elapsed_ms(started),
+            )
+        return PreviousThreadMemory(
+            error_type=type(exc).__name__,
+            sqlstate=getattr(exc, "sqlstate", None),
+            outcome="db_error",
+            duration_ms=_elapsed_ms(started),
+        )
+
+    if not rows:
+        return PreviousThreadMemory(
+            outcome="not_registered", duration_ms=_elapsed_ms(started)
+        )
+    try:
+        return _memory_from_rows(rows, started)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        return PreviousThreadMemory(
+            error_type=type(exc).__name__,
+            outcome="memory_error",
+            duration_ms=_elapsed_ms(started),
         )
 
 
@@ -823,14 +995,18 @@ __all__ = [
     "PREVIOUS_THREAD_COUNT",
     "PreviousThreadMemory",
     "PreviousThreadRef",
+    "ROUTER_HISTORY_TEXT_LIMIT",
+    "RouterHistory",
     "THREAD_IMAGE_BUCKET",
     "build_memory_snapshot",
     "canonical_memory_messages",
     "close_thread_memory_storage_client",
     "fetch_previous_image_by_reference",
     "get_thread_memory_storage_client",
+    "load_resumed_thread_memory_async",
     "persist_thread_memory_async",
     "prepare_previous_thread_memory_async",
     "render_previous_thread_context",
+    "render_router_history",
     "reset_thread_memory_async",
 ]

@@ -28,6 +28,7 @@ class StaticToolSelector:
         active_domains: Optional[List[str]] = None,
         *,
         image_context: Optional[ImageContext] = None,
+        latest_user_text: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         del query, active_domains
         return registry.openai_schemas()
@@ -39,6 +40,7 @@ class StaticToolSelector:
         active_domains: Optional[List[str]] = None,
         *,
         image_context: Optional[ImageContext] = None,
+        latest_user_text: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Async-compatible pass-through with no I/O to await."""
 

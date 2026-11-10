@@ -29,6 +29,7 @@ class ToolSelector(Protocol):
         active_domains: Optional[List[str]] = None,
         *,
         image_context: Optional[ImageContext] = None,
+        latest_user_text: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         ...
 
@@ -39,6 +40,7 @@ class ToolSelector(Protocol):
         active_domains: Optional[List[str]] = None,
         *,
         image_context: Optional[ImageContext] = None,
+        latest_user_text: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Async selection path used by the production graph runtime."""
 

@@ -16,13 +16,18 @@ from agents.agent_api.app.graph import builder as builder_module
 from agents.agent_api.app.thread_memory import (
     PREVIOUS_THREAD_COUNT,
     PREVIOUS_THREAD_TEXT_LIMIT,
+    ROUTER_HISTORY_TEXT_LIMIT,
+    _HISTORY_PREAMBLE,
+    _OMISSION_MARKER,
     _build_image_references,
     _download_image,
     build_memory_snapshot,
     canonical_memory_messages,
+    load_resumed_thread_memory_async,
     persist_thread_memory_async,
     prepare_previous_thread_memory_async,
     render_previous_thread_context,
+    render_router_history,
 )
 from agents.agent_api.app.user_context.identity import TelegramIdentity
 
@@ -595,10 +600,17 @@ async def test_builder_does_not_start_predecessor_lookup_for_resume(monkeypatch)
     async def fail_context(_thread_id, _identity):
         raise RuntimeError("resume context failed")
 
+    async def resume_lookup(**_kwargs):
+        # The read-only resume loader now runs on resume; keep it off the DB.
+        return thread_memory_module.PreviousThreadMemory(outcome="not_registered")
+
     monkeypatch.setattr(
         builder_module, "settings", SimpleNamespace(postgres_dsn="postgresql://test")
     )
     monkeypatch.setattr(builder_module, "prepare_previous_thread_memory_async", lookup)
+    monkeypatch.setattr(
+        builder_module, "load_resumed_thread_memory_async", resume_lookup
+    )
     monkeypatch.setattr(builder_module, "load_thread_runtime_context_async", fail_context)
 
     with pytest.raises(RuntimeError, match="resume context failed"):
@@ -612,6 +624,568 @@ async def test_builder_does_not_start_predecessor_lookup_for_resume(monkeypatch)
         )
 
     assert lookup_calls == 0
+
+
+class _CapturedDeps(Exception):
+    """Sentinel raised by the fake graph after it captures RunDeps."""
+
+
+def _patch_builder_for_resume(monkeypatch, *, resume_enabled: bool):
+    """Drive run_jarvis_async on the resume path up to graph invocation.
+
+    Returns (resume_calls, captured) lists. The fake graph records the RunDeps
+    injected through the LangGraph config, then raises a sentinel.
+    """
+
+    import dataclasses
+
+    resume_calls: list[dict] = []
+    captured: list = []
+
+    async def prepare_lookup(**_kwargs):
+        raise AssertionError("prepare_thread_memory must never run on resume")
+
+    async def resume_lookup(**kwargs):
+        resume_calls.append(kwargs)
+        return thread_memory_module.PreviousThreadMemory(
+            canonical_user_id="user",
+            lineage_id="lineage",
+            previous_threads=(
+                thread_memory_module.PreviousThreadRef("previous", 1),
+            ),
+            text="FULL_HISTORY_TEXT",
+            routing_text="ROUTING_HISTORY_TEXT",
+            routing_thread_count=1,
+            outcome="loaded",
+        )
+
+    async def no_runtime_context(_thread_id, _identity):
+        return None
+
+    async def no_persist(**_kwargs):
+        return True
+
+    class FakeApp:
+        nodes = ()
+
+        async def ainvoke(self, _input, config):
+            captured.append(config["configurable"]["deps"])
+            raise _CapturedDeps()
+
+    monkeypatch.setattr(
+        builder_module,
+        "settings",
+        dataclasses.replace(
+            builder_module.settings,
+            postgres_dsn="postgresql://test",
+            thread_memory_resume_enabled=resume_enabled,
+        ),
+    )
+    monkeypatch.setattr(
+        builder_module, "prepare_previous_thread_memory_async", prepare_lookup
+    )
+    monkeypatch.setattr(
+        builder_module, "load_resumed_thread_memory_async", resume_lookup
+    )
+    monkeypatch.setattr(
+        builder_module, "load_thread_runtime_context_async", no_runtime_context
+    )
+    monkeypatch.setattr(builder_module, "persist_thread_memory_async", no_persist)
+    monkeypatch.setattr(
+        builder_module,
+        "build_registry_from_clients",
+        lambda **_kwargs: builder_module.ToolRegistry(),
+    )
+    monkeypatch.setattr(
+        builder_module, "get_or_compile_graph", lambda _checkpointer: FakeApp()
+    )
+    return resume_calls, captured
+
+
+async def _run_resume():
+    with pytest.raises(_CapturedDeps):
+        await builder_module.run_jarvis_async(
+            user_prompt="move it",
+            thread_id="resumed-thread",
+            clarification_reply="friday",
+            identity=IDENTITY,
+            conversation_key=CONVERSATION_KEY,
+            checkpointer=object(),
+            agent_client=object(),
+            todoist_client=object(),
+        )
+
+
+@async_test
+async def test_builder_loads_read_only_history_for_resume(monkeypatch) -> None:
+    resume_calls, captured = _patch_builder_for_resume(
+        monkeypatch, resume_enabled=True
+    )
+
+    await _run_resume()
+
+    assert resume_calls == [{"identity": IDENTITY, "thread_id": "resumed-thread"}]
+    assert len(captured) == 1
+    deps = captured[0]
+    assert deps.previous_thread_context == "FULL_HISTORY_TEXT"
+    assert deps.previous_thread_routing_context == "ROUTING_HISTORY_TEXT"
+    assert deps.previous_thread_outcome == "loaded"
+
+
+@async_test
+async def test_builder_skips_resume_history_when_disabled(monkeypatch) -> None:
+    resume_calls, captured = _patch_builder_for_resume(
+        monkeypatch, resume_enabled=False
+    )
+
+    await _run_resume()
+
+    assert resume_calls == []
+    deps = captured[0]
+    assert deps.previous_thread_context == ""
+    assert deps.previous_thread_routing_context == ""
+    assert deps.previous_thread_outcome == "disabled"
+
+
+def _router_rows() -> list[dict]:
+    """Two predecessor threads whose combined render far exceeds 8,000 chars."""
+
+    newest = [
+        {
+            "user_id": "user",
+            "lineage_id": "lineage",
+            "sequence": sequence,
+            "kind": "user" if sequence % 2 == 0 else "assistant",
+            "payload": {
+                "role": "user" if sequence % 2 == 0 else "assistant",
+                "content": f"newest-{sequence}-" + "n" * 400,
+            },
+        }
+        for sequence in range(30)
+    ]
+    # An image attached to the newest user message (sequence 28).
+    newest.append(
+        {
+            "user_id": "user",
+            "lineage_id": "lineage",
+            "sequence": 30,
+            "kind": "image",
+            "payload": {
+                "user_message_sequence": 28,
+                "mime_type": "image/jpeg",
+                "sha256": "f" * 64,
+                "bytes": 4,
+                "uploaded": True,
+                "object_path": "user/thread-b/x.jpg",
+            },
+        }
+    )
+    older = [
+        {
+            "user_id": "user",
+            "lineage_id": "lineage",
+            "sequence": sequence,
+            "kind": "user",
+            "payload": {"role": "user", "content": f"older-{sequence}-" + "o" * 400},
+        }
+        for sequence in range(10)
+    ]
+    return [
+        *_history_rows(newest, "thread-b", 1),
+        *_history_rows(older, "thread-a", 2),
+    ]
+
+
+def _assert_router_render_shape(text: str) -> None:
+    assert text.startswith(_HISTORY_PREAMBLE)
+    for line in text[len(_HISTORY_PREAMBLE) :].split("\n"):
+        if not line or line == _OMISSION_MARKER or line.startswith("[Previous thread"):
+            continue
+        json.loads(line)  # every entry line is a complete JSON object
+
+
+def test_router_render_is_bounded_entry_aligned_and_keeps_newest() -> None:
+    rows = _router_rows()
+    full_text, _ = render_previous_thread_context(rows)
+    assert len(full_text) > ROUTER_HISTORY_TEXT_LIMIT  # truncation must happen
+
+    history = render_router_history(rows)
+
+    assert history.omitted is True
+    assert 0 < len(history.text) <= ROUTER_HISTORY_TEXT_LIMIT
+    _assert_router_render_shape(history.text)
+    assert "newest-29-" in history.text
+    assert "image_reference" not in history.text
+    assert history.thread_count >= 1
+
+
+def test_router_render_image_reference_toggle() -> None:
+    rows = _router_rows()
+    with_images, _ = render_previous_thread_context(
+        rows, limit=ROUTER_HISTORY_TEXT_LIMIT
+    )
+    without_images, _ = render_previous_thread_context(
+        rows, limit=ROUTER_HISTORY_TEXT_LIMIT, include_image_references=False
+    )
+
+    for text in (with_images, without_images):
+        assert len(text) <= ROUTER_HISTORY_TEXT_LIMIT
+        _assert_router_render_shape(text)
+        assert "newest-29-" in text
+    assert "image_reference" in with_images
+    assert "image_reference" not in without_images
+
+
+def test_router_render_is_empty_when_single_entry_exceeds_budget() -> None:
+    rows = _history_rows(
+        [
+            {
+                "user_id": "user",
+                "lineage_id": "lineage",
+                "sequence": 0,
+                "kind": "user",
+                "payload": {
+                    "role": "user",
+                    "content": "x" * (ROUTER_HISTORY_TEXT_LIMIT + 1),
+                },
+            }
+        ]
+    )
+
+    history = render_router_history(rows)
+
+    assert history.text == ""
+    assert history.thread_count == 0
+    assert history.omitted is True
+
+
+@async_test
+async def test_prepare_populates_full_and_routing_text_from_same_rows(
+    monkeypatch,
+) -> None:
+    rows = _router_rows()
+
+    async def fake_rows(*_args, **_kwargs):
+        return rows
+
+    monkeypatch.setattr(thread_memory_module, "_prepare_rows", fake_rows)
+
+    memory = await prepare_previous_thread_memory_async(
+        identity=IDENTITY,
+        conversation_key=CONVERSATION_KEY,
+        current_thread_id="thread",
+        user_prompt="hello",
+    )
+
+    expected_text, _ = render_previous_thread_context(rows)
+    expected_routing = render_router_history(rows)
+    assert memory.outcome == "loaded"
+    assert memory.text == expected_text
+    assert memory.routing_text == expected_routing.text
+    assert memory.routing_text and memory.routing_text != memory.text
+    assert memory.routing_thread_count == expected_routing.thread_count
+    assert memory.routing_omitted is True
+    assert "image_reference" in memory.text
+    assert "image_reference" not in memory.routing_text
+
+
+def _forbid_prepare(monkeypatch) -> None:
+    async def forbidden(*_args, **_kwargs):
+        raise AssertionError("resume loader must never call prepare_thread_memory")
+
+    monkeypatch.setattr(thread_memory_module, "_prepare_rows", forbidden)
+
+
+@async_test
+async def test_resume_loader_maps_rows_like_prepare(monkeypatch) -> None:
+    rows = _router_rows()
+
+    async def fake_rows(*_args, **_kwargs):
+        return rows
+
+    monkeypatch.setattr(thread_memory_module, "_prepare_rows", fake_rows)
+    prepared = await prepare_previous_thread_memory_async(
+        identity=IDENTITY,
+        conversation_key=CONVERSATION_KEY,
+        current_thread_id="thread",
+        user_prompt="hello",
+    )
+
+    resume_args: list[tuple] = []
+
+    async def resumed_rows(identity, thread_id):
+        resume_args.append((identity, thread_id))
+        return rows
+
+    _forbid_prepare(monkeypatch)
+    monkeypatch.setattr(thread_memory_module, "_resumed_rows", resumed_rows)
+    resumed = await load_resumed_thread_memory_async(
+        identity=IDENTITY, thread_id="thread"
+    )
+
+    assert resume_args == [(IDENTITY, "thread")]
+    assert resumed.outcome == prepared.outcome == "loaded"
+    assert resumed.text == prepared.text
+    assert resumed.routing_text == prepared.routing_text
+    assert resumed.routing_thread_count == prepared.routing_thread_count
+    assert resumed.routing_omitted == prepared.routing_omitted
+    assert resumed.image_references == prepared.image_references
+    assert resumed.previous_threads == prepared.previous_threads
+    assert resumed.canonical_user_id == prepared.canonical_user_id == "user"
+    assert resumed.lineage_id == prepared.lineage_id == "lineage"
+    assert resumed.row_count == prepared.row_count
+
+
+@async_test
+async def test_resume_loader_without_rows_is_not_registered(monkeypatch) -> None:
+    async def no_rows(*_args, **_kwargs):
+        return []
+
+    _forbid_prepare(monkeypatch)
+    monkeypatch.setattr(thread_memory_module, "_resumed_rows", no_rows)
+
+    memory = await load_resumed_thread_memory_async(
+        identity=IDENTITY, thread_id="thread"
+    )
+
+    assert memory.outcome == "not_registered"
+    assert memory.text == "" and memory.routing_text == ""
+
+
+@async_test
+async def test_resume_loader_without_history_is_no_predecessor(monkeypatch) -> None:
+    async def thread_only(*_args, **_kwargs):
+        return [
+            {
+                "user_id": "user",
+                "lineage_id": "lineage",
+                "source_thread_id": None,
+                "history_rank": None,
+                "sequence": None,
+                "kind": None,
+                "payload": None,
+            }
+        ]
+
+    _forbid_prepare(monkeypatch)
+    monkeypatch.setattr(thread_memory_module, "_resumed_rows", thread_only)
+
+    memory = await load_resumed_thread_memory_async(
+        identity=IDENTITY, thread_id="thread"
+    )
+
+    assert memory.outcome == "no_predecessor"
+    assert memory.canonical_user_id == "user"
+    assert memory.text == "" and memory.routing_text == ""
+
+
+@async_test
+async def test_resume_loader_timeout_fails_open(monkeypatch) -> None:
+    cancelled = asyncio.Event()
+
+    async def slow_rows(*_args, **_kwargs):
+        try:
+            await asyncio.sleep(60)
+        finally:
+            cancelled.set()
+
+    _forbid_prepare(monkeypatch)
+    monkeypatch.setattr(thread_memory_module, "_resumed_rows", slow_rows)
+    monkeypatch.setattr(
+        thread_memory_module, "PREVIOUS_THREAD_DB_TIMEOUT_SECONDS", 0.01
+    )
+
+    memory = await load_resumed_thread_memory_async(
+        identity=IDENTITY, thread_id="thread"
+    )
+
+    assert memory.outcome == "db_timeout"
+    assert cancelled.is_set()
+
+
+@async_test
+async def test_resume_loader_database_error_fails_open(monkeypatch) -> None:
+    import psycopg
+
+    async def broken_rows(*_args, **_kwargs):
+        raise psycopg.errors.CheckViolation("secret database detail must not escape")
+
+    _forbid_prepare(monkeypatch)
+    monkeypatch.setattr(thread_memory_module, "_resumed_rows", broken_rows)
+
+    memory = await load_resumed_thread_memory_async(
+        identity=IDENTITY, thread_id="thread"
+    )
+
+    assert memory.outcome == "db_error"
+    assert memory.error_type == "CheckViolation"
+    assert memory.sqlstate == "23514"
+    assert "secret database detail" not in repr(memory)
+
+
+@async_test
+async def test_resume_loader_inactive_user_is_not_registered(monkeypatch) -> None:
+    import psycopg
+
+    async def no_active_user(*_args, **_kwargs):
+        raise psycopg.errors.NoDataFound("no active user found for telegram_user_id=1")
+
+    _forbid_prepare(monkeypatch)
+    monkeypatch.setattr(thread_memory_module, "_resumed_rows", no_active_user)
+
+    memory = await load_resumed_thread_memory_async(
+        identity=IDENTITY, thread_id="thread"
+    )
+
+    # Not a memory outage: must not trigger the "history unavailable" notice.
+    assert memory.outcome == "not_registered"
+    assert memory.sqlstate == "P0002"
+    assert memory.text == "" and memory.routing_text == ""
+
+
+@async_test
+async def test_resume_loader_malformed_rows_are_memory_error(monkeypatch) -> None:
+    async def malformed(*_args, **_kwargs):
+        return _history_rows(
+            [
+                {
+                    "user_id": "user",
+                    "lineage_id": "lineage",
+                    "sequence": 0,
+                    "kind": "user",
+                    "payload": {"role": "user", "content": "old"},
+                }
+            ],
+            "previous",
+            2,  # non-contiguous rank
+        )
+
+    _forbid_prepare(monkeypatch)
+    monkeypatch.setattr(thread_memory_module, "_resumed_rows", malformed)
+
+    memory = await load_resumed_thread_memory_async(
+        identity=IDENTITY, thread_id="thread"
+    )
+
+    assert memory.outcome == "memory_error"
+
+
+@async_test
+async def test_resume_loader_query_is_read_only_and_owner_scoped(monkeypatch) -> None:
+    class Cursor:
+        description = [
+            SimpleNamespace(name=name)
+            for name in (
+                "user_id", "lineage_id", "source_thread_id", "history_rank",
+                "sequence", "kind", "payload",
+            )
+        ]
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def execute(self, query, params):
+            self.query = query
+            self.params = params
+
+        async def fetchall(self):
+            return []
+
+    cursor = Cursor()
+
+    class Connection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def cursor(self):
+            return cursor
+
+    class Pool:
+        def connection(self):
+            return Connection()
+
+    monkeypatch.setattr(thread_memory_module, "get_async_pool", lambda: Pool())
+
+    memory = await load_resumed_thread_memory_async(
+        identity=IDENTITY, thread_id="resumed-thread"
+    )
+
+    assert memory.outcome == "not_registered"
+    assert "prepare_thread_memory" not in cursor.query
+    assert "fetch_previous_thread_memory" in cursor.query
+    assert "resolve_user_id" in cursor.query
+    assert "conversation_key IS NOT NULL" in cursor.query
+    assert cursor.params == (
+        PREVIOUS_THREAD_COUNT, "resumed-thread", IDENTITY.telegram_id
+    )
+
+
+@async_test
+async def test_resume_injected_history_is_not_persisted() -> None:
+    """Stage 4.4: history injected on a resume turn never reaches returned
+    messages, and so never reaches the checkpoint or the memory snapshot."""
+
+    from agents.agent_api.app.graph.nodes.orchestrator import create_agent_node
+    from agents.agent_api.app.graph.prompts.context import build_initial_messages
+    from agents.agent_api.app.graph.run_deps import RunDeps
+    from agents.agent_api.app.tools.base import ToolRegistry, ToolSpec
+
+    history = (
+        _HISTORY_PREAMBLE
+        + "\n\n[Previous thread 1 — most recent]\n"
+        + '{"content":"RESUME_HISTORY_MARKER","role":"user"}'
+    )
+
+    class RecordingClient:
+        seen: list = []
+
+        def create_message(self, messages, tools, **_kwargs):
+            RecordingClient.seen = list(messages)
+            return {"role": "assistant", "content": "Moved to Friday."}
+
+    client = RecordingClient()
+    registry = ToolRegistry().register(
+        [
+            ToolSpec(
+                name="ask_user",
+                openai_schema={"type": "function", "function": {"name": "ask_user"}},
+            )
+        ]
+    )
+    deps = RunDeps(
+        agent_client=client,
+        registry=registry,
+        previous_thread_context=history,
+        previous_thread_routing_context=history,
+        previous_thread_outcome="loaded",
+    )
+    node = create_agent_node(client, registry, max_agent_turns=30)
+    state = {
+        "messages": build_initial_messages("move my dentist appointment"),
+        "user_prompt": "move my dentist appointment",
+        "turn_count": 1,
+        "clarification_history": [{"question": "Which day?", "reply": "friday"}],
+        "active_domains": [],
+    }
+
+    result = await node(state, {"configurable": {"deps": deps}})
+
+    assert any(m.get("content") == history for m in RecordingClient.seen)
+    returned = result["messages"]
+    assert not any("RESUME_HISTORY_MARKER" in str(m.get("content")) for m in returned)
+    canonical = canonical_memory_messages(returned)
+    assert not any("RESUME_HISTORY_MARKER" in json.dumps(m) for m in canonical)
+    snapshot_rows, _images = build_memory_snapshot(
+        returned, (), None, canonical_user_id="user", thread_id="resumed-thread"
+    )
+    assert not any("RESUME_HISTORY_MARKER" in json.dumps(p) for *_r, p in snapshot_rows)
+    assert any(m.get("content") == "Moved to Friday." for m in returned)
 
 
 @async_test

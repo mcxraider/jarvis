@@ -148,11 +148,16 @@ Every graph node is stateless. Persistence and external IO live in shared single
 
 ### Durable thread memory
 
-Fresh Telegram threads can reference the two immediately previous threads from
+Telegram threads can reference the two immediately previous threads from
 the same canonical user, conversation, and lineage. The Python runtime overlaps
 one bounded predecessor lookup with normal request setup, injects at most 40,000
 characters of combined history as untrusted model-only context, and gives
 current-request images priority under the existing 10-image/10-MiB limit.
+HITL resumes (clarify/confirm) re-read the same predecessors through a
+read-only, owner-checked query, so history survives a pause
+(`JARVIS_THREAD_MEMORY_RESUME_ENABLED=false` disables this). The domain router
+receives a separate entry-aligned 8,000-character view of that history (no image
+references), and clarification re-routes keep the original turn's reply context.
 
 Canonical user, assistant, and tool messages are retained without an age cutoff.
 User-supplied JPEGs live for 48 hours in the private `thread-images` Supabase
