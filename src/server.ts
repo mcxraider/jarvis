@@ -84,7 +84,14 @@ app.get('/health', async (_req: Request, res: Response, _next: NextFunction) => 
 });
 
 // Mount the Telegram webhook route at POST /webhook/:secret.
-app.use(createWebhookRouter(botService, updateInbox, () => !draining));
+app.use(
+  createWebhookRouter(
+    botService,
+    updateInbox,
+    () => !draining,
+    () => inboxWorker?.wake(),
+  ),
+);
 
 // Global error-handling middleware — catches unhandled errors from any route.
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

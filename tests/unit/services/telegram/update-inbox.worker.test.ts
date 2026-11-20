@@ -77,3 +77,54 @@ it('schedules status reconciliation after ambiguous transport delivery', async (
   expect(db.settle).toHaveBeenCalledWith(item, 'pending');
   expect(processor.recover).not.toHaveBeenCalled();
 });
+
+describe('adaptive inbox polling', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+    delete process.env.JARVIS_INBOX_IDLE_POLL_MAX_MS;
+  });
+  const pollsAfter = async (db: ReturnType<typeof store>, ms: number) => {
+    const before = db.claim.mock.calls.length;
+    await jest.advanceTimersByTimeAsync(ms);
+    return db.claim.mock.calls.length - before;
+  };
+
+  it('backs off exponentially while idle and caps the interval', async () => {
+    jest.useFakeTimers();
+    const db = store();
+    const worker = new UpdateInboxWorker(db as any, { handle: jest.fn(), recover: jest.fn() });
+    worker.start();
+    await jest.advanceTimersByTimeAsync(60_000);
+    // Each idle poll makes two claim calls (control + normal); the legacy fixed 250 ms
+    // interval would have made ~480 in this window.
+    const idle = await pollsAfter(db, 60_000);
+    // ~12 polls/minute at the 5 s ceiling (±1 for timer phase).
+    expect(idle).toBeGreaterThanOrEqual(22);
+    expect(idle).toBeLessThanOrEqual(26);
+    expect(worker.healthy).toBe(true);
+    await worker.stop();
+  });
+
+  it('polls immediately on wake and resets the backoff', async () => {
+    jest.useFakeTimers();
+    const db = store();
+    const worker = new UpdateInboxWorker(db as any, { handle: jest.fn(), recover: jest.fn() });
+    worker.start();
+    await jest.advanceTimersByTimeAsync(30_000);
+    const item = job();
+    db.claim.mockResolvedValueOnce(undefined).mockResolvedValueOnce(item);
+    worker.wake();
+    expect(await pollsAfter(db, 1)).toBeGreaterThanOrEqual(2);
+    expect(db.settle).toHaveBeenCalledWith(item, 'completed');
+    // Backoff restarted from the base interval: several polls within 1 s instead of one per 5 s.
+    expect(await pollsAfter(db, 1_000)).toBeGreaterThanOrEqual(4);
+    await worker.stop();
+  });
+
+  it('rejects an idle ceiling that would break the health window', () => {
+    process.env.JARVIS_INBOX_IDLE_POLL_MAX_MS = '30000';
+    expect(() => new UpdateInboxWorker(store() as any, { handle: jest.fn(), recover: jest.fn() })).toThrow(
+      /JARVIS_INBOX_IDLE_POLL_MAX_MS/,
+    );
+  });
+});

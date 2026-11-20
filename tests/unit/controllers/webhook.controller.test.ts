@@ -121,9 +121,9 @@ describe('createWebhookRouter', () => {
 });
 
 describe('durable webhook acknowledgement', () => {
-  function setup(inbox: any) {
+  function setup(inbox: any, onEnqueued?: () => void) {
     const bot = { handleUpdate: jest.fn() };
-    const router = createWebhookRouter(bot as any, inbox) as any;
+    const router = createWebhookRouter(bot as any, inbox, () => true, onEnqueued) as any;
     const stack = router.stack[0].route.stack;
     const response: any = { sendStatus: jest.fn() };
     process.env.TELEGRAM_SECRET_TOKEN = 'secret';
@@ -150,5 +150,15 @@ describe('durable webhook acknowledgement', () => {
   it('rejects a missing update id', async () => {
     const inbox = { enqueue: jest.fn() }; const { handler, response, req } = setup(inbox); req.body = {};
     await handler(req, response); expect(response.sendStatus).toHaveBeenCalledWith(400); expect(inbox.enqueue).not.toHaveBeenCalled();
+  });
+  it('wakes the inbox worker only after an accepted insert', async () => {
+    const wake = jest.fn();
+    const accepted = setup({ enqueue: jest.fn().mockResolvedValue(true) }, wake);
+    await accepted.handler(accepted.req, accepted.response);
+    expect(wake).toHaveBeenCalledTimes(1);
+    const full = setup({ enqueue: jest.fn().mockResolvedValue(false) }, wake);
+    await full.handler(full.req, full.response);
+    expect(full.response.sendStatus).toHaveBeenCalledWith(503);
+    expect(wake).toHaveBeenCalledTimes(1);
   });
 });

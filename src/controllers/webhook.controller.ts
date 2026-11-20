@@ -22,6 +22,7 @@ export function createWebhookRouter(
   botService: TelegramBotService,
   inbox?: PostgresUpdateInbox,
   accepting: () => boolean = () => true,
+  onEnqueued: () => void = () => undefined,
 ) {
   const router = express.Router();
 
@@ -70,6 +71,8 @@ export function createWebhookRouter(
       try {
         const accepted = await inbox.enqueue(update);
         res.sendStatus(accepted ? 200 : 503);
+        // Persisted work is claimable now; skip the worker's idle backoff.
+        if (accepted) onEnqueued();
       } catch {
         logger.warn('telegram.webhook.persistence_failed', { requestId });
         res.sendStatus(503);
