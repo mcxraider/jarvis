@@ -206,6 +206,9 @@ export class MessageHandlers {
       gateKey,
       {
         senderName: origin.senderName,
+        ...(origin.senderUserId !== undefined && {
+          senderIsUser: origin.senderUserId === ctx.from?.id,
+        }),
         chatTitle: origin.chatTitle,
         forwardedAt: origin.forwardedAt,
         receivedAt: new Date(),
@@ -1170,6 +1173,7 @@ export class MessageHandlers {
       gateKey,
       {
         senderName: 'You (direct poll)',
+        senderIsUser: true,
         forwardedAt: new Date(),
         receivedAt: new Date(),
         text: pollText,

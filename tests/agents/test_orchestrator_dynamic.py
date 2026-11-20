@@ -15,6 +15,7 @@ from agents.agent_api.app.graph.prompts.context import (
 )
 from agents.agent_api.app.graph.prompts.orchestrator import (
     _build_role_line,
+    get_conversation_prompt,
     get_orchestrator_prompt,
     get_system_prompt,
 )
@@ -443,3 +444,33 @@ def test_initial_messages_has_no_system_message():
     assert len(msgs) == 1
     assert msgs[0]["role"] == "user"
     assert "add a task" in msgs[0]["content"]
+
+
+class TestForwardedMessagePerspective:
+    """Trusted rules for reading forwarded text from its author's perspective."""
+
+    ATTRIBUTION_EXAMPLE = "Jackson's RV band performance at the DH"
+
+    def _assert_rules(self, prompt):
+        assert "## Forwarded messages" in prompt
+        assert '"my"' in prompt and "mean the author" in prompt
+        assert "(the user)" in prompt
+        assert self.ATTRIBUTION_EXAMPLE in prompt
+        assert "guest of the author's plan" in prompt
+        assert "User's instruction:" in prompt
+
+    def test_offline_prompt_has_forwarded_rules(self):
+        self._assert_rules(get_orchestrator_prompt(user_name="X"))
+
+    def test_snapshot_prompt_has_forwarded_rules(self):
+        self._assert_rules(get_orchestrator_prompt(runtime_context=make_snapshot()))
+
+    def test_conversation_prompt_has_forwarded_rules(self):
+        self._assert_rules(get_conversation_prompt(runtime_context=make_snapshot()))
+        self._assert_rules(get_conversation_prompt())
+
+    def test_forwarded_rules_precede_final_answer_formatting(self):
+        prompt = get_orchestrator_prompt(user_name="X")
+        assert prompt.index("## Forwarded messages") < prompt.index(
+            "## Final answer formatting"
+        )

@@ -157,8 +157,22 @@ _FINAL_ANSWER_FORMATTING = """\
 - End after the result. Do not offer follow-up help, upsell, or add continuation prompts such as "Let me know if...", "If you'd like...", "I can also...", "Would you like me to...", "Feel free to...", or "Want me to...".
 """
 
-# Full policy body = the invariants/loop sections above + shared formatting.
-_POLICY_BODY = _POLICY_BODY + _FINAL_ANSWER_FORMATTING
+# Trusted interpretation rules for the untrusted `<<<FORWARDED>>>` block the
+# Telegram layer renders. The block's own preamble sits inside user content, so
+# the directive about whose voice forwarded text is in must live here. Shared by
+# the full and slim prompts.
+_FORWARDED_CONTENT = """\
+## Forwarded messages
+A `<<<FORWARDED>>>` block holds messages the user forwarded from other people. Each entry's `From:` line names its author; the user's own words follow `User's instruction:`.
+- Read each forwarded message from its author's perspective: "I", "my", and "we" mean the author; "you" means the person it was sent to, usually the user. Only an entry marked `(the user)` was written by the user.
+- When creating or updating items from forwarded content, restate it from the user's perspective and attribute it to the author by name — e.g. "Jackson's RV band performance at the DH", never "Performance with my RV band". Never carry a forwarded first-person pronoun into a title or description as if it were the user's.
+- An invitation ("if you wanna come", "join us") makes the user a guest of the author's plan, not its owner. Commitments, plans, and requests stated by the author belong to the author unless the user's instruction says otherwise.
+- If the author cannot be determined and it materially changes the result, use `ask_user`.
+"""
+
+# Full policy body = the invariants/loop sections above + forwarded-message
+# interpretation + shared formatting.
+_POLICY_BODY = _POLICY_BODY + _FORWARDED_CONTENT + "\n" + _FINAL_ANSWER_FORMATTING
 
 # Slim body for no-domain conversation turns (RouterOutcome.CONVERSATION). No
 # invariants, operating loop, grounding, or tool guidance — the request was
@@ -172,6 +186,8 @@ _CONVERSATION_BODY = (
     "context taking precedence. If history is unavailable and the reference cannot "
     "be resolved, call ask_user to identify the intended item; do not invent a target.\n\n"
     "You may call `web_search` for current facts when it helps.\n\n"
+    + _FORWARDED_CONTENT
+    + "\n"
     + _FINAL_ANSWER_FORMATTING
 )
 

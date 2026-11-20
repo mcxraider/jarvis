@@ -266,6 +266,17 @@ describe('extractForwardOrigin', () => {
     });
   });
 
+  it('returns the sender user id when Telegram provides it', () => {
+    const origin = extractForwardOrigin({
+      forward_origin: { type: 'user', date, sender_user: { id: 42, first_name: 'Jackson' } },
+    });
+    expect(origin).toEqual({
+      senderName: 'Jackson',
+      senderUserId: 42,
+      forwardedAt: new Date(date * 1000),
+    });
+  });
+
   it('handles privacy-restricted hidden_user', () => {
     const origin = extractForwardOrigin({
       forward_origin: { type: 'hidden_user', date, sender_user_name: 'Bob' },
@@ -328,7 +339,26 @@ describe('formatForwardContext', () => {
     expect(out).toContain('[1] From: Alice | Chat: Project Team | Sent: 2026-07-20 14:30');
     expect(out).toContain('[2] From: Bob | Sent:');
     expect(out.indexOf('[1]')).toBeLessThan(out.indexOf('[2]'));
-    expect(out).toContain('Instruction: summarize these');
+    expect(out).toContain("User's instruction: summarize these");
+  });
+
+  it('tags verified authorship and states the perspective rule', () => {
+    const out = formatForwardContext(
+      [
+        msg({ senderName: 'Jerry', senderIsUser: true, text: 'see you there' }),
+        msg({ senderName: 'Jackson Mccurdy', senderIsUser: false, text: 'my band plays dec 2' }),
+        msg({ senderName: 'Bob', text: 'hidden sender' }),
+      ],
+      'add this in',
+    );
+
+    expect(out).toContain(
+      'First-person words inside a forwarded message refer to its author, not the user.',
+    );
+    expect(out).toContain('[1] From: Jerry (the user) | Sent:');
+    expect(out).toContain('[2] From: Jackson Mccurdy (not the user) | Sent:');
+    expect(out).toContain('[3] From: Bob | Sent:');
+    expect(out.endsWith("User's instruction: add this in")).toBe(true);
   });
 
   // A `---` fence makes the preceding line a setext H2, which the model mirrors and
